@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>planner</title>
+<link rel="icon" type="image/png" href="icon.png">
+<link rel="stylesheet" href="vendor/tabler-icons.min.css?v=17">
+<link rel="stylesheet" href="styles.css?v=17">
+</head>
+<body>
+<div id="app">
+
+  <div id="titlebar" class="pywebview-drag-region">
+    <div class="brand drag">
+      <svg class="logo" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <g fill="currentColor">
+          <ellipse cx="12.4" cy="9.6" rx="2.5" ry="8.4" transform="rotate(-14 12.4 9.6)"/>
+          <ellipse cx="19.6" cy="9.6" rx="2.5" ry="8.4" transform="rotate(14 19.6 9.6)"/>
+          <circle cx="16" cy="21.6" r="7.9"/>
+        </g>
+      </svg>
+      <span class="word">plan<b>er</b></span>
+    </div>
+    <div id="tb-spacer" class="drag"></div>
+    <div class="winbtns">
+      <button class="winbtn" id="win-min" title="Свернуть"><i class="ti ti-minus"></i></button>
+      <button class="winbtn" id="win-max" title="Развернуть"><i class="ti ti-square"></i></button>
+      <button class="winbtn close" id="win-close" title="Закрыть"><i class="ti ti-x"></i></button>
+    </div>
+  </div>
+
+  <div id="topbar">
+    <div id="cap-wrap">
+      <i class="ti ti-feather"></i>
+      <input id="cap" type="text" placeholder="Сбрось мысль и Enter…   #область  завтра/пн/25.06  ! приоритет">
+      <div id="cap-preview"></div>
+    </div>
+    <div class="kbd"><b>Ctrl</b>+<b>K</b> поиск</div>
+  </div>
+
+  <div id="body">
+    <div id="side">
+      <nav id="nav"></nav>
+      <div class="side-h">Области <button id="add-area" title="Новая область"><i class="ti ti-plus"></i></button></div>
+      <div id="areas"></div>
+      <div class="side-foot">
+        <button class="foot-btn" id="f-backup" title="Сделать бэкап"><i class="ti ti-shield-check"></i></button>
+        <button class="foot-btn" id="f-export" title="Экспорт в файл"><i class="ti ti-download"></i></button>
+        <button class="foot-btn" id="f-import" title="Импорт из файла"><i class="ti ti-upload"></i></button>
+        <button class="foot-btn" id="f-timer" title="Таймер фокуса"><i class="ti ti-clock"></i></button>
+        <button class="foot-btn" id="f-theme" title="Тема"><i class="ti ti-sun"></i></button>
+      </div>
+      <div class="side-ver" title="версия">planer 1.0 <span>beta</span></div>
+    </div>
+
+    <div id="main">
+      <div id="main-head">
+        <div>
+          <div id="main-title">Сегодня</div>
+          <div id="main-sub"></div>
+        </div>
+        <div class="head-actions" id="head-actions"></div>
+      </div>
+      <div id="view"></div>
+    </div>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+<div id="overlay-root"></div>
+
+<script src="app.js?v=17"></script>
+</body>
+</html>
