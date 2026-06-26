@@ -433,5 +433,93 @@ select option{background:var(--surf2);color:var(--tx);}
 /* уважение к prefers-reduced-motion: гасим декоративную анимацию */
 @media (prefers-reduced-motion:reduce){
   #view.anim-in .card,#view.anim-in .note-card,#view.anim-in .kbc,#view.anim-in .cd,#view.anim-in .sec,
-  .chk.pop,.empty i,.cd.tod,.modal,.pal-box,.overlay,#palette,#toast.show,#cap.shake{animation:none;}
+  .chk.pop,.empty i,.cd.tod,.modal,.pal-box,.overlay,#palette,#toast.show,#cap.shake,.flow-screen,.flow-modal-ov{animation:none;}
 }
+
+/* ===========================================================
+   FLOW — редактор блок-схемы (вложенный в узел kind:"flow")
+   =========================================================== */
+.flow-screen{position:fixed;inset:0;z-index:90;background:var(--bg);display:flex;flex-direction:column;animation:ovIn .16s ease-out;}
+.flow-top{height:52px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:0.5px solid var(--bd);background:var(--surf);}
+.flow-ic{height:34px;min-width:34px;padding:0 8px;border:0.5px solid var(--bd2);border-radius:9px;background:var(--surf);color:var(--mut);display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:13px;transition:.12s;}
+.flow-ic i{font-size:17px;}
+.flow-ic:hover{color:var(--tx);border-color:var(--bd3);background:var(--surf2);box-shadow:0 0 12px var(--glow);}
+.flow-ic.wide{font-size:12.5px;color:var(--tx);}
+.flow-back{margin-right:2px;}
+.flow-close{margin-left:4px;}
+.flow-close:hover{background:var(--warn);color:#fff;border-color:var(--warn);box-shadow:none;}
+.flow-titlewrap{display:flex;align-items:center;gap:9px;min-width:0;flex:none;max-width:32vw;}
+.flow-titlewrap>i{font-size:18px;color:var(--mut);flex:none;}
+.flow-name{font-size:15px;font-weight:500;outline:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid transparent;padding:2px 2px 1px;min-width:40px;}
+.flow-name:focus{border-bottom-color:var(--bd3);overflow:visible;}
+.flow-name:empty:before{content:attr(data-ph);color:var(--mut2);}
+.flow-tools{display:flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end;}
+.flow-sep{width:1px;height:24px;background:var(--bd);margin:0 2px;}
+
+.flow-stage{flex:1;position:relative;overflow:hidden;cursor:grab;touch-action:none;background-image:radial-gradient(var(--dot) 1.2px, transparent 1.2px);background-size:24px 24px;}
+.flow-stage:active{cursor:grabbing;}
+.flow-world{position:absolute;left:0;top:0;width:0;height:0;transform-origin:0 0;}
+.flow-edges{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;width:1px;height:1px;z-index:2;}
+.fe-line{fill:none;stroke:var(--bd3);stroke-width:2;}
+.fe-line.sel{stroke:var(--acc);stroke-width:2.6;}
+.fe-hit{stroke:transparent;stroke-width:16;pointer-events:stroke;cursor:pointer;}
+.fe-temp{fill:none;stroke:var(--acc);stroke-width:2;stroke-dasharray:5 4;opacity:.85;}
+#fe-arrow path{fill:var(--bd3);}
+.fe-label{fill:var(--mut);font-size:11px;font-family:var(--font);paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round;}
+
+.flow-block{position:absolute;background:var(--surf2);border:1px solid var(--bd2);border-radius:10px;color:var(--tx);display:flex;flex-direction:column;z-index:3;box-shadow:0 4px 16px rgba(0,0,0,.32);--c:var(--acc);overflow:visible;}
+.flow-block.sel{border-color:var(--c);box-shadow:0 0 0 1px var(--c),0 6px 22px rgba(0,0,0,.4),0 0 18px var(--glow);}
+.flow-block.tgt{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc);}
+.fb-grip{height:14px;flex:none;display:flex;align-items:center;justify-content:center;color:var(--mut2);cursor:grab;opacity:0;transition:.12s;}
+.fb-grip i{font-size:13px;}
+.flow-block:hover .fb-grip{opacity:.55;}
+.fb-main{flex:1;min-height:0;padding:1px 11px 9px;display:flex;flex-direction:column;gap:2px;overflow:hidden;}
+.fb-tag{display:flex;align-items:center;gap:4px;font-size:10.5px;color:var(--mut);}
+.fb-tag i{font-size:13px;}
+.fb-title{font-size:13.5px;line-height:1.35;font-weight:500;outline:none;word-break:break-word;overflow-wrap:anywhere;}
+.fb-title:empty:before{content:attr(data-ph);color:var(--mut2);font-weight:400;}
+.fb-note{font-size:11.5px;line-height:1.35;color:var(--mut);outline:none;word-break:break-word;overflow-wrap:anywhere;}
+.fb-note:empty{opacity:0;}
+.flow-block:hover .fb-note:empty,.fb-note:focus{opacity:1;}
+.fb-note:empty:before{content:attr(data-ph);color:var(--mut2);}
+.fb-port{position:absolute;left:50%;bottom:-11px;transform:translateX(-50%);width:22px;height:22px;border-radius:50%;background:var(--surf3);border:1px solid var(--bd2);color:var(--mut);display:flex;align-items:center;justify-content:center;cursor:crosshair;opacity:0;transition:.12s;z-index:4;}
+.fb-port i{font-size:13px;}
+.flow-block:hover .fb-port{opacity:1;}
+.fb-port:hover{background:var(--acc);color:var(--bg);border-color:var(--acc);box-shadow:0 0 12px var(--glow);}
+.fb-x{position:absolute;top:-9px;right:-9px;width:20px;height:20px;border-radius:50%;background:var(--surf3);border:1px solid var(--bd2);color:var(--mut);display:flex;align-items:center;justify-content:center;opacity:0;transition:.12s;z-index:5;}
+.fb-x i{font-size:12px;}
+.flow-block:hover .fb-x{opacity:1;}
+.fb-x:hover{background:var(--warn);color:#fff;border-color:var(--warn);}
+.fb-resize{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;opacity:0;transition:.12s;background:linear-gradient(135deg,transparent 50%,var(--bd3) 50%);border-bottom-right-radius:10px;z-index:4;}
+.flow-block:hover .fb-resize{opacity:.8;}
+
+/* типы блоков */
+.fb-terminal{border-radius:26px;}
+.fb-terminal .fb-main{padding:1px 16px 9px;justify-content:center;}
+.fb-decision{border-color:var(--pri2);--c:var(--pri2);}
+.fb-decision .fb-tag{color:var(--pri2);}
+.fb-comment{background:var(--surf3);border-style:dashed;}
+.fb-comment .fb-title{font-style:italic;font-weight:400;}
+.fb-frame{background:rgba(127,127,140,.05);border:1.5px dashed var(--bd2);border-radius:12px;z-index:1;box-shadow:none;}
+.fb-frame .fb-grip{display:none;}
+.fb-frame .fb-main{flex:none;padding:8px 11px 8px;}
+.fb-frame .fb-title{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--mut);font-weight:600;}
+.fb-frame:hover{border-color:var(--bd3);}
+
+.flow-hint{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);font-size:11.5px;color:var(--mut);background:var(--surf2);border:0.5px solid var(--bd);border-radius:9px;padding:6px 13px;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.35);max-width:92%;text-align:center;}
+
+/* поповер: тип/цвет блока, подпись стрелки */
+.flow-pop{position:absolute;z-index:30;width:232px;background:var(--surf2);border:0.5px solid var(--bd2);border-radius:var(--r-m);box-shadow:0 8px 30px rgba(0,0,0,.5),0 0 20px var(--glow);padding:11px;display:flex;flex-direction:column;gap:9px;}
+.fp-row{display:flex;gap:7px;}
+.fp-types{justify-content:space-between;}
+.fp-t{flex:1;height:32px;border:0.5px solid var(--bd);border-radius:8px;background:var(--surf);color:var(--mut);display:flex;align-items:center;justify-content:center;}
+.fp-t i{font-size:16px;}
+.fp-t:hover{color:var(--tx);border-color:var(--bd2);}
+.fp-t.on{background:var(--acc);color:var(--bg);border-color:var(--acc);box-shadow:0 0 10px var(--glow);}
+.fp-lab{flex:1;height:32px;background:var(--surf);border:0.5px solid var(--bd2);border-radius:8px;padding:0 10px;font-size:13px;outline:none;}
+.fp-lab:focus{border-color:var(--bd3);}
+.flow-pop .btn{flex:1;justify-content:center;}
+
+/* модалка «копировать как текст» — внутри flow-screen (над холстом) */
+.flow-modal-ov{position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:120;backdrop-filter:blur(2px);animation:ovIn .14s ease-out;}
+.flow-modal-ov textarea{width:100%;background:var(--surf2);border:0.5px solid var(--bd2);border-radius:9px;padding:11px;color:var(--tx);outline:none;resize:none;}

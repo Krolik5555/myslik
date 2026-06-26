@@ -1950,9 +1950,21 @@ function toast(msg, opt){
    BOOT
    =========================================================== */
 async function boot(){
+  const P=new URLSearchParams(location.search);
+  // DEV-режим (только в браузере, по ?dev): каждый запуск — свежие демо-данные,
+  // чтобы граф/виды всегда были наполнены для превью; ?view=graph|tasks|notes|... прыгает в вид.
+  if(P.has("dev") && !HasPy()){
+    S=defaultState(); seedDemo();
+    const v=P.get("view"); if(v) S.settings.view=v;
+    if(P.has("light")) S.settings.theme="light";
+    view=S.settings.view||"today"; applyTheme(); wireGlobal(); render();
+    console.log("[dev] preview mode: fresh demo, view="+view);
+    return;
+  }
   const loaded=await Store.load();
   if(loaded && loaded.areas){ S=sanitizeState(Object.assign(defaultState(),loaded)); }
   else { seedDemo(); await Store.save(S); }
+  const v=P.get("view"); if(v) S.settings.view=v;   // ?view= работает и в реальном аппе
   view=S.settings.view||"today"; applyTheme(); wireGlobal(); render();
   setTimeout(()=>{ const c=$("#cap"); if(c && !$("#overlay-root").children.length) c.focus(); }, 120);  // готов печатать мысль сразу
   // напоминание при старте
