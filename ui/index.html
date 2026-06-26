@@ -74,6 +74,14 @@
 <div id="toast"></div>
 <div id="overlay-root"></div>
 
-<script src="app.js?v=18"></script>
+<!-- модули загружаются как классические скрипты (общая глобальная область),
+     порядок важен: core → model → views → graph → overlays → main.
+     ES-модули НЕ используем: реальный аппа грузится по file://, где import блокируется CORS. -->
+<script src="js/core.js?v=18"></script>
+<script src="js/model.js?v=18"></script>
+<script src="js/views.js?v=18"></script>
+<script src="js/graph.js?v=18"></script>
+<script src="js/overlays.js?v=18"></script>
+<script src="js/main.js?v=18"></script>
 </body>
 </html>

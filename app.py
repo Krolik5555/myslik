@@ -335,7 +335,7 @@ def main():
     frameless = os.environ.get("PLANNER_FRAMED") != "1"
     window = webview.create_window(
         "planner",
-        url=UI+"?v=3",
+        url=UI+"?v=4",
         js_api=api,
         width=1200,
         height=800,
