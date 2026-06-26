@@ -496,6 +496,7 @@ select option{background:var(--surf2);color:var(--tx);}
 /* типы блоков */
 .fb-terminal{border-radius:26px;}
 .fb-terminal .fb-main{padding:1px 16px 9px;justify-content:center;}
+.fb-terminal .fb-tag{display:none;}   /* пилюля сама обозначает терминал — иконка типа лишняя */
 .fb-decision{border-color:var(--pri2);--c:var(--pri2);}
 .fb-decision .fb-tag{color:var(--pri2);}
 .fb-comment{background:var(--surf3);border-style:dashed;}
