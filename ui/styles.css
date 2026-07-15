@@ -238,10 +238,12 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 #graph-wrap{position:relative;border:0.5px solid var(--bd);border-radius:var(--r-l);overflow:hidden;
   background:var(--surf);}
 .graph-bg-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;display:block;}
-#graph{position:relative;z-index:1;width:100%;height:100%;display:block;touch-action:none;cursor:grab;}
+.graph-glow-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;display:block;}   /* цветная подсветка «в работе» — между фоном и нодами */
+#graph{position:relative;z-index:2;width:100%;height:100%;display:block;touch-action:none;cursor:default;}
 #graph.linking{cursor:crosshair;}
-.g-link{fill:none;stroke:var(--bd2);stroke-width:1;stroke-linecap:round;transition:opacity .18s,stroke-width .18s;pointer-events:none;}
+.g-link{fill:none;stroke:var(--bd3);stroke-width:1;stroke-linecap:round;transition:opacity .18s,stroke-width .18s;pointer-events:none;}
 .g-link.manual{stroke:var(--bd3);stroke-width:1.6;filter:drop-shadow(0 0 4px var(--glow));}
+.g-link.faded{stroke:var(--bd2);stroke-width:.8;opacity:.14;filter:none!important;}   /* связь внутри завершённой ветки — тусклая, без свечения и яркого цвета */
 .g-link.temp{stroke:var(--acc);stroke-width:1.4;stroke-dasharray:4 4;}
 .g-link.dim{opacity:.08;}
 .g-link.hl{stroke:var(--acc);opacity:1;stroke-width:1.9;filter:drop-shadow(0 0 4px var(--glow));}   /* связь в фокус-кластере при наведении */
@@ -259,12 +261,20 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .g-node.sel .nd{stroke:var(--acc);stroke-width:2.6;filter:drop-shadow(0 0 8px var(--acc));}
 .g-node:hover .nd{filter:drop-shadow(0 0 7px var(--glow));}
 .g-label{fill:var(--mut);font-size:10.5px;pointer-events:none;}
+.g-label-empty{font-style:italic;opacity:.7;}
 .g-label.hub{fill:var(--tx);font-size:11.5px;font-weight:500;}
 .g-node.dim{opacity:.14;}
 /* фокус-кластер при наведении (Obsidian): узел+соседи ярче, подписи проявляются */
 .g-node.hl .nd{stroke-width:2.4;filter:drop-shadow(0 0 6px var(--glow));}
 .g-node.hl-focus .nd{filter:drop-shadow(0 0 11px var(--acc));}
 .g-node.hl .g-label{opacity:1!important;fill:var(--tx);}
+/* завершённые ветки — приглушены (размер ужимается множителем из настроек) */
+.g-node.faded{opacity:.32;}
+.g-node.faded .nd{fill:var(--surf);stroke:var(--mut);stroke-width:1.4;}
+.g-node.faded.done .nd{fill:var(--mut);}
+.g-node.faded .g-label{fill:var(--mut);}
+.g-node.faded .g-ticon{opacity:.5;}
+.g-node.doing .nd{fill:color-mix(in srgb, var(--nc, var(--acc)) 15%, var(--surf));}   /* «в работе» — еле заметный НЕПРОЗРАЧНЫЙ тон цвета самой ноды (не сквозной, не бьёт глаза) */
 .g-pin{fill:none;stroke:var(--acc);stroke-width:1;stroke-dasharray:2 2;opacity:.7;}
 .graph-toolbar{position:absolute;top:12px;left:12px;display:flex;gap:7px;z-index:5;}
 .graph-more{position:absolute;top:54px;left:12px;z-index:7;display:flex;flex-direction:column;gap:2px;background:var(--surf2);border:0.5px solid var(--bd2);border-radius:10px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.5),0 0 18px var(--glow);}
@@ -628,7 +638,7 @@ button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:va
 .flow-edges{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;width:1px;height:1px;z-index:2;}
 .fe-line{fill:none;stroke:var(--bd3);stroke-width:2;vector-effect:non-scaling-stroke;}
 .fe-line.sel{stroke:var(--acc);stroke-width:2.6;}
-.fe-hit{stroke:transparent;stroke-width:16;pointer-events:stroke;cursor:pointer;vector-effect:non-scaling-stroke;}
+.fe-hit{fill:none;stroke:transparent;stroke-width:16;pointer-events:stroke;cursor:pointer;vector-effect:non-scaling-stroke;}
 .fe-temp{fill:none;stroke:var(--acc);stroke-width:2;stroke-dasharray:5 4;opacity:.85;}
 /* гайд-линии выравнивания при перетаскивании (магнитная привязка центров) */
 .fe-guide{stroke:var(--acc);stroke-width:1;stroke-dasharray:3 4;opacity:.6;vector-effect:non-scaling-stroke;pointer-events:none;}
@@ -690,6 +700,7 @@ button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:va
 .fb-rz,.fb-edge{position:absolute;z-index:7;opacity:0;transition:opacity .12s;}
 .flow-block.fb-image:hover .fb-rz,.flow-block.fb-image.sel .fb-rz,.flow-block.fb-video:hover .fb-rz,.flow-block.fb-video.sel .fb-rz,
 .flow-block.fb-image:hover .fb-edge,.flow-block.fb-image.sel .fb-edge,.flow-block.fb-video:hover .fb-edge,.flow-block.fb-video.sel .fb-edge{opacity:1;}
+.flow-block:hover .fb-edge,.flow-block.sel .fb-edge{opacity:1;}   /* тянуть за любой край — и у текстовых блоков/рамок */
 /* размеры/отступы ручек делим на масштаб холста (--z) → постоянный экранный размер, удобно попадать даже когда отдалился */
 .fb-rz{width:calc(22px/var(--z,1));height:calc(22px/var(--z,1));}
 .fb-rz::before{content:"";position:absolute;width:calc(11px/var(--z,1));height:calc(11px/var(--z,1));border:calc(1.5px/var(--z,1)) solid var(--acc);background:var(--bg);border-radius:calc(3px/var(--z,1));box-shadow:0 0 8px var(--glow);}
@@ -755,6 +766,21 @@ button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:va
 .set-sec{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin:16px 0 9px;border-bottom:0.5px solid var(--bd);padding-bottom:6px;}
 .set-val{margin-left:6px;color:var(--mut);font-weight:400;font-variant-numeric:tabular-nums;}
 .upd-notes{margin:2px 0 4px;padding:9px 11px;max-height:120px;overflow:auto;background:var(--surf2);border:0.5px solid var(--bd);border-radius:8px;font-size:12px;line-height:1.5;color:var(--mut);white-space:pre-wrap;}
+/* вкладки настроек */
+.set-tabs{display:flex;gap:2px;margin:2px 0 14px;border-bottom:0.5px solid var(--bd);}
+.set-tab{display:flex;align-items:center;gap:5px;padding:8px 11px;background:none;border:none;border-bottom:2px solid transparent;color:var(--mut);font-size:12.5px;cursor:pointer;transition:color .15s,border-color .15s;margin-bottom:-0.5px;}
+.set-tab:hover{color:var(--tx);}
+.set-tab.on{color:var(--tx);border-bottom-color:var(--acc);}
+.set-tab i{font-size:15px;}
+.set-panel[hidden]{display:none;}
+.set-hint{font-size:12px;color:var(--mut);margin:0 0 12px;line-height:1.5;}
+/* «Одинокие ноды» */
+.ln-list{max-height:300px;overflow:auto;margin:4px 0 10px;}
+.ln-row{display:flex;align-items:center;gap:9px;padding:8px 10px;border:0.5px solid var(--bd);border-radius:8px;margin-bottom:6px;background:var(--surf2);}
+.ln-ic{color:var(--mut);font-size:16px;flex:none;}
+.ln-ttl{flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ln-sub{color:var(--mut);font-size:11.5px;}
+.ln-del{flex:none;}
 .modal input[type=range]{width:100%;accent-color:var(--acc);cursor:pointer;height:22px;}
 /* подвал сайдбара: перенос на 2 ряда (кнопок стало 7) + активная кнопка dev-режима */
 .side-foot{flex-wrap:wrap;}

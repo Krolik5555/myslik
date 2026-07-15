@@ -45,7 +45,7 @@ TRACE = os.environ.get("PLANNER_TRACE") == "1"
 
 # ---- авто-обновление с GitHub Releases ----
 # Единый источник версии для сравнения с релизом. Теги релизов: vX.Y.Z (напр. v1.3.0).
-APP_VERSION = "1.4.2"
+APP_VERSION = "1.4.3"
 # owner/repo публичного репозитория (заполнится после gh auth login — owner = твой GitHub-логин)
 GH_REPO_SLUG = "Krolik5555/myslik"
 
@@ -537,6 +537,27 @@ class Api:
             print("[resize] win_drag error:", e)
             return False
 
+    def win_startdrag(self):
+        """Нативное перетаскивание окна руками Windows — чтобы работал Aero Snap
+        (тянешь окно к верху экрана → разворот на весь экран; к боковому краю →
+        половина экрана; тряска → свернуть остальные). Запускаем штатный move-loop
+        Windows: ReleaseCapture + WM_NCLBUTTONDOWN с кодом HTCAPTION. SendMessage
+        крутит модальный цикл перемещения на GUI-потоке до отпускания кнопки —
+        поэтому Windows сам рисует зоны привязки и разворачивает окно. Зовётся из
+        JS на pointerdown/старте перетаскивания титлбара (см. main.js)."""
+        try:
+            import win32gui
+            import win32con
+            h = _get_hwnd()
+            if not h:
+                return False
+            win32gui.ReleaseCapture()
+            win32gui.SendMessage(h, win32con.WM_NCLBUTTONDOWN, win32con.HTCAPTION, 0)
+            return True
+        except Exception as e:
+            print("[drag] win_startdrag error:", e)
+            return False
+
 
 def _selftest(window):
     # PLANNER_SELFTEST=1 — открыть окно на пару секунд и закрыть (проверка запуска)
@@ -679,7 +700,7 @@ def main():
     frameless = os.environ.get("PLANNER_FRAMED") != "1"
     window = webview.create_window(
         "Мыслик",
-        url=UI+"?v=4",
+        url=UI+"?v="+str(int(time.time())),   # уникальный ?v на каждый запуск → WebView2 не залипает на старом закэшированном index.html (дев-режим)
         js_api=api,
         width=1200,
         height=800,

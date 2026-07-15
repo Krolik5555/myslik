@@ -17,6 +17,7 @@ function renderNotes(v){
   if(notesMode==="list"){ if(graph){ const g=graph; graph=null; g.destroy(); } return renderNotesList(v); }
   v.innerHTML=`<div id="graph-wrap" style="height:calc(100vh - 210px);min-height:420px;">
     <canvas class="graph-bg-canvas"></canvas>
+    <canvas class="graph-glow-canvas"></canvas>
     <svg id="graph" preserveAspectRatio="xMidYMid meet"></svg>
     <div class="graph-toolbar">
       <button class="btn ghost" id="g-search" title="Найти ноду (название или #тег)"><i class="ti ti-search"></i></button>
@@ -349,6 +350,8 @@ class Graph{
     // фон-canvas «точечное поле» за графом, привязан к пану/зуму
     this.bgCanvas=this.svg.parentNode?this.svg.parentNode.querySelector(".graph-bg-canvas"):null;
     this.bgCtx=this.bgCanvas?this.bgCanvas.getContext("2d"):null;
+    this.glowCanvas=this.svg.parentNode?this.svg.parentNode.querySelector(".graph-glow-canvas"):null;   // слой цветной подсветки «в работе»
+    this.glowCtx=this.glowCanvas?this.glowCanvas.getContext("2d"):null;
     this._bgReduce=!!(window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches);
     if(graphCam){ this.tx=graphCam.tx; this.ty=graphCam.ty; this.zoom=graphCam.zoom; }   // восстановить камеру ДО размещения (для центра вида)
     const cx=this.W/2, cy=this.H/2;
@@ -367,12 +370,30 @@ class Graph{
     });
     // items on the graph: все ноды из паутины (inWeb) — статус/дата/область не фильтруют
     const onGraph=S.items.filter(inWeb);
+    // потухание: ЗАДАЧА тухнет по своему done (незавершённая подзадача остаётся яркой).
+    // ЗАМЕТКА/СХЕМА статуса не имеют → наследуют завершённость от родителя (тухнут в завершённой ветке).
+    const _onIds=new Set(onGraph.map(i=>i.id));
+    const _byIdIt=id=>S.items.find(i=>i.id===id);
+    const _fMemo=new Map();
+    const _isFaded=it=>{
+      if(_fMemo.has(it.id)) return _fMemo.get(it.id);
+      _fMemo.set(it.id,false);   // защита от циклов в иерархии
+      let res;
+      if(it.kind==="task") res=!!it.done;
+      else { const pid=(it.parent&&_onIds.has(it.parent))?it.parent:null; res=pid?_isFaded(_byIdIt(pid)):false; }
+      _fMemo.set(it.id,res); return res;
+    };
+    const _todayT=(typeof today==="function")?+today():0;
     onGraph.forEach(it=>{
       const p=prev[it.id];
       const x = it.x!=null?it.x : (p?p.x:vcx+(Math.random()-.5)*180);
       const y = it.y!=null?it.y : (p?p.y:vcy+(Math.random()-.5)*140);
       const ts=itemTagStyle(it);
+      const arch=_isFaded(it);
+      // «в работе» — ручная пометка (отдельный явный вид: заливка + цветное свечение).
+      const doing = it.kind==="task" && !it.done && it.status==="doing";
       const n={id:it.id, ref:it, label:it.title, type:it.kind, done:it.done, area:it.area,
+        archived:arch, doing:doing, status:it.status,
         color: it.color || (ts&&ts.color) || (it.area?areaColor(it.area):null) || null, tagStyle:ts,
         r:7, x, y, vx:0, vy:0, fixed:!!it.pin, _fresh:(it.x==null && !p)};
       this.nodes.push(n);
@@ -397,6 +418,16 @@ class Graph{
       else { n.r=(6+Math.min(Math.sqrt(deg)*3*dsc,9))*nsz*psz; }
       if(n.type==="task"||n.type==="flow") n.r*=0.86;   // квадрат/ромб визуально крупнее круга той же r → ужимаем, чтобы размер отражал именно связи
     });
+    // завершённые уходят на второй план: сами ноды меньше, а связи ВНУТРИ ветки (оба конца потухли)
+    // — короче (тот же множитель длины) и тусклее. Так дерево реально ужимается, а не только точки.
+    const _doneScale=(S.settings.graphDoneScale!=null?S.settings.graphDoneScale:0.6);
+    const _doneLen=(S.settings.graphDoneLinkLen!=null?S.settings.graphDoneLinkLen:0.6);
+    if(_doneScale!==1) this.nodes.forEach(n=>{ if(n.archived) n.r*=_doneScale; });
+    this.links.forEach(l=>{ const na=this.byId[l.a], nb=this.byId[l.b];
+      const fa=na&&na.archived, fb=nb&&nb.archived, hubLink=(na&&na.type==="hub")||(nb&&nb.type==="hub");
+      l.faded = !!(fa && fb);                              // оба конца потухли → тусклая связь целиком
+      l.doneMul = ((fa||fb) && !hubLink) ? _doneLen : 1;   // короче при потухшем конце, НО связь с областью (hub) не трогаем
+    });
 
     while(this.svg.firstChild) this.svg.removeChild(this.svg.firstChild);
     this.root=document.createElementNS(NS,"g"); this.svg.appendChild(this.root);
@@ -408,36 +439,43 @@ class Graph{
     // на каждую связь: прозрачная широкая линия-хитбокс + видимая линия сразу после неё
     // (порядок hit→link важен для селектора .g-hit:hover + .g-link; клики ловит только хитбокс)
     this.hitEls=[]; this.linkEls=[];
+    const DIMC=getComputedStyle(document.body).getPropertyValue("--bd2").trim()||"#3a3a3a";   // цвет «потухшего» конца связи
     this.links.forEach((l,i)=>{
       const hit=document.createElementNS(NS,"path"); hit.setAttribute("class","g-hit"); hit.dataset.li=i;
       this.linkG.appendChild(hit); this.hitEls.push(hit);
-      const e=document.createElementNS(NS,"path"); e.setAttribute("class","g-link"+(l.manual?" manual":"")); e.dataset.li=i;
-      const ca=this.byId[l.a].color, cb=this.byId[l.b].color;
-      if(ca||cb){
-        // хотя бы у одного есть явный цвет → цвет «перетекает»: второй конец = его цвет или нейтральный (белый)
-        const NC=NEUTRAL(); const ea=ca||NC, eb=cb||NC;
+      const e=document.createElementNS(NS,"path"); e.setAttribute("class","g-link"+(l.manual?" manual":"")+(l.faded?" faded":"")); e.dataset.li=i;
+      const na=this.byId[l.a], nb=this.byId[l.b];
+      // потухший конец связи «перетекает» в тусклый цвет (как потухшие ноды); яркий конец — свой цвет/белый
+      const ea = na.archived ? DIMC : na.color;
+      const eb = nb.archived ? DIMC : nb.color;
+      if(l.faded){ /* оба конца потухли — целиком тусклая нейтральная линия (.g-link.faded) */ }
+      else if(ea||eb){
+        const NC=NEUTRAL(); const fea=ea||NC, feb=eb||NC;
         // inline style: presentation attrs lose to the stylesheet's .g-link rule
-        if(ea!==eb){
+        if(fea!==feb){
           const gid="grad"+i; const grad=document.createElementNS(NS,"linearGradient");
           grad.setAttribute("id",gid); grad.setAttribute("gradientUnits","userSpaceOnUse");
-          const s1=document.createElementNS(NS,"stop"); s1.setAttribute("offset","0%"); s1.setAttribute("stop-color",ea);
-          const s2=document.createElementNS(NS,"stop"); s2.setAttribute("offset","100%"); s2.setAttribute("stop-color",eb);
+          const s1=document.createElementNS(NS,"stop"); s1.setAttribute("offset","0%"); s1.setAttribute("stop-color",fea);
+          const s2=document.createElementNS(NS,"stop"); s2.setAttribute("offset","100%"); s2.setAttribute("stop-color",feb);
           grad.appendChild(s1); grad.appendChild(s2); this.defs.appendChild(grad);
           e.style.stroke="url(#"+gid+")"; l._grad=grad;
-        } else { e.style.stroke = ea; }
-        e.style.strokeWidth = (l.manual?1.8:1.3); e.style.opacity = l.manual?0.95:0.55;
+        } else { e.style.stroke = fea; }
       }
+      if(!l.faded){ const lb=(S.settings.graphLinkBright!=null?S.settings.graphLinkBright:1);   // яркость обычных связей
+        e.style.strokeWidth=(l.manual?1.8:1.3); e.style.opacity=Math.min(1,(l.manual?1:0.8)*lb); }
+      else { e.style.opacity=(S.settings.graphFadedBright!=null?S.settings.graphFadedBright:0.5); }   // яркость потухших связей
       this.linkG.appendChild(e); this.linkEls.push(e);
     });
 
     this.nodeEls=this.nodes.map(n=>{
-      const g=document.createElementNS(NS,"g"); g.setAttribute("class","g-node "+n.type+(n.done?" done":"")); g.dataset.id=n.id;
+      const g=document.createElementNS(NS,"g"); g.setAttribute("class","g-node "+n.type+(n.done?" done":"")+(n.archived?" faded":"")+(n.doing?" doing":"")); g.dataset.id=n.id;
+      if(n.color) g.style.setProperty("--nc", n.color);   // цвет ноды в CSS-переменную (для заливки «в работе» её же тоном)
       let halo=null;
       if(n.type==="hub"){ halo=document.createElementNS(NS,"circle"); halo.setAttribute("class","g-halo"); halo.setAttribute("r",n.r+5); if(n.color)halo.style.stroke=n.color; g.appendChild(halo); }
       // форма: из тега (если задана), иначе по типу ноды
       const shapeKind = (n.tagStyle&&n.tagStyle.shape) ? n.tagStyle.shape : (n.type==="task"?"square":n.type==="flow"?"diamond":"circle");
       const shape = this._shapeEl(NS, shapeKind, n.r);
-      if(n.color){
+      if(n.color && !n.archived){
         // inline style: presentation attrs lose to the stylesheet's .nd rules
         if(n.type==="hub"){ shape.style.fill=n.color; shape.style.stroke=n.color; }
         else if(n.type==="note"||n.type==="flow"){ shape.style.stroke=n.color; }
@@ -454,7 +492,9 @@ class Graph{
         if(gl){ ticon=document.createElementNS(NS,"text"); ticon.setAttribute("class","g-ticon"); ticon.setAttribute("text-anchor","middle"); ticon.textContent=gl;
           if(n.color && n.type!=="hub") ticon.style.fill=n.color; g.appendChild(ticon); } }
       const t=document.createElementNS(NS,"text"); t.setAttribute("class","g-label"+(n.type==="hub"?" hub":"")); t.setAttribute("text-anchor","middle");
-      t.textContent=n.label.length>22?n.label.slice(0,21)+"…":n.label;
+      const _lbl=(n.type!=="hub" && !(n.label||"").trim()) ? "(без названия)" : n.label;   // пустые ноды видимо подписываем, чтобы их можно было опознать и удалить
+      t.textContent=_lbl.length>22?_lbl.slice(0,21)+"…":_lbl;
+      if(_lbl==="(без названия)") t.classList.add("g-label-empty");
       g.appendChild(t);
       this.nodeG.appendChild(g);
       return {g, shape, halo, check, pin, t, ticon, shapeKind, n};
@@ -638,6 +678,45 @@ class Graph{
     }
     ctx.globalAlpha=1;
   }
+  // цветная подсветка «в работе»: каждая doing-нода светит СВОИМ цветом (радиальный градиент),
+  // блобы накладываются → свет соседних doing-нод смешивается. Слой между звёздами и нодами.
+  _drawGlow(){
+    const cv=this.glowCanvas, ctx=this.glowCtx; if(!cv||!ctx) return;
+    const cw=cv.clientWidth, ch=cv.clientHeight; if(!cw||!ch) return;
+    const dpr=Math.min(window.devicePixelRatio||1,2);
+    if(cv.width!==Math.round(cw*dpr)||cv.height!==Math.round(ch*dpr)){ cv.width=Math.round(cw*dpr); cv.height=Math.round(ch*dpr); }
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,cw,ch);
+    const s=S.settings;
+    if(s.graphDoingGlow===false) return;
+    const doing=this.nodes.filter(n=>n.doing && n.color);
+    if(!doing.length) return;
+    const z=this.zoom, tx=this.tx, ty=this.ty;
+    const R=(s.graphDoingGlowRadius!=null?s.graphDoingGlowRadius:110)*z;
+    const inten=(s.graphDoingGlowBright!=null?s.graphDoingGlowBright:0.3);
+    const blur=(s.graphDoingGlowBlur!=null?s.graphDoingGlowBlur:30);
+    const rgbOf=(c)=>{ c=(c||"").trim(); if(c[0]==="#"){ let h=c.slice(1); if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2]; const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255]; } const m=c.match(/(\d+)[,\s]+(\d+)[,\s]+(\d+)/); return m?[+m[1],+m[2],+m[3]]:null; };
+    ctx.save();
+    if(blur>0) ctx.filter="blur("+blur+"px)";
+    doing.forEach(n=>{
+      const rgb=rgbOf(n.color); if(!rgb) return;
+      const x=(n.x+(n._ix||0))*z+tx, y=(n.y+(n._iy||0))*z+ty;   // мир → экран (та же трансформа, что у корня графа)
+      if(x<-R-blur||x>cw+R+blur||y<-R-blur||y>ch+R+blur) return;
+      const grd=ctx.createRadialGradient(x,y,0,x,y,R);
+      grd.addColorStop(0,`rgba(${rgb[0]},${rgb[1]},${rgb[2]},${inten})`);
+      grd.addColorStop(1,`rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
+      ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(x,y,R,0,6.283); ctx.fill();
+    });
+    ctx.restore();
+    // связи не должны «просвечивать» свечением: стираем свечение ровно из-под линий связей.
+    // «дырки» невидимы — они всегда закрыты либо самой связью, либо нодой сверху (endpoints в центрах нод).
+    ctx.save(); ctx.globalCompositeOperation="destination-out"; ctx.strokeStyle="#000"; ctx.lineWidth=2.5; ctx.lineCap="round"; ctx.beginPath();
+    this.links.forEach(l=>{ const a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) return;
+      const ax=(a.x+(a._ix||0))*z+tx, ay=(a.y+(a._iy||0))*z+ty, bx=(b.x+(b._ix||0))*z+tx, by=(b.y+(b._iy||0))*z+ty;
+      ctx.moveTo(ax,ay); ctx.lineTo(bx,by);
+    });
+    ctx.stroke(); ctx.restore();
+  }
   _openNode(n){
     // двойной клик: область → фильтр задач; заметка → ридер; задача → редактор
     this._closePop();
@@ -690,6 +769,7 @@ class Graph{
     const busy=this.drag||this.connectDrag||this.panning||this.marq||this.linkFrom;
     if(this.alpha===0 && !camMoving && !busy){ this._sk=(this._sk||0)^1; if(this._sk){ this.raf=this._paused?null:requestAnimationFrame(()=>this._tick()); return; } }
     this._drawBg();
+    this._drawGlow();
     const N=this.nodes, cx=this.W/2, cy=this.H/2;
     // даём симуляции полностью остыть, чтобы граф замирал и не дёргался; перетаскивание снова поднимает alpha
     this.alpha*=0.985; if(this.alpha<0.004)this.alpha=0;
@@ -709,7 +789,7 @@ class Graph{
       a.vx+=(cx-a.x)*0.0016*this.alpha; a.vy+=(cy-a.y)*0.0016*this.alpha;
     }
     this.links.forEach(l=>{ const a=this.byId[l.a], b=this.byId[l.b];
-      const restLen=l.L*(S.settings.graphLinkLen!=null?S.settings.graphLinkLen:1)*(l.lenMul||1);   // глобальная × индивидуальная длина связи
+      const restLen=l.L*(S.settings.graphLinkLen!=null?S.settings.graphLinkLen:1)*(l.lenMul||1)*(l.doneMul||1);   // глобальная × индивидуальная × сжатие завершённой ветки
       let dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy)||1, f=(d-restLen)*0.02*this.alpha, fx=dx/d*f, fy=dy/d*f;
       a.vx+=fx; a.vy+=fy; b.vx-=fx; b.vy-=fy;
     });
@@ -835,7 +915,9 @@ class Graph{
       <div class="swatches np-sw" style="margin-bottom:10px;">${swatchRow(it.color)}</div>
       <div class="np-row" style="margin-bottom:6px;">
         ${hasOpen?`<button class="btn" data-pop="open"><i class="ti ${it.kind==="flow"?"ti-artboard":"ti-eye"}"></i>Открыть</button>`
-                :`<button class="btn ${it.done?"":"primary"}" data-pop="done"><i class="ti ${it.done?"ti-arrow-back-up":"ti-check"}"></i>${it.done?"Вернуть":"Готово"}</button>`}
+                :`<button class="btn ${(!it.done&&it.status!=="doing")?"primary":""}" data-pop="done"><i class="ti ${it.done?"ti-arrow-back-up":"ti-check"}"></i>${it.done?"Вернуть":"Готово"}</button>${it.done?"":`<button class="btn ${it.status==="doing"?"primary":""}" data-pop="doing"><i class="ti ti-player-play"></i>${it.status==="doing"?"В работе":"В работу"}</button>`}`}
+      </div>
+      <div class="np-row" style="margin-bottom:6px;">
         <button class="btn" data-pop="edit"><i class="ti ti-pencil"></i>Изменить</button>
         <button class="btn" data-pop="link"><i class="ti ti-plus"></i>Связать</button>
       </div>
@@ -858,6 +940,7 @@ class Graph{
     $$(".np-sw .swatch",pop).forEach(b=>b.onclick=()=>{ it.color=PALETTE[+b.dataset.ci]||null; touch(it); persist(); this.build(); });
     if(pop.querySelector('[data-pop="open"]')) pop.querySelector('[data-pop="open"]').onclick=()=>{ this._closePop(); openItemSmart(it); };
     if(pop.querySelector('[data-pop="done"]')) pop.querySelector('[data-pop="done"]').onclick=()=>{ toggleDone(it); this._closePop(); this.build(); toast(it.done?"Выполнено":"Возвращено в работу"); };
+    if(pop.querySelector('[data-pop="doing"]')) pop.querySelector('[data-pop="doing"]').onclick=()=>{ it.status = it.status==="doing" ? "todo" : "doing"; touch(it); persist(); this._closePop(); this.build(); toast(it.status==="doing"?"В работе":"Снято с работы",{icon:it.status==="doing"?"ti-player-play":"ti-player-pause"}); };
     pop.querySelector('[data-pop="edit"]').onclick=()=>{ this._closePop(); if(it.kind==="flow") openFlowEditor(it); else openItemEditor(it); };   // схему правим в её редакторе, не в окне заметки
     pop.querySelector('[data-pop="link"]').onclick=()=>{ this.startLink(it.id); };
     const setSize=(d)=>{ const cur=+it.size||1; it.size=Math.max(0.4,Math.min(3,+(cur+d).toFixed(2))); touch(it); persist(); this.build(); const v=$(".np-sz-val",pop); if(v) v.textContent=(+it.size).toFixed(1)+"×"; };

@@ -28,6 +28,8 @@ function openPalette(){
     {t:"Переключить тему",i:"ti-sun",run:()=>{closeOverlays();toggleTheme();}},
     {t:"Настройки",i:"ti-settings",run:()=>{closeOverlays();openSettings();}},
     {t:"Теги со стилем",i:"ti-tags",run:()=>{closeOverlays();openTagManager();}},
+    {t:"Удалить пустые заметки",i:"ti-eraser",run:()=>{closeOverlays();cleanEmptyNotes();}},
+    {t:"Одинокие ноды (найти/удалить)",i:"ti-circle-dashed",run:()=>{closeOverlays();openLonelyNodes();}},
     {t:"Горячие клавиши",i:"ti-keyboard",run:()=>{closeOverlays();openShortcuts();}}
   ];
   function go(v){ closeOverlays(); areaFilter=null; view=v; render(); }
@@ -73,6 +75,19 @@ function applySettings(){ applyTheme();
   document.body.style.setProperty("--glow", `rgba(${rgb},${(base*g).toFixed(3)})`);
 }
 function toggleTheme(){ S.settings.theme = S.settings.theme==="light"?"dark":"light"; applySettings(); persist(); if(view==="notes") render(); }
+// удалить безымянные «висячие» ноды: без названия И (без текста ИЛИ оторванные — нет связей и детей).
+// ловит случайно созданные пустые кружки в графе, но НЕ трогает безымянные заметки, у которых есть текст и связи.
+function cleanEmptyNotes(){
+  const linked=new Set(); (S.links||[]).forEach(l=>{ linked.add(l[0]); linked.add(l[1]); });
+  const hasKid=id=>S.items.some(x=>!x.deleted && x.parent===id);
+  const empties=S.items.filter(it=>!it.deleted && (it.kind==="note"||it.kind==="task")
+    && !(it.title||"").trim()
+    && ( !(it.body||"").trim() || (!linked.has(it.id) && !hasKid(it.id)) ));
+  if(!empties.length){ toast("Безымянных висячих нод не найдено",{icon:"ti-check"}); return; }
+  const ids=empties.map(it=>it.id);
+  ids.forEach(id=>deleteItem(id)); render();
+  toast("Удалено: "+ids.length,{icon:"ti-eraser",label:"Вернуть",onAction:()=>{ ids.forEach(id=>restoreItem(id)); render(); }});
+}
 async function doBackup(){ const p=await Store.backup(); toast("Бэкап сохранён",{icon:"ti-shield-check"}); }
 async function doExport(){ const p=await Store.exportData(S); toast(p?"Экспортировано":"Экспорт отменён",{icon:p?"ti-download":"ti-x"}); }
 async function doImport(){

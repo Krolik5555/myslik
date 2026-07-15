@@ -447,57 +447,97 @@ function openSettings(){
   const s=S.settings, def=defaultState().settings;
   const gd=()=> s.graphDrift!=null?s.graphDrift:def.graphDrift, gs=()=> s.graphSpread!=null?s.graphSpread:def.graphSpread,
         gl=()=> s.graphLinkLen!=null?s.graphLinkLen:def.graphLinkLen, gn=()=> s.graphNodeSize!=null?s.graphNodeSize:def.graphNodeSize,
-        gds=()=> s.graphDegScale!=null?s.graphDegScale:def.graphDegScale;
+        gds=()=> s.graphDegScale!=null?s.graphDegScale:def.graphDegScale,
+        gdn=()=> s.graphDoneScale!=null?s.graphDoneScale:def.graphDoneScale,
+        gdb=()=> s.graphLinkBright!=null?s.graphLinkBright:def.graphLinkBright,
+        gdl=()=> s.graphDoneLinkLen!=null?s.graphDoneLinkLen:def.graphDoneLinkLen,
+        gfb=()=> s.graphFadedBright!=null?s.graphFadedBright:def.graphFadedBright,
+        dgr=()=> s.graphDoingGlowRadius!=null?s.graphDoingGlowRadius:def.graphDoingGlowRadius,
+        dgb=()=> s.graphDoingGlowBright!=null?s.graphDoingGlowBright:def.graphDoingGlowBright,
+        dgbl=()=> s.graphDoingGlowBlur!=null?s.graphDoingGlowBlur:def.graphDoingGlowBlur;
   const m=el("div","modal"); m.innerHTML=`
     <h3><i class="ti ti-settings"></i>Настройки</h3>
-    <div class="set-sec">Внешний вид</div>
-    <div class="field"><label>Тема</label>
-      <div class="seg" id="set-theme">
-        <button data-v="dark" class="${s.theme!=="light"?"on":""}"><i class="ti ti-moon"></i> Тёмная</button>
-        <button data-v="light" class="${s.theme==="light"?"on":""}"><i class="ti ti-sun"></i> Светлая</button>
-      </div></div>
-    <div class="field"><label>Свечение</label>
-      <div class="seg" id="set-glow">${[["0","Выкл"],["1","Обычное"],["1.6","Сильное"]].map(([v,l])=>`<button data-v="${v}" class="${(+s.glow||0)===+v?"on":""}">${l}</button>`).join("")}</div></div>
-    <div class="set-sec">Граф заметок</div>
-    <div class="field"><label>Фон «звёздное поле»</label>
-      <div class="seg" id="set-bg">
-        <button data-v="1" class="${s.graphBg!==false?"on":""}">Вкл</button>
-        <button data-v="0" class="${s.graphBg===false?"on":""}">Выкл</button>
-      </div></div>
-    <div class="field"><label>Дрейф нод <span class="set-val" id="val-drift">${gd()}</span></label>
-      <input type="range" id="set-drift" min="0" max="10" step="0.5" value="${gd()}"></div>
-    <div class="field"><label>Разлёт нод <span class="set-val" id="val-spread">${gs()}×</span></label>
-      <input type="range" id="set-spread" min="0.5" max="2" step="0.1" value="${gs()}"></div>
-    <div class="field"><label>Длина связей <span class="set-val" id="val-len">${gl()}×</span></label>
-      <input type="range" id="set-len" min="0.5" max="2" step="0.1" value="${gl()}"></div>
-    <div class="field"><label>Размер нод <span class="set-val" id="val-nsz">${gn()}×</span></label>
-      <input type="range" id="set-nsz" min="0.6" max="1.8" step="0.1" value="${gn()}"></div>
-    <div class="field"><label>Размер от числа связей <span class="set-val" id="val-deg">${gds()}×</span></label>
-      <input type="range" id="set-deg" min="0" max="2.5" step="0.1" value="${gds()}"></div>
-    <div class="set-sec">Данные</div>
-    <div class="set-row">
-      <span class="set-val">Резервная копия текущих данных</span>
-      <div class="right"><button class="btn ghost" id="set-backup"><i class="ti ti-shield-check"></i>Сделать бэкап</button></div>
+    <div class="set-tabs" id="set-tabs">
+      <button class="set-tab on" data-tab="view"><i class="ti ti-palette"></i>Вид</button>
+      <button class="set-tab" data-tab="graph"><i class="ti ti-affiliate"></i>Граф</button>
+      <button class="set-tab" data-tab="done"><i class="ti ti-checks"></i>Завершённые</button>
+      <button class="set-tab" data-tab="data"><i class="ti ti-database"></i>Данные</button>
     </div>
-    <div class="set-sec">Telegram — захват заметок с телефона</div>
-    <div class="field"><label>Токен бота (от @BotFather)</label>
-      <input type="password" id="tg-token" placeholder="123456:ABC-Def…" autocomplete="off" spellcheck="false"></div>
-    <div class="set-row">
-      <span class="set-val" id="tg-status">…</span>
-      <div class="right">
-        <button class="btn ghost" id="tg-clear"><i class="ti ti-unlink"></i>Отвязать</button>
-        <button class="btn primary" id="tg-save"><i class="ti ti-check"></i>Сохранить</button>
+    <div class="set-panel" data-panel="view">
+      <div class="field"><label>Тема</label>
+        <div class="seg" id="set-theme">
+          <button data-v="dark" class="${s.theme!=="light"?"on":""}"><i class="ti ti-moon"></i> Тёмная</button>
+          <button data-v="light" class="${s.theme==="light"?"on":""}"><i class="ti ti-sun"></i> Светлая</button>
+        </div></div>
+      <div class="field"><label>Свечение</label>
+        <div class="seg" id="set-glow">${[["0","Выкл"],["1","Обычное"],["1.6","Сильное"]].map(([v,l])=>`<button data-v="${v}" class="${(+s.glow||0)===+v?"on":""}">${l}</button>`).join("")}</div></div>
+      <div class="field"><label>Фон «звёздное поле»</label>
+        <div class="seg" id="set-bg">
+          <button data-v="1" class="${s.graphBg!==false?"on":""}">Вкл</button>
+          <button data-v="0" class="${s.graphBg===false?"on":""}">Выкл</button>
+        </div></div>
+    </div>
+    <div class="set-panel" data-panel="graph" hidden>
+      <div class="field"><label>Размер нод <span class="set-val" id="val-nsz">${gn()}×</span></label>
+        <input type="range" id="set-nsz" min="0.6" max="1.8" step="0.1" value="${gn()}"></div>
+      <div class="field"><label>Размер от числа связей <span class="set-val" id="val-deg">${gds()}×</span></label>
+        <input type="range" id="set-deg" min="0" max="2.5" step="0.1" value="${gds()}"></div>
+      <div class="field"><label>Дрейф нод <span class="set-val" id="val-drift">${gd()}</span></label>
+        <input type="range" id="set-drift" min="0" max="10" step="0.5" value="${gd()}"></div>
+      <div class="field"><label>Разлёт нод <span class="set-val" id="val-spread">${gs()}×</span></label>
+        <input type="range" id="set-spread" min="0.5" max="2" step="0.1" value="${gs()}"></div>
+      <div class="field"><label>Длина связей <span class="set-val" id="val-len">${gl()}×</span></label>
+        <input type="range" id="set-len" min="0.5" max="2" step="0.1" value="${gl()}"></div>
+      <div class="field"><label>Яркость связей <span class="set-val" id="val-lbright">${gdb()}×</span></label>
+        <input type="range" id="set-lbright" min="0.4" max="1.5" step="0.1" value="${gdb()}"></div>
+      <div class="set-hint" style="margin-top:14px;">Подсветка «в работе» — вокруг помеченной ноды её цветом; свет соседних смешивается.</div>
+      <div class="field"><label>Свечение вокруг ноды</label>
+        <div class="seg" id="set-doglow">
+          <button data-v="1" class="${s.graphDoingGlow!==false?"on":""}">Вкл</button>
+          <button data-v="0" class="${s.graphDoingGlow===false?"on":""}">Выкл</button>
+        </div></div>
+      <div class="field"><label>Радиус <span class="set-val" id="val-dgr">${dgr()}</span></label>
+        <input type="range" id="set-dgr" min="40" max="220" step="5" value="${dgr()}"></div>
+      <div class="field"><label>Яркость свечения <span class="set-val" id="val-dgb">${dgb()}</span></label>
+        <input type="range" id="set-dgb" min="0.05" max="1" step="0.05" value="${dgb()}"></div>
+      <div class="field"><label>Размытие <span class="set-val" id="val-dgbl">${dgbl()}</span></label>
+        <input type="range" id="set-dgbl" min="0" max="60" step="2" value="${dgbl()}"></div>
+    </div>
+    <div class="set-panel" data-panel="done" hidden>
+      <div class="set-hint">Как выглядят завершённые задачи и их ветки в графе (тухнут, ужимаются, подтягиваются).</div>
+      <div class="field"><label>Масштаб нод <span class="set-val" id="val-done">${gdn()}×</span></label>
+        <input type="range" id="set-done" min="0.3" max="1" step="0.05" value="${gdn()}"></div>
+      <div class="field"><label>Длина связей <span class="set-val" id="val-donelen">${gdl()}×</span></label>
+        <input type="range" id="set-donelen" min="0.3" max="1" step="0.05" value="${gdl()}"></div>
+      <div class="field"><label>Яркость потухших связей <span class="set-val" id="val-fbright">${gfb()}×</span></label>
+        <input type="range" id="set-fbright" min="0.1" max="1" step="0.05" value="${gfb()}"></div>
+    </div>
+    <div class="set-panel" data-panel="data" hidden>
+      <div class="set-sec">Резервная копия</div>
+      <div class="set-row">
+        <span class="set-val">Резервная копия текущих данных</span>
+        <div class="right"><button class="btn ghost" id="set-backup"><i class="ti ti-shield-check"></i>Сделать бэкап</button></div>
       </div>
-    </div>
-    <div class="set-sec">Обновления</div>
-    <div class="set-row">
-      <span class="set-val" id="upd-status">Версия…</span>
-      <div class="right">
-        <button class="btn ghost" id="upd-check"><i class="ti ti-refresh"></i>Проверить обновления</button>
-        <button class="btn primary" id="upd-apply" style="display:none"><i class="ti ti-download"></i>Обновить</button>
+      <div class="set-sec">Telegram — захват заметок с телефона</div>
+      <div class="field"><label>Токен бота (от @BotFather)</label>
+        <input type="password" id="tg-token" placeholder="123456:ABC-Def…" autocomplete="off" spellcheck="false"></div>
+      <div class="set-row">
+        <span class="set-val" id="tg-status">…</span>
+        <div class="right">
+          <button class="btn ghost" id="tg-clear"><i class="ti ti-unlink"></i>Отвязать</button>
+          <button class="btn primary" id="tg-save"><i class="ti ti-check"></i>Сохранить</button>
+        </div>
       </div>
+      <div class="set-sec">Обновления</div>
+      <div class="set-row">
+        <span class="set-val" id="upd-status">Версия…</span>
+        <div class="right">
+          <button class="btn ghost" id="upd-check"><i class="ti ti-refresh"></i>Проверить обновления</button>
+          <button class="btn primary" id="upd-apply" style="display:none"><i class="ti ti-download"></i>Обновить</button>
+        </div>
+      </div>
+      <div id="upd-notes" class="upd-notes" style="display:none"></div>
     </div>
-    <div id="upd-notes" class="upd-notes" style="display:none"></div>
     <div class="modal-foot">
       <button class="btn ghost" id="set-reset"><i class="ti ti-refresh"></i>Сбросить</button>
       <div class="right"><button class="btn primary" id="set-close"><i class="ti ti-check"></i>Готово</button></div>
@@ -529,7 +569,17 @@ function openSettings(){
   const len=$("#set-len",m); len.oninput=()=>{ s.graphLinkLen=+len.value; $("#val-len",m).textContent=len.value+"×"; persist(); if(graph) graph.alpha=Math.max(graph.alpha,0.4); };   // будим симуляцию → связи переезжают к новой длине вживую
   const nsz=$("#set-nsz",m); nsz.oninput=()=>{ s.graphNodeSize=+nsz.value; $("#val-nsz",m).textContent=nsz.value+"×"; persist(); }; nsz.onchange=()=>{ if(graph) graph.build(); };   // размер r считается в build → пересобираем при отпускании
   const deg=$("#set-deg",m); deg.oninput=()=>{ s.graphDegScale=+deg.value; $("#val-deg",m).textContent=deg.value+"×"; persist(); }; deg.onchange=()=>{ if(graph) graph.build(); };   // 0× = все ноды одного размера; больше = сильнее зависит от связей
-  $("#set-reset",m).onclick=()=>{ ["theme","glow","graphBg","graphDrift","graphSpread","graphLinkLen","graphNodeSize","graphDegScale"].forEach(k=>s[k]=def[k]); persist(); applySettings(); ov.remove(); openSettings(); if(graph) graph.build(); if(view==="notes") render(); };
+  const done=$("#set-done",m); done.oninput=()=>{ s.graphDoneScale=+done.value; $("#val-done",m).textContent=done.value+"×"; persist(); }; done.onchange=()=>{ if(graph) graph.build(); };   // насколько ужимать завершённые ветки
+  const lbr=$("#set-lbright",m); lbr.oninput=()=>{ s.graphLinkBright=+lbr.value; $("#val-lbright",m).textContent=lbr.value+"×"; persist(); if(graph) graph.build(); };   // яркость обычных связей
+  const dlen=$("#set-donelen",m); dlen.oninput=()=>{ s.graphDoneLinkLen=+dlen.value; $("#val-donelen",m).textContent=dlen.value+"×"; persist(); if(graph){ graph.build(); graph.alpha=Math.max(graph.alpha,0.4); } };   // длина связей завершённых → будим симуляцию
+  const fbr=$("#set-fbright",m); fbr.oninput=()=>{ s.graphFadedBright=+fbr.value; $("#val-fbright",m).textContent=fbr.value+"×"; persist(); if(graph) graph.build(); };   // яркость потухших связей
+  // подсветка «в работе» — рисуется каждый кадр, поэтому применяется вживую без пересборки
+  $$("#set-doglow button",m).forEach(b=>b.onclick=()=>{ s.graphDoingGlow=b.dataset.v==="1"; persist(); $$("#set-doglow button",m).forEach(x=>x.classList.toggle("on",x===b)); });
+  const elDgr=$("#set-dgr",m); elDgr.oninput=()=>{ s.graphDoingGlowRadius=+elDgr.value; $("#val-dgr",m).textContent=elDgr.value; persist(); };
+  const elDgb=$("#set-dgb",m); elDgb.oninput=()=>{ s.graphDoingGlowBright=+elDgb.value; $("#val-dgb",m).textContent=elDgb.value; persist(); };
+  const elDgbl=$("#set-dgbl",m); elDgbl.oninput=()=>{ s.graphDoingGlowBlur=+elDgbl.value; $("#val-dgbl",m).textContent=elDgbl.value; persist(); };
+  $$(".set-tab",m).forEach(t=>t.onclick=()=>{ $$(".set-tab",m).forEach(x=>x.classList.toggle("on",x===t)); $$(".set-panel",m).forEach(p=>p.hidden=p.dataset.panel!==t.dataset.tab); });   // вкладки настроек
+  $("#set-reset",m).onclick=()=>{ ["theme","glow","graphBg","graphDrift","graphSpread","graphLinkLen","graphNodeSize","graphDegScale","graphDoneScale","graphDoneLinkLen","graphLinkBright","graphFadedBright","graphDoingGlow","graphDoingGlowRadius","graphDoingGlowBright","graphDoingGlowBlur"].forEach(k=>s[k]=def[k]); persist(); applySettings(); ov.remove(); openSettings(); if(graph) graph.build(); if(view==="notes") render(); };
   // ---- обновления ----
   const updStatus=$("#upd-status",m), updCheck=$("#upd-check",m), updApply=$("#upd-apply",m), updNotes=$("#upd-notes",m);
   let updAsset=null;
@@ -565,6 +615,28 @@ function openSettings(){
     // при успехе приложение закроется само через ~1с и запустит хелпер
   };
   $("#set-close",m).onclick=()=>ov.remove();
+}
+
+// «Одинокие ноды» — предметы без области И без связей (висят в графе сами по себе, по ним трудно попасть).
+// Показываем списком с удалением — чтобы убрать «непонятные кружки», не целясь мышкой в мелкую ноду.
+function openLonelyNodes(){
+  const m=el("div","modal");
+  const looseList=()=>{ const linked=new Set(); (S.links||[]).forEach(l=>{ linked.add(l[0]); linked.add(l[1]); });
+    return S.items.filter(it=>!it.deleted && (it.kind==="note"||it.kind==="task"||it.kind==="flow") && !it.area && !linked.has(it.id)); };
+  const rowHtml=it=>{ const ic=it.kind==="flow"?"ti-artboard":it.kind==="note"?"ti-note":"ti-checklist";
+    const ttl=(it.title||"").trim()||"(без названия)", body=(it.body||"").trim();
+    return `<div class="ln-row" data-id="${it.id}"><i class="ti ${ic} ln-ic"></i><span class="ln-ttl">${esc(ttl)}${body?` — <span class="ln-sub">${esc(body.slice(0,44))}</span>`:""}</span><button class="btn ghost ln-del" data-del="${it.id}" title="Удалить"><i class="ti ti-trash"></i></button></div>`; };
+  const paint=()=>{ const items=looseList();
+    $(".ln-list",m).innerHTML = items.length ? items.map(rowHtml).join("") : '<div class="set-hint">Одиноких нод нет.</div>';
+    $$(".ln-del",m).forEach(b=>b.onclick=()=>{ const id=b.dataset.del; deleteItem(id);
+      if(typeof graph!=="undefined" && graph) graph.build();
+      toast("Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restoreItem(id); if(typeof graph!=="undefined"&&graph) graph.build(); }}); paint(); }); };
+  m.innerHTML=`<h3><i class="ti ti-circle-dashed"></i>Одинокие ноды</h3>
+    <div class="set-hint">Ноды без области и без связей — «висят» в графе сами по себе. Вот они — удали лишнее.</div>
+    <div class="ln-list"></div>
+    <div class="modal-foot"><div class="right"><button class="btn primary" id="ln-close"><i class="ti ti-check"></i>Готово</button></div></div>`;
+  const ov=overlay(m); paint();
+  $("#ln-close",m).onclick=()=>ov.remove();
 }
 
 class FlowEditor{
@@ -613,7 +685,7 @@ class FlowEditor{
           </svg>
         </div>
         <div class="flow-marquee" style="display:none"></div>
-        <div class="flow-hint">блоки — кнопками сверху · тащи блок — двигать · 2× по блоку — переименовать · тяни ⊕ — стрелка · пробел/средняя — холст · ПКМ — тип/цвет · Delete</div>
+        <div class="flow-hint">блоки — кнопки сверху или ПКМ по пустому · тащи блок — двигать · 2× по блоку — переименовать · тяни ⊕ — стрелка · пробел/средняя — холст · ПКМ по блоку — тип/цвет · Delete</div>
       </div>`;
     $("#overlay-root").appendChild(scr);
     this.screen=scr;
@@ -912,7 +984,7 @@ class FlowEditor{
       if(r) ref=`<div class="fb-ref" title="Открыть «${esc(r.title||"")}»"><i class="ti ${r.kind==="flow"?"ti-artboard":r.kind==="note"?"ti-note":"ti-checklist"}"></i><span>${esc(r.title||"(без названия)")}</span></div>`; }
     return `<div class="fb-grip"><i class="ti ti-grip-horizontal"></i></div>
       <div class="fb-main">${tag}<div class="fb-title" contenteditable="false" spellcheck="false" data-ph="${ph}">${esc(b.text||"")}</div>${note}${ref}</div>
-      ${port}<div class="fb-resize" title="Размер"></div><button class="fb-x" title="Удалить"><i class="ti ti-x"></i></button>`;
+      ${port}<span class="fb-edge n" data-rz="n"></span><span class="fb-edge s" data-rz="s"></span><span class="fb-edge w" data-rz="w"></span><span class="fb-edge e" data-rz="e"></span><div class="fb-resize" title="Размер"></div><button class="fb-x" title="Удалить"><i class="ti ti-x"></i></button>`;
   }
   _buildBlock(b){
     const elx=el("div","flow-block fb-"+b.type+(this.selSet.has(b.id)?" sel":"")+(this.cropping===b.id?" fb-cropping":"")+(b.color?" fb-colored":""));
@@ -1056,7 +1128,7 @@ class FlowEditor{
       if(hz){ const b=this._b(hz.closest(".flow-block").dataset.id); if(b){ const rz=hz.dataset.rz;
           this.resizing={ b, rz, corner:rz.length===2,
             ax: rz.indexOf("w")>=0?b.x+b.w:b.x, ay: rz.indexOf("n")>=0?b.y+b.h:b.y,
-            asp: b.h?b.w/b.h:1, img:true }; }
+            asp: b.h?b.w/b.h:1, img:(b.type==="image"||b.type==="video") }; }   // медиа — с пропорцией/кадром; текст/рамка — свободный ресайз за край
         st.setPointerCapture(e.pointerId); return; }
       const rez=e.target.closest(".fb-resize");
       if(rez){ const b=this._b(rez.closest(".flow-block").dataset.id); this.resizing={b,sx:e.clientX,sy:e.clientY,w:b.w,h:b.h}; st.setPointerCapture(e.pointerId); return; }
@@ -1065,6 +1137,11 @@ class FlowEditor{
       if(e.target.closest('[contenteditable="true"]')){ const be=e.target.closest(".flow-block"); if(be && !this.selSet.has(be.dataset.id)) this._select(be.dataset.id); return; }   // тащить блок можно откуда угодно; текст перехватываем ТОЛЬКО когда уже редактируем (2× клик)
       const be=e.target.closest(".flow-block");
       if(be){ const id=be.dataset.id;
+        // Двойной клик → правка текста. Детектим ВРУЧНУЮ: нативный dblclick в WebView2 не приходит
+        // после setPointerCapture на первом клике, поэтому на него не полагаемся.
+        if(this._lastTap && this._lastTap.id===id && (e.timeStamp-this._lastTap.t)<400 && !e.target.closest('[contenteditable="true"]')){
+          this._lastTap=null; e.preventDefault(); this._select(id); this._focusTitle(id); return; }
+        this._lastTap={id, t:e.timeStamp};
         if(e.shiftKey){ this._select(id,true); return; }              // shift+клик — в выделение, без перетаскивания
         if(!this.selSet.has(id)) this._select(id);                     // не выделен → выделяем соло
         const wp=this.worldPt(e.clientX,e.clientY), anchor=this._b(id);
@@ -1103,9 +1180,14 @@ class FlowEditor{
         else if(R.rz==="w"||R.rz==="e"){ const W=Math.max(MIN, this._snap(Math.abs(wp.x-R.ax))); b.w=W; b.x=R.rz==="w"?R.ax-W:R.ax; }
         else { const H=Math.max(MIN, this._snap(Math.abs(wp.y-R.ay))); b.h=H; b.y=R.rz==="n"?R.ay-H:R.ay; }
         this._pos(b); this._scheduleEdges(); return; }
+      if(this.resizing && this.resizing.rz){ const R=this.resizing, b=R.b, wp=this.worldPt(e.clientX,e.clientY), MIN=this.GRID*2;   // текст/рамка — тянем за любой край/угол (без пропорции)
+        const hasW=R.rz.indexOf("w")>=0, hasE=R.rz.indexOf("e")>=0, hasN=R.rz.indexOf("n")>=0, hasS=R.rz.indexOf("s")>=0;
+        if(hasW||hasE){ const W=Math.max(MIN,this._snap(Math.abs(wp.x-R.ax))); b.w=W; b.x=hasW?R.ax-W:R.ax; }
+        if(hasN||hasS){ const H=Math.max(MIN,this._snap(Math.abs(wp.y-R.ay))); b.h=H; b.y=hasN?R.ay-H:R.ay; b.fixedH=true; }   // ручная высота — авто-рост больше не ужимает
+        this._pos(b); this._scheduleEdges(); return; }
       if(this.resizing){ const z=this.view.zoom, b=this.resizing.b;
         b.w=Math.max(this.GRID*2, this._snap(this.resizing.w+(e.clientX-this.resizing.sx)/z));
-        b.h=Math.max(this.GRID*2, this._snap(this.resizing.h+(e.clientY-this.resizing.sy)/z)); b.fixedH=true;   // ручной ресайз высоты — авто-рост больше не ужимает
+        b.h=Math.max(this.GRID*2, this._snap(this.resizing.h+(e.clientY-this.resizing.sy)/z)); b.fixedH=true;   // угловая ручка .fb-resize (правый-нижний) — свободно w+h
         this._pos(b); this._scheduleEdges(); return; }
       if(this.connecting){ const wp=this.worldPt(e.clientX,e.clientY); this._updateTemp(wp);
         const elx=document.elementFromPoint(e.clientX,e.clientY); const over=elx&&elx.closest?elx.closest(".flow-block"):null;
@@ -1130,7 +1212,8 @@ class FlowEditor{
     st.onpointercancel=()=>{ if(this.connecting) this._endConnect();
       this.dragBlock=null; this.resizing=null; this.marquee=null; if(this.marqueeEl) this.marqueeEl.style.display="none"; this.panning=null; this._showGuides(null,null); };
     st.ondblclick=(e)=>{
-      if(e.target.closest('[contenteditable="true"]')) return;   // уже редактируем (2× клик) — нативное выделение слова, не перехватываем
+      const _ce=e.target.closest('[contenteditable="true"]');
+      if(_ce && _ce===document.activeElement) return;   // уже РЕДАКТИРУЕМ этот текст (в фокусе) — не мешаем нативному выделению слова; «залипший» editable без фокуса пропускаем дальше
       const be=e.target.closest(".flow-block");
       if(be){ const b=this._b(be.dataset.id); if(!b) return;
         if(b.type==="image"||b.type==="video"){ this._enterCrop(b); return; }
@@ -1138,7 +1221,7 @@ class FlowEditor{
       // 2× клик по пустому месту — НИЧЕГО не создаём (блоки добавляются кнопками на панели). Раньше плодило лишние ноды.
     };
     st.onwheel=(e)=>{ e.preventDefault(); const r=st.getBoundingClientRect(); this._zoomAt(e.clientX-r.left, e.clientY-r.top, e.deltaY<0?1.12:1/1.12); };
-    st.oncontextmenu=(e)=>{ if(!e.target.closest(".flow-block")) e.preventDefault(); };
+    st.oncontextmenu=(e)=>{ if(e.target.closest(".flow-block")||e.target.closest(".flow-pop")) return; e.preventDefault(); this._emptyPop(e); };   // ПКМ по пустому — меню создания блока в точке курсора
     // перетаскивание файлов-картинок на холст (как в Figma)
     st.addEventListener("dragover",(e)=>{ const dt=e.dataTransfer; if(dt && [...(dt.items||[])].some(it=>it.kind==="file")){ e.preventDefault(); dt.dropEffect="copy"; st.classList.add("dropping"); } });
     st.addEventListener("dragleave",(e)=>{ if(e.target===st) st.classList.remove("dropping"); });
@@ -1156,6 +1239,14 @@ class FlowEditor{
     let px=e.clientX-r.left+10, py=e.clientY-r.top+10;
     px=Math.max(8,Math.min(px,r.width-pw-8)); py=Math.max(8,Math.min(py,r.height-ph-8));
     pop.style.left=px+"px"; pop.style.top=py+"px"; }
+  _emptyPop(e){ this._closeFlowPop();   // ПКМ по пустому холсту → создать блок в точке курсора
+    const wp=this.worldPt(e.clientX, e.clientY);
+    const pop=el("div","flow-pop");
+    pop.innerHTML=`<div class="fp-note">Новый блок</div>
+      <div class="fp-row fp-types">${FLOW_ORDER.map(k=>`<button class="fp-t" data-t="${k}" title="${FLOW_TYPES[k].name}"><i class="ti ${FLOW_TYPES[k].icon}"></i></button>`).join("")}</div>`;
+    this.stage.appendChild(pop); this._placePop(pop,e);
+    $$(".fp-t",pop).forEach(btn=>btn.onclick=()=>{ const tp=btn.dataset.t; this._closeFlowPop(); this.addBlockAt(tp, wp.x, wp.y); });
+  }
   _blockPop(b,e){ this._closeFlowPop();
     if((b.type==="image"||b.type==="video") && !(this.selSet.has(b.id)&&this.selSet.size>1)){   // медиа: своё короткое меню
       const cropped=this._isCropped(b);
