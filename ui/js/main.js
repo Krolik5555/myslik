@@ -351,6 +351,26 @@ async function boot(){
     const overdue=S.items.filter(it=>!it.deleted&&it.kind==="task"&&!it.done&&it.due&&parseYmd(it.due)<today());
     if(overdue.length) toast("⚠️ Просрочено: "+overdue.length+" задач");
   }, 600);
+  // авто-проверка обновлений при запуске (тихо; тост только если реально есть новее)
+  autoCheckUpdate();
+}
+
+/* Разовая фоновая проверка обновлений при старте. Ничего не качает — только
+   спрашивает GitHub. Если версия новее — небольшой тост сверху с кнопкой,
+   открывающей Настройки → Обновления с уже запущенной проверкой. */
+async function autoCheckUpdate(){
+  if(!HasPy()) return;                         // только в приложении
+  await new Promise(r=>setTimeout(r,1800));    // не мешаем старту/фокусу поля захвата
+  let r; try{ r=await window.pywebview.api.check_update(); }catch(e){ return; }
+  if(!r || !r.ok || !r.hasUpdate) return;
+  toast("Вышла новая версия "+r.latest, {icon:"ti-rocket", label:"Обновить", onAction:()=>{
+    openSettings();
+    setTimeout(()=>{
+      const st=document.getElementById("upd-status"), b=document.getElementById("upd-check");
+      if(st) st.scrollIntoView({block:"center"});
+      if(b) b.click();                         // сразу запускаем проверку → кнопка «Обновить» появится готовой
+    }, 60);
+  }});
 }
 function seedDemo(){
   const A=S.areas;
