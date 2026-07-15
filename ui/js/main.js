@@ -28,7 +28,6 @@ function openPalette(){
     {t:"Переключить тему",i:"ti-sun",run:()=>{closeOverlays();toggleTheme();}},
     {t:"Настройки",i:"ti-settings",run:()=>{closeOverlays();openSettings();}},
     {t:"Теги со стилем",i:"ti-tags",run:()=>{closeOverlays();openTagManager();}},
-    {t:"Режим отметки багов",i:"ti-bug",run:()=>{closeOverlays();toggleDevMode();}},
     {t:"Горячие клавиши",i:"ti-keyboard",run:()=>{closeOverlays();openShortcuts();}}
   ];
   function go(v){ closeOverlays(); areaFilter=null; view=v; render(); }
@@ -74,10 +73,6 @@ function applySettings(){ applyTheme();
   document.body.style.setProperty("--glow", `rgba(${rgb},${(base*g).toFixed(3)})`);
 }
 function toggleTheme(){ S.settings.theme = S.settings.theme==="light"?"dark":"light"; applySettings(); persist(); if(view==="notes") render(); }
-let devMode=false;
-function toggleDevMode(){ devMode=!devMode; document.body.classList.toggle("devmode",devMode);
-  const b=$("#f-dev"); if(b) b.classList.toggle("on",devMode);
-  toast(devMode?"Режим багов: кликни по элементу с проблемой":"Режим багов выключен",{icon:"ti-bug"}); }
 async function doBackup(){ const p=await Store.backup(); toast("Бэкап сохранён",{icon:"ti-shield-check"}); }
 async function doExport(){ const p=await Store.exportData(S); toast(p?"Экспортировано":"Экспорт отменён",{icon:p?"ti-download":"ti-x"}); }
 async function doImport(){
@@ -145,14 +140,7 @@ function wireGlobal(){
   $("#add-area").onclick=(e)=>{ e.stopPropagation(); openAreaEditor(null,()=>renderNav()); };
   $("#manage-area").onclick=(e)=>{ e.stopPropagation(); openAreaManager(); };
   $("#f-export").onclick=doExport; $("#f-import").onclick=doImport; $("#f-timer").onclick=openTimer;
-  $("#f-settings").onclick=openSettings; $("#f-dev").onclick=toggleDevMode;
-  // dev-режим: клик по любому элементу → форма отметки бага (отчёт с модулем/состоянием мне в чат)
-  document.addEventListener("click",e=>{
-    if(!devMode) return;
-    if(e.target.closest("#f-dev")) return;                                  // сам тумблер
-    if(e.target.closest(".overlay")||e.target.closest(".flow-modal-ov")) return;  // форма отчёта
-    e.preventDefault(); e.stopPropagation(); openBugReport(e.target);
-  },true);
+  $("#f-settings").onclick=openSettings;
 
   // head-actions delegated (кнопки заголовка: +Задача/Заметка, навигация календаря, переключатели)
   $("#head-actions").addEventListener("click",async e=>{
@@ -208,7 +196,7 @@ function wireGlobal(){
   // keyboard — используем e.code (раскладко-независимо: работает и на русской)
   document.addEventListener("keydown",e=>{
     if((e.ctrlKey||e.metaKey) && e.code==="KeyK"){ e.preventDefault(); if(!$("#palette"))openPalette(); return; }
-    if(e.key==="Escape"){ if(devMode && !$("#overlay-root").children.length){ toggleDevMode(); return; } if(graph&&graph.linkFrom){graph.cancelLink();return;} closeOverlays(); return; }
+    if(e.key==="Escape"){ if(graph&&graph.linkFrom){graph.cancelLink();return;} closeOverlays(); return; }
     if(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
     if($("#overlay-root").children.length) return;
     if((e.key==="Delete"||e.key==="Backspace") && view==="notes" && graph && graph.selNodes && graph.selNodes.size){ e.preventDefault(); graph.deleteSelected(); return; }

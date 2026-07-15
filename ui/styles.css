@@ -759,10 +759,6 @@ button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:va
 /* подвал сайдбара: перенос на 2 ряда (кнопок стало 7) + активная кнопка dev-режима */
 .side-foot{flex-wrap:wrap;}
 .foot-btn{min-width:26px;}
-.foot-btn.on{background:var(--warn);color:#fff;border-color:var(--warn);}
-/* dev-режим отметки багов: курсор-прицел + плашка-подсказка */
-body.devmode #body, body.devmode #body *{cursor:crosshair!important;}
-body.devmode::after{content:"⛏ Режим багов — кликни по проблемному элементу · Esc — выйти";position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:400;background:var(--warn);color:#fff;font-size:12px;padding:7px 14px;border-radius:9px;box-shadow:0 6px 20px rgba(0,0,0,.4);pointer-events:none;letter-spacing:.01em;}
 
 /* стилизованное подтверждение (вместо нативного confirm) */
 .confirm-modal{width:420px;}

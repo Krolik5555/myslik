@@ -532,14 +532,14 @@ function openSettings(){
   $("#set-reset",m).onclick=()=>{ ["theme","glow","graphBg","graphDrift","graphSpread","graphLinkLen","graphNodeSize","graphDegScale"].forEach(k=>s[k]=def[k]); persist(); applySettings(); ov.remove(); openSettings(); if(graph) graph.build(); if(view==="notes") render(); };
   // ---- обновления ----
   const updStatus=$("#upd-status",m), updCheck=$("#upd-check",m), updApply=$("#upd-apply",m), updNotes=$("#upd-notes",m);
-  let updAsset=null, updArmed=false;
+  let updAsset=null;
   (async()=>{
     if(!HasPy()){ updStatus.textContent="Обновление — только в приложении"; updCheck.disabled=true; return; }
     try{ updStatus.textContent="Версия "+(await window.pywebview.api.app_version()); }catch(e){ updStatus.textContent="Версия ?"; }
   })();
   updCheck.onclick=async()=>{
     if(!HasPy()){ toast("Обновление доступно только в приложении",{icon:"ti-refresh"}); return; }
-    updCheck.classList.add("spin"); updStatus.textContent="Проверяю GitHub…"; updApply.style.display="none"; updNotes.style.display="none"; updArmed=false;
+    updCheck.classList.add("spin"); updStatus.textContent="Проверяю GitHub…"; updApply.style.display="none"; updNotes.style.display="none";
     let r; try{ r=await window.pywebview.api.check_update(); }catch(e){ r={ok:false,error:"network"}; }
     updCheck.classList.remove("spin");
     if(!r.ok){
@@ -558,67 +558,13 @@ function openSettings(){
     }
   };
   updApply.onclick=async()=>{
-    if(!updAsset) return;
-    if(!updArmed){ updArmed=true; updApply.innerHTML='<i class="ti ti-alert-triangle"></i>Точно обновить?'; updStatus.textContent="Приложение закроется, обновится и запустится снова. Данные не пострадают."; return; }
+    if(!updAsset || updApply.disabled) return;   // одна кнопка, без подтверждения — сразу качаем
     updApply.classList.add("spin"); updApply.disabled=true; updStatus.textContent="Скачиваю обновление…";
     let r; try{ r=await window.pywebview.api.apply_update(updAsset); }catch(e){ r={ok:false,error:"network"}; }
-    if(!r || !r.ok){ updApply.classList.remove("spin"); updApply.disabled=false; updArmed=false; updApply.innerHTML='<i class="ti ti-download"></i>Обновить'; updStatus.textContent="Не удалось обновить ("+((r&&r.error)||"?")+")"; }
+    if(!r || !r.ok){ updApply.classList.remove("spin"); updApply.disabled=false; updApply.innerHTML='<i class="ti ti-download"></i>Обновить'; updStatus.textContent="Не удалось обновить ("+((r&&r.error)||"?")+")"; }
     // при успехе приложение закроется само через ~1с и запустит хелпер
   };
   $("#set-close",m).onclick=()=>ov.remove();
-}
-
-/* ===========================================================
-   DEV-РЕЖИМ: отметить баг кликом по элементу → отчёт мне в чат (п.2 KROLIK)
-   =========================================================== */
-function _bugCssPath(node){
-  const parts=[]; let n=node, depth=0;
-  while(n && n.nodeType===1 && n!==document.body && depth<5){
-    let sel=n.tagName.toLowerCase();
-    if(n.id){ parts.unshift(sel+"#"+n.id); break; }
-    const cls=(typeof n.className==="string"?n.className.trim().split(/\s+/):[]).filter(c=>c && !/^(sel|on|dim|tgt|show|anim-in|pop|panmode|devmode)$/.test(c)).slice(0,2);
-    if(cls.length) sel+="."+cls.join(".");
-    parts.unshift(sel); n=n.parentElement; depth++;
-  }
-  return parts.join(" > ");
-}
-function _bugModule(node){
-  if(node.closest(".flow-screen")) return "ui/js/overlays.js — FlowEditor (редактор блок-схем)";
-  if(node.closest("#graph")||node.closest(".graph-bg-canvas")||node.closest(".graph-toolbar")) return "ui/js/graph.js — Graph (паутина заметок)";
-  if(node.closest(".flow-pop")||node.closest("#node-pop")) return "ui/js/overlays.js / graph.js — поповеры";
-  if(node.closest(".modal")||node.closest(".pal-box")) return "ui/js/overlays.js — модалки";
-  if(node.closest("#side")) return "ui/js/main.js (сайдбар) + views.js (renderNav)";
-  if(node.closest("#topbar")) return "ui/js/main.js — быстрый захват/парсер (parseCapture)";
-  if(node.closest("#titlebar")) return "app.py (рамка окна) + index.html";
-  if(node.closest("#view")) return "ui/js/views.js — рендер вкладки «"+(typeof view!=="undefined"?view:"?")+"»";
-  return "ui/js/* — определить по содержимому";
-}
-function openBugReport(node){
-  const path=_bugCssPath(node), mod=_bugModule(node);
-  const txt=(node.innerText||"").trim().replace(/\s+/g," ").slice(0,90);
-  const dn=node.closest("[data-id],[data-nid],[data-tid],[data-area]");
-  const did=dn?(dn.dataset.id||dn.dataset.nid||dn.dataset.tid||dn.dataset.area):"";
-  const ctx="Вид: "+(typeof view!=="undefined"?view:"?")+((typeof notesMode!=="undefined"&&view==="notes")?" / "+notesMode:"");
-  const build=note=>`БАГ-ОТЧЁТ (Мыслик)\n${ctx}\nЭлемент: ${path}\n${txt?'Текст: "'+txt+'"\n':""}${did?"data-id: "+did+"\n":""}Вероятный модуль: ${mod}\n---\nЧто не так: ${note||"(опиши словами)"}`;
-  const m=el("div","modal"); m.innerHTML=`
-    <h3><i class="ti ti-bug"></i>Отметить баг</h3>
-    <div class="field"><label>Что не так? (своими словами)</label>
-      <textarea id="bg-note" placeholder="например: кнопка не нажимается / съезжает вёрстка / неверный текст"></textarea></div>
-    <div class="field"><label>Контекст для Claude (приложится автоматически)</label>
-      <textarea id="bg-ctx" readonly style="height:128px;font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:pre;"></textarea></div>
-    <div class="modal-foot"><div class="right">
-      <button class="btn ghost" id="bg-close">Отмена</button>
-      <button class="btn primary" id="bg-copy"><i class="ti ti-copy"></i>Скопировать отчёт</button>
-    </div></div>`;
-  const ov=overlay(m); const ctxTa=$("#bg-ctx",m), note=$("#bg-note",m);
-  ctxTa.value=build("");
-  note.addEventListener("input",()=>ctxTa.value=build(note.value.trim()));
-  $("#bg-close",m).onclick=()=>ov.remove();
-  $("#bg-copy",m).onclick=()=>{ const t=build(note.value.trim()); ctxTa.value=t; ctxTa.focus(); ctxTa.select();
-    const done=()=>{ toast("Отчёт скопирован — вставь мне в чат",{icon:"ti-check"}); ov.remove(); };
-    try{ if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done,()=>{document.execCommand("copy");done();}); else {document.execCommand("copy");done();} }
-    catch(_){ try{document.execCommand("copy");done();}catch(e){ toast("Выдели и Ctrl+C"); } } };
-  setTimeout(()=>note.focus(),30);
 }
 
 class FlowEditor{
