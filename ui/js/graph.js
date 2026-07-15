@@ -3,6 +3,8 @@
    NOTES GRAPH
    =========================================================== */
 let graph=null;
+let graphCam=null;   // камера графа (tx/ty/zoom) переживает пересоздание Graph → нет рывка вьюпорта при создании ноды/связи
+let graphClip=null;  // буфер копирования нод (Ctrl+C/V в графе)
 /* фон паутины «Точечное поле» (canvas): точки рисует Graph._drawBg() каждый кадр,
    привязано к настоящему пану/зуму (this.tx/ty/zoom), бесшовно по мировому индексу тайла. */
 function renderNotes(v){
@@ -11,33 +13,46 @@ function renderNotes(v){
     `<div class="toggle" id="notes-toggle">
        <button data-nm="graph" class="${notesMode==="graph"?"on":""}"><i class="ti ti-affiliate"></i>Граф</button>
        <button data-nm="list" class="${notesMode==="list"?"on":""}"><i class="ti ti-layout-grid"></i>Список</button>
-     </div>
-     <button class="btn" data-new="note" style="margin-left:8px"><i class="ti ti-note"></i>Заметка</button>
-     <button class="btn" data-new="flow"><i class="ti ti-sitemap"></i>Схема</button>`);
+     </div>`);   // кнопки «Заметка»/«Полотно» убраны — создаём через ПКМ по холсту
   if(notesMode==="list"){ if(graph){ const g=graph; graph=null; g.destroy(); } return renderNotesList(v); }
   v.innerHTML=`<div id="graph-wrap" style="height:calc(100vh - 210px);min-height:420px;">
     <canvas class="graph-bg-canvas"></canvas>
     <svg id="graph" preserveAspectRatio="xMidYMid meet"></svg>
     <div class="graph-toolbar">
-      <button class="btn ghost" id="g-zoom-out" title="Уменьшить"><i class="ti ti-zoom-out"></i></button>
-      <button class="btn ghost" id="g-zoom-in" title="Увеличить"><i class="ti ti-zoom-in"></i></button>
+      <button class="btn ghost" id="g-search" title="Найти ноду (название или #тег)"><i class="ti ti-search"></i></button>
       <button class="btn ghost" id="g-focus" title="Показать все ноды"><i class="ti ti-focus-2"></i></button>
-      <button class="btn ghost" id="g-refit" title="Перераскладка"><i class="ti ti-arrows-shuffle"></i></button>
+      <button class="btn ghost" id="g-more" title="Ещё: перераскладка, теги"><i class="ti ti-dots"></i></button>
+    </div>
+    <div class="graph-more" id="g-more-menu" style="display:none">
+      <button class="gm-it" id="g-refit"><i class="ti ti-arrows-shuffle"></i>Перераскладка</button>
+      <button class="gm-it" id="g-tags"><i class="ti ti-tags"></i>Теги со стилем</button>
+    </div>
+    <div class="graph-search" id="g-search-box" style="display:none">
+      <i class="ti ti-search"></i><input type="text" placeholder="Найти по названию или #тегу…" spellcheck="false"><span class="gs-count"></span><button class="gs-close" title="Закрыть (Esc)"><i class="ti ti-x"></i></button>
     </div>
     <div class="graph-legend">
       <span><span class="lg-dot hub"></span>область</span>
       <span><span class="lg-dot note"></span>заметка</span>
       <span><span class="lg-dot task"></span>задача</span>
+      <span><span class="lg-dot flow"></span>полотно</span>
     </div>
-    <div class="graph-hint" id="g-hint">ПКМ — меню · двойной клик — открыть · клик по связи — убрать</div>
+    <div class="graph-hint" id="g-hint">Alt+тащи от ноды — связь/заметка · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · колесо — зум · Delete — удалить</div>
   </div>`;
   if(graph){ const g=graph; graph=null; g.destroy(); }
   graph=new Graph($("#graph"));
   graph.build();
-  $("#g-refit").onclick=()=>graph.refit();
+  $("#g-search").onclick=()=>{ const box=$("#g-search-box"); if(box && box.style.display!=="none") graph.closeSearch(); else graph.openSearch(); };
   $("#g-focus").onclick=()=>graph._fitView();
-  $("#g-zoom-in").onclick=()=>{ if(graph._vraf){cancelAnimationFrame(graph._vraf);graph._vraf=null;} graph.zoom=Math.min(2.5,graph.zoom*1.25); graph._applyTransform(); };
-  $("#g-zoom-out").onclick=()=>{ if(graph._vraf){cancelAnimationFrame(graph._vraf);graph._vraf=null;} graph.zoom=Math.max(0.4,graph.zoom/1.25); graph._applyTransform(); };
+  // меню «Ещё»: редко используемые действия убраны из тулбара, чтобы не перегружать (зум — колесом)
+  const moreMenu=$("#g-more-menu");
+  function onDocMore(ev){ if(!document.body.contains(moreMenu)){ document.removeEventListener("pointerdown",onDocMore,true); return; }   // граф пересоздан — снять висячий слушатель
+    if(!ev.target.closest("#g-more-menu") && !ev.target.closest("#g-more")) closeMore(); }
+  function closeMore(){ if(moreMenu) moreMenu.style.display="none"; document.removeEventListener("pointerdown",onDocMore,true); }
+  $("#g-more").onclick=(ev)=>{ ev.stopPropagation(); if(!moreMenu) return;
+    if(moreMenu.style.display!=="none"){ closeMore(); }
+    else { moreMenu.style.display="flex"; document.addEventListener("pointerdown",onDocMore,true); } };
+  $("#g-refit").onclick=()=>{ closeMore(); graph.refit(); };
+  $("#g-tags").onclick=()=>{ closeMore(); openTagManager(); };
   wireNotesToggle();
 }
 // каретка-сворачиватель для узла, у которого есть дочерние (в наборе паутины)
@@ -53,7 +68,7 @@ function noteCard(it, depth=0, hasKids, compact){
   const c=itemColor(it);
   const isChild = depth > 0;
   const border = isChild?'':'border-left-color:'+(c||'var(--acc)')+';';
-  const kicn = it.kind==="flow"?"ti-sitemap":"ti-note";
+  const kicn = it.kind==="flow"?"ti-artboard":"ti-note";
   const showIcn = compact || it.kind==="flow";   // схему всегда помечаем иконкой, чтобы отличать от заметок
   const head=`<div class="nc-head">${caretHTML(it, hasKids)}${showIcn?`<i class="ti ${kicn} nc-icn"></i>`:''}<div class="nc-ttl">${esc(it.title)}</div></div>`;
   // compact: заметка как контекст-заголовок в дереве задач (без тела/футера)
@@ -66,7 +81,8 @@ function noteCard(it, depth=0, hasKids, compact){
     <div class="nc-foot">
       ${conn.length?`<span class="tag"><i class="ti ti-link"></i>${conn.length}</span>`:""}
       ${kids.length?`<span class="tag"><i class="ti ti-sitemap"></i>${kids.length}</span>`:""}
-      ${(it.tags||[]).map(t=>`<span class="tag hash"><i class="ti ti-hash"></i>${esc(t)}</span>`).join("")}
+      ${(it.tags||[]).map(t=>{ const ts=tagStyle(t); return `<span class="tag hash" data-tag="${esc(t)}" title="Фильтр по тегу" ${ts&&ts.color?`style="border-color:${ts.color};color:${ts.color}"`:""}><i class="ti ${ts&&ts.icon?ts.icon:"ti-hash"}"></i>${esc(t)}</span>`; }).join("")}
+      ${it.folder?`<button class="nc-folder" data-openfolder="${it.id}" title="Открыть папку на ПК"><i class="ti ti-folder"></i></button>`:""}
     </div>
   </div>`;
 }
@@ -74,10 +90,11 @@ function noteCard(it, depth=0, hasKids, compact){
 function treeTaskCard(it, depth=0, hasKids){
   const conn=linksOf(it.id);
   const kids=childrenOf(it.id);
-  const c=itemColor(it);
   const isChild = depth > 0;
-  const dl=dueLabel(it.due);
-  return `<div class="note-card task ${isChild?'child':'root'} ${it.done?'done':''}" data-tid="${it.id}" style="${isChild?'':'border-left-color:'+(c||'var(--acc)')+';'}">
+  const dl=dueBadge(it);
+  // полоска слева + флажок = СРОЧНОСТЬ (приоритет): pri-3 красный · pri-2 жёлтый · pri-1 зелёный · pri-0 нейтральный
+  // дочерние получают тот же цвет, но приглушённый (см. CSS .note-card.task.child.pri-N)
+  return `<div class="note-card task ${isChild?'child':'root'} ${it.done?'done':''} pri-${it.priority||0}" data-tid="${it.id}">
     <div class="nc-head">
       ${caretHTML(it, hasKids)}
       <button class="chk ${it.done?'done':''}" data-chk="${it.id}" title="Выполнить"><i class="ti ti-check"></i></button>
@@ -86,59 +103,105 @@ function treeTaskCard(it, depth=0, hasKids){
     <div class="nc-foot">
       <span class="tag"><i class="ti ti-checklist"></i>задача</span>
       ${dl?`<span class="due ${dl.cls}"><i class="ti ti-calendar-event"></i>${dl.txt}</span>`:""}
-      ${it.priority?`<span class="pri" style="color:${it.priority>=2?"var(--warn)":"var(--mut)"}"><i class="ti ti-flag-3"></i></span>`:""}
+      ${it.priority?`<span class="pri"><i class="ti ti-flag-3"></i></span>`:""}
       ${conn.length?`<span class="tag"><i class="ti ti-link"></i>${conn.length}</span>`:""}
       ${kids.length?`<span class="tag"><i class="ti ti-sitemap"></i>${kids.length}</span>`:""}
+      ${it.folder?`<button class="nc-folder" data-openfolder="${it.id}" title="Открыть папку на ПК"><i class="ti ti-folder"></i></button>`:""}
     </div>
   </div>`;
+}
+// сортировка дерева: срочные задачи вперёд (приоритет ↓), затем по сроку, затем свежесть; заметки (приоритет 0) — в конце
+function byUrgency(a,b){ return (b.priority||0)-(a.priority||0) || ((a.due?parseYmd(a.due):Infinity)-(b.due?parseYmd(b.due):Infinity)) || (b.updated||0)-(a.updated||0); }
+// компактная строка для вкладки «Папки»: каретка + иконка типа + заголовок. Полоска слева = цвет ноды (itemColor);
+// задача-с-папкой со срочностью показывает флажок справа (как в списке заметок).
+function folderRowCard(it, hasKids){
+  const ki=it.kind==="flow"?"ti-artboard":it.kind==="task"?"ti-checklist":"ti-note";
+  const col=itemColor(it);
+  const flag=(it.kind==="task" && it.priority && it.folder)?`<span class="pri" style="color:${it.priority>=3?"var(--pri3)":it.priority===2?"var(--pri2)":"var(--pri1)"}"><i class="ti ti-flag-3"></i></span>`:"";
+  return `<div class="note-card ctx ${it.done?'done':''}" data-nid="${it.id}" ${col?`style="border-left-color:${col}"`:""}><div class="nc-head">${caretHTML(it,hasKids)}<i class="ti ${ki} nc-icn"></i><div class="nc-ttl">${esc(it.title)}</div>${flag}</div></div>`;
 }
 function renderNotesList(v){
   const nodes=S.items.filter(inWeb);   // заметки + задачи из паутины
   if(!nodes.length){ v.innerHTML=emptyBox("ti-note","Пусто. Создай заметку (кнопка сверху или <b>N</b>) или задачу."); wireNotesToggle(); return; }
   const ids=new Set(nodes.map(n=>n.id));
-  const hasParent=it=> it.parent && ids.has(it.parent);  // валидный родитель внутри набора
+  const byId=id=>S.items.find(i=>i.id===id);
+  const isDone=it=>it.kind==="task" && it.done;
+  // архивна ли нода: она сама done-задача, ИЛИ архивен её ближайший родитель (рекурсивно вниз по дереву).
+  // выполненные задачи и их поддерево «улетают» в «Завершённые», как во вкладке «Папки»;
+  // активный узел НЕ утягивается в архив статусом своего потомка (только предка).
+  const archMemo=new Map();
+  const isArchived=it=>{
+    if(archMemo.has(it.id)) return archMemo.get(it.id);
+    archMemo.set(it.id,false);
+    const pid=(it.parent&&ids.has(it.parent))?it.parent:null;
+    const res = isDone(it) || (pid ? isArchived(byId(pid)) : false);
+    archMemo.set(it.id,res); return res;
+  };
+  // текстовый фильтр: совпавшие по названию/телу/тегам + их предки (контекст ветки)
+  const q=listQuery.trim().toLowerCase();
+  let shown=nodes;
+  if(q){
+    const hit=n=>(n.title||"").toLowerCase().includes(q)||(n.body||"").toLowerCase().includes(q)||(n.tags||[]).some(t=>String(t).toLowerCase().includes(q));
+    const keep=new Set();
+    nodes.filter(hit).forEach(n=>{ let cur=n,g=new Set(); while(cur&&!g.has(cur.id)){ g.add(cur.id); keep.add(cur.id); const pid=(cur.parent&&ids.has(cur.parent))?cur.parent:null; cur=pid?byId(pid):null; } });
+    shown=nodes.filter(n=>keep.has(n.id));
+  }
+  const activeSet=new Set(), doneSet=new Set();
+  shown.forEach(n=>{ (isArchived(n)?doneSet:activeSet).add(n.id); });
+  const hasParentIn=(it,set)=> it.parent && set.has(it.parent);
   const seen=new Set();                                   // защита от дублей и циклов в иерархии
-  // рекурсивно: карточка + ВСЕ её потомки (заметки и задачи, вне зависимости от области)
-  function branch(it, depth){
+  // рекурсивно: карточка + ВСЕ её потомки из того же набора (активные/архив)
+  function branch(it, depth, set){
     if(seen.has(it.id)) return "";
     seen.add(it.id);
     let h=noteCard(it, depth);
     if(isCollapsed(it.id)) return h;   // свёрнут — детей не показываем
     const kids=childrenOf(it.id)
-      .filter(k=>inWeb(k))
-      .sort((a,b)=>(a.updated||0)-(b.updated||0));
-    if(kids.length) h+=`<div class="tree-branch">`+kids.map(k=>branch(k, depth+1)).join("")+`</div>`;
+      .filter(k=>set.has(k.id))
+      .sort(byUrgency);
+    if(kids.length) h+=`<div class="tree-branch">`+kids.map(k=>branch(k, depth+1, set)).join("")+`</div>`;
     return h;
   }
-  function group(roots){ return `<div class="notes-tree">`+roots.sort((a,b)=>(b.updated||0)-(a.updated||0)).map(r=>branch(r,0)).join("")+`</div>`; }
+  function group(roots, set, sortFn){ return `<div class="notes-tree">`+roots.slice().sort(sortFn||byUrgency).map(r=>branch(r,0,set)).join("")+`</div>`; }
   function sec(key, icon, name, count, colorStyle){
     const c=isCollapsed(key);
     return `<div class="sec sec-collapse" data-collapse="${key}"><i class="ti ${c?'ti-chevron-right':'ti-chevron-down'} sec-chev"></i><i class="ti ${icon}" ${colorStyle||""}></i>${esc(name)}<span class="sec-cnt">${count}</span></div>`;
   }
-  let h="";
-  // корни (без родителя) группируем по области корня; потомки вкладываются под корнем независимо от их области
+  let h=`<div class="tf-chips"><span class="list-find"><i class="ti ti-search"></i><input id="list-filter" type="text" placeholder="Фильтр…" value="${esc(listQuery)}" spellcheck="false"></span></div>`;
+  if(q && !shown.length) h+=emptyBox("ti-search","Ничего не нашлось по фильтру «"+esc(listQuery.trim())+"».");
+  // корни (без родителя В ТОМ ЖЕ наборе) группируем по области корня; потомки вкладываются под корнем независимо от их области
   S.areas.forEach(a=>{
-    const roots=nodes.filter(it=>it.area===a.id && !hasParent(it));
+    const roots=nodes.filter(it=>activeSet.has(it.id) && it.area===a.id && !hasParentIn(it,activeSet));
     if(!roots.length) return;
     const key="area:"+a.id;
     h+=sec(key, a.icon, a.name, roots.length, a.color?`style="color:${a.color}"`:"");
-    if(!isCollapsed(key)) h+=group(roots);
+    if(!isCollapsed(key)) h+=group(roots,activeSet);
   });
-  const noArea=nodes.filter(it=>!it.area && !hasParent(it));
+  const noArea=nodes.filter(it=>activeSet.has(it.id) && !it.area && !hasParentIn(it,activeSet));
   if(noArea.length){
     h+=sec("area:__none", "ti-circle-dashed", "Без области", noArea.length, "");
-    if(!isCollapsed("area:__none")) h+=group(noArea);
+    if(!isCollapsed("area:__none")) h+=group(noArea,activeSet);
+  }
+  // ЗАВЕРШЁННЫЕ: выполненная задача (и её активные потомки) уезжают сюда целиком, свежие сверху
+  const doneRoots=nodes.filter(it=>doneSet.has(it.id) && !hasParentIn(it,doneSet));
+  if(doneRoots.length){
+    const key="notes:done", c=isCollapsed(key);
+    h+=`<div class="sec sec-collapse fld-done-sec" data-collapse="${key}"><i class="ti ${c?'ti-chevron-right':'ti-chevron-down'} sec-chev"></i><i class="ti ti-checks"></i>Завершённые<span class="sec-cnt">${doneRoots.length}</span></div>`;
+    if(!c) h+=group(doneRoots, doneSet, (a,b)=>(b.doneAt||0)-(a.doneAt||0));
   }
   v.innerHTML=h;
   // свернуть/развернуть область или поддерево
   $$("[data-collapse]",v).forEach(elm=>elm.onclick=(e)=>{ e.stopPropagation(); toggleCollapse(elm.dataset.collapse); render(); });
   $$(".note-card",v).forEach(card=>card.onclick=(e)=>{
     if(e.target.closest("[data-chk]")) return;       // чекбокс обрабатывает делегат #view (toggleDone)
+    if(e.target.closest("[data-tag]")) return;       // клик по тегу — фильтр (делегат #view)
     if(e.target.closest("[data-collapse]")) return;  // каретка сворачивания
+    if(e.target.closest("[data-openfolder]")) return; // кнопка папки — делегат #view
     const id=card.dataset.nid||card.dataset.tid;
     const it=S.items.find(i=>i.id===id); if(!it) return;
     openItemSmart(it);
   });
+  wireListFilter(v);
   wireNotesToggle();
 }
 function wireNotesToggle(){
@@ -152,7 +215,130 @@ class Graph{
     this._lcId=null; this._lcT=0;
     this.alpha=1; this.drag=null; this.linkFrom=null; this.sel=null;
     this.zoom=1; this.tx=0; this.ty=0; this.panning=null;
+    this.bgPanX=0; this.bgPanY=0;   // мировой сдвиг фон-параллакса: копится ТОЛЬКО от пана (не от зума/фита) → зум читается чисто
     this.raf=null;
+    this.selNodes=new Set(); this.marq=null;   // выделение нод (клик/shift-клик/рамка) + удаление по Delete
+  }
+  _paintSel(){ if(this.nodeEls) this.nodeEls.forEach(o=>o.g.classList.toggle("sel",this.selNodes.has(o.n.id))); }
+  _startMarquee(e){ const wrap=this.svg.parentNode; let el=wrap.querySelector(".graph-marquee");
+    if(!el){ el=document.createElement("div"); el.className="graph-marquee"; wrap.appendChild(el); }
+    this._marqEl=el; const rc=wrap.getBoundingClientRect();
+    this.marq={x0:e.clientX,y0:e.clientY,rc,base:new Set(this.selNodes)};
+    el.style.display=""; el.style.left=(e.clientX-rc.left)+"px"; el.style.top=(e.clientY-rc.top)+"px"; el.style.width="0px"; el.style.height="0px";
+  }
+  _updateMarquee(e){ const m=this.marq, rc=m.rc;
+    const x1=Math.min(m.x0,e.clientX),y1=Math.min(m.y0,e.clientY),x2=Math.max(m.x0,e.clientX),y2=Math.max(m.y0,e.clientY);
+    this._marqEl.style.left=(x1-rc.left)+"px"; this._marqEl.style.top=(y1-rc.top)+"px"; this._marqEl.style.width=(x2-x1)+"px"; this._marqEl.style.height=(y2-y1)+"px";
+    const w1=this._pt({clientX:x1,clientY:y1}), w2=this._pt({clientX:x2,clientY:y2});
+    // hit-тест по ВИДИМОЙ позиции (с idle-дрейфом), как рисуется нода — иначе у краёв рамки промахи
+    const hit=this.nodes.filter(n=>{ const nx=n.x+(n._ix||0), ny=n.y+(n._iy||0); return nx>=w1.x && nx<=w2.x && ny>=w1.y && ny<=w2.y; }).map(n=>n.id);
+    this.selNodes=new Set([...m.base,...hit]); this._paintSel();
+  }
+  _finishMarquee(){ this.marq=null; if(this._marqEl) this._marqEl.style.display="none"; }
+  /* ---- поиск ноды по названию + перелёт камеры ---- */
+  openSearch(){ const box=$("#g-search-box"); if(!box) return; this._searchBox=box; box.style.display="flex";
+    const inp=$("input",box), cnt=$(".gs-count",box), cl=$(".gs-close",box); inp.value=""; this._searchMatches=[]; this._searchIdx=0;
+    if(cl) cl.onclick=()=>this.closeSearch();
+    inp.oninput=()=>{ const n=this.search(inp.value); cnt.textContent=inp.value.trim()?(n?(this._searchIdx+1)+"/"+n:"0"):""; };
+    inp.onkeydown=(e)=>{ e.stopPropagation();
+      if(e.key==="Enter"){ e.preventDefault(); this.searchNext(); cnt.textContent=this._searchMatches.length?(this._searchIdx+1)+"/"+this._searchMatches.length:"0"; }
+      else if(e.key==="Escape"){ e.preventDefault(); this.closeSearch(); } };
+    setTimeout(()=>inp.focus(),20);
+  }
+  search(q){ q=(q||"").trim().toLowerCase().replace(/^#/,"");
+    if(!q){ this._searchMatches=[]; this._clearSearchDim(); return 0; }
+    const matches=this.nodes.filter(n=>(n.label||"").toLowerCase().includes(q) || (n.ref && (n.ref.tags||[]).some(t=>String(t).toLowerCase().includes(q))));   // по названию ИЛИ тегу
+    this._searchMatches=matches; this._searchIdx=0;
+    const ids=new Set(matches.map(n=>n.id));
+    this.nodeEls.forEach(o=>o.g.classList.toggle("dim", matches.length>0 && !ids.has(o.n.id)));   // гасим несовпадающие
+    this.linkEls.forEach(e=>e.classList.toggle("dim", matches.length>0));
+    if(matches.length) this._flyTo(matches[0]);
+    return matches.length;
+  }
+  searchNext(){ const m=this._searchMatches; if(!m||!m.length) return; this._searchIdx=(this._searchIdx+1)%m.length; this._flyTo(m[this._searchIdx]); }
+  _flyTo(n){ this.selNodes=new Set([n.id]); this._paintSel();
+    const z=Math.max(this.zoom,0.9); this._tweenView(z, this.W/2-n.x*z, this.H/2-n.y*z); }
+  _clearSearchDim(){ if(this.nodeEls) this.nodeEls.forEach(o=>o.g.classList.remove("dim")); if(this.linkEls) this.linkEls.forEach(e=>e.classList.remove("dim")); }
+  closeSearch(){ if(this._searchBox) this._searchBox.style.display="none"; this._clearSearchDim(); }
+  copySelection(){
+    const ids=[...this.selNodes].filter(id=>this.byId[id]&&this.byId[id].ref); if(!ids.length) return;
+    const idset=new Set(ids);
+    const items=ids.map(id=>{ const it=this.byId[id].ref, n=this.byId[id];
+      return {_old:id, kind:it.kind, title:it.title, body:it.body, area:it.area, color:it.color||null, size:it.size||null,
+        tags:(it.tags||[]).slice(), status:it.status, done:!!it.done, doneAt:it.doneAt||null, due:it.due||null, repeat:it.repeat||"none", priority:it.priority||0,
+        flow:it.kind==="flow"?JSON.parse(JSON.stringify(it.flow||{})):null, x:n.x, y:n.y }; });
+    const links=(S.links||[]).filter(l=>idset.has(l[0])&&idset.has(l[1])).map(l=>[l[0],l[1],+l[2]||1]);
+    graphClip={items,links}; toast("Скопировано: "+ids.length,{icon:"ti-copy"});
+  }
+  pasteClip(){
+    if(!graphClip||!graphClip.items.length) return; const map={}, off=28, newIds=[];
+    graphClip.items.forEach(d=>{
+      const it=addItem({kind:d.kind,title:d.title,body:d.body,area:d.area,color:d.color,tags:(d.tags||[]).slice(),status:d.status,due:d.due,repeat:d.repeat,priority:d.priority});
+      if(d.size) it.size=d.size;
+      // согласуем done/status/doneAt (иначе вставленная выполненная задача = status:done но done:false)
+      it.done=!!d.done;
+      if(it.done){ it.status="done"; it.doneAt=d.doneAt||Date.now(); }
+      else if(it.status==="done"){ it.status=d.due?"todo":"inbox"; it.doneAt=null; }
+      if(d.kind==="flow"&&d.flow){ it.flow=JSON.parse(JSON.stringify(d.flow)); ensureFlow(it); }
+      it.x=(d.x||0)+off; it.y=(d.y||0)+off;
+      map[d._old]=it.id; newIds.push(it.id);
+    });
+    graphClip.links.forEach(l=>{ const a=map[l[0]], b=map[l[1]]; if(a&&b) S.links.push([a,b,l[2]||1]); });
+    persist(); recomputeHierarchy(); this.selNodes=new Set(newIds); this.build(); this._paintSel();
+    toast("Вставлено: "+newIds.length,{icon:"ti-clipboard-check"});
+  }
+  _startConnectDrag(n,e){ this.connectDrag=n.id; this._closePop(); const p=this._pt(e);
+    this.tempLine.style.display=""; this.tempLine.setAttribute("x1",n.x); this.tempLine.setAttribute("y1",n.y); this.tempLine.setAttribute("x2",p.x); this.tempLine.setAttribute("y2",p.y); }
+  // быстрое создание ноды (kind: note/task/flow) в точке (wx,wy); fromId!=null → сразу связать;
+  // note/task → инлайн-ввод названия (поток мысли не рвётся), flow → открываем редактор схемы
+  _quickAdd(kind,wx,wy,fromId){
+    const fromIt = fromId && this.byId[fromId] ? this.byId[fromId].ref : null;
+    const data={kind, title:"", area:(fromIt?fromIt.area:areaFilter)||null};
+    if(kind==="task") data.status="todo";
+    const it=addItem(data);
+    it.x=Math.round(wx); it.y=Math.round(wy); persist();
+    if(fromId) addLink(fromId, it.id);
+    recomputeHierarchy(); this.build();
+    if(kind==="flow") openFlowEditor(it); else this._inlineRename(it.id);
+  }
+  // меню «Создать» по ПКМ на пустом месте холста — заметка / задача / схема в точке клика
+  _openCreateMenu(e){
+    this._closePop(); const wrap=$("#graph-wrap"); if(!wrap) return; const rc=this.svg.getBoundingClientRect(); const wp=this._pt(e);
+    const pop=el("div","g-ctx"); pop.id="node-pop";
+    pop.innerHTML=`
+      <div class="np-ttl"><i class="ti ti-plus"></i> Создать здесь</div>
+      <div class="np-col">
+        <button class="btn" data-mk="note"><i class="ti ti-note"></i>Заметка</button>
+        <button class="btn" data-mk="task"><i class="ti ti-checklist"></i>Задача</button>
+        <button class="btn" data-mk="flow"><i class="ti ti-artboard"></i>Полотно</button>
+      </div>`;
+    wrap.appendChild(pop);
+    const pw=pop.offsetWidth||180, ph=pop.offsetHeight||170;
+    let px=e.clientX-rc.left+6, py=e.clientY-rc.top+6;
+    px=Math.max(8,Math.min(px,rc.width-pw-8)); py=Math.max(8,Math.min(py,rc.height-ph-8));
+    pop.style.left=px+"px"; pop.style.top=py+"px";
+    $$("[data-mk]",pop).forEach(b=>b.onclick=()=>{ const k=b.dataset.mk; this._closePop(); this._quickAdd(k,wp.x,wp.y,null); });
+  }
+  _inlineRename(id){
+    const n=this.byId[id]; if(!n) return; const wrap=$("#graph-wrap"); if(!wrap) return;
+    const old=wrap.querySelector(".g-inline"); if(old) old.remove();
+    const inp=document.createElement("input"); inp.className="g-inline"; inp.value=n.ref?n.ref.title:""; inp.placeholder="Название…";
+    wrap.appendChild(inp);
+    const m=this.root.getScreenCTM(); if(m){ const pt=this.svg.createSVGPoint(); pt.x=n.x; pt.y=n.y; const sp=pt.matrixTransform(m); const rc=wrap.getBoundingClientRect(); inp.style.left=(sp.x-rc.left)+"px"; inp.style.top=(sp.y-rc.top)+"px"; }
+    const commit=(save)=>{ if(inp._done) return; inp._done=true; const v=inp.value.trim();
+      if(save){ if(n.ref){ n.ref.title=v||"Новая заметка"; touch(n.ref); persist(); } }
+      else if(n.ref && !(n.ref.title||"").trim()){ hardDeleteItem(n.ref.id); recomputeHierarchy(); }   // Escape по только что созданной пустой → убрать ноду-сироту (и связь)
+      inp.remove(); this.build(); };
+    inp.onkeydown=(ev)=>{ ev.stopPropagation(); if(ev.key==="Enter"){ ev.preventDefault(); commit(true); } else if(ev.key==="Escape"){ ev.preventDefault(); commit(false); } };
+    inp.onblur=()=>commit(true);
+    setTimeout(()=>{ inp.focus(); inp.select(); },20);
+  }
+  deleteSelected(){
+    const ids=[...this.selNodes].filter(id=>this.byId[id] && this.byId[id].ref);   // только заметки/задачи/схемы, не области-хабы
+    if(!ids.length) return;
+    const snap=ids.slice();
+    ids.forEach(id=>deleteItem(id)); this.selNodes.clear(); recomputeHierarchy(); this.build();
+    toast(ids.length>1?ids.length+" удалено":"Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ snap.forEach(id=>restoreItem(id)); recomputeHierarchy(); render(); }});
   }
   build(){
     const NS="http://www.w3.org/2000/svg";
@@ -164,7 +350,9 @@ class Graph{
     this.bgCanvas=this.svg.parentNode?this.svg.parentNode.querySelector(".graph-bg-canvas"):null;
     this.bgCtx=this.bgCanvas?this.bgCanvas.getContext("2d"):null;
     this._bgReduce=!!(window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    if(graphCam){ this.tx=graphCam.tx; this.ty=graphCam.ty; this.zoom=graphCam.zoom; }   // восстановить камеру ДО размещения (для центра вида)
     const cx=this.W/2, cy=this.H/2;
+    const vcx=(this.W/2-this.tx)/this.zoom, vcy=(this.H/2-this.ty)/this.zoom;   // центр текущего вида в мировых координатах — туда сажаем новые ноды (не «влетают» издалека)
     // сохраняем текущие позиции узлов, чтобы при перестроении (смена цвета/связи) граф не «прыгал»
     const prev=this.byId||{};
     this.nodes=[]; this.links=[]; this.byId={};
@@ -177,13 +365,15 @@ class Graph{
       this.nodes.push({id:"hub_"+a.id, hubArea:a, label:a.name, type:"hub", r:11, fixed:!!a.pin, color:areaColor(a.id),
         x, y, vx:0, vy:0, _fresh:(a.x==null && !p)});
     });
-    // items on the graph: all notes + tasks that left the inbox
-    const onGraph=S.items.filter(it=> !it.deleted && (it.kind==="note" || it.status!=="inbox"));
+    // items on the graph: все ноды из паутины (inWeb) — статус/дата/область не фильтруют
+    const onGraph=S.items.filter(inWeb);
     onGraph.forEach(it=>{
       const p=prev[it.id];
-      const x = it.x!=null?it.x : (p?p.x:cx+(Math.random()-.5)*300);
-      const y = it.y!=null?it.y : (p?p.y:cy+(Math.random()-.5)*220);
-      const n={id:it.id, ref:it, label:it.title, type:it.kind, done:it.done, area:it.area, color:itemColor(it),
+      const x = it.x!=null?it.x : (p?p.x:vcx+(Math.random()-.5)*180);
+      const y = it.y!=null?it.y : (p?p.y:vcy+(Math.random()-.5)*140);
+      const ts=itemTagStyle(it);
+      const n={id:it.id, ref:it, label:it.title, type:it.kind, done:it.done, area:it.area,
+        color: it.color || (ts&&ts.color) || (it.area?areaColor(it.area):null) || null, tagStyle:ts,
         r:7, x, y, vx:0, vy:0, fixed:!!it.pin, _fresh:(it.x==null && !p)};
       this.nodes.push(n);
     });
@@ -191,7 +381,7 @@ class Graph{
 
     // manual links first, remember pairs to dedupe auto area-links
     const pairs=new Set();
-    S.links.forEach(l=>{ if(this.byId[l[0]]&&this.byId[l[1]]){ this.links.push({a:l[0],b:l[1],L:108,manual:true}); pairs.add(l[0]+"|"+l[1]); pairs.add(l[1]+"|"+l[0]); } });
+    S.links.forEach(l=>{ if(this.byId[l[0]]&&this.byId[l[1]]){ this.links.push({a:l[0],b:l[1],L:108,manual:true,lenMul:(+l[2]||1),src:l}); pairs.add(l[0]+"|"+l[1]); pairs.add(l[1]+"|"+l[0]); } });
     onGraph.forEach(it=>{ const hub="hub_"+it.area; if(it.area && this.byId[hub] && !pairs.has(it.id+"|"+hub)) this.links.push({a:it.id,b:hub,L:78,manual:false}); });
 
     this.adj={}; this.nodes.forEach(n=>this.adj[n.id]=new Set());
@@ -199,8 +389,13 @@ class Graph{
     // размер узла по «популярности» (числу связей) — как в Obsidian: чем больше связей, тем крупнее
     this.nodes.forEach(n=>{
       const deg=this.adj[n.id].size;
-      if(n.type==="hub"){ n.r=Math.min(11+deg*0.7, 22); }
-      else { n.r=Math.min(6+Math.sqrt(deg)*3, 15); }
+      const nsz=(S.settings.graphNodeSize!=null?S.settings.graphNodeSize:1);    // глобальный множитель размера
+      const dsc=(S.settings.graphDegScale!=null?S.settings.graphDegScale:1);    // насколько размер зависит от числа связей
+      const tsz=(n.tagStyle&&n.tagStyle.size)?n.tagStyle.size:1;                 // множитель размера из тега
+      const psz=(n.ref&&+n.ref.size?+n.ref.size:1)*tsz;                          // индивидуальный (it.size) × тег
+      if(n.type==="hub"){ n.r=(11+Math.min(deg*0.7*dsc,11))*nsz; }
+      else { n.r=(6+Math.min(Math.sqrt(deg)*3*dsc,9))*nsz*psz; }
+      if(n.type==="task"||n.type==="flow") n.r*=0.86;   // квадрат/ромб визуально крупнее круга той же r → ужимаем, чтобы размер отражал именно связи
     });
 
     while(this.svg.firstChild) this.svg.removeChild(this.svg.firstChild);
@@ -214,9 +409,9 @@ class Graph{
     // (порядок hit→link важен для селектора .g-hit:hover + .g-link; клики ловит только хитбокс)
     this.hitEls=[]; this.linkEls=[];
     this.links.forEach((l,i)=>{
-      const hit=document.createElementNS(NS,"line"); hit.setAttribute("class","g-hit"); hit.dataset.li=i;
+      const hit=document.createElementNS(NS,"path"); hit.setAttribute("class","g-hit"); hit.dataset.li=i;
       this.linkG.appendChild(hit); this.hitEls.push(hit);
-      const e=document.createElementNS(NS,"line"); e.setAttribute("class","g-link"+(l.manual?" manual":"")); e.dataset.li=i;
+      const e=document.createElementNS(NS,"path"); e.setAttribute("class","g-link"+(l.manual?" manual":"")); e.dataset.li=i;
       const ca=this.byId[l.a].color, cb=this.byId[l.b].color;
       if(ca||cb){
         // хотя бы у одного есть явный цвет → цвет «перетекает»: второй конец = его цвет или нейтральный (белый)
@@ -239,7 +434,9 @@ class Graph{
       const g=document.createElementNS(NS,"g"); g.setAttribute("class","g-node "+n.type+(n.done?" done":"")); g.dataset.id=n.id;
       let halo=null;
       if(n.type==="hub"){ halo=document.createElementNS(NS,"circle"); halo.setAttribute("class","g-halo"); halo.setAttribute("r",n.r+5); if(n.color)halo.style.stroke=n.color; g.appendChild(halo); }
-      const shape = n.type==="task" ? this._rect(NS,n.r) : n.type==="flow" ? this._rrect(NS,n.r) : this._circle(NS,n.r);
+      // форма: из тега (если задана), иначе по типу ноды
+      const shapeKind = (n.tagStyle&&n.tagStyle.shape) ? n.tagStyle.shape : (n.type==="task"?"square":n.type==="flow"?"diamond":"circle");
+      const shape = this._shapeEl(NS, shapeKind, n.r);
       if(n.color){
         // inline style: presentation attrs lose to the stylesheet's .nd rules
         if(n.type==="hub"){ shape.style.fill=n.color; shape.style.stroke=n.color; }
@@ -251,13 +448,21 @@ class Graph{
       if(n.type==="task" && n.done){ check=document.createElementNS(NS,"path"); check.setAttribute("class","g-check"); g.appendChild(check); }
       const pin=document.createElementNS(NS,"circle"); pin.setAttribute("class","g-pin"); pin.setAttribute("r",n.r+8); pin.style.display=n.fixed?"":"none";
       g.appendChild(pin);
+      // иконка тега прямо в ноде (глиф шрифта Tabler)
+      let ticon=null;
+      if(n.tagStyle&&n.tagStyle.icon){ const gl=iconGlyph(n.tagStyle.icon);
+        if(gl){ ticon=document.createElementNS(NS,"text"); ticon.setAttribute("class","g-ticon"); ticon.setAttribute("text-anchor","middle"); ticon.textContent=gl;
+          if(n.color && n.type!=="hub") ticon.style.fill=n.color; g.appendChild(ticon); } }
       const t=document.createElementNS(NS,"text"); t.setAttribute("class","g-label"+(n.type==="hub"?" hub":"")); t.setAttribute("text-anchor","middle");
       t.textContent=n.label.length>22?n.label.slice(0,21)+"…":n.label;
       g.appendChild(t);
       this.nodeG.appendChild(g);
-      return {g, shape, halo, check, pin, t, n};
+      return {g, shape, halo, check, pin, t, ticon, shapeKind, n};
     });
     this._wire();
+    this._paintSel();   // вернуть подсветку выделения после перестроения
+    if(graphCam){ this.tx=graphCam.tx; this.ty=graphCam.ty; this.zoom=graphCam.zoom; }   // восстановить камеру → вьюпорт не прыгает при ребилде
+    this._applyTransform();   // сразу ставим трансформу на новый корень (иначе кадр рисуется в (0,0) до первого пана)
     // первичная раскладка — полный «разогрев»; перестроение (цвет/связь) — лёгкое, чтобы граф не прыгал
     // плавный старт: позиции уже сохранены → не дёргаем (alpha 0); новые узлы мягко вписываются (0.12);
     // совсем новый граф — умеренный разогрев (0.4). Скорость клампится в _tick (плавный глайд без рывков),
@@ -269,6 +474,9 @@ class Graph{
   _circle(NS,r){ const c=document.createElementNS(NS,"circle"); c.setAttribute("class","nd"); c.setAttribute("r",r); return c; }
   _rect(NS,r){ const s=document.createElementNS(NS,"rect"); s.setAttribute("class","nd"); s.setAttribute("width",r*2); s.setAttribute("height",r*2); s.setAttribute("rx",2.5); return s; }
   _rrect(NS,r){ const s=document.createElementNS(NS,"rect"); s.setAttribute("class","nd"); s.setAttribute("width",r*2); s.setAttribute("height",r*2); s.setAttribute("rx",r*0.55); return s; }   // нода-схема: скруглённый квадрат
+  _hexagon(NS,r){ const p=document.createElementNS(NS,"polygon"); p.setAttribute("class","nd"); return p; }   // точки ставятся в _tick
+  _shapeEl(NS,kind,r){ return kind==="square"?this._rect(NS,r) : kind==="diamond"?this._rrect(NS,r) : kind==="hexagon"?this._hexagon(NS,r) : this._circle(NS,r); }
+  _hexPts(x,y,r){ let s=""; for(let i=0;i<6;i++){ const a=Math.PI/180*(60*i-90); s+=(x+r*Math.cos(a)).toFixed(1)+","+(y+r*Math.sin(a)).toFixed(1)+" "; } return s.trim(); }
 
   _pt(e){
     // точное преобразование экранных координат в координаты графа через матрицу самого SVG
@@ -282,28 +490,45 @@ class Graph{
   _wire(){
     const svg=this.svg;
     svg.onpointerdown=(e)=>{
-      if(e.button!==0) return;   // только ЛКМ тянет/панорамирует; ПКМ обрабатывает oncontextmenu
       if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; }   // прервать переезд камеры при ручном действии
+      if(e.button===1){ e.preventDefault(); this.panning={x:e.clientX,y:e.clientY,tx:this.tx,ty:this.ty,bx:this.bgPanX,by:this.bgPanY}; svg.setPointerCapture(e.pointerId); this._closePop(); return; }   // средняя кнопка — пан
+      if(e.button!==0) return;   // ПКМ обрабатывает oncontextmenu
       const g=e.target.closest(".g-node");
       if(g){
         const n=this.byId[g.dataset.id];
         if(this.linkFrom){ this._finishLink(n); return; }
-        // НЕ будим симуляцию на простой клик — иначе вся паутина дёргается; alpha поднимаем только при реальном перетаскивании
+        if(e.altKey && n.type!=="hub"){ this._startConnectDrag(n,e); svg.setPointerCapture(e.pointerId); return; }   // Alt+тащи от ноды — связь / новая связанная заметка
+        if(e.shiftKey){ if(this.selNodes.has(n.id)) this.selNodes.delete(n.id); else this.selNodes.add(n.id); this._paintSel(); return; }   // shift-клик — в выделение
+        if(!this.selNodes.has(n.id)){ this.selNodes.clear(); this.selNodes.add(n.id); this._paintSel(); }   // обычный клик по ноде — выделить
         this.drag=n; n._moved=false; svg.setPointerCapture(e.pointerId);
         return;
       }
       const lk=e.target.closest(".g-hit");
       if(lk && !this.linkFrom){ this._openLinkPop(this.links[+lk.dataset.li], e); return; }
-      this.panning={x:e.clientX,y:e.clientY,tx:this.tx,ty:this.ty}; svg.setPointerCapture(e.pointerId);
-      this._closePop();
+      // ЛКМ по пустому — рамка выделения (пан теперь средней кнопкой)
+      if(!e.shiftKey){ this.selNodes.clear(); this._paintSel(); }
+      this._startMarquee(e); svg.setPointerCapture(e.pointerId); this._closePop();
     };
     svg.onpointermove=(e)=>{
+      if(this.connectDrag){ const f=this.byId[this.connectDrag], p=this._pt(e);
+        this.tempLine.setAttribute("x1",f.x); this.tempLine.setAttribute("y1",f.y); this.tempLine.setAttribute("x2",p.x); this.tempLine.setAttribute("y2",p.y);
+        const elx=document.elementFromPoint(e.clientX,e.clientY), tg=elx&&elx.closest?elx.closest(".g-node"):null; this._hover(tg&&tg.dataset.id!==this.connectDrag?tg.dataset.id:null); return; }
+      if(this.marq){ this._updateMarquee(e); return; }
       if(this.drag){ const p=this._pt(e); this.drag.x=p.x; this.drag.y=p.y; this.drag.vx=0; this.drag.vy=0; this.drag._moved=true; this.alpha=Math.max(this.alpha,.4); return; }
-      if(this.panning){ const rc=svg.getBoundingClientRect(); this.tx=this.panning.tx+(e.clientX-this.panning.x)/rc.width*this.W; this.ty=this.panning.ty+(e.clientY-this.panning.y)/rc.height*this.H; this._applyTransform(); return; }
+      if(this.panning){ const rc=svg.getBoundingClientRect(); this.tx=this.panning.tx+(e.clientX-this.panning.x)/rc.width*this.W; this.ty=this.panning.ty+(e.clientY-this.panning.y)/rc.height*this.H;
+        this.bgPanX=this.panning.bx+(this.tx-this.panning.tx)/this.zoom; this.bgPanY=this.panning.by+(this.ty-this.panning.ty)/this.zoom;   // пан двигает параллакс (в мировых ед.); зум — нет
+        this._applyTransform(); return; }
       if(this.linkFrom){ const p=this._pt(e); const f=this.byId[this.linkFrom]; this.tempLine.style.display=""; this.tempLine.setAttribute("x1",f.x); this.tempLine.setAttribute("y1",f.y); this.tempLine.setAttribute("x2",p.x); this.tempLine.setAttribute("y2",p.y); return; }
       const g=e.target.closest(".g-node"); this._hover(g?g.dataset.id:null);
     };
     svg.onpointerup=(e)=>{
+      if(this.connectDrag){ const from=this.connectDrag; this.connectDrag=null; this.tempLine.style.display="none"; this._hover(null);
+        const elx=document.elementFromPoint(e.clientX,e.clientY), g=elx&&elx.closest?elx.closest(".g-node"):null;
+        if(g){ const tid=g.dataset.id, bothHubs=tid.indexOf("hub_")===0&&from.indexOf("hub_")===0;
+          if(tid!==from && !bothHubs){ if(addLink(from,tid)){ recomputeHierarchy(); this.build(); toast("Связь создана"); } else toast("Уже связаны"); } }
+        else { const p=this._pt(e); this._quickAdd("note",p.x,p.y,from); }   // отпустил на пустом → новая заметка + связь
+        return; }
+      if(this.marq){ this._finishMarquee(); return; }
       if(this.drag){
         const n=this.drag;
         if(n.ref){ n.ref.x=n.x; n.ref.y=n.y; persist(); }
@@ -326,15 +551,16 @@ class Graph{
       if(g){ this._openPop(this.byId[g.dataset.id], e); return; }
       const lk=e.target.closest(".g-hit");
       if(lk){ this._openLinkPop(this.links[+lk.dataset.li], e); return; }
-      this._closePop();
+      this._openCreateMenu(e);   // ПКМ по пустому — меню «Создать» (заметка/задача/схема), вместо двойного клика
     };
     svg.onwheel=(e)=>{ e.preventDefault(); if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; } const rc=svg.getBoundingClientRect();
       const mx=(e.clientX-rc.left)/rc.width*this.W, my=(e.clientY-rc.top)/rc.height*this.H;
-      const f=e.deltaY<0?1.12:0.89; const nz=Math.max(.4,Math.min(2.5,this.zoom*f));
+      const f=e.deltaY<0?1.12:0.89; const nz=Math.max(.12,Math.min(2.5,this.zoom*f));   // нижний предел 0.12 — можно отдалиться сильно, чтобы уместить большой граф
       this.tx=mx-(mx-this.tx)*(nz/this.zoom); this.ty=my-(my-this.ty)*(nz/this.zoom); this.zoom=nz; this._applyTransform();
     };
   }
   _applyTransform(){
+    graphCam={tx:this.tx,ty:this.ty,zoom:this.zoom};   // запоминаем камеру для следующего пересоздания графа
     this.root.setAttribute("transform",`translate(${this.tx},${this.ty}) scale(${this.zoom})`);
     // подписи гаснут при отдалении (как в Obsidian): крупные/«популярные» узлы держат подпись дольше
     const z=this.zoom;
@@ -346,7 +572,9 @@ class Graph{
       });
     }
   }
-  // фон «точечное поле»: точки на canvas, привязка пана/зума к this.tx/ty/zoom; бесшовно по мировому индексу тайла
+  // фон «звёздное поле»: 5 слоёв глубины с параллаксом (par) + собственный дрейф/мерцание точек.
+  // ZOOM-масштаб слоёв = чистый z (zs=1) — при зуме звёзды масштабируются ВМЕСТЕ с миром и не «плывут»,
+  // а параллакс (par) остаётся на ПАНЕ — тот самый эффект глубины, ради которого всё делалось.
   _drawBg(){
     const cv=this.bgCanvas, ctx=this.bgCtx; if(!cv||!ctx) return;
     const cw=cv.clientWidth, ch=cv.clientHeight; if(!cw||!ch) return;
@@ -355,13 +583,13 @@ class Graph{
     ctx.setTransform(dpr,0,0,dpr,0,0);
     const w=cw, h=ch;
     ctx.clearRect(0,0,w,h);   // базу даёт var(--surf) на #graph-wrap → тема подхватывается сама
+    if(S.settings.graphBg===false) return;   // фон «звёздное поле» выключен в настройках
     const light=document.body.classList.contains("light");
     const dot=light?"0,0,0":"255,255,255";
     const ts=this._bgReduce?0:performance.now()*0.001;
-    const z=this.zoom, panX=-this.tx, panY=-this.ty;
+    const z=this.zoom;
     const hash=(a,b)=>{ let n=(a*374761393+b*668265263)|0; n=(n^(n>>>13))*1274126177|0; return ((n>>>0)%100000)/100000; };
-    // спрайт-«звезда»: радиальный градиент (яркий центр → мягкое затухание к краям).
-    // строится один раз и кэшируется; пересобирается при смене темы (цвет точки меняется).
+    // спрайт-«звезда»: радиальный градиент (яркий центр → мягкое затухание). Строится раз, пересобирается при смене темы.
     if(!this._star || this._starLight!==light){
       const SS=64, sc=document.createElement("canvas"); sc.width=SS; sc.height=SS;
       const sg=sc.getContext("2d");
@@ -374,27 +602,31 @@ class Graph{
       this._star=sc; this._starLight=light;
     }
     const star=this._star;
-    // 5 слоёв глубины: par=параллакс, sp=шаг, sz=полуразмер спрайта, a=яркость(низкая), zs=зум-эксп, wob=амплитуда собств. дрейфа
+    // 5 слоёв: par=параллакс пана, sp=шаг, sz=полуразмер спрайта, a=яркость, wob=амплитуда собств. дрейфа.
+    // zs (зум-масштаб) у ВСЕХ = 1 → при зуме все слои масштабируются ровно как мир, не отрываясь по масштабу.
     const layers=[
-      {par:0.06, sp:36,  sz:1.4, a:light?0.040:0.028, zs:0.40, wob:4 },
-      {par:0.20, sp:50,  sz:2.0, a:light?0.060:0.045, zs:0.58, wob:7 },
-      {par:0.42, sp:68,  sz:2.9, a:light?0.085:0.070, zs:0.78, wob:11},
-      {par:0.68, sp:90,  sz:3.9, a:light?0.120:0.100, zs:0.95, wob:15},
-      {par:1.00, sp:118, sz:5.4, a:light?0.175:0.150, zs:1.12, wob:20}
+      {par:0.06, sp:36,  sz:1.4, a:light?0.040:0.028, wob:4 },
+      {par:0.20, sp:50,  sz:2.0, a:light?0.060:0.045, wob:7 },
+      {par:0.42, sp:68,  sz:2.9, a:light?0.085:0.070, wob:11},
+      {par:0.68, sp:90,  sz:3.9, a:light?0.120:0.100, wob:15},
+      {par:1.00, sp:118, sz:5.4, a:light?0.175:0.150, wob:20}
     ];
     for(let li=0;li<layers.length;li++){
-      const L=layers[li], zl=Math.pow(z,L.zs), tile=L.sp*zl; if(tile<5) continue;
-      const totX=panX*L.par, totY=panY*L.par;
+      const L=layers[li], tile=L.sp*z; if(tile<5) continue;
+      // мировой сдвиг слоя от параллакса: копится ТОЛЬКО от пана (bgPan). origin слоя = мировая точка,
+      // умноженная на общий зум/сдвиг → при зуме слой масштабируется РОВНО как мир (курсор-точка неподвижна, чисто).
+      const loX=-this.bgPanX*(1-L.par), loY=-this.bgPanY*(1-L.par);
+      const totX=-(this.tx+loX*z), totY=-(this.ty+loY*z);
       const offX=((totX)%tile+tile)%tile, offY=((totY)%tile+tile)%tile;
       const baseX=Math.floor(totX/tile), baseY=Math.floor(totY/tile);
-      const cols=Math.ceil(w/tile)+2, rows=Math.ceil(h/tile)+2, dr=L.sz*zl, wobA=L.wob*zl;
+      const cols=Math.ceil(w/tile)+2, rows=Math.ceil(h/tile)+2, dr=L.sz*z, wobA=L.wob*z;
       let drawn=0;
       for(let gy=-1; gy<rows; gy++){ for(let gx=-1; gx<cols; gx++){
         if(drawn>420) break;
         const ci=gx+baseX, cj=gy+baseY;
         const hx=hash(ci+li*131,cj+li*977), hy=hash(ci+li*491,cj+li*263), ho=hash(ci+li*53,cj+li*97);
         const jx=(hx-0.5)*tile*0.5, jy=(hy-0.5)*tile*0.5;
-        // активный собственный дрейф (Lissajous, фаза из хеша) + медленное дыхание яркости (период ~35-40с)
+        // собственный дрейф (Lissajous, фаза из хеша) + медленное дыхание яркости
         const wx=Math.sin(ts*0.16+hx*6.283)*wobA, wy=Math.cos(ts*0.13+hy*6.283)*wobA;
         const breathe=0.35+0.65*(0.5+0.5*Math.sin(ts*0.18+ho*6.283));
         const x=gx*tile-offX+jx+wx, y=gy*tile-offY+jy+wy;
@@ -413,12 +645,23 @@ class Graph{
     const it=n.ref; if(!it) return;
     openItemSmart(it);
   }
+  // наведение на ноду (Obsidian-стиль): узел+соседи+связи между ними ПОДСВЕЧИВАЮТСЯ (.hl),
+  // всё остальное гаснет (.dim). Плавно (transition в CSS). id=null — снять.
   _hover(id){
-    this.nodeEls.forEach(o=>{ const on=!id||o.n.id===id||this.adj[id].has(o.n.id); o.g.classList.toggle("dim",!on); });
-    this.linkEls.forEach((e,i)=>{ const l=this.links[i]; const on=!id||l.a===id||l.b===id; e.classList.toggle("dim",!on); });
+    this.nodeEls.forEach(o=>{ const nid=o.n.id; const focus=!!id&&nid===id, nbr=!!id&&this.adj[id].has(nid);
+      o.g.classList.toggle("dim", !!id && !focus && !nbr);
+      o.g.classList.toggle("hl", focus||nbr);
+      o.g.classList.toggle("hl-focus", focus);
+    });
+    this.linkEls.forEach((e,i)=>{ const l=this.links[i]; const on=!id||l.a===id||l.b===id;
+      e.classList.toggle("dim", !!id && !on);
+      e.classList.toggle("hl", !!id && on);
+    });
   }
+  // путь связи — прямая линия (дуги отвергнуты: читались как жёсткие арки, а не «мягкие»)
+  _linkPath(ax,ay,bx,by){ return `M ${ax.toFixed(1)} ${ay.toFixed(1)} L ${bx.toFixed(1)} ${by.toFixed(1)}`; }
   startLink(id){ this.linkFrom=id; this.svg.classList.add("linking"); $("#g-hint").innerHTML="Режим связи: кликни по второму узлу. Esc — отмена."; this._closePop(); }
-  cancelLink(){ this.linkFrom=null; this.svg.classList.remove("linking"); this.tempLine.style.display="none"; if($("#g-hint"))$("#g-hint").innerHTML="ПКМ — меню · двойной клик — открыть · клик по связи — убрать"; }
+  cancelLink(){ this.linkFrom=null; this.svg.classList.remove("linking"); this.tempLine.style.display="none"; if($("#g-hint"))$("#g-hint").innerHTML="Alt+тащи от ноды — связь/заметка · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · Delete — удалить"; }
   _finishLink(n){
     const a=this.linkFrom;
     // связывать можно с чем угодно (заметка/задача/область), но не сам с собой и не область с областью
@@ -439,18 +682,26 @@ class Graph{
     this.alpha=1; this._needFit=true; persist();
   }
   _tick(){
+    // ТРОТТЛИНГ В ПОКОЕ: когда симуляция успокоилась (alpha=0), камера статична и ничего не тащим —
+    // «дыхание» узлов и мерцание фона медленные (период 30-40с), рисуем через кадр (~30fps вместо 60).
+    // На глаз не отличить, а нагрузка кадра падает вдвое. Любая активность (alpha>0, пан/зум, драг) → полный 60fps.
+    const camKey=this.tx.toFixed(2)+"|"+this.ty.toFixed(2)+"|"+this.zoom.toFixed(4);
+    const camMoving=camKey!==this._camKey; this._camKey=camKey;
+    const busy=this.drag||this.connectDrag||this.panning||this.marq||this.linkFrom;
+    if(this.alpha===0 && !camMoving && !busy){ this._sk=(this._sk||0)^1; if(this._sk){ this.raf=this._paused?null:requestAnimationFrame(()=>this._tick()); return; } }
     this._drawBg();
     const N=this.nodes, cx=this.W/2, cy=this.H/2;
     // даём симуляции полностью остыть, чтобы граф замирал и не дёргался; перетаскивание снова поднимает alpha
     this.alpha*=0.985; if(this.alpha<0.004)this.alpha=0;
     if(this.alpha>0.06) this._moved=true;   // была заметная активность → после остывания сохраним раскладку
+    if(this.alpha>0){   // физика раскладки O(N²) — только пока не остыло (при alpha=0 все силы = 0, движения нет → пропускаем весь цикл)
     for(let i=0;i<N.length;i++){ const a=N[i];
       const adjA=this.adj[a.id];
       for(let j=i+1;j<N.length;j++){ const b=N[j];
         let dx=a.x-b.x, dy=a.y-b.y, d2=dx*dx+dy*dy||1, d=Math.sqrt(d2);
         // связанные узлы отталкиваются слабее, несвязанные — заметно сильнее (разлетаются дальше)
         const connected = adjA && adjA.has(b.id);
-        const rep = connected ? 2400 : 7000;
+        const rep = (connected ? 2400 : 7000) * (S.settings.graphSpread!=null?S.settings.graphSpread:1);
         const f=(rep/d2)*this.alpha, fx=dx/d*f, fy=dy/d*f;
         a.vx+=fx; a.vy+=fy; b.vx-=fx; b.vy-=fy;
       }
@@ -458,7 +709,8 @@ class Graph{
       a.vx+=(cx-a.x)*0.0016*this.alpha; a.vy+=(cy-a.y)*0.0016*this.alpha;
     }
     this.links.forEach(l=>{ const a=this.byId[l.a], b=this.byId[l.b];
-      let dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy)||1, f=(d-l.L)*0.02*this.alpha, fx=dx/d*f, fy=dy/d*f;
+      const restLen=l.L*(S.settings.graphLinkLen!=null?S.settings.graphLinkLen:1)*(l.lenMul||1);   // глобальная × индивидуальная длина связи
+      let dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy)||1, f=(d-restLen)*0.02*this.alpha, fx=dx/d*f, fy=dy/d*f;
       a.vx+=fx; a.vy+=fy; b.vx-=fx; b.vy-=fy;
     });
     // parent-child hierarchy spring — stronger pull
@@ -477,8 +729,9 @@ class Graph{
       if(n.vy>MX)n.vy=MX; else if(n.vy<-MX)n.vy=-MX;
       n.x+=n.vx; n.y+=n.vy;
     });
-    // «дыхание» в покое — чтобы граф жил, не выглядел вкопанным
-    const _it=performance.now()*0.001, AMP=4;
+    }   // /if(alpha>0) — физика раскладки
+    // «дыхание» в покое — чтобы граф жил, не выглядел вкопанным (амплитуда из настроек)
+    const _it=performance.now()*0.001, AMP=(S.settings.graphDrift!=null?S.settings.graphDrift:4);
     N.forEach((n,i)=>{
       if(n===this.drag||n.fixed){ n._ix=0; n._iy=0; return; }
       n._ix=Math.sin(_it*0.5 + i*1.7)*AMP;
@@ -487,19 +740,21 @@ class Graph{
     // связи — по позиции+idle (линии не «мерцают» от сдвига)
     const RX=n=>n.x+(n._ix||0), RY=n=>n.y+(n._iy||0);
     this.linkEls.forEach((e,i)=>{ const l=this.links[i], a=this.byId[l.a], b=this.byId[l.b];
-      const ax=RX(a),ay=RY(a),bx=RX(b),by=RY(b);
-      e.setAttribute("x1",ax); e.setAttribute("y1",ay); e.setAttribute("x2",bx); e.setAttribute("y2",by);
-      const h=this.hitEls[i]; if(h){ h.setAttribute("x1",ax); h.setAttribute("y1",ay); h.setAttribute("x2",bx); h.setAttribute("y2",by); }
-      if(l._grad){ l._grad.setAttribute("x1",ax); l._grad.setAttribute("y1",ay); l._grad.setAttribute("x2",bx); l._grad.setAttribute("y2",by); }
+      const ax=RX(a),ay=RY(a),bx=RX(b),by=RY(b), d=this._linkPath(ax,ay,bx,by);
+      e.setAttribute("d",d);
+      const h=this.hitEls[i]; if(h) h.setAttribute("d",d);
+      if(l._grad){ l._grad.setAttribute("x1",ax); l._grad.setAttribute("y1",ay); l._grad.setAttribute("x2",bx); l._grad.setAttribute("y2",by); }   // градиент — по концам (userSpaceOnUse)
     });
-    this.nodeEls.forEach(o=>{ const n=o.n, x=RX(n), y=RY(n);   // x/y — с idle: дрейфит фигура/ореол/пин/связи (вектор не мерцает)
-      if(n.type==="task"||n.type==="flow"){ o.shape.setAttribute("x",x-n.r); o.shape.setAttribute("y",y-n.r);
-        if(o.check) o.check.setAttribute("d",`M ${x-3.2} ${y+0.3} l 2.2 2.4 l 4.2 -5`); }
+    this.nodeEls.forEach(o=>{ const n=o.n, x=RX(n), y=RY(n), sk=o.shapeKind;   // x/y — с idle: дрейфит фигура/ореол/пин/связи (вектор не мерцает)
+      if(sk==="square"||sk==="diamond"){ o.shape.setAttribute("x",x-n.r); o.shape.setAttribute("y",y-n.r);
+        if(sk==="diamond") o.shape.setAttribute("transform",`rotate(45 ${x} ${y})`); }   // ромб — повёрнутый квадрат
+      else if(sk==="hexagon"){ o.shape.setAttribute("points", this._hexPts(x,y,n.r)); }
       else { o.shape.setAttribute("cx",x); o.shape.setAttribute("cy",y); }
+      if(n.type==="task" && o.check) o.check.setAttribute("d",`M ${x-3.2} ${y+0.3} l 2.2 2.4 l 4.2 -5`);
       if(o.halo){ o.halo.setAttribute("cx",x); o.halo.setAttribute("cy",y); }
       o.pin.setAttribute("cx",x); o.pin.setAttribute("cy",y);
+      if(o.ticon){ o.ticon.setAttribute("x",x); o.ticon.setAttribute("y",y); o.ticon.setAttribute("font-size",Math.max(8,n.r*1.25)); }   // глиф тега по центру ноды
       // ПОДПИСЬ — на БАЗОВОЙ позиции n.x/n.y (idle её НЕ двигает): SVG-текст не ре-растеризуется → не «прыгает».
-      // В покое n.x статичен → атрибуты подписи не меняются вообще.
       o.t.setAttribute("x",n.x); o.t.setAttribute("y",n.y+n.r+12);
     });
     // когда симуляция остыла и просили «уложить» — подгоняем обзор под всё дерево
@@ -509,7 +764,7 @@ class Graph{
       this.nodes.forEach(n=>{ if(n.ref){ n.ref.x=n.x; n.ref.y=n.y; } else if(n.hubArea){ n.hubArea.x=n.x; n.hubArea.y=n.y; } });
       persist();
     }
-    this.raf=requestAnimationFrame(()=>this._tick());
+    this.raf = this._paused ? null : requestAnimationFrame(()=>this._tick());
   }
   // вписать все узлы в видимую область (зум/пан), чтобы видеть дерево целиком
   _fitView(){
@@ -518,7 +773,7 @@ class Graph{
     this.nodes.forEach(n=>{ minx=Math.min(minx,n.x); miny=Math.min(miny,n.y); maxx=Math.max(maxx,n.x); maxy=Math.max(maxy,n.y); });
     const pad=70;
     const cw=Math.max(1,(maxx-minx)+pad*2), ch=Math.max(1,(maxy-miny)+pad*2);
-    const z=Math.max(0.25, Math.min(1.6, Math.min(this.W/cw, this.H/ch)));
+    const z=Math.max(0.12, Math.min(1.6, Math.min(this.W/cw, this.H/ch)));
     const tx=(this.W - (minx+maxx)*z)/2, ty=(this.H - (miny+maxy)*z)/2;
     this._tweenView(z, tx, ty);   // плавный переезд камеры, а не телепорт
   }
@@ -568,7 +823,7 @@ class Graph{
     this.sel=n.id;
     const pop=el("div"); pop.id="node-pop";
     const conn=linksOf(it.id);
-    const km = it.kind==="flow"?{i:"ti-sitemap",n:"схема"} : it.kind==="note"?{i:"ti-note",n:"заметка"} : {i:"ti-checklist",n:"задача"};
+    const km = it.kind==="flow"?{i:"ti-artboard",n:"полотно"} : it.kind==="note"?{i:"ti-note",n:"заметка"} : {i:"ti-checklist",n:"задача"};
     const hasOpen = (it.kind==="note" || it.kind==="flow");
     pop.innerHTML=`
       <div class="np-ttl">${esc(it.title)}</div>
@@ -579,10 +834,20 @@ class Graph{
       </div>
       <div class="swatches np-sw" style="margin-bottom:10px;">${swatchRow(it.color)}</div>
       <div class="np-row" style="margin-bottom:6px;">
-        ${hasOpen?`<button class="btn" data-pop="open"><i class="ti ${it.kind==="flow"?"ti-sitemap":"ti-eye"}"></i>Открыть</button>`
+        ${hasOpen?`<button class="btn" data-pop="open"><i class="ti ${it.kind==="flow"?"ti-artboard":"ti-eye"}"></i>Открыть</button>`
                 :`<button class="btn ${it.done?"":"primary"}" data-pop="done"><i class="ti ${it.done?"ti-arrow-back-up":"ti-check"}"></i>${it.done?"Вернуть":"Готово"}</button>`}
         <button class="btn" data-pop="edit"><i class="ti ti-pencil"></i>Изменить</button>
         <button class="btn" data-pop="link"><i class="ti ti-plus"></i>Связать</button>
+      </div>
+      <div class="np-row np-size">
+        <span class="np-sz-lbl">Размер ноды</span>
+        <button class="np-sz-btn" data-pop="size-" title="Меньше"><i class="ti ti-minus"></i></button>
+        <span class="np-sz-val">${(+it.size||1).toFixed(1)}×</span>
+        <button class="np-sz-btn" data-pop="size+" title="Больше"><i class="ti ti-plus"></i></button>
+      </div>
+      <div class="np-row">
+        ${it.folder?`<button class="btn" data-pop="folder-open" title="${esc(it.folder)}"><i class="ti ti-folder"></i>Папка</button>`:""}
+        <button class="btn" data-pop="folder-pick"><i class="ti ti-folder-search"></i>${it.folder?"Сменить папку":"Привязать папку"}</button>
       </div>
       <div class="np-row">
         <button class="btn" data-pop="pin"><i class="ti ${n.fixed?"ti-pin-filled":"ti-pin"}"></i>${n.fixed?"Открепить":"Закрепить"}</button>
@@ -593,11 +858,17 @@ class Graph{
     $$(".np-sw .swatch",pop).forEach(b=>b.onclick=()=>{ it.color=PALETTE[+b.dataset.ci]||null; touch(it); persist(); this.build(); });
     if(pop.querySelector('[data-pop="open"]')) pop.querySelector('[data-pop="open"]').onclick=()=>{ this._closePop(); openItemSmart(it); };
     if(pop.querySelector('[data-pop="done"]')) pop.querySelector('[data-pop="done"]').onclick=()=>{ toggleDone(it); this._closePop(); this.build(); toast(it.done?"Выполнено":"Возвращено в работу"); };
-    pop.querySelector('[data-pop="edit"]').onclick=()=>{ this._closePop(); openItemEditor(it); };
+    pop.querySelector('[data-pop="edit"]').onclick=()=>{ this._closePop(); if(it.kind==="flow") openFlowEditor(it); else openItemEditor(it); };   // схему правим в её редакторе, не в окне заметки
     pop.querySelector('[data-pop="link"]').onclick=()=>{ this.startLink(it.id); };
+    const setSize=(d)=>{ const cur=+it.size||1; it.size=Math.max(0.4,Math.min(3,+(cur+d).toFixed(2))); touch(it); persist(); this.build(); const v=$(".np-sz-val",pop); if(v) v.textContent=(+it.size).toFixed(1)+"×"; };
+    if(pop.querySelector('[data-pop="size-"]')) pop.querySelector('[data-pop="size-"]').onclick=()=>setSize(-0.2);
+    if(pop.querySelector('[data-pop="size+"]')) pop.querySelector('[data-pop="size+"]').onclick=()=>setSize(0.2);
+    if(pop.querySelector('[data-pop="folder-open"]')) pop.querySelector('[data-pop="folder-open"]').onclick=()=>openItemFolder(it);
+    if(pop.querySelector('[data-pop="folder-pick"]')) pop.querySelector('[data-pop="folder-pick"]').onclick=()=>pickItemFolder(it, ()=>{ this._closePop(); this.build(); });
     pop.querySelector('[data-pop="pin"]').onclick=()=>{
-      n.fixed=!n.fixed; if(n.ref){ n.ref.pin=n.fixed; persist(); }
-      const o=this.nodeEls.find(x=>x.n===n); if(o)o.pin.style.display=n.fixed?"":"none";
+      const node=this.byId[n.id]||n;   // после смены размера (build) n устаревает — берём живой узел по id
+      node.fixed=!node.fixed; if(node.ref){ node.ref.pin=node.fixed; persist(); }
+      const o=this.nodeEls.find(x=>x.n.id===n.id); if(o)o.pin.style.display=node.fixed?"":"none";
       this._closePop();
     };
     pop.querySelector('[data-pop="del"]').onclick=()=>{ this._closePop(); const id=it.id; deleteItem(id); this.build(); toast("Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restoreItem(id); render(); }}); };
@@ -624,6 +895,7 @@ class Graph{
         <span>${esc(this._nodeLabel(l.a))}</span><i class="ti ti-arrows-left-right" style="opacity:.5"></i><span>${esc(this._nodeLabel(l.b))}</span>
       </div>
       ${auto?`<div class="np-meta" style="opacity:.7;margin-bottom:8px;">Авто-связь с областью. Убрать = открепить от области.</div>`:""}
+      ${!auto?`<div class="np-len"><span class="np-len-lbl">Длина</span><input class="np-len-in" type="range" min="0.4" max="2.5" step="0.1" value="${(l.lenMul||1)}"><span class="np-len-val">${(l.lenMul||1).toFixed(1)}×</span></div>`:""}
       <div class="np-row"><button class="btn" data-lp="del"><i class="ti ti-unlink"></i>${auto?"Открепить":"Убрать связь"}</button></div>`;
     const wrap=$("#graph-wrap"); wrap.appendChild(pop);
     const rc=this.svg.getBoundingClientRect();
@@ -634,6 +906,8 @@ class Graph{
     px=Math.max(8, Math.min(px, rc.width-pw-8));
     py=Math.max(8, Math.min(py, rc.height-ph-8));
     pop.style.left=px+"px"; pop.style.top=py+"px";
+    const li=$(".np-len-in",pop);   // индивидуальная длина связи: пишем в lenMul (живо) + в S.links[2], будим симуляцию
+    if(li) li.oninput=()=>{ const v=+li.value; l.lenMul=v; if(l.src) l.src[2]=v; const vv=$(".np-len-val",pop); if(vv) vv.textContent=v.toFixed(1)+"×"; this.alpha=Math.max(this.alpha,0.4); persist(); };
     pop.querySelector('[data-lp="del"]').onclick=()=>{
       if(l.manual){
         removeLink(l.a,l.b);
@@ -647,5 +921,9 @@ class Graph{
     };
   }
   _closePop(){ const p=$("#node-pop"); if(p)p.remove(); this.sel=null; }
-  destroy(){ if(this.raf) cancelAnimationFrame(this.raf); if(this._vraf) cancelAnimationFrame(this._vraf); }
+  // пауза/возобновление цикла анимации: когда окно не в фокусе/свёрнуто, останавливаем rAF,
+  // чтобы приложение в фоне не жгло CPU (иначе «дыхание» графа крутится 60fps впустую).
+  pause(){ this._paused=true; if(this.raf){ cancelAnimationFrame(this.raf); this.raf=null; } if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; } }
+  resume(){ if(!this._paused) return; this._paused=false; if(!this.raf) this._tick(); }
+  destroy(){ this._paused=true; if(this.raf) cancelAnimationFrame(this.raf); if(this._vraf) cancelAnimationFrame(this._vraf); }
 }

@@ -14,20 +14,25 @@ function openPalette(){
   const commands=[
     {t:"Новая задача",i:"ti-plus",run:()=>{closeOverlays();openItemEditor(null);}},
     {t:"Новая заметка",i:"ti-note",run:()=>{closeOverlays();openItemEditor(null,"note");}},
-    {t:"Новая блок-схема",i:"ti-sitemap",run:()=>{closeOverlays();createNew("flow");}},
+    {t:"Новое полотно",i:"ti-artboard",run:()=>{closeOverlays();createNew("flow");}},
     {t:"Перейти: Сегодня",i:"ti-sun",run:()=>go("today")},
     {t:"Перейти: Inbox",i:"ti-inbox",run:()=>go("inbox")},
     {t:"Перейти: Задачи",i:"ti-checklist",run:()=>go("tasks")},
     {t:"Перейти: Заметки",i:"ti-affiliate",run:()=>go("notes")},
+    {t:"Перейти: Папки",i:"ti-folders",run:()=>go("board")},
     {t:"Перейти: Календарь",i:"ti-calendar-month",run:()=>go("cal")},
-    {t:"Перейти: Доска",i:"ti-layout-kanban",run:()=>go("board")},
     {t:"Перейти: Корзина",i:"ti-trash",run:()=>go("bin")},
     {t:"Управление областями",i:"ti-folders",run:()=>{closeOverlays();openAreaManager();}},
     {t:"Сделать бэкап",i:"ti-shield-check",run:()=>{closeOverlays();doBackup();}},
-    {t:"Переключить тему",i:"ti-sun",run:()=>{closeOverlays();toggleTheme();}}
+    {t:"Проверить Telegram",i:"ti-brand-telegram",run:()=>{closeOverlays();checkTelegram();}},
+    {t:"Переключить тему",i:"ti-sun",run:()=>{closeOverlays();toggleTheme();}},
+    {t:"Настройки",i:"ti-settings",run:()=>{closeOverlays();openSettings();}},
+    {t:"Теги со стилем",i:"ti-tags",run:()=>{closeOverlays();openTagManager();}},
+    {t:"Режим отметки багов",i:"ti-bug",run:()=>{closeOverlays();toggleDevMode();}},
+    {t:"Горячие клавиши",i:"ti-keyboard",run:()=>{closeOverlays();openShortcuts();}}
   ];
   function go(v){ closeOverlays(); areaFilter=null; view=v; render(); }
-  const itemRow=it=>({type:"item",t:it.title,i:it.kind==="note"?"ti-note":"ti-checklist",sub:areaName(it.area),run:()=>{closeOverlays();openItemEditor(it);}});
+  const itemRow=it=>({type:"item",t:it.title,i:it.kind==="flow"?"ti-artboard":it.kind==="note"?"ti-note":"ti-checklist",sub:areaName(it.area),run:()=>{closeOverlays();openItemSmart(it);}});
   function compute(q){
     q=q.trim().toLowerCase();
     const cmds=commands.filter(c=>!q||c.t.toLowerCase().includes(q)).map(c=>({type:"cmd",...c}));
@@ -61,17 +66,40 @@ function openPalette(){
 /* ===========================================================
    ACTIONS: theme / backup / export / import
    =========================================================== */
-function applyTheme(){ document.body.classList.toggle("light", S.settings.theme==="light");
-  const ic=$("#f-theme i"); if(ic) ic.className="ti "+(S.settings.theme==="light"?"ti-moon":"ti-sun"); }
-function toggleTheme(){ S.settings.theme = S.settings.theme==="light"?"dark":"light"; applyTheme(); persist(); if(view==="notes") render(); }
+function applyTheme(){ document.body.classList.toggle("light", S.settings.theme==="light"); }
+// применить визуальные настройки (тема + сила свечения --glow поверх темовой базы)
+function applySettings(){ applyTheme();
+  const g=(S.settings.glow!=null?S.settings.glow:1), light=S.settings.theme==="light";
+  const base=light?0.18:0.30, rgb=light?"0,0,0":"255,255,255";
+  document.body.style.setProperty("--glow", `rgba(${rgb},${(base*g).toFixed(3)})`);
+}
+function toggleTheme(){ S.settings.theme = S.settings.theme==="light"?"dark":"light"; applySettings(); persist(); if(view==="notes") render(); }
+let devMode=false;
+function toggleDevMode(){ devMode=!devMode; document.body.classList.toggle("devmode",devMode);
+  const b=$("#f-dev"); if(b) b.classList.toggle("on",devMode);
+  toast(devMode?"Режим багов: кликни по элементу с проблемой":"Режим багов выключен",{icon:"ti-bug"}); }
 async function doBackup(){ const p=await Store.backup(); toast("Бэкап сохранён",{icon:"ti-shield-check"}); }
 async function doExport(){ const p=await Store.exportData(S); toast(p?"Экспортировано":"Экспорт отменён",{icon:p?"ti-download":"ti-x"}); }
 async function doImport(){
   const data=await Store.importData(); if(!data){ return; }
-  if(!Array.isArray(data.areas) || !Array.isArray(data.items)){ toast("Файл не похож на экспорт planner",{icon:"ti-alert-triangle"}); return; }
-  if(!confirm("Импорт заменит текущие данные. Продолжить?")) return;
+  if(!Array.isArray(data.areas) || !Array.isArray(data.items)){ toast("Файл не похож на экспорт Мыслика",{icon:"ti-alert-triangle"}); return; }
+  if(!(await uiConfirm("Импорт заменит текущие данные. Продолжить?",{danger:true,title:"Импорт",okLabel:"Заменить"}))) return;
   S=sanitizeState(Object.assign(defaultState(),data));   // валидация + нормализация перед записью на диск
-  areaFilter=null; view=S.settings.view||"today"; persist(); applyTheme(); render(); toast("Импортировано");
+  areaFilter=null; view=S.settings.view||"today"; persist(); applySettings(); render(); toast("Импортировано");
+}
+// разовая проверка Telegram (по клику, БЕЗ фонового поллинга) — сообщения боту прогоняются
+// через тот же captureText, что и поле быстрого захвата (#область/дата/!приоритет/*заметка работают одинаково)
+async function checkTelegram(btn){
+  if(!HasPy()){ toast("Telegram доступен только в приложении",{icon:"ti-brand-telegram"}); return; }
+  const st=await window.pywebview.api.telegram_status();
+  if(!st.configured){ openSettings(); toast("Сначала укажи токен бота в настройках",{icon:"ti-brand-telegram"}); return; }
+  if(btn) btn.classList.add("spin");
+  let res; try{ res=await window.pywebview.api.telegram_check(); } catch(e){ res={ok:false,error:"network"}; }
+  if(btn) btn.classList.remove("spin");
+  if(!res || !res.ok){ toast(res&&res.error==="no_token"?"Токен не настроен":"Не удалось связаться с Telegram",{icon:"ti-alert-triangle"}); return; }
+  let n=0; (res.messages||[]).forEach(text=>{ if(captureText(text)) n++; });
+  if(n){ persist(); render(); toast("Из Telegram: "+n,{icon:"ti-brand-telegram"}); }
+  else toast("Новых сообщений нет",{icon:"ti-brand-telegram"});
 }
 
 function openTimer(){
@@ -106,28 +134,46 @@ function wireGlobal(){
   $("#win-min").onclick=()=>HasPy()&&window.pywebview.api.win_min();
   $("#win-max").onclick=()=>HasPy()&&window.pywebview.api.win_max();
   $("#win-close").onclick=()=>HasPy()&&window.pywebview.api.win_close();
+  $("#titlebar").addEventListener("dblclick",e=>{ if(e.target.closest(".winbtns")) return; if(HasPy()) window.pywebview.api.win_max(); });   // дабл-клик по титлбару — развернуть/восстановить (привычно)
+  const kh=$("#kbd-hint"); if(kh) kh.onclick=openShortcuts;
 
   // nav + areas + footer (delegated)
   $("#side").addEventListener("click",e=>{
-    const nav=e.target.closest("[data-v]"); if(nav){ areaFilter=null; view=nav.dataset.v; render(); return; }
+    const nav=e.target.closest("[data-v]"); if(nav){ areaFilter=null; tagFilter=null; view=nav.dataset.v; render(); return; }
     const ar=e.target.closest("[data-area]"); if(ar){ const id=ar.dataset.area; areaFilter=(areaFilter===id?null:id); view="tasks"; render(); return; }
   });
   $("#add-area").onclick=(e)=>{ e.stopPropagation(); openAreaEditor(null,()=>renderNav()); };
-  $("#f-backup").onclick=doBackup; $("#f-export").onclick=doExport; $("#f-import").onclick=doImport; $("#f-theme").onclick=toggleTheme; $("#f-timer").onclick=openTimer;
+  $("#manage-area").onclick=(e)=>{ e.stopPropagation(); openAreaManager(); };
+  $("#f-export").onclick=doExport; $("#f-import").onclick=doImport; $("#f-timer").onclick=openTimer;
+  $("#f-settings").onclick=openSettings; $("#f-dev").onclick=toggleDevMode;
+  // dev-режим: клик по любому элементу → форма отметки бага (отчёт с модулем/состоянием мне в чат)
+  document.addEventListener("click",e=>{
+    if(!devMode) return;
+    if(e.target.closest("#f-dev")) return;                                  // сам тумблер
+    if(e.target.closest(".overlay")||e.target.closest(".flow-modal-ov")) return;  // форма отчёта
+    e.preventDefault(); e.stopPropagation(); openBugReport(e.target);
+  },true);
 
   // head-actions delegated (кнопки заголовка: +Задача/Заметка, навигация календаря, переключатели)
-  $("#head-actions").addEventListener("click",e=>{
+  $("#head-actions").addEventListener("click",async e=>{
     const nw=e.target.closest("[data-new]"); if(nw){ createNew(nw.dataset.new); return; }
     const cal=e.target.closest("[data-cal]"); if(cal){ const v=+cal.dataset.cal; if(v===0) calOffset=0; else calOffset+=v; render(); return; }
-    const tg=e.target.closest("[data-toggle]"); if(tg){ if(tg.dataset.toggle==="done") showDone=!showDone; else if(tg.dataset.toggle==="clear"){ if(!confirm("Очистить корзину? Все элементы будут удалены навсегда.")) return; S.items.filter(it=>it.deleted).forEach(it=>hardDeleteItem(it.id)); render(); toast("Корзина очищена"); return; } render(); return; }
+    const tg=e.target.closest("[data-toggle]"); if(tg){ if(tg.dataset.toggle==="done"){ showDone=!showDone; render(); } else if(tg.dataset.toggle==="clear"){ if(!(await uiConfirm("Все элементы корзины будут удалены навсегда. Это нельзя отменить.",{danger:true,title:"Очистить корзину?",okLabel:"Очистить"}))) return; S.items.filter(it=>it.deleted).forEach(it=>hardDeleteItem(it.id)); render(); toast("Корзина очищена"); } return; }
+    const tgb=e.target.closest("[data-telegram]"); if(tgb){ checkTelegram(tgb); return; }
   });
 
   // view delegated actions
   $("#view").addEventListener("click",e=>{
+    const ofo=e.target.closest("[data-openfolder]"); if(ofo){ const it=S.items.find(i=>i.id===ofo.dataset.openfolder); if(it) openItemFolder(it); return; }   // кнопка «открыть папку» в списках
     const chk=e.target.closest("[data-chk]"); if(chk){ const it=S.items.find(i=>i.id===chk.dataset.chk); if(it){ toggleDone(it); render(); const b=document.querySelector(`[data-chk="${it.id}"]`); if(b&&it.done) b.classList.add("pop"); } return; }
     const tdy=e.target.closest("[data-today]"); if(tdy){ const it=S.items.find(i=>i.id===tdy.dataset.today); if(it){ it.due=ymd(today()); if(it.status==="inbox")it.status="todo"; touch(it); persist(); render(); toast("Перенесено на сегодня",{icon:"ti-target"}); } return; }
+    const tri=e.target.closest("[data-tri]"); if(tri){ const [id,aid]=tri.dataset.tri.split(":"); const it=S.items.find(i=>i.id===id); if(it){ it.area=aid; if(it.status==="inbox") it.status="todo"; touch(it); persist(); render(); toast("→ "+areaName(aid),{icon:"ti-arrow-right"}); } return; }   // триаж инбокса: чип области на карточке
+    const ot=e.target.closest("[data-overtoday]"); if(ot){ const T=today(), ds=ymd(T); let n=0; S.items.forEach(it=>{ if(!it.deleted&&it.kind==="task"&&!it.done&&it.due&&parseYmd(it.due)<T){ it.due=ds; if(it.status==="inbox")it.status="todo"; touch(it); n++; } }); if(n){ persist(); render(); toast("Перенесено на сегодня: "+n,{icon:"ti-target"}); } return; }   // вся просрочка → сегодня
     const ed=e.target.closest("[data-edit]"); if(ed){ const it=S.items.find(i=>i.id===ed.dataset.edit); if(it)openItemEditor(it); return; }
+    const day=e.target.closest("[data-day]"); if(day){ openItemEditor(null,"task",day.dataset.day); return; }   // клик по дню календаря — новая задача на эту дату
     const del=e.target.closest("[data-del]"); if(del){ const it=S.items.find(i=>i.id===del.dataset.del); if(it){ const id=it.id; deleteItem(id); render(); toast("Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restoreItem(id); render(); }}); } return; }
+    const ct=e.target.closest("[data-cleartag]"); if(ct){ tagFilter=null; render(); return; }
+    const tg2=e.target.closest("[data-tag]"); if(tg2){ tagFilter=tg2.dataset.tag; areaFilter=null; view="tasks"; render(); return; }   // клик по тегу — фильтр по нему
     const tf=e.target.closest("[data-tf]"); if(tf){ taskFilter=tf.dataset.tf; render(); return; }
     const go=e.target.closest("[data-goto]"); if(go){ areaFilter=null; view=go.dataset.goto; render(); return; }
     const ga=e.target.closest("[data-area]"); if(ga){ areaFilter=ga.dataset.area; view="tasks"; render(); return; }
@@ -141,7 +187,9 @@ function wireGlobal(){
     if(!capPrev) return;
     if(!cap.value.trim()){ capPrev.innerHTML=""; capPrev.classList.remove("show"); return; }
     const p=parseCapture(cap.value); const chips=[];
+    if(p.kind==="note") chips.push(`<span class="cap-chip"><i class="ti ti-note"></i>заметка</span>`);
     if(p.area){ const a=areaById(p.area); if(a) chips.push(`<span class="cap-chip"><i class="ti ${esc(a.icon)}"></i>${esc(a.name)}</span>`); }
+    (p.tags||[]).forEach(t=>{ const ts=tagStyle(t); chips.push(`<span class="cap-chip" ${ts&&ts.color?`style="color:${ts.color}"`:""}><i class="ti ${ts&&ts.icon?ts.icon:"ti-hash"}"></i>${esc(t)}</span>`); });
     if(p.due){ const dl=dueLabel(p.due); chips.push(`<span class="cap-chip"><i class="ti ti-calendar-event"></i>${esc(dl?dl.txt:p.due)}</span>`); }
     if(p.repeat&&p.repeat!=="none") chips.push(`<span class="cap-chip"><i class="ti ti-repeat"></i>${esc(REPEAT[p.repeat])}</span>`);
     if(p.priority) chips.push(`<span class="cap-chip"><i class="ti ti-flag-3"></i>${"!".repeat(p.priority)}</span>`);
@@ -150,24 +198,84 @@ function wireGlobal(){
   cap.addEventListener("input",updatePreview);
   cap.addEventListener("keydown",e=>{
     if(e.key==="Enter" && cap.value.trim()){
-      const p=parseCapture(cap.value);
-      if(!p.title){ cap.classList.add("shake"); setTimeout(()=>cap.classList.remove("shake"),420); return; }  // не плодим «(без названия)»
-      const it=addItem({kind:"task", title:p.title, area:p.area, due:p.due, repeat:p.repeat, priority:p.priority});
+      const it=captureText(cap.value);
+      if(!it){ cap.classList.add("shake"); setTimeout(()=>cap.classList.remove("shake"),420); return; }  // не плодим «(без названия)»
       cap.value=""; if(capPrev){ capPrev.innerHTML=""; capPrev.classList.remove("show"); } render();
-      toast("Добавлено — "+(it.status==="inbox"?"в Inbox":"в задачи"),{icon:"ti-check"});
+      toast("Добавлено — "+(it.kind==="note"?"заметка":it.status==="inbox"?"в Inbox":"в задачи"),{icon:"ti-check"});
     }
   });
 
   // keyboard — используем e.code (раскладко-независимо: работает и на русской)
   document.addEventListener("keydown",e=>{
     if((e.ctrlKey||e.metaKey) && e.code==="KeyK"){ e.preventDefault(); if(!$("#palette"))openPalette(); return; }
-    if(e.key==="Escape"){ if(graph&&graph.linkFrom){graph.cancelLink();return;} closeOverlays(); return; }
+    if(e.key==="Escape"){ if(devMode && !$("#overlay-root").children.length){ toggleDevMode(); return; } if(graph&&graph.linkFrom){graph.cancelLink();return;} closeOverlays(); return; }
     if(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
     if($("#overlay-root").children.length) return;
+    if((e.key==="Delete"||e.key==="Backspace") && view==="notes" && graph && graph.selNodes && graph.selNodes.size){ e.preventDefault(); graph.deleteSelected(); return; }
+    if((e.ctrlKey||e.metaKey) && view==="notes" && graph){
+      if(e.code==="KeyC" && graph.selNodes.size){ e.preventDefault(); graph.copySelection(); return; }
+      if(e.code==="KeyV"){ e.preventDefault(); graph.pasteClip(); return; }
+    }
     if(e.code==="KeyN"){ e.preventDefault(); openItemEditor(null); }
     else if(e.code==="Slash"){ e.preventDefault(); $("#cap").focus(); }
-    else if(/^Digit[1-7]$/.test(e.code)){ areaFilter=null; view=NAV[+e.code.slice(5)-1][0]; render(); }
+    else if(/^Digit[1-9]$/.test(e.code)){ const i=+e.code.slice(5)-1; if(NAV[i]){ areaFilter=null; tagFilter=null; view=NAV[i][0]; render(); } }
   });
+  installSectionReorder();
+  // в фоне приложение не должно жечь CPU: пауза анимации графа при потере фокуса/сворачивании.
+  // graph существует только на вкладке «Заметки» (иначе null) — потому проверка через if(graph).
+  const pauseGraph=()=>{ if(graph) graph.pause(); };
+  const resumeGraph=()=>{ if(graph) graph.resume(); };
+  window.addEventListener("blur", pauseGraph);
+  window.addEventListener("focus", resumeGraph);
+  document.addEventListener("visibilitychange", ()=>{ if(document.hidden) pauseGraph(); else resumeGraph(); });
+}
+/* ===========================================================
+   ПЕРЕТАСКИВАНИЕ СЕКЦИЙ-ОБЛАСТЕЙ прямо в списке («РАБОТА», «ПРОЧЕЕ» …):
+   зажал ЛКМ ~0.5с по заголовку секихи → заголовок «поднимается» и едет
+   за курсором, линия показывает куда встанет → отпустил. Переставляет
+   S.areas (порядок наследуют «Задачи»/«Заметки»/«Папки» и сайдбар).
+   Быстрый клик без удержания = свернуть/развернуть секцию (как раньше).
+   =========================================================== */
+function installSectionReorder(){
+  const box=$("#view"); if(!box || box._secReorder) return; box._secReorder=true;
+  const isAreaSec=el=>!!el && el.classList && el.classList.contains("sec") && /^area:/.test(el.dataset.collapse||"") && el.dataset.collapse!=="area:__none";
+  const clearDrop=()=>box.querySelectorAll(".sec.drop-before,.sec.drop-after").forEach(s=>s.classList.remove("drop-before","drop-after"));
+  let st=null;
+  box.addEventListener("pointerdown",e=>{
+    if(e.button!==0) return; const sec=e.target.closest(".sec"); if(!isAreaSec(sec)) return;
+    st={sec, id:sec.dataset.collapse.slice(5), sx:e.clientX, sy:e.clientY, dragging:false, moved:false, pid:e.pointerId};
+    st.timer=setTimeout(()=>{ if(!st) return; st.dragging=true; sec.classList.add("sec-drag"); document.body.classList.add("reordering"); try{sec.setPointerCapture(st.pid);}catch(_){} }, 480);
+  });
+  box.addEventListener("pointermove",e=>{
+    if(!st) return;
+    if(!st.dragging){ if(Math.abs(e.clientY-st.sy)>6||Math.abs(e.clientX-st.sx)>6){ clearTimeout(st.timer); st=null; } return; }  // дёрнулся до удержания — не drag, а скролл/клик
+    st.moved=true; st.sec.style.transform=`translateY(${(e.clientY-st.sy).toFixed(0)}px)`;   // заголовок едет за курсором
+    const secs=[...box.querySelectorAll(".sec")].filter(isAreaSec); let tgt=null, after=false;
+    for(const s of secs){ if(s===st.sec) continue; const r=s.getBoundingClientRect();
+      if(e.clientY < r.top + r.height/2){ tgt=s; after=false; break; }
+      if(e.clientY < r.bottom){ tgt=s; after=true; break; } }
+    if(!tgt && secs.length){ const last=secs[secs.length-1]; if(last!==st.sec && e.clientY>=last.getBoundingClientRect().bottom){ tgt=last; after=true; } }
+    st.tgtId = tgt? tgt.dataset.collapse.slice(5) : null; st.after=after;
+    clearDrop(); if(tgt) tgt.classList.add(after?"drop-after":"drop-before");
+  });
+  const finish=()=>{ if(!st) return; clearTimeout(st.timer);
+    if(st.dragging){
+      st.sec.style.transform=""; st.sec.classList.remove("sec-drag"); document.body.classList.remove("reordering"); clearDrop();
+      if(st.moved){
+        const dragged=S.areas.find(a=>a.id===st.id);
+        if(dragged){ let arr=S.areas.filter(a=>a.id!==st.id);
+          if(st.tgtId){ const ti=arr.findIndex(a=>a.id===st.tgtId); const idx=st.after?ti+1:ti; arr.splice(idx<0?arr.length:idx,0,dragged); }
+          else arr.unshift(dragged);
+          S.areas=arr; persist(); }
+      }
+      render();
+      const sup=ev=>{ ev.stopPropagation(); ev.preventDefault(); document.removeEventListener("click",sup,true); };   // подавить клик-сворачивание после drop
+      document.addEventListener("click",sup,true); setTimeout(()=>document.removeEventListener("click",sup,true),120);
+    }
+    st=null;
+  };
+  box.addEventListener("pointerup",finish);
+  box.addEventListener("pointercancel",()=>{ if(st){ clearTimeout(st.timer); if(st.dragging){ st.sec.style.transform=""; st.sec.classList.remove("sec-drag"); document.body.classList.remove("reordering"); clearDrop(); render(); } st=null; } });
 }
 /* ===========================================================
    TOAST
@@ -186,6 +294,37 @@ function toast(msg, opt){
 }
 
 /* ===========================================================
+   РЕСАЙЗ БЕЗРАМОЧНОГО ОКНА (тянуть за края) — только в нативном аппе.
+   WM_NCHITTEST до формы не доходит (перехватывает WebView2), поэтому
+   ловим края сами и зовём win_drag, который двигает край к курсору.
+   =========================================================== */
+function installWindowResize(){
+  if(!HasPy()) return;
+  const EDGES=[
+    ["t","ns-resize","top:0;left:10px;right:10px;height:5px;"],
+    ["b","ns-resize","bottom:0;left:10px;right:10px;height:5px;"],
+    ["l","ew-resize","left:0;top:10px;bottom:10px;width:5px;"],
+    ["r","ew-resize","right:0;top:10px;bottom:10px;width:5px;"],
+    ["tl","nwse-resize","top:0;left:0;width:8px;height:8px;"],
+    ["tr","nesw-resize","top:0;right:0;width:8px;height:8px;"],
+    ["bl","nesw-resize","bottom:0;left:0;width:8px;height:8px;"],
+    ["br","nwse-resize","bottom:0;right:0;width:8px;height:8px;"]
+  ];
+  const root=el("div"); root.id="win-resize-layer";
+  root.innerHTML=EDGES.map(([e,cur,pos])=>`<div class="win-rz" data-edge="${e}" style="cursor:${cur};${pos}"></div>`).join("");
+  document.body.appendChild(root);
+  let edge=null, raf=null, inflight=false;
+  const tick=()=>{ raf=null; if(!edge||inflight) return; inflight=true;   // не больше 1 вызова за кадр; win_drag сам тянется к курсору
+    Promise.resolve(window.pywebview.api.win_drag(edge)).then(()=>{inflight=false;},()=>{inflight=false;}); };
+  $$(".win-rz",root).forEach(h=>{
+    h.addEventListener("pointerdown",e=>{ if(e.button!==0) return; e.preventDefault(); edge=h.dataset.edge; try{h.setPointerCapture(e.pointerId);}catch(_){} });
+    h.addEventListener("pointermove",()=>{ if(edge && !raf) raf=requestAnimationFrame(tick); });
+    h.addEventListener("pointerup",()=>{ edge=null; });
+    h.addEventListener("lostpointercapture",()=>{ edge=null; });
+  });
+}
+
+/* ===========================================================
    BOOT
    =========================================================== */
 async function boot(){
@@ -196,7 +335,7 @@ async function boot(){
     S=defaultState(); seedDemo();
     const v=P.get("view"); if(v) S.settings.view=v;
     if(P.has("light")) S.settings.theme="light";
-    view=S.settings.view||"today"; applyTheme(); wireGlobal(); render();
+    view=S.settings.view||"today"; applySettings(); wireGlobal(); render();
     console.log("[dev] preview mode: fresh demo, view="+view);
     return;
   }
@@ -204,7 +343,8 @@ async function boot(){
   if(loaded && loaded.areas){ S=sanitizeState(Object.assign(defaultState(),loaded)); }
   else { seedDemo(); await Store.save(S); }
   const v=P.get("view"); if(v) S.settings.view=v;   // ?view= работает и в реальном аппе
-  view=S.settings.view||"today"; applyTheme(); wireGlobal(); render();
+  view=S.settings.view||"today"; applySettings(); wireGlobal(); render();
+  installWindowResize();   // ресайз безрамочного окна тянущим за края (только в нативном аппе)
   setTimeout(()=>{ const c=$("#cap"); if(c && !$("#overlay-root").children.length) c.focus(); }, 120);  // готов печатать мысль сразу
   // напоминание при старте
   setTimeout(()=>{

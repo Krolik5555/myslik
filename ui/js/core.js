@@ -22,7 +22,7 @@ const Store = {
     if(HasPy()) return await window.pywebview.api.export_data(s);
     const blob=new Blob([JSON.stringify(s,null,2)],{type:"application/json"});
     const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
-    a.download="planner-export.json"; a.click(); return "browser-download";
+    a.download="myslik-export.json"; a.click(); return "browser-download";
   },
   async importData(){
     if(HasPy()) return await window.pywebview.api.import_data();
@@ -63,6 +63,15 @@ function dueLabel(due){
   const d=parseYmd(due);
   return {cls:"", txt:d.getDate()+"."+String(d.getMonth()+1).padStart(2,"0")};
 }
+// бейдж срока для карточки задачи с учётом выполнения: выполнено вовремя → ничего;
+// выполнено с опозданием → метка опоздания; не выполнено → обычный dueLabel (вкл. «просрочено»)
+function dueBadge(it){
+  if(it.done){
+    if(it.due && it.doneAt){ const late=daysBetween(new Date(it.doneAt), parseYmd(it.due)); if(late>0) return {cls:"late", txt:"с опозданием "+late+"д"}; }
+    return null;
+  }
+  return dueLabel(it.due);
+}
 const REPEAT={none:"",daily:"каждый день",weekly:"каждую неделю",monthly:"каждый месяц"};
 function nextRepeat(due,rep){
   const d=parseYmd(due)||today();
@@ -87,6 +96,19 @@ function swatchRow(current){
   return PALETTE.map((c,i)=>`<button class="swatch${(current||null)===(c||null)?" on":""}" data-ci="${i}" title="${c?c:"по умолчанию"}" style="background:${c||"var(--acc)"}"></button>`).join("");
 }
 
+// привязать папку к ноде (выбор через системный диалог; только в приложении)
+async function pickItemFolder(it, after){
+  if(!HasPy()){ toast("Привязка папки доступна только в приложении",{icon:"ti-folder"}); return; }
+  try{ const p=await window.pywebview.api.pick_folder(); if(p){ it.folder=p; touch(it); persist(); if(after) after(); toast("Папка привязана",{icon:"ti-folder-check"}); } }
+  catch(e){ toast("Не удалось выбрать папку"); }
+}
+// открыть привязанную папку в проводнике
+function openItemFolder(it){
+  if(!it||!it.folder) return;
+  if(!HasPy()){ toast("Открытие папки доступно только в приложении",{icon:"ti-folder"}); return; }
+  Promise.resolve(window.pywebview.api.open_path(it.folder)).then(ok=>{ if(!ok) toast("Папка не найдена на ПК",{icon:"ti-alert-triangle"}); }, ()=>toast("Не удалось открыть папку"));
+}
+
 function defaultState(){
   return {
     v:2,
@@ -97,11 +119,43 @@ function defaultState(){
     ],
     items:[],
     links:[],
-    settings:{ theme:"dark", view:"today",
+    tags:[],   // реестр стилизованных тегов: {name, icon?, color?, size?, shape?} — все свойства опциональны
+    settings:{ theme:"dark", view:"today", graphDrift:4, graphSpread:1, graphBg:true, glow:1, graphLinkLen:1, graphNodeSize:1, graphDegScale:1,
       boardLabels:{ inbox:"Inbox", todo:"Запланировано", doing:"В работе", done:"Готово" } }
   };
 }
-function boardLabel(k){ const m=(S.settings&&S.settings.boardLabels)||{}; return m[k]||{inbox:"Inbox",todo:"Запланировано",doing:"В работе",done:"Готово"}[k]; }
+
+/* ---------- стилизованные теги ---------- */
+const TAG_SHAPES=["circle","square","diamond","hexagon"];
+function tagStyle(name){ return (S.tags||[]).find(t=>t.name===name)||null; }
+// слитый стиль ноды по её тегам: max размер, первый заданный цвет/иконку/форму
+function itemTagStyle(it){
+  if(!it||!it.tags||!it.tags.length||!S.tags||!S.tags.length) return null;
+  let size=null,color=null,icon=null,shape=null;
+  it.tags.forEach(t=>{ const ts=tagStyle(t); if(!ts) return;
+    if(ts.size!=null) size=Math.max(size||0, ts.size);
+    if(ts.color && !color) color=ts.color;
+    if(ts.icon && !icon) icon=ts.icon;
+    if(ts.shape && !shape) shape=ts.shape;
+  });
+  return (size!=null||color||icon||shape)?{size,color,icon,shape}:null;
+}
+function isProjectTag(name){ const t=tagStyle(name); return !!(t&&t.project); }
+function itemProjectTag(it){ if(!it||!Array.isArray(it.tags)) return null; for(const t of it.tags){ const ts=tagStyle(t); if(ts&&ts.project) return ts; } return null; }
+function isProjectItem(it){ return !!itemProjectTag(it); }
+// глиф иконки Tabler (читаем ::before из подключённого шрифта, кэшируем) — для отрисовки прямо в SVG-ноде
+const _glyphCache={};
+function iconGlyph(tiName){
+  if(!tiName) return "";
+  const key=String(tiName).replace(/^ti-/,"");
+  if(_glyphCache[key]!==undefined) return _glyphCache[key];
+  let c="";
+  try{ const i=document.createElement("i"); i.className="ti ti-"+key; i.style.cssText="position:absolute;left:-9999px;visibility:hidden;"; document.body.appendChild(i);
+    const raw=getComputedStyle(i,"::before").content; document.body.removeChild(i);
+    if(raw && raw!=="none") c=raw.replace(/^["']|["']$/g,"");
+  }catch(e){}
+  _glyphCache[key]=c; return c;
+}
 
 // нормализация загруженного/импортированного состояния: бэкилл полей, дедуп id,
 // белый список иконок и валидация цветов — защита от битых/вредоносных данных (импорт/ручная правка json)
@@ -113,6 +167,16 @@ function sanitizeState(s){
   if(!Array.isArray(s.links)) s.links=[];
   const okColor=c=>(typeof c==="string"&&/^#[0-9a-fA-F]{3,8}$/.test(c))?c:null;
   s.areas.forEach(a=>{ if(!ICONS.includes(a.icon)) a.icon="ti-folder"; a.color=okColor(a.color); a.name=String(a.name==null?"":a.name); });
+  // реестр стилизованных тегов (все свойства опциональны → null если не заданы), дедуп по имени
+  if(!Array.isArray(s.tags)) s.tags=[];
+  { const seenT=new Set(); s.tags=s.tags.filter(t=>t&&typeof t==="object"&&typeof t.name==="string"&&t.name.trim()&&!seenT.has(t.name)&&seenT.add(t.name)).map(t=>({
+      name:String(t.name).trim(),
+      icon:(t.icon&&ICONS.includes(t.icon))?t.icon:null,
+      color:okColor(t.color),
+      size:(t.size!=null&&+t.size>=0.4&&+t.size<=3)?+t.size:null,
+      shape:TAG_SHAPES.includes(t.shape)?t.shape:null,
+      project: t.project===true
+    })); }
   const seen=new Set();
   s.items.forEach(it=>{
     if(typeof it.id!=="string" || !it.id || seen.has(it.id)) it.id=uid();   // дедуп/восстановление id
@@ -125,10 +189,14 @@ function sanitizeState(s){
     if(it.repeat===undefined) it.repeat="none";
     if(it.status===undefined) it.status=((it.kind==="note"||it.kind==="flow")?"note":(it.due?"todo":"inbox"));
     if(it.kind==="flow") ensureFlow(it);   // нормализуем содержимое схемы
+    if(it.size!=null){ const sz=+it.size; it.size = (sz>=0.4&&sz<=3)?sz:1; }   // индивидуальный множитель размера ноды
+    if(it.doneAt!=null && typeof it.doneAt!=="number") delete it.doneAt;       // дата выполнения (для метки опоздания)
+    if(it.folder!=null){ it.folder = typeof it.folder==="string" ? it.folder : undefined; if(it.folder==="") it.folder=undefined; }   // привязанная папка на ПК: только непустая строка
   });
   s.items.forEach(it=>{ if(it.parent && !seen.has(it.parent)) it.parent=null; });   // снять висячие parent
-  s.links=s.links.filter(l=>Array.isArray(l)&&l.length===2 &&
-    (seen.has(l[0])||/^hub_/.test(l[0])) && (seen.has(l[1])||/^hub_/.test(l[1])));   // выкинуть связи в никуда
+  s.links=s.links.filter(l=>Array.isArray(l)&&l.length>=2 &&
+    (seen.has(l[0])||/^hub_/.test(l[0])) && (seen.has(l[1])||/^hub_/.test(l[1])))   // выкинуть связи в никуда
+    .map(l=>{ const len=+l[2]; return (len>=0.3&&len<=3)?[l[0],l[1],len]:[l[0],l[1]]; });   // per-link длина (3-й элемент, множитель)
   s.v=2;
   return s;
 }
@@ -150,3 +218,5 @@ let calOffset = 0;        // смещение месяца в календаре
 let notesMode = "graph";  // graph | list
 let showDone = false;     // показывать ли выполненные задачи
 let taskFilter = "all";   // фильтр вкладки «Задачи»: all | today | week | nodue
+let tagFilter = null;     // фильтр по тегу (клик по чипу тега) — сквозной, поверх области/срока
+let listQuery = "";       // текстовый фильтр списков («Задачи» / «Заметки»-список), сбрасывается при смене вкладки

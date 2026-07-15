@@ -4,15 +4,20 @@
    =========================================================== */
 function parseCapture(raw){
   let s=" "+raw+" ";
-  let area=null, due=null, repeat="none", priority=0;
+  let area=null, due=null, repeat="none", priority=0, kind="task";
+  const tags=[];
 
-  // #область  (match by name prefix, case-insensitive)
+  // *префикс — создать заметку вместо задачи
+  if(/^\s*\*/.test(s)){ kind="note"; s=s.replace(/^\s*\*\s*/," "); }
+
+  // #слово: первое совпавшее с областью → область, остальные → теги
   s=s.replace(/#([\wа-яёA-Za-zЁ-]+)/gi,(m,name)=>{
     const low=name.toLowerCase();
     const a=S.areas.find(a=>a.name.toLowerCase().startsWith(low)) ||
             S.areas.find(a=>a.name.toLowerCase().includes(low));
-    if(a){ area=a.id; return " "; }
-    return m;
+    if(a && !area){ area=a.id; return " "; }
+    if(!tags.includes(name)) tags.push(name);
+    return " ";
   });
   // priority
   s=s.replace(/(^|\s)!{1,3}(?=\s)/g,(m)=>{ priority=Math.min(3,(m.trim().length)); return " "; });
@@ -42,7 +47,15 @@ function parseCapture(raw){
     const k=/нед/i.test(unit)?7:1; due=ymd(addDays(today(),(+n)*k)); return " ";
   });
 
-  return { title:s.replace(/\s+/g," ").trim(), area, due, repeat, priority };
+  return { title:s.replace(/\s+/g," ").trim(), area, due, repeat, priority, tags, kind };
+}
+// единая точка входа «сырой текст» → задача/заметка: и поле быстрого захвата, и импорт из Telegram
+// прогоняют текст через один и тот же parseCapture, так что #область/дата/!приоритет/*заметка
+// понимаются одинаково откуда угодно. Возвращает null, если после парсинга не осталось названия.
+function captureText(raw){
+  const p=parseCapture(raw);
+  if(!p.title) return null;
+  return addItem({kind:p.kind||"task", title:p.title, area:p.area, due:p.due, repeat:p.repeat, priority:p.priority, tags:p.tags||[]});
 }
 
 /* ===========================================================
@@ -77,21 +90,27 @@ function restoreItem(id){
 function toggleDone(it){
   if(it.kind!=="task") return;
   if(!it.done){
-    it.done=true; it.status="done"; touch(it);
+    it.done=true; it.status="done"; it.doneAt=Date.now(); touch(it);   // фиксируем дату выполнения (для метки опоздания)
     if(it.repeat && it.repeat!=="none"){
       const nd=nextRepeat(it.due,it.repeat);   // nextRepeat сам берёт today() если due пуст
-      addItem({kind:"task", title:it.title, body:it.body||"", area:it.area, due:nd, repeat:it.repeat, priority:it.priority, tags:it.tags.slice(), status:"todo"});
+      const nt=addItem({kind:"task", title:it.title, body:it.body||"", area:it.area, due:nd, repeat:it.repeat, priority:it.priority, tags:it.tags.slice(), color:it.color||null, size:it.size||null, status:"todo"});
+      // повтор наследует место в паутине: позиция рядом с оригиналом + связь с его родителем
+      // (иначе копия падала в случайную точку графа без связей и выпадала из проекта)
+      if(it.x!=null){ nt.x=it.x+26; nt.y=(it.y||0)+26; }
+      if(it.parent) addLink(it.parent, nt.id);
+      persist();
       toast("Повтор создан: "+(dueLabel(nd)?.txt||""));
     }
-  } else { it.done=false; it.status=it.due?"todo":"inbox"; touch(it); }
+  } else { it.done=false; it.status=it.due?"todo":"inbox"; it.doneAt=null; touch(it); }
   persist();
 }
 function linkExists(a,b){ return S.links.some(l=>(l[0]===a&&l[1]===b)||(l[0]===b&&l[1]===a)); }
 function addLink(a,b){ if(a!==b && !linkExists(a,b)){ S.links.push([a,b]); persist(); return true; } return false; }
 function removeLink(a,b){ S.links=S.links.filter(l=>!((l[0]===a&&l[1]===b)||(l[0]===b&&l[1]===a))); persist(); }
 function linksOf(id){ return S.links.filter(l=>l[0]===id||l[1]===id).map(l=>l[0]===id?l[1]:l[0]); }
-// элементы, живущие в паутине и в дереве заметок: все заметки + задачи, вышедшие из inbox
-function inWeb(it){ return !it.deleted && (it.kind==="note" || it.status!=="inbox"); }
+// элементы, живущие в паутине и в дереве заметок: все неудалённые ноды —
+// дата/область/статус inbox НЕ влияют на присутствие в паутине (только Inbox-список — отдельный фильтр-вид)
+function inWeb(it){ return !it.deleted; }
 function childrenOf(id){ return S.items.filter(it=>it.parent===id); }
 // свёрнутые узлы/области в списке (ключи: id узла или "area:"+id)
 function isCollapsed(id){ const c=S.settings&&S.settings.collapsed; return !!(c&&c[id]); }

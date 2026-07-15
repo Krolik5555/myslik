@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Мыслик — демо подсветки областей</title>
+<style>
+  :root{
+    --bg:#08080a; --panel:#0d0d10; --surf:#161618; --surf2:#1d1d20;
+    --bd:rgba(255,255,255,.12); --bd2:rgba(255,255,255,.22);
+    --tx:#f1f1f3; --mut:#8a8a92; --mut2:#5c5c63; --acc:#e8e8ea;
+    --p-red:#e0625a; --p-org:#e8a14b; --p-grn:#5fb98e; --p-blu:#5b9bd6; --p-pur:#9b7fd6; --p-pnk:#d67fb0; --p-gry:#8a8f98; --p-wht:#e8e8ea;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;}
+  body{display:flex;flex-direction:column;overflow:hidden;}
+  header{padding:14px 22px 12px;border-bottom:0.5px solid var(--bd);}
+  h1{margin:0;font-size:15px;font-weight:600;letter-spacing:.01em;}
+  h1 b{color:var(--p-blu);font-weight:600;}
+  .sub{margin:4px 0 0;font-size:12.5px;color:var(--mut);max-width:70ch;line-height:1.5;}
+  .bar{display:flex;flex-wrap:wrap;align-items:center;gap:14px 22px;padding:11px 22px;border-bottom:0.5px solid var(--bd);
+    font-size:12.5px;color:var(--mut);background:var(--panel);}
+  .bar label{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none;white-space:nowrap;}
+  .bar input[type=range]{width:120px;accent-color:var(--p-org);}
+  .bar input[type=checkbox]{accent-color:var(--p-grn);width:15px;height:15px;}
+  .seg{display:inline-flex;border:0.5px solid var(--bd2);border-radius:8px;overflow:hidden;}
+  .seg button{background:transparent;border:0;color:var(--mut);font:inherit;font-size:12px;padding:5px 12px;cursor:pointer;}
+  .seg button.on{background:var(--acc);color:var(--bg);}
+  .btn{background:var(--surf2);border:0.5px solid var(--bd2);border-radius:8px;color:var(--tx);font:inherit;font-size:12px;padding:6px 13px;cursor:pointer;}
+  .btn:hover{border-color:var(--bd2);background:var(--surf);}
+  .stage{position:relative;flex:1;min-height:0;}
+  canvas,svg{position:absolute;inset:0;width:100%;height:100%;}
+  svg{touch-action:none;}
+  .nd{cursor:grab;}
+  .nd:active{cursor:grabbing;}
+  .nd circle{stroke:var(--bg);stroke-width:2.5;}
+  .nd text{fill:#cdcdd3;font-size:11px;text-anchor:middle;pointer-events:none;}
+  .lnk{stroke:rgba(255,255,255,.14);stroke-width:1;}
+  .hub text{fill:var(--tx);font-size:12px;font-weight:600;letter-spacing:.04em;text-anchor:middle;pointer-events:none;text-transform:uppercase;}
+  footer{display:flex;flex-wrap:wrap;align-items:center;gap:9px 16px;padding:11px 22px;border-top:0.5px solid var(--bd);
+    font-size:12px;color:var(--mut);background:var(--panel);}
+  .chip{display:inline-flex;align-items:center;gap:8px;background:var(--surf);border:0.5px solid var(--bd);border-radius:8px;padding:5px 11px;color:#cdcdd3;}
+  .sw{width:14px;height:14px;border-radius:4px;box-shadow:0 0 9px currentColor;}
+  .hint{margin-left:auto;color:var(--mut2);}
+  :focus-visible{outline:2px solid var(--p-blu);outline-offset:2px;}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Мысл<b>ик</b> · демо подсветки областей</h1>
+    <p class="sub"><b>Локально</b> — каждая нода светит своим цветом, между соседями плавный переход (вокруг синей ноды — синее). <b>Среднее / Эллипс</b> — один усреднённый цвет на область (для сравнения: на контрастных нодах даёт муть). Клик по ноде — сменить цвет · тащи — двигать · свечение пересчитывается вживую. Это песочница, чтобы решить, тащить ли фичу в Мыслик.</p>
+  </header>
+  <div class="bar">
+    <label><input type="checkbox" id="glow" checked> Подсветка областей</label>
+    <label>Режим
+      <span class="seg" id="mode">
+        <button data-m="local" class="on">Локально</button>
+        <button data-m="avg">Среднее</button>
+        <button data-m="ellipse">Эллипс</button>
+      </span>
+    </label>
+    <label>Яркость <input type="range" id="intensity" min="4" max="34" value="18"></label>
+    <label>Размытие <input type="range" id="blur" min="0" max="60" value="30"></label>
+    <button class="btn" id="rand">Случайные цвета</button>
+  </div>
+  <div class="stage">
+    <canvas id="bg"></canvas>
+    <svg id="svg"></svg>
+  </div>
+  <footer id="foot"></footer>
+
+<script>
+(function(){
+  var PAL=["#e0625a","#e8a14b","#5fb98e","#5b9bd6","#9b7fd6","#d67fb0","#8a8f98","#e8e8ea"];
+  // 3 области; координаты — в «мировых» px, потом впишем в холст
+  var areas=[
+    {name:"Работа", hub:{x:300,y:250}, nodes:[
+      {x:180,y:180,c:"#5b9bd6",l:"МТС Арена"},{x:300,y:140,c:"#5fb98e",l:"Локация"},
+      {x:400,y:220,c:"#9b7fd6",l:"Рендер"},{x:250,y:330,c:"#5b9bd6",l:"Музыка"},{x:390,y:350,c:"#5fb98e",l:"Монтаж"}]},
+    {name:"Личное", hub:{x:900,y:230}, nodes:[
+      {x:820,y:150,c:"#e8a14b",l:"Счётчики"},{x:960,y:150,c:"#e0625a",l:"Врач"},
+      {x:900,y:300,c:"#d67fb0",l:"Подарок"},{x:1010,y:250,c:"#e8a14b",l:"Интернет"}]},
+    {name:"Идеи", hub:{x:560,y:560}, nodes:[
+      {x:470,y:520,c:"#5fb98e",l:"Стиль тушь"},{x:620,y:500,c:"#5b9bd6",l:"Интро"},
+      {x:540,y:640,c:"#e8a14b",l:"Сюжет"},{x:680,y:610,c:"#9b7fd6",l:"Палитра"}]}
+  ];
+  var WORLD_W=1200, WORLD_H=760;
+  var bg=document.getElementById("bg"), ctx=bg.getContext("2d"), svg=document.getElementById("svg"), NS="http://www.w3.org/2000/svg";
+  var foot=document.getElementById("foot"), cbGlow=document.getElementById("glow"), rInt=document.getElementById("intensity"), rBlur=document.getElementById("blur");
+  var mode="local";
+  function hx(h){h=h.replace("#","");return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];}
+  function toHx(r,g,b){return "#"+[r,g,b].map(function(v){v=Math.max(0,Math.min(255,Math.round(v)));return (v<16?"0":"")+v.toString(16);}).join("");}
+  function avg(nodes){var r=0,g=0,b=0;nodes.forEach(function(n){var c=hx(n.c);r+=c[0];g+=c[1];b+=c[2];});return [r/nodes.length,g/nodes.length,b/nodes.length];}
+  function centroid(ns){var x=0,y=0;ns.forEach(function(n){x+=n.x;y+=n.y;});return {x:x/ns.length,y:y/ns.length};}
+  // подгонка мира в холст
+  var VIEW={s:1,ox:0,oy:0};
+  function fit(){
+    var r=bg.parentNode.getBoundingClientRect(), dpr=Math.min(window.devicePixelRatio||1,2);
+    bg.width=Math.round(r.width*dpr); bg.height=Math.round(r.height*dpr);
+    var s=Math.min(r.width/WORLD_W, r.height/WORLD_H)*0.96;
+    VIEW={s:s, ox:(r.width-WORLD_W*s)/2, oy:(r.height-WORLD_H*s)/2, dpr:dpr, w:r.width, h:r.height};
+    svg.setAttribute("viewBox","0 0 "+r.width+" "+r.height);
+    draw();
+  }
+  function WX(x){return VIEW.ox+x*VIEW.s;} function WY(y){return VIEW.oy+y*VIEW.s;}
+  function draw(){
+    var dpr=VIEW.dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,VIEW.w,VIEW.h);
+    // фон-сетка (как в Мыслике)
+    var sp=30*VIEW.s;
+    if(sp>=9){ ctx.fillStyle="rgba(255,255,255,0.05)";
+      for(var gx=VIEW.ox%sp; gx<VIEW.w; gx+=sp) for(var gy=VIEW.oy%sp; gy<VIEW.h; gy+=sp){ ctx.beginPath(); ctx.arc(gx,gy,1,0,6.3); ctx.fill(); } }
+    // свечение областей
+    if(cbGlow.checked){
+      var intensity=+rInt.value/100, blur=+rBlur.value;
+      areas.forEach(function(a){
+        var col=avg(a.nodes), cs="rgba("+Math.round(col[0])+","+Math.round(col[1])+","+Math.round(col[2])+",";
+        ctx.save(); if(blur>0) ctx.filter="blur("+blur+"px)";
+        if(mode==="local"){
+          // ЛОКАЛЬНО: каждая нода светит СВОИМ цветом → вокруг синей ноды синий ореол,
+          // между нодами разных цветов — плавный переход (блобы смешиваются при наложении).
+          a.nodes.forEach(function(n){
+            var nc=hx(n.c), ncs="rgba("+nc[0]+","+nc[1]+","+nc[2]+",", R=112*VIEW.s, x=WX(n.x), y=WY(n.y);
+            var grd=ctx.createRadialGradient(x,y,0,x,y,R);
+            grd.addColorStop(0,ncs+intensity+")"); grd.addColorStop(1,ncs+"0)");
+            ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(x,y,R,0,6.3); ctx.fill();
+          });
+        } else if(mode==="avg"){
+          // СРЕДНЕЕ: блоб под каждой нодой, но все в ОДНОМ усреднённом цвете области (муть на контрастных — для сравнения)
+          a.nodes.forEach(function(n){
+            var R=115*VIEW.s, x=WX(n.x), y=WY(n.y);
+            var grd=ctx.createRadialGradient(x,y,0,x,y,R);
+            grd.addColorStop(0,cs+intensity+")"); grd.addColorStop(1,cs+"0)");
+            ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(x,y,R,0,6.3); ctx.fill();
+          });
+        } else {
+          // ЭЛЛИПС: один блоб на всю область (то, что было в первом наброске)
+          var c=centroid(a.nodes), rx=0,ry=0;
+          a.nodes.forEach(function(n){rx=Math.max(rx,Math.abs(n.x-c.x));ry=Math.max(ry,Math.abs(n.y-c.y));});
+          var x=WX(c.x), y=WY(c.y), RX=(rx+95)*VIEW.s, RY=(ry+95)*VIEW.s;
+          var grd=ctx.createRadialGradient(x,y,0,x,y,Math.max(RX,RY));
+          grd.addColorStop(0,cs+(intensity*1.5)+")"); grd.addColorStop(1,cs+"0)");
+          ctx.fillStyle=grd; ctx.save(); ctx.translate(x,y); ctx.scale(RX/Math.max(RX,RY),RY/Math.max(RX,RY));
+          ctx.beginPath(); ctx.arc(0,0,Math.max(RX,RY),0,6.3); ctx.fill(); ctx.restore();
+        }
+        ctx.restore();
+      });
+    }
+    renderSVG();
+    renderFoot();
+  }
+  function renderSVG(){
+    while(svg.firstChild) svg.removeChild(svg.firstChild);
+    // связи: нода → хаб области
+    areas.forEach(function(a){ a.nodes.forEach(function(n){
+      var ln=document.createElementNS(NS,"line"); ln.setAttribute("class","lnk");
+      ln.setAttribute("x1",WX(a.hub.x));ln.setAttribute("y1",WY(a.hub.y));ln.setAttribute("x2",WX(n.x));ln.setAttribute("y2",WY(n.y));
+      svg.appendChild(ln); }); });
+    // хабы
+    areas.forEach(function(a){
+      var g=document.createElementNS(NS,"g"); g.setAttribute("class","hub");
+      var c=document.createElementNS(NS,"circle"); c.setAttribute("cx",WX(a.hub.x));c.setAttribute("cy",WY(a.hub.y));c.setAttribute("r",7*VIEW.s);
+      var col=avg(a.nodes); c.setAttribute("fill",toHx(col[0],col[1],col[2]));
+      var t=document.createElementNS(NS,"text"); t.setAttribute("x",WX(a.hub.x));t.setAttribute("y",WY(a.hub.y)-15*VIEW.s);t.textContent=a.name;
+      g.appendChild(c);g.appendChild(t);svg.appendChild(g);
+    });
+    // ноды
+    areas.forEach(function(a){ a.nodes.forEach(function(n){
+      var g=document.createElementNS(NS,"g"); g.setAttribute("class","nd");
+      var c=document.createElementNS(NS,"circle"); c.setAttribute("cx",WX(n.x));c.setAttribute("cy",WY(n.y));c.setAttribute("r",9*VIEW.s);
+      c.setAttribute("fill",n.c); c.style.filter="drop-shadow(0 0 6px "+n.c+"cc)";
+      var t=document.createElementNS(NS,"text"); t.setAttribute("x",WX(n.x));t.setAttribute("y",WY(n.y)+9*VIEW.s+13);t.textContent=n.l;
+      g.appendChild(c);g.appendChild(t);svg.appendChild(g);
+      var drag=null;
+      g.addEventListener("pointerdown",function(e){drag={sx:e.clientX,sy:e.clientY,ox:n.x,oy:n.y,moved:false};g.setPointerCapture(e.pointerId);});
+      g.addEventListener("pointermove",function(e){if(!drag)return;var dx=(e.clientX-drag.sx)/VIEW.s,dy=(e.clientY-drag.sy)/VIEW.s;if(Math.abs(dx)+Math.abs(dy)>3)drag.moved=true;n.x=drag.ox+dx;n.y=drag.oy+dy;draw();});
+      g.addEventListener("pointerup",function(){if(drag&&!drag.moved){n.c=PAL[(PAL.indexOf(n.c)+1)%PAL.length];draw();}drag=null;});
+    }); });
+  }
+  function renderFoot(){
+    foot.innerHTML="";
+    areas.forEach(function(a){ var col=avg(a.nodes), hex=toHx(col[0],col[1],col[2]);
+      var d=document.createElement("div"); d.className="chip";
+      d.innerHTML='<span class="sw" style="background:'+hex+';color:'+hex+'"></span>'+a.name+' · среднее '+hex;
+      foot.appendChild(d); });
+    var h=document.createElement("div"); h.className="hint"; h.textContent="клик по ноде — цвет · тащи — двигать";
+    foot.appendChild(h);
+  }
+  document.querySelectorAll("#mode button").forEach(function(b){b.addEventListener("click",function(){mode=b.dataset.m;document.querySelectorAll("#mode button").forEach(function(x){x.classList.toggle("on",x===b);});draw();});});
+  cbGlow.addEventListener("change",draw); rInt.addEventListener("input",draw); rBlur.addEventListener("input",draw);
+  document.getElementById("rand").addEventListener("click",function(){areas.forEach(function(a){a.nodes.forEach(function(n){n.c=PAL[Math.floor(Math.random()*(PAL.length-1))];});});draw();});
+  window.addEventListener("resize",fit); fit();
+})();
+</script>
+</body>
+</html>

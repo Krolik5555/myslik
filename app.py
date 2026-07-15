@@ -37,8 +37,89 @@ DATA_DIR = os.path.join(_DATA_BASE, "data")
 DATA_FILE = os.path.join(DATA_DIR, "planner.json")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 MAX_BACKUPS = 30
+# токен/чат Telegram — ОТДЕЛЬНЫЙ файл, а не часть planner.json: он не должен попадать
+# в экспорт/импорт данных (иначе токен бота утечёт вместе с шарингом заметок).
+TG_FILE = os.path.join(DATA_DIR, "telegram.json")
 
 TRACE = os.environ.get("PLANNER_TRACE") == "1"
+
+# ---- авто-обновление с GitHub Releases ----
+# Единый источник версии для сравнения с релизом. Теги релизов: vX.Y.Z (напр. v1.3.0).
+APP_VERSION = "1.3.0"
+# owner/repo публичного репозитория (заполнится после gh auth login — owner = твой GitHub-логин)
+GH_REPO_SLUG = "Krolik5555/myslik"
+
+# bat-хелпер подмены файлов после закрытия приложения. Папки data/ в архиве НЕТ → она не трогается.
+# Пути передаются ЧЕРЕЗ ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ (MYSLIK_*), а не подставляются в текст bat:
+#   - юникод-безопасно (кириллические пути C:\Users\Кролик\... не корёжатся),
+#   - literal '%' в пути не раскрывается как batch-переменная.
+# Сам bat — чистый ASCII. Логика: ждём выхода процесса (с таймаутом) -> собираем новый _internal
+# рядом -> быстрым переименованием (старый в .bak) подменяем -> меняем exe -> при любом сбое
+# откатываемся к рабочей версии и оставляем папку обновления для повторной попытки.
+_UPDATE_BAT = r"""@echo off
+setlocal enableextensions
+set /a n=0
+:wait
+tasklist /fi "imagename eq Myslik.exe" 2>nul | find /i "Myslik.exe" >nul || goto gone
+set /a n+=1
+if %n% geq 90 goto giveup
+ping -n 2 127.0.0.1 >nul
+goto wait
+:giveup
+taskkill /f /im "Myslik.exe" >nul 2>&1
+ping -n 2 127.0.0.1 >nul
+:gone
+ping -n 3 127.0.0.1 >nul
+
+rem clean leftovers from a previous attempt
+if exist "%MYSLIK_INSTALL%\_internal.new" rmdir /s /q "%MYSLIK_INSTALL%\_internal.new"
+if exist "%MYSLIK_INSTALL%\_internal.bak" rmdir /s /q "%MYSLIK_INSTALL%\_internal.bak"
+
+rem 1) stage the new _internal next to the old one (old stays live; safe to abort here)
+if exist "%MYSLIK_SRC%\_internal" (
+  robocopy "%MYSLIK_SRC%\_internal" "%MYSLIK_INSTALL%\_internal.new" /E /R:2 /W:2 /NFL /NDL /NJH /NJS /NC /NS /NP >nul
+  if errorlevel 8 goto fail
+)
+
+rem 2) swap _internal via fast same-volume renames (old -> .bak, new -> live)
+if exist "%MYSLIK_INSTALL%\_internal.new" (
+  move "%MYSLIK_INSTALL%\_internal" "%MYSLIK_INSTALL%\_internal.bak" >nul || goto fail
+  move "%MYSLIK_INSTALL%\_internal.new" "%MYSLIK_INSTALL%\_internal" >nul || goto rollback
+)
+
+rem 3) swap the exe
+copy /y "%MYSLIK_SRC%\Myslik.exe" "%MYSLIK_INSTALL%\Myslik.exe" >nul || goto rollback
+
+rem 4) success: drop backup + update folder, relaunch new build
+if exist "%MYSLIK_INSTALL%\_internal.bak" rmdir /s /q "%MYSLIK_INSTALL%\_internal.bak"
+rmdir /s /q "%MYSLIK_UPD%"
+start "" "%MYSLIK_EXE%"
+goto done
+
+:rollback
+rem restore the old _internal; keep the update folder for a retry
+if exist "%MYSLIK_INSTALL%\_internal.bak" (
+  if exist "%MYSLIK_INSTALL%\_internal" rmdir /s /q "%MYSLIK_INSTALL%\_internal"
+  move "%MYSLIK_INSTALL%\_internal.bak" "%MYSLIK_INSTALL%\_internal" >nul
+)
+:fail
+if exist "%MYSLIK_INSTALL%\_internal.new" rmdir /s /q "%MYSLIK_INSTALL%\_internal.new"
+start "" "%MYSLIK_EXE%"
+
+:done
+endlocal
+(goto) 2>nul & del "%~f0"
+"""
+
+
+def _ver_tuple(v):
+    import re
+    nums = re.findall(r"\d+", str(v or ""))
+    return tuple(int(x) for x in nums[:4]) if nums else (0,)
+
+
+def _ver_gt(a, b):
+    return _ver_tuple(a) > _ver_tuple(b)
 
 
 def trace(*a):
@@ -60,12 +141,42 @@ def _atomic_write(path, text):
     os.replace(tmp, path)
 
 
+def _tg_load():
+    try:
+        with open(TG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _tg_save(cfg):
+    _ensure_dirs()
+    try:
+        _atomic_write(TG_FILE, json.dumps(cfg, ensure_ascii=False, indent=1))
+    except Exception as e:
+        print("telegram save error:", e)
+
+
 # Состояние держим в module-глобалах, а НЕ в атрибутах Api:
 # pywebview сериализует атрибуты js_api-объекта, и ссылка на окно (WinForms-контрол)
 # вызывает бесконечную рекурсию, ломая мост JS<->Python.
 _WINDOW = None
 _MAXED = False
 _SAVE_LOCK = threading.Lock()
+_HWND = 0
+
+
+def _get_hwnd():
+    """HWND нативного окна (ищем по заголовку 'Мыслик', кэшируем)."""
+    global _HWND
+    if _HWND:
+        return _HWND
+    try:
+        import win32gui
+        _HWND = win32gui.FindWindow(None, "Мыслик") or 0
+    except Exception:
+        _HWND = 0
+    return _HWND
 
 
 class Api:
@@ -136,7 +247,7 @@ class Api:
         try:
             res = _WINDOW.create_file_dialog(
                 webview.SAVE_DIALOG,
-                save_filename="planner-export-%s.json"
+                save_filename="myslik-export-%s.json"
                 % datetime.datetime.now().strftime("%Y%m%d"),
                 file_types=("JSON (*.json)",),
             )
@@ -165,6 +276,207 @@ class Api:
             print("import error:", e)
             return None
 
+    def pick_folder(self):
+        try:
+            res = _WINDOW.create_file_dialog(webview.FOLDER_DIALOG)
+            path = res if isinstance(res, str) else (res[0] if res else None)
+            trace("pick_folder() ->", path)
+            return path or ""
+        except Exception as e:
+            print("pick_folder error:", e)
+            return ""
+
+    def open_path(self, path):
+        try:
+            if not path or not isinstance(path, str) or not os.path.exists(path):
+                trace("open_path() rejected:", path)
+                return False
+            # Безопасно: только открываем существующий путь в проводнике ОС,
+            # никаких произвольных команд по строке не выполняем.
+            try:
+                os.startfile(path)
+                trace("open_path() ->", path)
+                return True
+            except Exception as e:
+                print("open_path startfile error:", e)
+                return False
+        except Exception as e:
+            print("open_path error:", e)
+            return False
+
+    # ---------- telegram (захват заметок с телефона; проверка ТОЛЬКО по клику пользователя,
+    # никакого фонового поллинга — не грузим ни CPU, ни сеть, пока не попросили явно) ----------
+    def telegram_status(self):
+        cfg = _tg_load()
+        return {"configured": bool(cfg.get("token")), "linked": bool(cfg.get("chat_id"))}
+
+    def telegram_set_token(self, token):
+        token = (token or "").strip()
+        if not token:
+            return False
+        # новый токен = другой бот → сбрасываем привязку чата и смещение апдейтов
+        _tg_save({"token": token, "chat_id": None, "offset": 0})
+        return True
+
+    def telegram_clear(self):
+        try:
+            if os.path.exists(TG_FILE):
+                os.remove(TG_FILE)
+        except Exception as e:
+            print("telegram clear error:", e)
+        return True
+
+    def telegram_check(self):
+        """Разовый опрос getUpdates (НЕ long-polling: timeout=0, мгновенный ответ).
+        Первое сообщение привязывает бота к этому чату — дальше чужие чаты игнорируются
+        (защита на случай, если токен/имя бота кому-то попадётся на глаза)."""
+        cfg = _tg_load()
+        token = cfg.get("token")
+        if not token:
+            return {"ok": False, "error": "no_token"}
+        import urllib.request
+        offset = cfg.get("offset", 0) or 0
+        chat_id = cfg.get("chat_id")
+        url = "https://api.telegram.org/bot%s/getUpdates?offset=%d&timeout=0" % (token, offset)
+        try:
+            with urllib.request.urlopen(url, timeout=12) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            print("telegram_check network error:", e)
+            return {"ok": False, "error": "network"}
+        if not data.get("ok"):
+            print("telegram_check api error:", data.get("description"))
+            return {"ok": False, "error": "api"}
+        messages = []
+        max_update = offset - 1
+        for upd in data.get("result", []):
+            uid = upd.get("update_id", 0)
+            if uid > max_update:
+                max_update = uid
+            msg = upd.get("message") or upd.get("channel_post")
+            if not msg:
+                continue
+            text = msg.get("text")
+            if not text:
+                continue
+            cid = (msg.get("chat") or {}).get("id")
+            if chat_id is None and cid is not None:
+                chat_id = cid
+            if chat_id is not None and cid != chat_id:
+                continue
+            messages.append(text)
+        cfg["offset"] = max_update + 1
+        cfg["chat_id"] = chat_id
+        _tg_save(cfg)
+        return {"ok": True, "messages": messages}
+
+    # ---------- обновление ----------
+    def app_version(self):
+        return APP_VERSION
+
+    def check_update(self):
+        """Спросить у GitHub последний релиз и сравнить с текущей версией.
+        Ничего не скачивает и не меняет — только читает публичный API."""
+        if "OWNER" in GH_REPO_SLUG:
+            return {"ok": False, "error": "not_configured", "current": APP_VERSION}
+        import urllib.request
+        url = "https://api.github.com/repos/%s/releases/latest" % GH_REPO_SLUG
+        req = urllib.request.Request(url, headers={
+            "Accept": "application/vnd.github+json", "User-Agent": "Myslik-Updater",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            print("check_update error:", e)
+            return {"ok": False, "error": "network", "current": APP_VERSION}
+        latest = (data.get("tag_name") or "").lstrip("vV")
+        asset = None
+        for a in data.get("assets", []):
+            if (a.get("name") or "").lower().endswith(".zip"):
+                asset = a.get("browser_download_url")
+                break
+        return {
+            "ok": True, "current": APP_VERSION, "latest": latest,
+            "hasUpdate": bool(asset) and _ver_gt(latest, APP_VERSION),
+            "notes": data.get("body") or "", "asset": asset,
+            "page": data.get("html_url") or "",
+            "frozen": bool(getattr(sys, "frozen", False)),
+        }
+
+    def apply_update(self, asset_url):
+        """Скачать zip релиза, распаковать рядом и запустить bat-хелпер, который
+        после закрытия приложения подменит файлы (кроме data/) и перезапустит."""
+        if not getattr(sys, "frozen", False):
+            return {"ok": False, "error": "not_frozen"}   # в dev-режиме подменять нечего
+        # пин строго на наш репозиторий (не любой github.com) — чтобы renderer не смог
+        # подсунуть произвольный URL
+        _pin = "https://github.com/%s/" % GH_REPO_SLUG
+        if not asset_url or not asset_url.startswith(_pin):
+            return {"ok": False, "error": "bad_url"}
+        import urllib.request
+        import zipfile
+        import tempfile
+        install_dir = os.path.dirname(sys.executable)
+        upd_dir = os.path.join(install_dir, "_update")
+        new_dir = os.path.join(upd_dir, "new")
+        try:
+            if os.path.isdir(upd_dir):
+                shutil.rmtree(upd_dir, ignore_errors=True)
+            os.makedirs(new_dir, exist_ok=True)
+            zip_path = os.path.join(upd_dir, "update.zip")
+            req = urllib.request.Request(asset_url, headers={"User-Agent": "Myslik-Updater"})
+            with urllib.request.urlopen(req, timeout=180) as resp, open(zip_path, "wb") as f:
+                shutil.copyfileobj(resp, f)
+            with zipfile.ZipFile(zip_path) as z:
+                base = os.path.realpath(new_dir)
+                for m in z.namelist():   # защита от zip-slip: не даём распаковаться за пределы new_dir
+                    dest = os.path.realpath(os.path.join(new_dir, m))
+                    if dest != base and not dest.startswith(base + os.sep):
+                        raise ValueError("zip slip: %s" % m)
+                z.extractall(new_dir)
+        except Exception as e:
+            print("apply_update download error:", e)
+            return {"ok": False, "error": "download"}
+        # ищем папку с Myslik.exe (архив может быть с обёрткой-папкой или без)
+        src_root = None
+        for root, _dirs, files in os.walk(new_dir):
+            if any(fn.lower() == "myslik.exe" for fn in files):
+                src_root = root
+                break
+        if not src_root:
+            return {"ok": False, "error": "no_exe_in_zip"}
+        bat_path = os.path.join(tempfile.gettempdir(), "myslik_update.bat")
+        try:
+            with open(bat_path, "w", encoding="ascii") as f:
+                f.write(_UPDATE_BAT)   # чистый ASCII; пути идут через env (юникод/%-безопасно)
+        except Exception as e:
+            print("apply_update bat error:", e)
+            return {"ok": False, "error": "bat"}
+        try:
+            import subprocess
+            env = dict(os.environ)
+            env["MYSLIK_SRC"] = src_root
+            env["MYSLIK_INSTALL"] = install_dir
+            env["MYSLIK_UPD"] = upd_dir
+            env["MYSLIK_EXE"] = os.path.join(install_dir, "Myslik.exe")
+            # CREATE_NO_WINDOW (скрытая консоль, переживёт закрытие); cwd вне папки установки,
+            # иначе rename/rmdir внутри неё могут упасть «занято другим процессом»
+            subprocess.Popen(["cmd", "/c", bat_path], creationflags=0x08000000,
+                             env=env, cwd=tempfile.gettempdir())
+        except Exception as e:
+            print("apply_update launch error:", e)
+            return {"ok": False, "error": "launch"}
+
+        def _close():
+            time.sleep(0.8)   # дать JS получить ответ до закрытия окна
+            try:
+                _WINDOW.destroy()
+            except Exception:
+                os._exit(0)
+        threading.Thread(target=_close, daemon=True).start()
+        return {"ok": True}
+
     # ---------- window ----------
     def win_min(self):
         try:
@@ -173,13 +485,15 @@ class Api:
             print(e)
 
     def win_max(self):
-        global _MAXED
+        # спрашиваем РЕАЛЬНОЕ состояние окна (IsZoomed), а не свой флаг — иначе после
+        # Aero Snap / Win+Up кнопка начинала работать наоборот
         try:
-            if _MAXED:
+            import win32gui
+            h = _get_hwnd()
+            if h and win32gui.IsZoomed(h):
                 _WINDOW.restore()
             else:
                 _WINDOW.maximize()
-            _MAXED = not _MAXED
         except Exception as e:
             # старые версии без maximize/restore — переключаем fullscreen
             try:
@@ -192,6 +506,36 @@ class Api:
             _WINDOW.destroy()
         except Exception as e:
             print(e)
+
+    def win_drag(self, edge):
+        """Ресайз безрамочного окна тянущим за края — из фронтенда.
+        WM_NCHITTEST до WndProc формы не доходит (его перехватывает дочернее окно
+        WebView2, накрывающее клиентскую область), поэтому тянем сами: двигаем
+        нужный край окна к текущей позиции курсора. И курсор, и rect окна — в
+        физических пикселях, так что DPI-масштаб не мешает.
+        edge: строка из букв l/r/t/b (например 'br' = правый-нижний угол)."""
+        try:
+            import win32gui
+            import win32api
+            h = _get_hwnd()
+            if not h:
+                return False
+            cx, cy = win32api.GetCursorPos()
+            l, t, r, b = win32gui.GetWindowRect(h)
+            MINW, MINH = 900, 600  # физ.px — не даём схлопнуть окно
+            if "l" in edge:
+                l = min(cx, r - MINW)
+            if "r" in edge:
+                r = max(cx, l + MINW)
+            if "t" in edge:
+                t = min(cy, b - MINH)
+            if "b" in edge:
+                b = max(cy, t + MINH)
+            win32gui.MoveWindow(h, l, t, r - l, b - t, True)
+            return True
+        except Exception as e:
+            print("[resize] win_drag error:", e)
+            return False
 
 
 def _selftest(window):
@@ -212,10 +556,10 @@ def _set_taskbar_icon(icon_path):
     except Exception as e:
         print("[icon] win32 missing:", e)
         return
-    # ждём, пока pywebview создаст нативное окно (заголовок 'planner')
+    # ждём, пока pywebview создаст нативное окно (заголовок 'Мыслик')
     hwnd = 0
     for _ in range(120):  # до ~12 c
-        hwnd = win32gui.FindWindow(None, "planner")
+        hwnd = win32gui.FindWindow(None, "Мыслик")
         if hwnd:
             break
         time.sleep(0.1)
@@ -241,7 +585,7 @@ _RESIZE_PROC = None
 _OLD_WNDPROC = None
 
 
-def _enable_frameless_resize(title="planner", border=8):
+def _enable_frameless_resize(title="Мыслик", border=8):
     """Безрамочное окно WinForms (FormBorderStyle.None) лишено границы ресайза.
     Подменяем WndProc и на WM_NCHITTEST у краёв отдаём коды зон ресайза —
     нативный ресайз тянущим за края, без видимой рамки. Всё под try/except:
@@ -334,7 +678,7 @@ def main():
 
     frameless = os.environ.get("PLANNER_FRAMED") != "1"
     window = webview.create_window(
-        "planner",
+        "Мыслик",
         url=UI+"?v=4",
         js_api=api,
         width=1200,
@@ -365,7 +709,7 @@ def main():
         if os.path.exists(icon_path):
             try:
                 tray_icon = Image.open(icon_path)
-                tray = pystray.Icon("planner", tray_icon, "KROLIK planner", menu=pystray.Menu(
+                tray = pystray.Icon("planner", tray_icon, "Мыслик", menu=pystray.Menu(
                     pystray.MenuItem("Показать", lambda: window.show()),
                     pystray.MenuItem("Выход", lambda: window.destroy()),
                 ))
