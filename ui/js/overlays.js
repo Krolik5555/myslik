@@ -634,7 +634,15 @@ function openSettings(tab){
     $$(".set-panel",m).forEach(p=>p.hidden=p.dataset.panel!==name); };
   $$(".set-tab",m).forEach(t=>t.onclick=()=>showTab(t.dataset.tab));   // вкладки настроек
   if(tab) showTab(tab);
-  $("#set-reset",m).onclick=()=>{ ["theme","glow","graphBg","graphDrift","graphSpread","graphLinkLen","graphNodeSize","graphDegScale","graphDoneScale","graphDoneLinkLen","graphLinkBright","graphFadedBright","graphDoingGlow","graphDoingGlowRadius","graphDoingGlowBright","graphDoingGlowBlur"].forEach(k=>s[k]=def[k]); persist(); applySettings(); ov.remove(); openSettings(); if(graph) graph.build(); if(view==="notes") render(); };
+  // Сброс необратим — вернуть подкрученные ползунки нечем, поэтому спрашиваем.
+  // Заодно возвращаемся на ту же вкладку, а не выкидываем на «Вид».
+  $("#set-reset",m).onclick=async()=>{
+    if(!(await uiConfirm("Настройки вида и графа вернутся к значениям по умолчанию. Заметки, задачи и схемы не пострадают.",
+        {danger:true, title:"Сбросить настройки?", okLabel:"Сбросить"}))) return;
+    const cur=$(".set-tab.on",m), back=cur?cur.dataset.tab:null;
+    ["theme","glow","graphBg","graphDrift","graphSpread","graphLinkLen","graphNodeSize","graphDegScale","graphDoneScale","graphDoneLinkLen","graphLinkBright","graphFadedBright","graphDoingGlow","graphDoingGlowRadius","graphDoingGlowBright","graphDoingGlowBlur"].forEach(k=>s[k]=def[k]);
+    persist(); applySettings(); ov.remove(); openSettings(back); if(graph) graph.build(); if(view==="notes") render();
+  };
   // ---- обновления ----
   const updStatus=$("#upd-status",m), updCheck=$("#upd-check",m), updApply=$("#upd-apply",m), updNotes=$("#upd-notes",m);
   let updAsset=null;
