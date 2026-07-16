@@ -252,22 +252,37 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .g-hit:hover+.g-link{filter:drop-shadow(0 0 6px var(--glow));stroke-width:2.4;}
 .g-node{cursor:grab;transition:opacity .18s ease;}
 .g-node:active{cursor:grabbing;}
-.g-node .nd{stroke:var(--acc);fill:var(--surf);transition:filter .15s;}
+/* transform-box:fill-box + origin:center — чтобы масштаб при наведении считался от центра
+   САМОЙ фигуры, а не от начала координат SVG. Геометрию (cx/x/points) каждый кадр переписывает
+   _tick, но это другое свойство — трансформу и переходу оно не мешает. */
+.g-node .nd{stroke:var(--acc);fill:var(--surf);transition:filter .15s, transform .14s ease;
+  transform-box:fill-box;transform-origin:center;}
+/* Ромб — это повёрнутый квадрат. Поворот держим в CSS, а не атрибутом transform: иначе он
+   схлопнется, как только при наведении добавится scale (CSS-свойство перебивает атрибут). */
+.g-node .nd.sh-diamond{transform:rotate(45deg);}
+.g-node:hover .nd{transform:scale(1.18);}
+.g-node:hover .nd.sh-diamond{transform:rotate(45deg) scale(1.18);}
+/* Невидимая область захвата: чуть больше ноды, чтобы попадать мышкой без прицеливания.
+   pointer-events:fill — ловим события по всему кругу, хотя он и прозрачный. */
+.g-nhit{fill:transparent;stroke:none;pointer-events:fill;}
 .g-halo{fill:none;stroke:var(--acc);opacity:.22;filter:drop-shadow(0 0 6px var(--glow));}
 .g-node.hub .nd{fill:var(--acc);stroke:var(--acc);}
 .g-node.note .nd{fill:var(--surf);stroke:var(--acc);stroke-width:1.7;}
 .g-node.task .nd{fill:var(--surf);stroke:var(--acc);stroke-width:1.7;}
 .g-node.task.done .nd{fill:var(--acc);stroke:var(--acc);}
 .g-check{stroke:var(--bg);stroke-width:1.6;fill:none;stroke-linecap:round;stroke-linejoin:round;pointer-events:none;}
-.g-node.sel .nd{stroke:var(--acc);stroke-width:2.6;filter:drop-shadow(0 0 8px var(--acc));}
-.g-node:hover .nd{filter:drop-shadow(0 0 7px var(--glow));}
+/* Подсветка/выделение светят ЦВЕТОМ ноды. --nc ставится в build() из итогового цвета
+   (свой → тег → область), поэтому унаследованный цвет тоже works. Запасной вариант
+   var(--acc) — для нод без цвета: у них --nc не задан, и свечение остаётся белым как раньше. */
+.g-node.sel .nd{stroke:var(--nc,var(--acc));stroke-width:2.6;filter:drop-shadow(0 0 8px var(--nc,var(--acc)));}
+.g-node:hover .nd{filter:drop-shadow(0 0 7px var(--nc,var(--glow)));}
 .g-label{fill:var(--mut);font-size:10.5px;pointer-events:none;}
 .g-label-empty{font-style:italic;opacity:.7;}
 .g-label.hub{fill:var(--tx);font-size:11.5px;font-weight:500;}
 .g-node.dim{opacity:.14;}
 /* фокус-кластер при наведении (Obsidian): узел+соседи ярче, подписи проявляются */
-.g-node.hl .nd{stroke-width:2.4;filter:drop-shadow(0 0 6px var(--glow));}
-.g-node.hl-focus .nd{filter:drop-shadow(0 0 11px var(--acc));}
+.g-node.hl .nd{stroke-width:2.4;filter:drop-shadow(0 0 6px var(--nc,var(--glow)));}
+.g-node.hl-focus .nd{filter:drop-shadow(0 0 11px var(--nc,var(--acc)));}
 .g-node.hl .g-label{opacity:1!important;fill:var(--tx);}
 /* завершённые ветки — приглушены (размер ужимается множителем из настроек) */
 .g-node.faded{opacity:.32;}

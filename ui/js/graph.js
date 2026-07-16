@@ -5,6 +5,21 @@
 let graph=null;
 let graphCam=null;   // камера графа (tx/ty/zoom) переживает пересоздание Graph → нет рывка вьюпорта при создании ноды/связи
 let graphClip=null;  // буфер копирования нод (Ctrl+C/V в графе)
+/* Фаза «дыхания» ноды — детерминированно из её id, число в [0,1). FNV-1a + финальное
+   лавинное перемешивание (fmix32 из murmur3). Перемешивание тут не украшение: все id
+   вида Date.now()+random (core.js) делят общий 8-символьный префикс-таймстамп, и хеш
+   без него дал бы соседним нодам близкие фазы — граф задышал бы синхронно, а не вразнобой.
+   Math.imul обязателен: обычное умножение уйдёт в double и потеряет младшие биты. */
+/* Запас области захвата ноды, мировые единицы. Прибавляется к габариту формы, поэтому у ноды
+   любого размера кайма одинаково широкая — доля от размера оставляла мелкие ноды (0.4×)
+   непопадаемыми, то есть не помогала там, где нужнее всего.
+   Больше ~8 не ставить: каймы соседних нод начнут перекрываться, а связь у самого конца
+   станет некликабельной (её собственный хитбокс — 14 px по толщине). */
+const HIT_PAD=5;
+const _phase=s=>{ let h=2166136261>>>0;
+  for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; }
+  h^=h>>>15; h=Math.imul(h,2246822507)>>>0; h^=h>>>13; h=Math.imul(h,3266489909)>>>0; h^=h>>>16;
+  return (h>>>0)/4294967296; };
 /* фон паутины «Точечное поле» (canvas): точки рисует Graph._drawBg() каждый кадр,
    привязано к настоящему пану/зуму (this.tx/ty/zoom), бесшовно по мировому индексу тайла. */
 function renderNotes(v){
@@ -219,6 +234,29 @@ class Graph{
     this.bgPanX=0; this.bgPanY=0;   // мировой сдвиг фон-параллакса: копится ТОЛЬКО от пана (не от зума/фита) → зум читается чисто
     this.raf=null;
     this.selNodes=new Set(); this.marq=null;   // выделение нод (клик/shift-клик/рамка) + удаление по Delete
+    this._watchResize();
+  }
+  /* РАЗМЕР ОКНА. W/H и viewBox раньше ставились ТОЛЬКО в build(), а окно меняет размер и без него
+     (фулскрин, разворот, тяга за край). Тогда слои разъезжались: SVG со старым viewBox браузер
+     просто РАСТЯГИВАЛ на новый размер, а свечение и фон рисуются канвасом в его СЕГОДНЯШНИХ
+     пикселях (см. _drawGlow) — и свет уезжал от своих нод тем сильнее, чем больше стало окно.
+     Камеру правим так, чтобы мировая точка в центре экрана осталась в центре: иначе при каждом
+     развороте окна граф прыгал бы вбок. */
+  _watchResize(){
+    if(typeof ResizeObserver==="function"){ this._ro=new ResizeObserver(()=>this._onResize()); this._ro.observe(this.svg); }
+    this._onWinResize=()=>this._onResize();   // подстраховка: ResizeObserver не доставляется, пока окно скрыто
+    window.addEventListener("resize", this._onWinResize);
+  }
+  _onResize(){
+    const w=this.svg.clientWidth, h=this.svg.clientHeight;
+    if(!w || !h || (w===this.W && h===this.H)) return false;
+    const wx=(this.W/2-this.tx)/this.zoom, wy=(this.H/2-this.ty)/this.zoom;   // мировая точка в центре экрана
+    this.W=w; this.H=h;
+    this.svg.setAttribute("viewBox",`0 0 ${w} ${h}`);
+    this.tx=w/2-wx*this.zoom; this.ty=h/2-wy*this.zoom;                       // она же остаётся в центре
+    this._applyTransform();
+    if(!this._paused) this._tick(true);   // перерисовать сразу: в покое кадр мог бы быть пропущен
+    return true;
   }
   _paintSel(){ if(this.nodeEls) this.nodeEls.forEach(o=>o.g.classList.toggle("sel",this.selNodes.has(o.n.id))); }
   _startMarquee(e){ const wrap=this.svg.parentNode; let el=wrap.querySelector(".graph-marquee");
@@ -295,6 +333,8 @@ class Graph{
   _quickAdd(kind,wx,wy,fromId){
     const fromIt = fromId && this.byId[fromId] ? this.byId[fromId].ref : null;
     const data={kind, title:"", area:(fromIt?fromIt.area:areaFilter)||null};
+    // Цвет родителя не копируем: новая нода сразу связана с ним, а значит подхватит его цвет
+    // вычислением в build() — и будет подхватывать дальше, пока человек не назначит свой.
     if(kind==="task") data.status="todo";
     const it=addItem(data);
     it.x=Math.round(wx); it.y=Math.round(wy); persist();
@@ -398,7 +438,14 @@ class Graph{
         r:7, x, y, vx:0, vy:0, fixed:!!it.pin, _fresh:(it.x==null && !p)};
       this.nodes.push(n);
     });
-    this.nodes.forEach(n=>this.byId[n.id]=n);
+    // Фаза «дыхания» — от ID, а НЕ от индекса в массиве. Раньше было Math.sin(t + i*1.7): при
+    // добавлении/удалении ноды build() пересобирает this.nodes, индексы съезжают (addItem кладёт
+    // элемент в НАЧАЛО, model.js), у всех меняется фаза — и весь граф разом дёргался на 6-7 px.
+    // Хеш от id даёт ту же фазу всегда: между build(), сессиями и перезапусками. Считаем здесь,
+    // один раз за build, а не в _tick — иначе хеш строки × все ноды × 60 кадров в секунду.
+    // Для Y — ОТДЕЛЬНЫЙ хеш: с одной фазой на обе оси все ноды пошли бы по одинаковой траектории.
+    this.nodes.forEach(n=>{ this.byId[n.id]=n;
+      n._ph=_phase(n.id)*Math.PI*2; n._ph2=_phase(n.id+"~y")*Math.PI*2; });
 
     // manual links first, remember pairs to dedupe auto area-links
     const pairs=new Set();
@@ -407,6 +454,21 @@ class Graph{
 
     this.adj={}; this.nodes.forEach(n=>this.adj[n.id]=new Set());
     this.links.forEach(l=>{ this.adj[l.a].add(l.b); this.adj[l.b].add(l.a); });
+
+    /* ЦВЕТ ОТ СОСЕДА. Нода, у которой нет НИ своего цвета, ни тега, ни области, берёт цвет
+       соседа — и берёт заново при каждой отрисовке, пока человек не назначит ей свой (тогда
+       сработает it.color в самом начале цепочки). Поэтому в палитре у неё честно горит
+       прочерк: своего цвета у неё по-прежнему нет, цвет одолжен.
+       ИСТОЧНИКИ ЗАМОРОЖЕНЫ в _src до раздачи — это не оптимизация, а суть правила:
+       красит только сосед с НАСТОЯЩИМ цветом (свой/тег/область), одолженный дальше не идёт.
+       Иначе одна цветная нода за пару перерисовок затопила бы всю связную компоненту.
+       Спор решает ПОСЛЕДНЯЯ связь: у бесцветных нод бывает и 5 разноцветных соседей, а связи
+       лежат в порядке добавления — значит побеждает то, к чему привязали позже всего. */
+    const _src=new Map(this.nodes.map(n=>[n.id, n.color]));
+    this.links.forEach(l=>{ const a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) return;
+      if(!_src.get(a.id) && _src.get(b.id)) a.color=_src.get(b.id);
+      if(!_src.get(b.id) && _src.get(a.id)) b.color=_src.get(a.id);
+    });
     // размер узла по «популярности» (числу связей) — как в Obsidian: чем больше связей, тем крупнее
     this.nodes.forEach(n=>{
       const deg=this.adj[n.id].size;
@@ -469,12 +531,27 @@ class Graph{
 
     this.nodeEls=this.nodes.map(n=>{
       const g=document.createElementNS(NS,"g"); g.setAttribute("class","g-node "+n.type+(n.done?" done":"")+(n.archived?" faded":"")+(n.doing?" doing":"")); g.dataset.id=n.id;
-      if(n.color) g.style.setProperty("--nc", n.color);   // цвет ноды в CSS-переменную (для заливки «в работе» её же тоном)
+      if(n.color) g.style.setProperty("--nc", n.color);   // цвет ноды в CSS-переменную (для заливки «в работе» её же тоном и для подсветки)
       let halo=null;
       if(n.type==="hub"){ halo=document.createElementNS(NS,"circle"); halo.setAttribute("class","g-halo"); halo.setAttribute("r",n.r+5); if(n.color)halo.style.stroke=n.color; g.appendChild(halo); }
       // форма: из тега (если задана), иначе по типу ноды
       const shapeKind = (n.tagStyle&&n.tagStyle.shape) ? n.tagStyle.shape : (n.type==="task"?"square":n.type==="flow"?"diamond":"circle");
+      // Невидимый круг вокруг ноды — попадать мышкой в кружок радиусом 7 px неудобно.
+      // Кладём ПОД фигуру: по центру события ловит сама фигура, по кайме — этот круг, и оба
+      // всё равно всплывают до .g-node.
+      // Запас — ПОСТОЯННЫЙ в мировых единицах, а не в долях от размера: доля давала мизерную
+      // прибавку мелким нодам (размер настраивается от 0.4×), то есть ровно там, где промахи
+      // и случаются. Считаем от дальней точки формы — у квадрата и ромба это угол (r*1.41),
+      // у круга и шестиугольника сам радиус, — иначе у квадрата углы торчали бы за каймой.
+      let hit=null;
+      if(n.type!=="hub"){
+        const far = (shapeKind==="square"||shapeKind==="diamond") ? n.r*1.41 : n.r;
+        hit=document.createElementNS(NS,"circle"); hit.setAttribute("class","g-nhit");
+        hit.setAttribute("r", (far+HIT_PAD).toFixed(1));
+        g.appendChild(hit);
+      }
       const shape = this._shapeEl(NS, shapeKind, n.r);
+      shape.classList.add("sh-"+shapeKind);   // ромб поворачивается через CSS (см. .sh-diamond) — атрибут transform конфликтует с масштабом при наведении
       if(n.color && !n.archived){
         // inline style: presentation attrs lose to the stylesheet's .nd rules
         if(n.type==="hub"){ shape.style.fill=n.color; shape.style.stroke=n.color; }
@@ -497,7 +574,7 @@ class Graph{
       if(_lbl==="(без названия)") t.classList.add("g-label-empty");
       g.appendChild(t);
       this.nodeG.appendChild(g);
-      return {g, shape, halo, check, pin, t, ticon, shapeKind, n};
+      return {g, shape, halo, check, pin, t, ticon, hit, shapeKind, n};
     });
     this._wire();
     this._paintSel();   // вернуть подсветку выделения после перестроения
@@ -509,7 +586,7 @@ class Graph{
     // а осевшая раскладка сохраняется (см. _moved) → следующее открытие статично, без повторного «взрыва».
     const freshN=this.nodes.filter(n=>n._fresh).length, placedN=this.nodes.length-freshN;
     this.alpha = placedN>0 ? (freshN>0 ? 0.12 : 0) : (this.nodes.length>1 ? 0.4 : 0);
-    this._tick();
+    this._tick(true);   // ОБЯЗАТЕЛЬНО рисуем: фигуры выше созданы без координат, пропуск кадра оставил бы граф пустым
   }
   _circle(NS,r){ const c=document.createElementNS(NS,"circle"); c.setAttribute("class","nd"); c.setAttribute("r",r); return c; }
   _rect(NS,r){ const s=document.createElementNS(NS,"rect"); s.setAttribute("class","nd"); s.setAttribute("width",r*2); s.setAttribute("height",r*2); s.setAttribute("rx",2.5); return s; }
@@ -829,7 +906,32 @@ class Graph{
       touch(it); persist();
       return "В области: "+areaName(aid);
     }
+    // Цвет от соседа тут НЕ пишем: он ВЫЧИСЛЯЕТСЯ в build() при каждой отрисовке, пока
+    // у ноды нет своего. Запись сделала бы наследование одноразовым и заморозила бы цвет.
     return addLink(from,to) ? "Связь создана" : "Уже связаны";
+  }
+  /* Покрасить ноду — и всё выделение заодно, если кликнутая нода в нём (тыкать по одной грустно).
+     Если НЕ в нём — красим только её: ПКМ выделения не трогает, и покрасить невидимые «те пять
+     из прошлой рамки» вместо той, по которой ткнули, было бы сюрпризом.
+     persist/build — ОДИН раз в конце: в цикле это N записей на диск и N полных перестроений SVG.
+     Рамка выделения хватает и области — у них цвет живёт на самой области, а не на элементе,
+     и тянет за собой все ноды, что этот цвет наследуют. Поэтому в тосте считаем их отдельно. */
+  _paintColor(n, col){
+    const ids=(this.selNodes.has(n.id) && this.selNodes.size>1) ? [...this.selNodes] : [n.id];
+    const undo=[]; let nn=0, na=0;
+    ids.forEach(id=>{
+      if(id.indexOf("hub_")===0){ const a=areaById(id.slice(4)); if(a){ undo.push([id,a.color||null]); a.color=col; na++; } }
+      else { const it=S.items.find(x=>x.id===id); if(it){ undo.push([id,it.color||null]); it.color=col; touch(it); nn++; } }
+    });
+    if(!undo.length) return;
+    persist(); this.build();
+    if(undo.length<2) return;   // одну ноду красят перебором — тост на каждый кружок был бы шумом
+    const back=()=>{ undo.forEach(([id,c])=>{
+        if(id.indexOf("hub_")===0){ const a=areaById(id.slice(4)); if(a) a.color=c; }
+        else { const it=S.items.find(x=>x.id===id); if(it){ it.color=c; touch(it); } } });
+      persist(); this.build(); };
+    toast("Цвет · "+[nn?"нод: "+nn:"", na?"областей: "+na:""].filter(Boolean).join(", "),
+          {icon:"ti-palette", label:"Вернуть", onAction:back});
   }
   _finishLink(n){
     // иерархию не задаём вручную — она выводится от области (см. recomputeHierarchy)
@@ -842,14 +944,19 @@ class Graph{
     this.nodes.forEach(n=>{ if(!n.fixed){ if(n.ref){n.ref.x=null;n.ref.y=null;} n.x=this.W/2+(Math.random()-.5)*420; n.y=this.H/2+(Math.random()-.5)*320; }});
     this.alpha=1; this._needFit=true; persist();
   }
-  _tick(){
+  /* force=true — нарисовать кадр ОБЯЗАТЕЛЬНО, не пропуская. Так зовёт build(): фигуры он создаёт
+     БЕЗ координат (их ставит этот метод), поэтому пропуск первого же кадра оставлял бы весь граф
+     невидимым. Раньше это и происходило: пропуск ниже работает через раз, а если окно не в фокусе
+     (например, открыт системный диалог выбора папки), то кадр не только пропускался, но и следующий
+     не планировался — raf=null. Ноды исчезали до первого клика или движения графа. */
+  _tick(force){
     // ТРОТТЛИНГ В ПОКОЕ: когда симуляция успокоилась (alpha=0), камера статична и ничего не тащим —
     // «дыхание» узлов и мерцание фона медленные (период 30-40с), рисуем через кадр (~30fps вместо 60).
     // На глаз не отличить, а нагрузка кадра падает вдвое. Любая активность (alpha>0, пан/зум, драг) → полный 60fps.
     const camKey=this.tx.toFixed(2)+"|"+this.ty.toFixed(2)+"|"+this.zoom.toFixed(4);
     const camMoving=camKey!==this._camKey; this._camKey=camKey;
     const busy=this.drag||this.connectDrag||this.panning||this.marq||this.linkFrom;
-    if(this.alpha===0 && !camMoving && !busy){ this._sk=(this._sk||0)^1; if(this._sk){ this.raf=this._paused?null:requestAnimationFrame(()=>this._tick()); return; } }
+    if(!force && this.alpha===0 && !camMoving && !busy){ this._sk=(this._sk||0)^1; if(this._sk){ this.raf=this._paused?null:requestAnimationFrame(()=>this._tick()); return; } }
     this._drawBg();
     this._drawGlow();
     const N=this.nodes, cx=this.W/2, cy=this.H/2;
@@ -894,15 +1001,15 @@ class Graph{
     }   // /if(alpha>0) — физика раскладки
     // «дыхание» в покое — чтобы граф жил, не выглядел вкопанным (амплитуда из настроек)
     const _it=performance.now()*0.001, AMP=(S.settings.graphDrift!=null?S.settings.graphDrift:4);
-    N.forEach((n,i)=>{
+    N.forEach(n=>{
       // Дрейф со СХВАЧЕННОЙ ноды не снимаем. Раньше тут было n===this.drag: на pointerdown
       // _ix/_iy мгновенно схлопывались в 0, и нода роняла себя из дрейфующей позиции в базовую
       // (до AMP px по оси), а pointerup возвращал дрейф и она прыгала обратно — вот этот «дёрг»
       // и ловился на обычном клике. Точку захвата дрейф не сбивает: _grab (см. onpointerdown)
       // считается от базовой n.x, а рисуем по n.x+_ix — разница постоянна и уже была на экране.
       if(n.fixed){ n._ix=0; n._iy=0; return; }
-      n._ix=Math.sin(_it*0.5 + i*1.7)*AMP;
-      n._iy=Math.cos(_it*0.43 + i*2.3)*AMP;
+      n._ix=Math.sin(_it*0.5 + n._ph)*AMP;    // фаза от id, не от индекса (см. build)
+      n._iy=Math.cos(_it*0.43 + n._ph2)*AMP;
     });
     // связи — по позиции+idle (линии не «мерцают» от сдвига)
     const RX=n=>n.x+(n._ix||0), RY=n=>n.y+(n._iy||0);
@@ -913,10 +1020,10 @@ class Graph{
       if(l._grad){ l._grad.setAttribute("x1",ax); l._grad.setAttribute("y1",ay); l._grad.setAttribute("x2",bx); l._grad.setAttribute("y2",by); }   // градиент — по концам (userSpaceOnUse)
     });
     this.nodeEls.forEach(o=>{ const n=o.n, x=RX(n), y=RY(n), sk=o.shapeKind;   // x/y — с idle: дрейфит фигура/ореол/пин/связи (вектор не мерцает)
-      if(sk==="square"||sk==="diamond"){ o.shape.setAttribute("x",x-n.r); o.shape.setAttribute("y",y-n.r);
-        if(sk==="diamond") o.shape.setAttribute("transform",`rotate(45 ${x} ${y})`); }   // ромб — повёрнутый квадрат
+      if(sk==="square"||sk==="diamond"){ o.shape.setAttribute("x",x-n.r); o.shape.setAttribute("y",y-n.r); }   // ромб — тот же квадрат, поворот в CSS (.sh-diamond)
       else if(sk==="hexagon"){ o.shape.setAttribute("points", this._hexPts(x,y,n.r)); }
       else { o.shape.setAttribute("cx",x); o.shape.setAttribute("cy",y); }
+      if(o.hit){ o.hit.setAttribute("cx",x); o.hit.setAttribute("cy",y); }   // расширенная область захвата едет с нодой
       if(n.type==="task" && o.check) o.check.setAttribute("d",`M ${x-3.2} ${y+0.3} l 2.2 2.4 l 4.2 -5`);
       if(o.halo){ o.halo.setAttribute("cx",x); o.halo.setAttribute("cy",y); }
       o.pin.setAttribute("cx",x); o.pin.setAttribute("cy",y);
@@ -976,7 +1083,7 @@ class Graph{
         </div>`;
       $("#graph-wrap").appendChild(pop);
       this._posPop(pop,n);
-      $$(".np-sw .swatch",pop).forEach(b=>b.onclick=()=>{ a.color=PALETTE[+b.dataset.ci]||null; persist(); this.build(); });
+      $$(".np-sw .swatch",pop).forEach(b=>b.onclick=()=>this._paintColor(n, PALETTE[+b.dataset.ci]||null));
       pop.querySelector('[data-pop="tasks"]').onclick=()=>{ this._closePop(); areaFilter=a.id; view="tasks"; render(); };
       pop.querySelector('[data-pop="link"]').onclick=()=>{ this.startLink(n.id); };
       pop.querySelector('[data-pop="pin"]').onclick=()=>{
@@ -1027,7 +1134,7 @@ class Graph{
       </div>`;
     $("#graph-wrap").appendChild(pop);
     this._posPop(pop,n);
-    $$(".np-sw .swatch",pop).forEach(b=>b.onclick=()=>{ it.color=PALETTE[+b.dataset.ci]||null; touch(it); persist(); this.build(); });
+    $$(".np-sw .swatch",pop).forEach(b=>b.onclick=()=>this._paintColor(n, PALETTE[+b.dataset.ci]||null));
     if(pop.querySelector('[data-pop="open"]')) pop.querySelector('[data-pop="open"]').onclick=()=>{ this._closePop(); openItemSmart(it); };
     if(pop.querySelector('[data-pop="done"]')) pop.querySelector('[data-pop="done"]').onclick=()=>{ toggleDone(it); this._closePop(); this.build(); toast(it.done?"Выполнено":"Возвращено в работу"); };
     if(pop.querySelector('[data-pop="doing"]')) pop.querySelector('[data-pop="doing"]').onclick=()=>{ it.status = it.status==="doing" ? "todo" : "doing"; touch(it); persist(); this._closePop(); this.build(); toast(it.status==="doing"?"В работе":"Снято с работы",{icon:it.status==="doing"?"ti-player-play":"ti-player-pause"}); };
@@ -1095,5 +1202,9 @@ class Graph{
   // чтобы приложение в фоне не жгло CPU (иначе «дыхание» графа крутится 60fps впустую).
   pause(){ this._paused=true; if(this.raf){ cancelAnimationFrame(this.raf); this.raf=null; } if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; } }
   resume(){ if(!this._paused) return; this._paused=false; if(!this.raf) this._tick(); }
-  destroy(){ this._paused=true; if(this.raf) cancelAnimationFrame(this.raf); if(this._vraf) cancelAnimationFrame(this._vraf); }
+  destroy(){ this._paused=true; if(this.raf) cancelAnimationFrame(this.raf); if(this._vraf) cancelAnimationFrame(this._vraf);
+    // граф пересоздаётся на каждый render — без этого наблюдатели и слушатели копились бы
+    if(this._ro){ this._ro.disconnect(); this._ro=null; }
+    if(this._onWinResize){ window.removeEventListener("resize", this._onWinResize); this._onWinResize=null; }
+  }
 }
