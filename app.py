@@ -45,9 +45,15 @@ TRACE = os.environ.get("PLANNER_TRACE") == "1"
 
 # ---- авто-обновление с GitHub Releases ----
 # Единый источник версии для сравнения с релизом. Теги релизов: vX.Y.Z (напр. v1.3.0).
-APP_VERSION = "1.4.3"
+APP_VERSION = "1.4.4"
 # owner/repo публичного репозитория (заполнится после gh auth login — owner = твой GitHub-логин)
 GH_REPO_SLUG = "Krolik5555/myslik"
+
+# ---- отчёты о проблемах от пользователей ----
+# URL веб-приложения Google Apps Script (код и инструкция — tools/feedback-appscript.gs).
+# Это НЕ секрет: обычный эндпоинт, принимающий отчёт. Худшее при утечке — спам в таблицу,
+# поэтому его безопасно держать в открытом exe. Пусто/PASTE → кнопка честно скажет «не настроено».
+FEEDBACK_URL = "https://script.google.com/macros/s/AKfycbzSi4wlGG8aPhSwW9TeVttt18kbq0DxKMLMoG6fR6VWZfhsnAYJkV6MxXfx_-3TNJaBRA/exec"
 
 # bat-хелпер подмены файлов после закрытия приложения. Папки data/ в архиве НЕТ → она не трогается.
 # Пути передаются ЧЕРЕЗ ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ (MYSLIK_*), а не подставляются в текст bat:
@@ -373,6 +379,41 @@ class Api:
     # ---------- обновление ----------
     def app_version(self):
         return APP_VERSION
+
+    def send_feedback(self, msg, contact=""):
+        """Отправить отчёт о проблеме на веб-приложение Google Apps Script.
+        Пользователю не нужны никакие аккаунты и настройки — одна кнопка.
+        Секретов не шлём и не храним: в exe лежит только URL эндпоинта.
+        Данные пользователя (заметки/задачи) НЕ отправляются — только текст,
+        который он сам написал, плюс версия/ОС для диагностики."""
+        if not FEEDBACK_URL or "PASTE" in FEEDBACK_URL:
+            return {"ok": False, "error": "not_configured"}
+        msg = (msg or "").strip()
+        if not msg:
+            return {"ok": False, "error": "empty"}
+        import urllib.request
+        import platform
+        payload = {
+            "message": msg[:5000],
+            "contact": (contact or "").strip()[:200],
+            "version": APP_VERSION,
+            "os": "%s %s" % (platform.system(), platform.release()),
+            "frozen": bool(getattr(sys, "frozen", False)),
+        }
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(FEEDBACK_URL, data=data, headers={
+            "Content-Type": "application/json", "User-Agent": "Myslik-Feedback",
+        })
+        try:
+            # Apps Script отвечает 302 на script.googleusercontent.com — urllib сам сходит
+            # по редиректу; doPost к этому моменту уже отработал и строку записал.
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                body = resp.read().decode("utf-8", "replace")
+            trace("send_feedback() ->", body[:200])
+            return {"ok": True}
+        except Exception as e:
+            print("send_feedback error:", e)
+            return {"ok": False, "error": "network"}
 
     def check_update(self):
         """Спросить у GitHub последний релиз и сравнить с текущей версией.

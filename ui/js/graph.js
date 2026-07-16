@@ -689,17 +689,21 @@ class Graph{
     ctx.clearRect(0,0,cw,ch);
     const s=S.settings;
     if(s.graphDoingGlow===false) return;
-    const doing=this.nodes.filter(n=>n.doing && n.color);
+    // цвет НЕ обязателен: в палитре первый кружок = null («по умолчанию», рисуется белым),
+    // такие ноды тоже должны светиться — берём им нейтральный цвет темы, как и заливка в CSS
+    // (там фолбэк var(--nc, var(--acc))). Иначе белая doing-нода оставалась без свечения.
+    const doing=this.nodes.filter(n=>n.doing);
     if(!doing.length) return;
     const z=this.zoom, tx=this.tx, ty=this.ty;
     const R=(s.graphDoingGlowRadius!=null?s.graphDoingGlowRadius:110)*z;
     const inten=(s.graphDoingGlowBright!=null?s.graphDoingGlowBright:0.3);
     const blur=(s.graphDoingGlowBlur!=null?s.graphDoingGlowBlur:30);
     const rgbOf=(c)=>{ c=(c||"").trim(); if(c[0]==="#"){ let h=c.slice(1); if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2]; const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255]; } const m=c.match(/(\d+)[,\s]+(\d+)[,\s]+(\d+)/); return m?[+m[1],+m[2],+m[3]]:null; };
+    const neutral=NEUTRAL();   // --acc: тот же «белый по умолчанию», которым нода и рисуется
     ctx.save();
     if(blur>0) ctx.filter="blur("+blur+"px)";
     doing.forEach(n=>{
-      const rgb=rgbOf(n.color); if(!rgb) return;
+      const rgb=rgbOf(n.color||neutral); if(!rgb) return;
       const x=(n.x+(n._ix||0))*z+tx, y=(n.y+(n._iy||0))*z+ty;   // мир → экран (та же трансформа, что у корня графа)
       if(x<-R-blur||x>cw+R+blur||y<-R-blur||y>ch+R+blur) return;
       const grd=ctx.createRadialGradient(x,y,0,x,y,R);

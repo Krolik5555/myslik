@@ -35,6 +35,54 @@ function uiConfirm(message, opts){
   });
 }
 
+/* Отчёт о проблеме → веб-приложение Google Apps Script (URL в app.py FEEDBACK_URL).
+   Пользователю не нужны аккаунты. Данные пользователя НЕ уходят: только его текст,
+   версия приложения и версия Windows — этого хватает для диагностики.
+   draft={msg,contact} — восстановление черновика при повторе после неудачи. */
+function openFeedback(draft){
+  const m=el("div","modal");
+  m.innerHTML=`
+    <h3><i class="ti ti-message-report"></i>Сообщить о проблеме</h3>
+    <div class="fb-note">Опиши, что пошло не так или чего не хватает. Уйдут только твой текст, версия Мыслика и версия Windows — заметки и задачи НЕ отправляются.</div>
+    <div class="field"><label>Что случилось</label>
+      <textarea id="fb-msg" placeholder="Например: нажимаю «Граф» — приложение зависает…"></textarea></div>
+    <div class="field"><label>Контакт для ответа <span class="set-val">по желанию</span></label>
+      <input type="text" id="fb-contact" placeholder="телеграм или почта — если хочешь ответ" autocomplete="off" spellcheck="false"></div>
+    <div class="modal-foot"><div class="right">
+      <button class="btn ghost" id="fb-cancel">Отмена</button>
+      <button class="btn primary" id="fb-send"><i class="ti ti-send"></i>Отправить</button>
+    </div></div>`;
+  m.tabIndex=-1;
+  const ov=overlay(m), op=ov._opener;
+  const close=()=>{ if(ov.isConnected) ov.remove(); restoreFocus(op); };
+  $("#fb-cancel",m).onclick=close;
+  m.addEventListener("keydown",e=>{ if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); } });
+  if(draft){ $("#fb-msg",m).value=draft.msg||""; $("#fb-contact",m).value=draft.contact||""; }
+  const btn=$("#fb-send",m);
+  btn.onclick=()=>{
+    const msg=$("#fb-msg",m).value.trim();
+    if(!msg){ toast("Напиши, что случилось",{icon:"ti-alert-triangle"}); $("#fb-msg",m).focus(); return; }
+    if(!HasPy()){ toast("Отправка доступна только в приложении",{icon:"ti-message-report"}); return; }
+    // Окно закрываем СРАЗУ, отправку ведём фоном: ответа Apps Script ждать 2-5 c, и всё это
+    // время пялиться в застывшую модалку незачем. Но «отправлено» раньше времени НЕ говорим.
+    close();
+    sendFeedback(msg, $("#fb-contact",m).value);
+  };
+  setTimeout(()=>{ const t=$("#fb-msg",m); if(t) t.focus(); },30);
+}
+
+/* Отправка живёт отдельно от окна: окно уже закрыто, а запрос идёт. Результат сообщаем тостом
+   честно — по факту ответа. Черновик при неудаче не теряем: он вернётся по «Повторить». */
+async function sendFeedback(msg, contact){
+  toast("Отправляю…",{icon:"ti-loader-2", hold:true, spin:true});
+  let res; try{ res=await window.pywebview.api.send_feedback(msg, contact); }
+  catch(e){ res={ok:false, error:"network"}; }
+  if(res && res.ok){ toast("Отчёт отправлен — спасибо!",{icon:"ti-check"}); return; }
+  if((res&&res.error)==="not_configured"){ toast("Отправка отчётов ещё не настроена автором",{icon:"ti-alert-triangle"}); return; }
+  toast("Не удалось отправить — текст сохранён",
+        {icon:"ti-alert-triangle", label:"Повторить", onAction:()=>openFeedback({msg, contact})});
+}
+
 function openItemEditor(existing, defaultKind, presetDue){
   const isNew=!existing;
   const it = existing || {id:null, kind:defaultKind||"task", title:"", body:"", area:areaFilter||null, due:presetDue||null, repeat:"none", priority:0, tags:[]};

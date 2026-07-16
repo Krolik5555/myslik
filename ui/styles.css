@@ -88,6 +88,7 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .foot-btn{flex:1;height:32px;background:var(--surf2);border:0.5px solid var(--bd);border-radius:8px;color:var(--mut);font-size:15px;display:flex;align-items:center;justify-content:center;}
 .foot-btn:hover{color:var(--tx);border-color:var(--bd2);}
 .spin i{animation:footSpin .8s linear infinite;}
+#toast i.spinning{animation:footSpin .8s linear infinite;}   /* «Отправляю…»: статичный глиф читается как зависон */
 @keyframes footSpin{to{transform:rotate(360deg);}}
 
 /* ===== main ===== */
@@ -408,9 +409,18 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 /* контекст-заметка в дереве задач: компактный заголовок без тела */
 .nc-icn{color:var(--mut);font-size:13px;margin-right:1px;flex:none;}
 .note-card.ctx .nc-ttl{color:var(--mut2);font-weight:500;}
-/* версия приложения — ненавязчиво в низу сайдбара */
-.side-ver{font-size:10.5px;color:var(--mut2);text-align:center;padding:9px 0 3px;letter-spacing:.05em;opacity:.7;user-select:none;}
-.side-ver span{color:var(--mut);}
+/* версия приложения — ненавязчиво в низу сайдбара, под ней «сообщить о проблеме»
+   (opacity держим на самом тексте, а не на строке: иначе кнопка не смогла бы разгораться на hover) */
+.side-ver{font-size:10.5px;color:var(--mut2);padding:9px 0 5px;letter-spacing:.05em;user-select:none;
+  display:flex;flex-direction:column;align-items:center;gap:5px;}
+.side-ver .sv-t{opacity:.7;}
+.side-ver .sv-t span{color:var(--mut);}
+/* ПОДПИСЬЮ, а не голой иконкой: действие редкое — его никогда не выучат наизусть, значит
+   оно обязано объяснять себя само. Тихое (тот же кегль и цвет), но самоочевидное. */
+.sv-fb{display:flex;align-items:center;gap:4px;font-size:10.5px;letter-spacing:.05em;
+  color:var(--mut2);opacity:.75;padding:2px 5px;border-radius:5px;line-height:1.4;}
+.sv-fb i{font-size:12px;}
+.sv-fb:hover{color:var(--tx);opacity:1;}
 /* вкладка «Задачи»: чипы быстрых фильтров */
 .tf-chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:8px;}
 .tf-chip{padding:5px 14px;border:0.5px solid var(--bd2);border-radius:999px;background:transparent;color:var(--mut);cursor:pointer;font-size:12.5px;font-family:inherit;transition:.14s;}
@@ -782,13 +792,12 @@ button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:va
 .ln-sub{color:var(--mut);font-size:11.5px;}
 .ln-del{flex:none;}
 .modal input[type=range]{width:100%;accent-color:var(--acc);cursor:pointer;height:22px;}
-/* подвал сайдбара: перенос на 2 ряда (кнопок стало 7) + активная кнопка dev-режима */
-.side-foot{flex-wrap:wrap;}
-.foot-btn{min-width:26px;}
 
 /* стилизованное подтверждение (вместо нативного confirm) */
 .confirm-modal{width:420px;}
 .confirm-msg{font-size:14px;line-height:1.55;color:var(--tx);margin:2px 0 20px;}
+/* пояснение в окне отчёта о проблеме — что именно уходит автору */
+.fb-note{font-size:12.5px;line-height:1.5;color:var(--mut);margin:2px 0 14px;}
 .btn.danger{background:var(--warn);color:#fff;border-color:var(--warn);}
 .btn.danger:hover{background:var(--warn);filter:brightness(1.08);box-shadow:0 0 16px rgba(224,98,90,.45);}
 

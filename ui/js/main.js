@@ -26,6 +26,7 @@ function openPalette(){
     {t:"Сделать бэкап",i:"ti-shield-check",run:()=>{closeOverlays();doBackup();}},
     {t:"Проверить Telegram",i:"ti-brand-telegram",run:()=>{closeOverlays();checkTelegram();}},
     {t:"Переключить тему",i:"ti-sun",run:()=>{closeOverlays();toggleTheme();}},
+    {t:"Сообщить о проблеме",i:"ti-message-report",run:()=>{closeOverlays();openFeedback();}},
     {t:"Настройки",i:"ti-settings",run:()=>{closeOverlays();openSettings();}},
     {t:"Теги со стилем",i:"ti-tags",run:()=>{closeOverlays();openTagManager();}},
     {t:"Удалить пустые заметки",i:"ti-eraser",run:()=>{closeOverlays();cleanEmptyNotes();}},
@@ -155,6 +156,7 @@ function wireGlobal(){
   $("#add-area").onclick=(e)=>{ e.stopPropagation(); openAreaEditor(null,()=>renderNav()); };
   $("#manage-area").onclick=(e)=>{ e.stopPropagation(); openAreaManager(); };
   $("#f-export").onclick=doExport; $("#f-import").onclick=doImport; $("#f-timer").onclick=openTimer;
+  $("#f-feedback").onclick=openFeedback;
   $("#f-settings").onclick=openSettings;
 
   // head-actions delegated (кнопки заголовка: +Задача/Заметка, навигация календаря, переключатели)
@@ -284,15 +286,18 @@ function installSectionReorder(){
    TOAST
    =========================================================== */
 let toastT=null;
-// toast(msg) или toast(msg,{icon,label,onAction}) — с действием показывается дольше и кликабелен (Undo)
+// toast(msg) или toast(msg,{icon,label,onAction,hold,spin}) — с действием показывается дольше и кликабелен (Undo).
+// hold:true — висит, пока его не сменит следующий toast (для «Отправляю…»: ответ Google идёт дольше 1.8 c,
+// иначе между «Отправляю…» и результатом получалась дыра без обратной связи).
+// spin:true — крутить иконку: статичный ti-loader-2 читается как «зависло», а не «идёт работа».
 function toast(msg, opt){
   const t=$("#toast"); opt=opt||{};
-  const icon=opt.icon?`<i class="ti ${esc(opt.icon)}"></i>`:"";
+  const icon=opt.icon?`<i class="ti ${esc(opt.icon)}${opt.spin?" spinning":""}"></i>`:"";
   t.innerHTML=icon+`<span>${esc(msg)}</span>`+(opt.label?`<button class="toast-act">${esc(opt.label)}</button>`:"");
   t.classList.remove("show"); void t.offsetWidth;            // рестарт glow-анимации на каждый показ
   t.classList.add("show"); t.style.pointerEvents=opt.onAction?"auto":"none";
   clearTimeout(toastT);
-  toastT=setTimeout(()=>t.classList.remove("show"), opt.onAction?5000:1800);
+  toastT=setTimeout(()=>t.classList.remove("show"), opt.hold?30000:(opt.onAction?5000:1800));
   if(opt.onAction){ const b=t.querySelector(".toast-act"); if(b) b.onclick=()=>{ clearTimeout(toastT); t.classList.remove("show"); opt.onAction(); }; }
 }
 
@@ -354,18 +359,27 @@ async function boot(){
     const overdue=S.items.filter(it=>!it.deleted&&it.kind==="task"&&!it.done&&it.due&&parseYmd(it.due)<today());
     if(overdue.length) toast("⚠️ Просрочено: "+overdue.length+" задач");
   }, 600);
-  // авто-проверка обновлений при запуске (тихо; тост только если реально есть новее)
-  autoCheckUpdate();
+  // авто-проверка обновлений: при запуске + раз в 6 часов (тихо; тост только если реально есть новее)
+  autoCheckUpdate(true);
+  setInterval(()=>autoCheckUpdate(), UPD_EVERY);
 }
 
-/* Разовая фоновая проверка обновлений при старте. Ничего не качает — только
-   спрашивает GitHub. Если версия новее — небольшой тост сверху с кнопкой,
-   открывающей Настройки → Обновления с уже запущенной проверкой. */
-async function autoCheckUpdate(){
-  if(!HasPy()) return;                         // только в приложении
-  await new Promise(r=>setTimeout(r,1800));    // не мешаем старту/фокусу поля захвата
+/* Фоновая проверка обновлений: при старте и дальше раз в 6 часов — приложение могут не
+   закрывать сутками, иначе о новой версии оно не узнает до перезапуска.
+   Ничего не качает — только спрашивает GitHub: ~3 КБ на запрос, 4 запроса в сутки.
+   Нагрузки нет, до лимита GitHub (60 запросов/час) далеко.
+   Про одну и ту же версию говорим ОДИН раз: иначе тост лез бы каждые 6 часов, пока
+   человек не обновится. Ошибки глотаем молча — оффлайн не повод пугать. */
+const UPD_EVERY = 6*60*60*1000;
+let _updNotified = null;   // версия, о которой уже сообщили
+
+async function autoCheckUpdate(delayed){
+  if(!HasPy()) return;                              // только в приложении
+  if(delayed) await new Promise(r=>setTimeout(r,1800));   // не мешаем старту/фокусу поля захвата
   let r; try{ r=await window.pywebview.api.check_update(); }catch(e){ return; }
   if(!r || !r.ok || !r.hasUpdate) return;
+  if(_updNotified===r.latest) return;               // уже говорили про эту версию
+  _updNotified=r.latest;
   toast("Вышла новая версия "+r.latest, {icon:"ti-rocket", label:"Обновить", onAction:()=>{
     openSettings();
     setTimeout(()=>{
