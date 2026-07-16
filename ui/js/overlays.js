@@ -491,7 +491,10 @@ function openShortcuts(){
 /* ===========================================================
    НАСТРОЙКИ (саморегулируемые параметры — п.1 KROLIK)
    =========================================================== */
-function openSettings(){
+// openSettings("data") — открыть сразу на нужной вкладке. Без этого тост «Вышла новая версия»
+// открывал «Вид», а блок обновлений оставался в скрытой панели: человек видел тему и свечение
+// и не понимал, при чём тут обновление.
+function openSettings(tab){
   const s=S.settings, def=defaultState().settings;
   const gd=()=> s.graphDrift!=null?s.graphDrift:def.graphDrift, gs=()=> s.graphSpread!=null?s.graphSpread:def.graphSpread,
         gl=()=> s.graphLinkLen!=null?s.graphLinkLen:def.graphLinkLen, gn=()=> s.graphNodeSize!=null?s.graphNodeSize:def.graphNodeSize,
@@ -626,7 +629,11 @@ function openSettings(){
   const elDgr=$("#set-dgr",m); elDgr.oninput=()=>{ s.graphDoingGlowRadius=+elDgr.value; $("#val-dgr",m).textContent=elDgr.value; persist(); };
   const elDgb=$("#set-dgb",m); elDgb.oninput=()=>{ s.graphDoingGlowBright=+elDgb.value; $("#val-dgb",m).textContent=elDgb.value; persist(); };
   const elDgbl=$("#set-dgbl",m); elDgbl.oninput=()=>{ s.graphDoingGlowBlur=+elDgbl.value; $("#val-dgbl",m).textContent=elDgbl.value; persist(); };
-  $$(".set-tab",m).forEach(t=>t.onclick=()=>{ $$(".set-tab",m).forEach(x=>x.classList.toggle("on",x===t)); $$(".set-panel",m).forEach(p=>p.hidden=p.dataset.panel!==t.dataset.tab); });   // вкладки настроек
+  const showTab=(name)=>{ const t=$(`.set-tab[data-tab="${name}"]`,m); if(!t) return;
+    $$(".set-tab",m).forEach(x=>x.classList.toggle("on",x===t));
+    $$(".set-panel",m).forEach(p=>p.hidden=p.dataset.panel!==name); };
+  $$(".set-tab",m).forEach(t=>t.onclick=()=>showTab(t.dataset.tab));   // вкладки настроек
+  if(tab) showTab(tab);
   $("#set-reset",m).onclick=()=>{ ["theme","glow","graphBg","graphDrift","graphSpread","graphLinkLen","graphNodeSize","graphDegScale","graphDoneScale","graphDoneLinkLen","graphLinkBright","graphFadedBright","graphDoingGlow","graphDoingGlowRadius","graphDoingGlowBright","graphDoingGlowBlur"].forEach(k=>s[k]=def[k]); persist(); applySettings(); ov.remove(); openSettings(); if(graph) graph.build(); if(view==="notes") render(); };
   // ---- обновления ----
   const updStatus=$("#upd-status",m), updCheck=$("#upd-check",m), updApply=$("#upd-apply",m), updNotes=$("#upd-notes",m);

@@ -380,14 +380,35 @@ async function autoCheckUpdate(delayed){
   if(!r || !r.ok || !r.hasUpdate) return;
   if(_updNotified===r.latest) return;               // уже говорили про эту версию
   _updNotified=r.latest;
-  toast("Вышла новая версия "+r.latest, {icon:"ti-rocket", label:"Обновить", onAction:()=>{
-    openSettings();
-    setTimeout(()=>{
-      const st=document.getElementById("upd-status"), b=document.getElementById("upd-check");
-      if(st) st.scrollIntoView({block:"center"});
-      if(b) b.click();                         // сразу запускаем проверку → кнопка «Обновить» появится готовой
-    }, 60);
-  }});
+  toast("Вышла новая версия "+r.latest, {icon:"ti-rocket", label:"Обновить",
+        onAction:()=>applyUpdateNow(r.asset, r.latest)});
+}
+
+/* Обновление прямо из тоста, без похода в настройки. Приложение при этом СКАЧИВАЕТ ~20 МБ,
+   закрывается и открывается заново (см. app.py apply_update) — поэтому на каждом шаге честно
+   говорим, что происходит: молча захлопнувшееся окно читается как падение, а не как обновление.
+   Путь через настройки остаётся — там список изменений, если хочется почитать перед обновлением. */
+async function applyUpdateNow(asset, ver){
+  if(!HasPy() || !asset) return;
+  toast("Скачиваю обновление "+ver+"…", {icon:"ti-loader-2", hold:true, spin:true});
+  let res; try{ res=await window.pywebview.api.apply_update(asset); }
+  catch(e){ res={ok:false, error:"network"}; }
+  if(res && res.ok){ toast("Обновление скачано — перезапускаю…", {icon:"ti-rocket", hold:true}); return; }
+  const err=res&&res.error;
+  toast(err==="not_frozen" ? "Обновление работает только в собранном приложении"
+      : (err==="download"||err==="network") ? "Не удалось скачать — проверь интернет"
+      : "Не удалось обновить",
+      {icon:"ti-alert-triangle", label:"Подробнее", onAction:()=>openSettingsUpdates()});
+}
+
+/* Настройки сразу на вкладке обновлений, с уже запущенной проверкой. */
+function openSettingsUpdates(){
+  openSettings("data");
+  setTimeout(()=>{
+    const st=document.getElementById("upd-status"), b=document.getElementById("upd-check");
+    if(st) st.scrollIntoView({block:"center"});
+    if(b) b.click();
+  }, 60);
 }
 function seedDemo(){
   const A=S.areas;
