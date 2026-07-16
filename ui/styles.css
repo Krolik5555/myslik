@@ -318,6 +318,36 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .gm-it{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:7px;font-size:13px;color:var(--tx);width:100%;text-align:left;white-space:nowrap;}
 .gm-it i{font-size:16px;color:var(--mut);}
 .gm-it:hover{background:var(--surf3);}
+/* ЛОТОК неразобранного — справа, под подсказкой. row-reverse: вкладка прижата к краю окна,
+   а список раскрывается ВЛЕВО, в сторону холста — туда же, куда ноды из него и тянут. */
+.graph-tray{position:absolute;top:112px;right:12px;z-index:6;display:flex;flex-direction:row-reverse;
+  align-items:flex-start;gap:6px;max-height:calc(100% - 160px);}
+.gt-tab{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;background:var(--surf2);color:var(--mut);
+  border:0.5px solid var(--bd2);border-radius:9px;padding:6px 8px;cursor:pointer;font-size:12px;line-height:1;}
+.gt-tab:hover{color:var(--tx);border-color:var(--bd3);box-shadow:0 0 12px var(--glow);}
+.gt-n{font-variant-numeric:tabular-nums;font-weight:600;color:var(--tx);}
+.graph-tray:not(.closed) .gt-n{display:none;}   /* развёрнут — счёт и так виден по списку */
+.graph-tray.closed .gt-body{display:none;}
+.gt-body{display:flex;flex-direction:column;min-height:0;width:210px;background:var(--surf2);
+  border:0.5px solid var(--bd2);border-radius:11px;padding:8px;box-shadow:0 10px 30px rgba(0,0,0,.5);}
+.gt-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px;}
+.gt-ttl{font-size:11.5px;color:var(--tx);}
+.gt-sub{font-size:10.5px;color:var(--mut2);}
+.gt-list{display:flex;flex-direction:column;gap:3px;overflow-y:auto;min-height:0;}
+.gt-it{display:flex;align-items:center;gap:7px;padding:5px 7px;border-radius:7px;cursor:grab;
+  font-size:12px;color:var(--mut);background:var(--surf);border:0.5px solid transparent;
+  touch-action:none;user-select:none;}
+.gt-it:hover{color:var(--tx);border-color:var(--bd2);}
+.gt-it:active{cursor:grabbing;}
+.gt-it i{flex:0 0 auto;font-size:13px;}
+.gt-it span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* призрак под курсором. pointer-events:none обязателен: иначе он сам оказывался бы под курсором
+   и elementFromPoint возвращал бы его вместо ноды, на которую целятся. */
+.gt-ghost{position:absolute;z-index:9;pointer-events:none;transform:translate(-50%,-50%);
+  display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:7px;font-size:12px;
+  color:var(--tx);background:var(--surf2);border:0.5px solid var(--bd3);box-shadow:0 8px 22px rgba(0,0,0,.55);
+  max-width:200px;white-space:nowrap;opacity:.95;}
+.gt-ghost span{overflow:hidden;text-overflow:ellipsis;}
 .graph-legend{position:absolute;bottom:12px;left:12px;display:flex;gap:16px;font-size:11px;color:var(--mut);z-index:5;flex-wrap:wrap;}
 .graph-legend span{display:inline-flex;align-items:center;gap:6px;}
 .lg-dot{width:11px;height:11px;border-radius:50%;display:inline-block;}
@@ -468,11 +498,6 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .list-find i{font-size:13px;}
 .list-find input{background:transparent;border:0;outline:0;color:var(--tx);font:inherit;font-size:12.5px;width:120px;}
 .list-find input::placeholder{color:var(--mut2);}
-/* триаж инбокса: чипы областей на карточке — раскидать одним кликом */
-.triage{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;}
-.tri-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border:0.5px solid var(--bd);border-radius:999px;background:transparent;color:var(--mut);cursor:pointer;font-size:11px;font-family:inherit;transition:.14s;}
-.tri-chip:hover{color:var(--tx);border-color:var(--bd3);background:var(--surf2);}
-.tri-chip i{font-size:12px;}
 
 /* ===== modal ===== */
 .overlay{position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:100;}

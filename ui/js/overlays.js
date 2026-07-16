@@ -191,8 +191,7 @@ function openItemEditor(existing, defaultKind, presetDue){
       Object.assign(it,data);
       if(kind==="note"){ it.status="note"; it.done=false; }
       else {
-        if(it.status==="note") it.status=it.due?"todo":"inbox";        // note → task
-        if(it.status==="inbox" && (it.area||it.due)) it.status="todo";  // разобран из inbox → в задачи
+        if(it.status==="note") it.status="todo";        // заметку переключили в задачу
       }
       touch(it); persist();
     }

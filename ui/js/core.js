@@ -93,6 +93,43 @@ const ICONS=["ti-home","ti-briefcase","ti-puzzle","ti-video","ti-bulb","ti-shopp
 // цвет области. Теперь это два разных кружка: прочерк (наследовать) и белый (свой).
 const PALETTE=[null,"#ffffff","#e0625a","#e8a14b","#5fb98e","#5b9bd6","#9b7fd6","#d67fb0","#8a8f98"];
 const NEUTRAL=()=>getComputedStyle(document.body).getPropertyValue("--acc").trim()||"#ffffff";
+/* Смешение цветов — в OKLab, а не в RGB. В RGB смесь двух насыщенных цветов проваливается в
+   грязь (красный+зелёный = бурый) и темнеет: RGB описывает сигнал для лампы, а не восприятие.
+   OKLab перцептивно ровный — смесь держит светлоту и даёт тот цвет, который человек и ждёт.
+   Формулы Бьёрна Оттоссона.
+   Вход: массив hex-строк ЛИБО объектов {c:"#hex", w:вес} — вес нужен, чтобы ближний источник
+   тянул сильнее дальнего. Выход: hex. */
+const _hex2rgb=h=>{ h=String(h||"").trim().replace(/^#/,"");
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  const n=parseInt(h,16); return (h.length===6 && !isNaN(n)) ? [(n>>16)&255,(n>>8)&255,n&255] : null; };
+const _lin=c=>{ c/=255; return c<=0.04045 ? c/12.92 : Math.pow((c+0.055)/1.055,2.4); };
+const _unlin=c=>{ const v=c<=0.0031308 ? c*12.92 : 1.055*Math.pow(Math.max(c,0),1/2.4)-0.055;
+  return Math.round(Math.max(0,Math.min(1,v))*255); };
+function mixColors(list){
+  const parts=(list||[]).map(x=>{
+    const hex=(typeof x==="string")?x:(x&&x.c), w=(typeof x==="string")?1:((x&&x.w!=null)?x.w:1);
+    const rgb=_hex2rgb(hex); return (rgb && w>0) ? {rgb,w} : null; }).filter(Boolean);
+  if(!parts.length) return null;
+  if(parts.length===1) return "#"+parts[0].rgb.map(v=>v.toString(16).padStart(2,"0")).join("");
+  const tot=parts.reduce((s,p)=>s+p.w,0);
+  let L=0,A=0,B=0;
+  parts.forEach(({rgb,w})=>{
+    const [r,g,b]=rgb, k=w/tot;
+    const R=_lin(r), G=_lin(g), Bl=_lin(b);
+    const l=Math.cbrt(0.4122214708*R+0.5363325363*G+0.0514459929*Bl);
+    const m=Math.cbrt(0.2119034982*R+0.6806995451*G+0.1073969566*Bl);
+    const s=Math.cbrt(0.0883024619*R+0.2817188376*G+0.6299787005*Bl);
+    L+=k*(0.2104542553*l+0.7936177850*m-0.0040720468*s);
+    A+=k*(1.9779984951*l-2.4285922050*m+0.4505937099*s);
+    B+=k*(0.0259040371*l+0.7827717662*m-0.8086757660*s);
+  });
+  const l_=L+0.3963377774*A+0.2158037573*B, m_=L-0.1055613458*A-0.0638541728*B, s_=L-0.0894841775*A-1.2914855480*B;
+  const l=l_*l_*l_, m=m_*m_*m_, s=s_*s_*s_;
+  const r=_unlin( 4.0767416621*l-3.3077115913*m+0.2309699292*s);
+  const g=_unlin(-1.2684380046*l+2.6097574011*m-0.3413193965*s);
+  const b=_unlin(-0.0041960863*l-0.7034186147*m+1.7076147010*s);
+  return "#"+[r,g,b].map(v=>v.toString(16).padStart(2,"0")).join("");
+}
 const areaColor = id => { const a=areaById(id); return a&&a.color?a.color:null; };
 const itemColor = it => it.color || (it.area?areaColor(it.area):null) || null;
 // Набор кружков выбора цвета. «Нет цвета» рисуем приглушённым кружком с прочерком (.none),
@@ -130,8 +167,7 @@ function defaultState(){
     links:[],
     tags:[],   // реестр стилизованных тегов: {name, icon?, color?, size?, shape?} — все свойства опциональны
     settings:{ theme:"dark", view:"today", graphDrift:4, graphSpread:1, graphBg:true, glow:1, graphLinkLen:1, graphNodeSize:1, graphDegScale:1, graphDoneScale:0.6, graphDoneLinkLen:0.6, graphLinkBright:1, graphFadedBright:0.5,
-      graphDoingGlow:true, graphDoingGlowRadius:110, graphDoingGlowBright:0.3, graphDoingGlowBlur:30,
-      boardLabels:{ inbox:"Inbox", todo:"Запланировано", doing:"В работе", done:"Готово" } }
+      graphDoingGlow:true, graphDoingGlowRadius:110, graphDoingGlowBright:0.3, graphDoingGlowBlur:30 }
   };
 }
 
@@ -197,7 +233,13 @@ function sanitizeState(s){
     if(!Array.isArray(it.tags)) it.tags=[]; it.tags=it.tags.map(t=>String(t));
     if(it.deleted===undefined) it.deleted=false;
     if(it.repeat===undefined) it.repeat="none";
-    if(it.status===undefined) it.status=((it.kind==="note"||it.kind==="flow")?"note":(it.due?"todo":"inbox"));
+    if(it.status===undefined) it.status=((it.kind==="note"||it.kind==="flow")?"note":"todo");
+    // МИГРАЦИЯ: значения "inbox" в статусе больше нет — вкладка Inbox снесена, а «неразобранность»
+    // теперь выводится из отсутствия координат (нода лежит в лотке графа, см. Graph.build).
+    // Бэкфилл строкой выше сработал бы только на undefined, поэтому чиним старые данные явно —
+    // иначе задача навсегда осталась бы со статусом, которого в приложении уже не существует,
+    // и пропала бы из «Задач».
+    if(it.status==="inbox") it.status="todo";
     if(it.kind==="flow") ensureFlow(it);   // нормализуем содержимое схемы
     if(it.size!=null){ const sz=+it.size; it.size = (sz>=0.4&&sz<=3)?sz:1; }   // индивидуальный множитель размера ноды
     if(it.doneAt!=null && typeof it.doneAt!=="number") delete it.doneAt;       // дата выполнения (для метки опоздания)

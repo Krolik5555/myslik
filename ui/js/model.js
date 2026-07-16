@@ -64,11 +64,10 @@ function captureText(raw){
 function addItem(data){
   const it=Object.assign({
     id:uid(), kind:"task", title:"", body:"", area:areaFilter||null,
-    status:"inbox", due:null, repeat:"none", priority:0, tags:[],
+    status:"todo", due:null, repeat:"none", priority:0, tags:[],
     created:Date.now(), updated:Date.now(), done:false, x:null, y:null, pin:false, parent:null, deleted:false, deletedAt:null
   }, data);
   if(it.kind==="note" || it.kind==="flow"){ it.status="note"; }
-  else if(it.due && it.status==="inbox"){ it.status="todo"; }
   if(it.kind==="flow") ensureFlow(it);
   S.items.unshift(it); persist(); return it;
 }
@@ -101,7 +100,9 @@ function toggleDone(it){
       persist();
       toast("Повтор создан: "+(dueLabel(nd)?.txt||""));
     }
-  } else { it.done=false; it.status=it.due?"todo":"inbox"; it.doneAt=null; touch(it); }
+  // Снятая галочка возвращает задачу в работу — и всё. Раньше бессрочная уезжала при этом
+  // в инбокс, то есть ИСЧЕЗАЛА из «Задач» (их вид инбокс прятал). Падать больше некуда.
+  } else { it.done=false; it.status="todo"; it.doneAt=null; touch(it); }
   persist();
 }
 function linkExists(a,b){ return S.links.some(l=>(l[0]===a&&l[1]===b)||(l[0]===b&&l[1]===a)); }
@@ -109,7 +110,7 @@ function addLink(a,b){ if(a!==b && !linkExists(a,b)){ S.links.push([a,b]); persi
 function removeLink(a,b){ S.links=S.links.filter(l=>!((l[0]===a&&l[1]===b)||(l[0]===b&&l[1]===a))); persist(); }
 function linksOf(id){ return S.links.filter(l=>l[0]===id||l[1]===id).map(l=>l[0]===id?l[1]:l[0]); }
 // элементы, живущие в паутине и в дереве заметок: все неудалённые ноды —
-// дата/область/статус inbox НЕ влияют на присутствие в паутине (только Inbox-список — отдельный фильтр-вид)
+// дата/область/статус НЕ влияют на присутствие в паутине; на холст ноду ставит человек (см. Graph.build)
 function inWeb(it){ return !it.deleted; }
 function childrenOf(id){ return S.items.filter(it=>it.parent===id); }
 // свёрнутые узлы/области в списке (ключи: id узла или "area:"+id)
@@ -131,7 +132,7 @@ function noteParentChain(id){
 // Иерархия заметок ВЫВОДИТСЯ из графа: корень — область, направление — ОТ области наружу,
 // независимо от того, в какую сторону тянули связь. Пишем результат в поле parent (кэш для списка/ридера/пружины графа).
 function recomputeHierarchy(){
-  // в иерархии участвуют заметки И задачи из паутины (вышедшие из inbox)
+  // в иерархии участвуют все заметки и задачи из паутины
   const notes=S.items.filter(inWeb);
   const noteIds=new Set(notes.map(n=>n.id));
   const adj={};

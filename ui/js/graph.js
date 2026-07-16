@@ -25,7 +25,10 @@ const _phase=s=>{ let h=2166136261>>>0;
 function renderNotes(v){
   recomputeHierarchy();   // иерархия всегда выводится от области (чинит и старые данные)
   head("Заметки", notesMode==="graph"?"Граф связей · тяни узлы · двойной клик = закрепить":"Все заметки карточками",
-    `<div class="toggle" id="notes-toggle">
+    // Telegram переехал сюда со снесённой вкладки Inbox: мысли из бота приземляются в лоток,
+    // а лоток живёт на этом же графе — значит и кнопка должна быть рядом с ним.
+    `<button class="btn ghost" data-telegram="1" title="Забрать новые сообщения боту"><i class="ti ti-brand-telegram"></i>Telegram</button>
+     <div class="toggle" id="notes-toggle">
        <button data-nm="graph" class="${notesMode==="graph"?"on":""}"><i class="ti ti-affiliate"></i>Граф</button>
        <button data-nm="list" class="${notesMode==="list"?"on":""}"><i class="ti ti-layout-grid"></i>Список</button>
      </div>`);   // кнопки «Заметка»/«Полотно» убраны — создаём через ПКМ по холсту
@@ -53,6 +56,13 @@ function renderNotes(v){
       <span><span class="lg-dot flow"></span>полотно</span>
     </div>
     <div class="graph-hint" id="g-hint">Alt+тащи от ноды — связь/заметка · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · колесо — зум · Delete — удалить</div>
+    <div class="graph-tray" id="g-tray" style="display:none">
+      <button class="gt-tab" id="gt-tab" title="Неразобранные мысли"><i class="ti ti-inbox"></i><span class="gt-n"></span></button>
+      <div class="gt-body">
+        <div class="gt-head"><span class="gt-ttl">Неразобранное</span><span class="gt-sub">тяни на холст</span></div>
+        <div class="gt-list"></div>
+      </div>
+    </div>
   </div>`;
   if(graph){ const g=graph; graph=null; g.destroy(); }
   graph=new Graph($("#graph"));
@@ -317,7 +327,7 @@ class Graph{
       // согласуем done/status/doneAt (иначе вставленная выполненная задача = status:done но done:false)
       it.done=!!d.done;
       if(it.done){ it.status="done"; it.doneAt=d.doneAt||Date.now(); }
-      else if(it.status==="done"){ it.status=d.due?"todo":"inbox"; it.doneAt=null; }
+      else if(it.status==="done"){ it.status="todo"; it.doneAt=null; }
       if(d.kind==="flow"&&d.flow){ it.flow=JSON.parse(JSON.stringify(d.flow)); ensureFlow(it); }
       it.x=(d.x||0)+off; it.y=(d.y||0)+off;
       map[d._old]=it.id; newIds.push(it.id);
@@ -331,10 +341,12 @@ class Graph{
   // быстрое создание ноды (kind: note/task/flow) в точке (wx,wy); fromId!=null → сразу связать;
   // note/task → инлайн-ввод названия (поток мысли не рвётся), flow → открываем редактор схемы
   _quickAdd(kind,wx,wy,fromId){
-    const fromIt = fromId && this.byId[fromId] ? this.byId[fromId].ref : null;
-    const data={kind, title:"", area:(fromIt?fromIt.area:areaFilter)||null};
-    // Цвет родителя не копируем: новая нода сразу связана с ним, а значит подхватит его цвет
+    // Область родителя НЕ наследуем: Alt от ноды, которая сама лежит в области, молча приписывал
+    // новую мысль туда же — а человек всего лишь тянул связь, про область речи не было.
+    // Область — отдельное решение: бросить ноду на её кружок (см. _linkTo).
+    // Цвет тоже не копируем: новая нода сразу связана с родителем, а значит подхватит его цвет
     // вычислением в build() — и будет подхватывать дальше, пока человек не назначит свой.
+    const data={kind, title:"", area:areaFilter||null};
     if(kind==="task") data.status="todo";
     const it=addItem(data);
     it.x=Math.round(wx); it.y=Math.round(wy); persist();
@@ -395,21 +407,30 @@ class Graph{
     this._bgReduce=!!(window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches);
     if(graphCam){ this.tx=graphCam.tx; this.ty=graphCam.ty; this.zoom=graphCam.zoom; }   // восстановить камеру ДО размещения (для центра вида)
     const cx=this.W/2, cy=this.H/2;
-    const vcx=(this.W/2-this.tx)/this.zoom, vcy=(this.H/2-this.ty)/this.zoom;   // центр текущего вида в мировых координатах — туда сажаем новые ноды (не «влетают» издалека)
     // сохраняем текущие позиции узлов, чтобы при перестроении (смена цвета/связи) граф не «прыгал»
     const prev=this.byId||{};
     this.nodes=[]; this.links=[]; this.byId={};
     // area hubs (можно закреплять и таскать, позиция/пин хранятся на самой области)
     S.areas.forEach((a,i)=>{
       const ang=(i/S.areas.length)*Math.PI*2;
+      // ЖИВАЯ позиция (prev) важнее сохранённой. Раньше было наоборот, и это ломало граф:
+      // перетаскивание поднимает alpha, физика раскладывает узлы, а на диск они попадают только
+      // когда симуляция ОСТЫНЕТ (~5 с, см. _tick). Любой build() в это окно — создал ноду, удалил
+      // ноду — откатывал ВЕСЬ граф к последним сохранённым координатам. Сохранённая нужна только
+      // как запасной вариант: при первой сборке и после перезапуска prev пуст.
       const p=prev["hub_"+a.id];
-      const x = a.x!=null?a.x : (p?p.x:cx+Math.cos(ang)*90);
-      const y = a.y!=null?a.y : (p?p.y:cy+Math.sin(ang)*90);
+      const x = p ? p.x : (a.x!=null?a.x:cx+Math.cos(ang)*90);
+      const y = p ? p.y : (a.y!=null?a.y:cy+Math.sin(ang)*90);
       this.nodes.push({id:"hub_"+a.id, hubArea:a, label:a.name, type:"hub", r:11, fixed:!!a.pin, color:areaColor(a.id),
         x, y, vx:0, vy:0, _fresh:(a.x==null && !p)});
     });
-    // items on the graph: все ноды из паутины (inWeb) — статус/дата/область не фильтруют
-    const onGraph=S.items.filter(inWeb);
+    // На холсте — только РАЗМЕЩЁННЫЕ ноды. Нет координат (x==null) = мысль ещё не разобрана:
+    // она лежит в лотке и ждёт, пока её вытянут на холст (см. _renderTray). Это не новое поле —
+    // элемент и так рождается без координат (model.js), раньше граф просто выдумывал их за человека,
+    // сажая ноду в центр вида. Ставит координаты только сам человек, бросив ноду из лотка.
+    // Важно: неразмещённые не попадают в this.nodes, поэтому _tick до них не дотянется и не
+    // запишет им позицию при остывании раскладки — метка «в лотке» не сотрётся сама собой.
+    const onGraph=S.items.filter(it=>inWeb(it) && it.x!=null);
     // потухание: ЗАДАЧА тухнет по своему done (незавершённая подзадача остаётся яркой).
     // ЗАМЕТКА/СХЕМА статуса не имеют → наследуют завершённость от родителя (тухнут в завершённой ветке).
     const _onIds=new Set(onGraph.map(i=>i.id));
@@ -425,9 +446,10 @@ class Graph{
     };
     const _todayT=(typeof today==="function")?+today():0;
     onGraph.forEach(it=>{
+      // Живая позиция важнее сохранённой — см. коммент у хабов выше. Сюда доходят только
+      // размещённые (it.x!=null), поэтому запасной вариант — просто it.x, без выдумывания места.
       const p=prev[it.id];
-      const x = it.x!=null?it.x : (p?p.x:vcx+(Math.random()-.5)*180);
-      const y = it.y!=null?it.y : (p?p.y:vcy+(Math.random()-.5)*140);
+      const x = p ? p.x : it.x, y = p ? p.y : it.y;
       const ts=itemTagStyle(it);
       const arch=_isFaded(it);
       // «в работе» — ручная пометка (отдельный явный вид: заливка + цветное свечение).
@@ -435,7 +457,7 @@ class Graph{
       const n={id:it.id, ref:it, label:it.title, type:it.kind, done:it.done, area:it.area,
         archived:arch, doing:doing, status:it.status,
         color: it.color || (ts&&ts.color) || (it.area?areaColor(it.area):null) || null, tagStyle:ts,
-        r:7, x, y, vx:0, vy:0, fixed:!!it.pin, _fresh:(it.x==null && !p)};
+        r:7, x, y, vx:0, vy:0, fixed:!!it.pin, _fresh:false};   // элемент на холсте всегда размещён (иначе он в лотке) — «свежих» среди них не бывает
       this.nodes.push(n);
     });
     // Фаза «дыхания» — от ID, а НЕ от индекса в массиве. Раньше было Math.sin(t + i*1.7): при
@@ -455,20 +477,39 @@ class Graph{
     this.adj={}; this.nodes.forEach(n=>this.adj[n.id]=new Set());
     this.links.forEach(l=>{ this.adj[l.a].add(l.b); this.adj[l.b].add(l.a); });
 
-    /* ЦВЕТ ОТ СОСЕДА. Нода, у которой нет НИ своего цвета, ни тега, ни области, берёт цвет
-       соседа — и берёт заново при каждой отрисовке, пока человек не назначит ей свой (тогда
-       сработает it.color в самом начале цепочки). Поэтому в палитре у неё честно горит
-       прочерк: своего цвета у неё по-прежнему нет, цвет одолжен.
-       ИСТОЧНИКИ ЗАМОРОЖЕНЫ в _src до раздачи — это не оптимизация, а суть правила:
-       красит только сосед с НАСТОЯЩИМ цветом (свой/тег/область), одолженный дальше не идёт.
-       Иначе одна цветная нода за пару перерисовок затопила бы всю связную компоненту.
-       Спор решает ПОСЛЕДНЯЯ связь: у бесцветных нод бывает и 5 разноцветных соседей, а связи
-       лежат в порядке добавления — значит побеждает то, к чему привязали позже всего. */
-    const _src=new Map(this.nodes.map(n=>[n.id, n.color]));
-    this.links.forEach(l=>{ const a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) return;
-      if(!_src.get(a.id) && _src.get(b.id)) a.color=_src.get(b.id);
-      if(!_src.get(b.id) && _src.get(a.id)) b.color=_src.get(a.id);
-    });
+    /* ЦВЕТ ОТ СОСЕДА. Нода без своего цвета (и без тега/области) берёт цвет соседа — заново при
+       каждой отрисовке, пока человек не назначит ей свой. Поэтому в палитре у неё честно горит
+       прочерк: цвет одолжен, а не присвоен.
+       Цвет идёт ПО ЦЕПОЧКЕ: одолживший красит следующего, тот — следующего, и так до конца ветки.
+       Раздаём слоями (поиск в ширину от цветных нод), поэтому:
+       - цвет достаётся от БЛИЖАЙШЕГО источника, а не от случайного;
+       - циклы не зациклят: уже покрашенных не трогаем;
+       Правило: побеждает БЛИЖАЙШИЙ источник, а при ничьей — смесь ничейных (mixColors, OKLab).
+       То есть цепочка, висящая на красной ноде, красная целиком, а нода, стоящая ровно МЕЖДУ
+       красной и синей, — промежуточная. Раздаём слоями, поэтому ближайший находится сам собой.
+       Пробовал «смесь всех источников с весом 1/расстояние²» — не годится: на больших дистанциях
+       веса сближаются (1/16 против 1/25 — это 61% на 39%), и источник в пяти шагах перекрашивал
+       чужую ветку в розовый. А ограничение радиуса давало разрыв: нода за границей резко
+       становилась чистого цвета.
+       Область цвет НЕ одалживает и НЕ проводит сквозь себя: она источник, а не получатель.
+       Иначе одна цветная заметка красила свою область снизу вверх, а та разносила этот цвет
+       всем остальным своим детям — то есть работала мостом между несвязанными ветками.
+       Хаб не красим — значит он не попадёт в слой, значит и дальше ничего не передаст. */
+    const rcv=id=>{ const n=this.byId[id]; return n && n.type!=="hub"; };
+    const paint=new Map();
+    this.nodes.forEach(n=>{ if(n.color) paint.set(n.id,n.color); });   // источники: свой цвет / тег / область
+    let layer=new Set(paint.keys());
+    while(layer.size){
+      const next=new Map();
+      const add=(id,c)=>{ const a=next.get(id); if(a) a.push(c); else next.set(id,[c]); };
+      this.links.forEach(l=>{
+        if(layer.has(l.a) && !paint.has(l.b) && rcv(l.b)) add(l.b, paint.get(l.a));
+        if(layer.has(l.b) && !paint.has(l.a) && rcv(l.a)) add(l.a, paint.get(l.b));
+      });
+      next.forEach((cols,id)=>paint.set(id, mixColors(cols)));   // пришло несколько с одного расстояния — смешиваем
+      layer=new Set(next.keys());
+    }
+    this.nodes.forEach(n=>{ if(!n.color) n.color=paint.get(n.id)||null; });
     // размер узла по «популярности» (числу связей) — как в Obsidian: чем больше связей, тем крупнее
     this.nodes.forEach(n=>{
       const deg=this.adj[n.id].size;
@@ -543,9 +584,10 @@ class Graph{
       // прибавку мелким нодам (размер настраивается от 0.4×), то есть ровно там, где промахи
       // и случаются. Считаем от дальней точки формы — у квадрата и ромба это угол (r*1.41),
       // у круга и шестиугольника сам радиус, — иначе у квадрата углы торчали бы за каймой.
+      // дальняя точка формы: у квадрата и ромба это угол, у круга и шестиугольника — радиус
+      const far = (shapeKind==="square"||shapeKind==="diamond") ? n.r*1.41 : n.r;
       let hit=null;
       if(n.type!=="hub"){
-        const far = (shapeKind==="square"||shapeKind==="diamond") ? n.r*1.41 : n.r;
         hit=document.createElementNS(NS,"circle"); hit.setAttribute("class","g-nhit");
         hit.setAttribute("r", (far+HIT_PAD).toFixed(1));
         g.appendChild(hit);
@@ -586,7 +628,8 @@ class Graph{
     // а осевшая раскладка сохраняется (см. _moved) → следующее открытие статично, без повторного «взрыва».
     const freshN=this.nodes.filter(n=>n._fresh).length, placedN=this.nodes.length-freshN;
     this.alpha = placedN>0 ? (freshN>0 ? 0.12 : 0) : (this.nodes.length>1 ? 0.4 : 0);
-    this._tick(true);   // ОБЯЗАТЕЛЬНО рисуем: фигуры выше созданы без координат, пропуск кадра оставил бы граф пустым
+    this._renderTray();   // лоток всегда в такт с холстом: нода ушла на холст — исчезла из лотка
+    this._tick(true);     // ОБЯЗАТЕЛЬНО рисуем: фигуры выше созданы без координат, пропуск кадра оставил бы граф пустым
   }
   _circle(NS,r){ const c=document.createElementNS(NS,"circle"); c.setAttribute("class","nd"); c.setAttribute("r",r); return c; }
   _rect(NS,r){ const s=document.createElementNS(NS,"rect"); s.setAttribute("class","nd"); s.setAttribute("width",r*2); s.setAttribute("height",r*2); s.setAttribute("rx",2.5); return s; }
@@ -902,13 +945,64 @@ class Graph{
       const aid=(fh?from:to).slice(4);
       if(it.area===aid) return "Уже в области";
       it.area=aid;
-      if(it.status==="inbox") it.status="todo";      // разобран из инбокса — как чип триажа (main.js)
       touch(it); persist();
       return "В области: "+areaName(aid);
     }
     // Цвет от соседа тут НЕ пишем: он ВЫЧИСЛЯЕТСЯ в build() при каждой отрисовке, пока
     // у ноды нет своего. Запись сделала бы наследование одноразовым и заморозила бы цвет.
     return addLink(from,to) ? "Связь создана" : "Уже связаны";
+  }
+  _nodeAt(e){ const el=document.elementFromPoint(e.clientX,e.clientY); const g=el&&el.closest?el.closest(".g-node"):null; return g?g.dataset.id:null; }
+  /* ЛОТОК неразобранного: мысли, брошенные в строку захвата, ждут тут, пока их не поставят на холст.
+     Пусто — лотка не видно совсем: разбирать нечего, нечего и мозолить глаза.
+     Свёрнутость живёт в настройках, а не в поле класса: разметка графа пересоздаётся на каждый
+     render(), и поле обнулялось бы при каждом возврате на вкладку. */
+  _renderTray(){
+    const wrap=this.svg.parentNode; if(!wrap) return;
+    const tray=wrap.querySelector("#g-tray"); if(!tray) return;
+    const loose=S.items.filter(it=>inWeb(it) && it.x==null);
+    if(!loose.length){ tray.style.display="none"; $(".gt-list",tray).innerHTML=""; return; }   // и список чистим, иначе в скрытом лотке остаются мёртвые строки
+    tray.style.display="";
+    const open=S.settings.trayOpen===true;   // по умолчанию свёрнут: бросил мысль — увидел цифру, а не раскрытую панель поперёк холста
+    tray.classList.toggle("closed",!open);
+    $(".gt-n",tray).textContent=loose.length;
+    $(".gt-tab",tray).title=open?"Свернуть":"Неразобранных: "+loose.length;
+    $(".gt-tab",tray).onclick=()=>{ S.settings.trayOpen=!open; persist(); this._renderTray(); };
+    if(!open){ $(".gt-list",tray).innerHTML=""; return; }   // свёрнут — список не строим вовсе
+    const ic=it=>it.kind==="flow"?"ti-artboard":it.kind==="note"?"ti-note":"ti-checklist";
+    $(".gt-list",tray).innerHTML=loose.map(it=>{ const t=(it.title||"").trim()||"(без названия)";
+      return `<div class="gt-it" data-tid="${it.id}" title="${esc(t)}"><i class="ti ${ic(it)}"></i><span>${esc(t)}</span></div>`; }).join("");
+    $$(".gt-it",tray).forEach(el=>{ el.onpointerdown=e=>{ if(e.button===0) this._trayGrab(e,el); }; });
+  }
+  /* Тянем мысль из лотка на холст. Бросил на пустое место — она там и встала (это и есть «разобрал»).
+     Бросил на ноду — встала и привязалась к ней (через _linkTo, поэтому бросок на область назначит область).
+     Подсветку цели дёргаем ТОЛЬКО при её смене: на каждый mousemove она перекрашивала бы весь граф. */
+  _trayGrab(e, el){
+    const id=el.dataset.tid, it=S.items.find(x=>x.id===id); if(!it) return;
+    e.preventDefault();
+    const wrap=this.svg.parentNode, rc=wrap.getBoundingClientRect();
+    const ghost=el.cloneNode(true); ghost.className="gt-ghost"; wrap.appendChild(ghost);
+    const at=ev=>{ ghost.style.left=(ev.clientX-rc.left)+"px"; ghost.style.top=(ev.clientY-rc.top)+"px"; };
+    at(e);
+    let over=null;
+    const move=ev=>{ at(ev); const t=this._nodeAt(ev); if(t!==over){ over=t; this._hover(t); } };
+    const up=ev=>{
+      el.removeEventListener("pointermove",move); el.removeEventListener("pointerup",up); el.removeEventListener("pointercancel",up);
+      try{ el.releasePointerCapture(ev.pointerId); }catch(_){}
+      ghost.remove(); this._hover(null);
+      const target=this._nodeAt(ev);                       // ищем ДО перестроения, пока DOM ещё прежний
+      const sr=this.svg.getBoundingClientRect();
+      if(ev.clientX<sr.left||ev.clientX>sr.right||ev.clientY<sr.top||ev.clientY>sr.bottom) return;   // мимо холста — пусть лежит дальше
+      const p=this._pt(ev);
+      it.x=Math.round(p.x); it.y=Math.round(p.y); touch(it); persist();
+      recomputeHierarchy(); this.build();                  // теперь нода есть в byId — можно связывать
+      let msg=null;
+      if(target && target!==id){ msg=this._linkTo(id,target);
+        if(msg){ recomputeHierarchy(); this.build(); this.alpha=Math.max(this.alpha,0.12); } }   // бросил прямо на ноду — мягко разведём, чтобы не легли друг на друга
+      toast(msg||"На холсте",{icon:"ti-check"});
+    };
+    el.setPointerCapture(e.pointerId);
+    el.addEventListener("pointermove",move); el.addEventListener("pointerup",up); el.addEventListener("pointercancel",up);
   }
   /* Покрасить ноду — и всё выделение заодно, если кликнутая нода в нём (тыкать по одной грустно).
      Если НЕ в нём — красим только её: ПКМ выделения не трогает, и покрасить невидимые «те пять
@@ -925,6 +1019,11 @@ class Graph{
     });
     if(!undo.length) return;
     persist(); this.build();
+    // Перевесить отметку выбора: палитра рисуется ОДИН раз при открытии поп-апа и запоминает
+    // цвет, который был тогда. Без этого кольцо остаётся на прежнем кружке — жмёшь оранжевый,
+    // а обведён зелёный. Поп-ап build() не пересоздаёт, так что правим его на месте.
+    const pop=$("#node-pop");
+    if(pop) $$(".np-sw .swatch",pop).forEach(b=>b.classList.toggle("on",(PALETTE[+b.dataset.ci]||null)===col));
     if(undo.length<2) return;   // одну ноду красят перебором — тост на каждый кружок был бы шумом
     const back=()=>{ undo.forEach(([id,c])=>{
         if(id.indexOf("hub_")===0){ const a=areaById(id.slice(4)); if(a) a.color=c; }
@@ -940,9 +1039,12 @@ class Graph{
     this.cancelLink();
   }
   refit(){
-    // пере-раскладка: незакреплённые узлы расходятся заново, затем (когда остынет) обзор вписывается под всё дерево
-    this.nodes.forEach(n=>{ if(!n.fixed){ if(n.ref){n.ref.x=null;n.ref.y=null;} n.x=this.W/2+(Math.random()-.5)*420; n.y=this.H/2+(Math.random()-.5)*320; }});
-    this.alpha=1; this._needFit=true; persist();
+    // пере-раскладка: незакреплённые узлы расходятся заново, затем (когда остынет) обзор вписывается под всё дерево.
+    // it.x НЕ обнуляем: nullом теперь помечены ноды, которые лежат в лотке и на холст ещё не попали
+    // (см. build), так что обнуление здесь сослало бы в лоток весь граф — да ещё и с записью на диск.
+    // Оно тут и не нужно: позиции ниже ставятся на самих узлах, а на диск попадут, когда раскладка остынет.
+    this.nodes.forEach(n=>{ if(!n.fixed){ n.x=this.W/2+(Math.random()-.5)*420; n.y=this.H/2+(Math.random()-.5)*320; }});
+    this.alpha=1; this._needFit=true;
   }
   /* force=true — нарисовать кадр ОБЯЗАТЕЛЬНО, не пропуская. Так зовёт build(): фигуры он создаёт
      БЕЗ координат (их ставит этот метод), поэтому пропуск первого же кадра оставлял бы весь граф

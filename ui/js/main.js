@@ -16,7 +16,6 @@ function openPalette(){
     {t:"Новая заметка",i:"ti-note",run:()=>{closeOverlays();openItemEditor(null,"note");}},
     {t:"Новое полотно",i:"ti-artboard",run:()=>{closeOverlays();createNew("flow");}},
     {t:"Перейти: Сегодня",i:"ti-sun",run:()=>go("today")},
-    {t:"Перейти: Inbox",i:"ti-inbox",run:()=>go("inbox")},
     {t:"Перейти: Задачи",i:"ti-checklist",run:()=>go("tasks")},
     {t:"Перейти: Заметки",i:"ti-affiliate",run:()=>go("notes")},
     {t:"Перейти: Папки",i:"ti-folders",run:()=>go("board")},
@@ -171,9 +170,8 @@ function wireGlobal(){
   $("#view").addEventListener("click",e=>{
     const ofo=e.target.closest("[data-openfolder]"); if(ofo){ const it=S.items.find(i=>i.id===ofo.dataset.openfolder); if(it) openItemFolder(it); return; }   // кнопка «открыть папку» в списках
     const chk=e.target.closest("[data-chk]"); if(chk){ const it=S.items.find(i=>i.id===chk.dataset.chk); if(it){ toggleDone(it); render(); const b=document.querySelector(`[data-chk="${it.id}"]`); if(b&&it.done) b.classList.add("pop"); } return; }
-    const tdy=e.target.closest("[data-today]"); if(tdy){ const it=S.items.find(i=>i.id===tdy.dataset.today); if(it){ it.due=ymd(today()); if(it.status==="inbox")it.status="todo"; touch(it); persist(); render(); toast("Перенесено на сегодня",{icon:"ti-target"}); } return; }
-    const tri=e.target.closest("[data-tri]"); if(tri){ const [id,aid]=tri.dataset.tri.split(":"); const it=S.items.find(i=>i.id===id); if(it){ it.area=aid; if(it.status==="inbox") it.status="todo"; touch(it); persist(); render(); toast("→ "+areaName(aid),{icon:"ti-arrow-right"}); } return; }   // триаж инбокса: чип области на карточке
-    const ot=e.target.closest("[data-overtoday]"); if(ot){ const T=today(), ds=ymd(T); let n=0; S.items.forEach(it=>{ if(!it.deleted&&it.kind==="task"&&!it.done&&it.due&&parseYmd(it.due)<T){ it.due=ds; if(it.status==="inbox")it.status="todo"; touch(it); n++; } }); if(n){ persist(); render(); toast("Перенесено на сегодня: "+n,{icon:"ti-target"}); } return; }   // вся просрочка → сегодня
+    const tdy=e.target.closest("[data-today]"); if(tdy){ const it=S.items.find(i=>i.id===tdy.dataset.today); if(it){ it.due=ymd(today()); touch(it); persist(); render(); toast("Перенесено на сегодня",{icon:"ti-target"}); } return; }
+    const ot=e.target.closest("[data-overtoday]"); if(ot){ const T=today(), ds=ymd(T); let n=0; S.items.forEach(it=>{ if(!it.deleted&&it.kind==="task"&&!it.done&&it.due&&parseYmd(it.due)<T){ it.due=ds; touch(it); n++; } }); if(n){ persist(); render(); toast("Перенесено на сегодня: "+n,{icon:"ti-target"}); } return; }   // вся просрочка → сегодня
     const ed=e.target.closest("[data-edit]"); if(ed){ const it=S.items.find(i=>i.id===ed.dataset.edit); if(it)openItemEditor(it); return; }
     const day=e.target.closest("[data-day]"); if(day){ openItemEditor(null,"task",day.dataset.day); return; }   // клик по дню календаря — новая задача на эту дату
     const del=e.target.closest("[data-del]"); if(del){ const it=S.items.find(i=>i.id===del.dataset.del); if(it){ const id=it.id; deleteItem(id); render(); toast("Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restoreItem(id); render(); }}); } return; }
@@ -206,7 +204,8 @@ function wireGlobal(){
       const it=captureText(cap.value);
       if(!it){ cap.classList.add("shake"); setTimeout(()=>cap.classList.remove("shake"),420); return; }  // не плодим «(без названия)»
       cap.value=""; if(capPrev){ capPrev.innerHTML=""; capPrev.classList.remove("show"); } render();
-      toast("Добавлено — "+(it.kind==="note"?"заметка":it.status==="inbox"?"в Inbox":"в задачи"),{icon:"ti-check"});
+      // мысль без координат ждёт в лотке графа, пока её не поставят на холст (см. Graph.build)
+      toast("Добавлено — "+(it.x==null?"в лоток на графе":it.kind==="note"?"заметка":"в задачи"),{icon:"ti-check"});
     }
   });
 
@@ -441,8 +440,16 @@ function seedDemo(){
   const n1=add({kind:"note",title:"Идея: интро с кинетик-типографикой",area:"a_work",body:"Резко, ч/б, рваный монтаж под бит.",tags:["видео","идея"]});
   const n2=add({kind:"note",title:"Палитра Teal & Orange",area:"a_work",body:"Тёмный фон, тёплая кожа, бирюза в тенях.",tags:["цвет"]});
   const n3=add({kind:"note",title:"Реф цветокора — кофейня",area:"a_work",body:"Собрать 5 кадров настроения.",tags:["цвет","видео"]});
-  add({kind:"task",title:"Записаться к стоматологу",area:"a_other",status:"inbox"});
-  S.links.push([n1.id,n3.id]); S.links.push([n2.id,n3.id]); persist();
+  add({kind:"task",title:"Записаться к стоматологу",area:"a_other"});
+  S.links.push([n1.id,n3.id]); S.links.push([n2.id,n3.id]);
+  // Демо надо ПОСТАВИТЬ на холст: элемент без координат теперь считается неразобранным и лежит
+  // в лотке графа (см. Graph.build) — иначе новый человек открыл бы пустую паутину и полный лоток.
+  // Раскидываем по кругу, а области оставляем без координат: тогда build даст мягкий разогрев
+  // (freshN>0 → alpha 0.12) и паутина сама уляжется, как и раньше.
+  const live=S.items.filter(i=>!i.deleted);
+  live.forEach((it,i)=>{ const a=(i/live.length)*Math.PI*2;
+    it.x=Math.round(500+Math.cos(a)*230); it.y=Math.round(300+Math.sin(a)*170); });
+  persist();
 }
 
 let booted=false;

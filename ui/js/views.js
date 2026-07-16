@@ -4,7 +4,6 @@
    =========================================================== */
 const NAV=[
   ["today","ti-sun","Сегодня"],
-  ["inbox","ti-inbox","Inbox"],
   ["tasks","ti-checklist","Задачи"],
   ["notes","ti-affiliate","Заметки"],
   ["board","ti-folders","Папки"],
@@ -12,20 +11,23 @@ const NAV=[
   ["bin","ti-trash","Корзина"]
 ];
 
+// Неразобранное = мысль, которую ещё не поставили на холст (нет координат). Считаем ради
+// бейджа на «Заметках»: лоток живёт внутри графа, и, не заходя туда, про накопившееся
+// (например, пачку из Telegram) человек бы не узнал вовсе.
 function counts(){
-  let inbox=0, todayN=0, binN=0;
+  let unsorted=0, todayN=0, binN=0;
   S.items.forEach(it=>{
     if(it.deleted){ binN++; return; }
-    if(it.status==="inbox") inbox++;
+    if(it.x==null) unsorted++;
     if(it.kind==="task" && !it.done && it.due && parseYmd(it.due)<=today()) todayN++;
   });
-  return {inbox, today:todayN, bin:binN};
+  return {unsorted, today:todayN, bin:binN};
 }
 
 function renderNav(){
   const c=counts();
   $("#nav").innerHTML = NAV.map(n=>{
-    const badge = (n[0]==="inbox"&&c.inbox)?`<span class="badge">${c.inbox}</span>`
+    const badge = (n[0]==="notes"&&c.unsorted)?`<span class="badge">${c.unsorted}</span>`
                 : (n[0]==="today"&&c.today)?`<span class="badge">${c.today}</span>`
                 : (n[0]==="bin"&&c.bin)?`<span class="badge">${c.bin}</span>`:"";
     return `<button class="navi ${view===n[0]?"on":""}" data-v="${n[0]}"><i class="ti ${n[1]}"></i>${n[2]}${badge}</button>`;
@@ -61,7 +63,6 @@ function taskCard(it, opts){
         ${tags}
         ${it.folder?`<button class="nc-folder" data-openfolder="${it.id}" title="Открыть папку на ПК"><i class="ti ti-folder"></i></button>`:""}
       </div>
-      ${opts.triage?`<div class="triage">${S.areas.map(a=>`<button class="tri-chip" data-tri="${it.id}:${a.id}" title="Отправить в «${esc(a.name)}»"><i class="ti ${a.icon}" ${a.color?`style="color:${a.color}"`:""}></i>${esc(a.name)}</button>`).join("")}</div>`:""}
     </div>
     <div class="card-act">
       ${opts.today?`<button data-today="${it.id}" title="Перенести на сегодня"><i class="ti ti-target"></i></button>`:""}
@@ -90,7 +91,6 @@ function render(){
   // остановить анимацию графа, если уходим с вкладки «Заметки» (иначе rAF крутится на отсоединённых узлах)
   if(graph && view!=="notes"){ const g=graph; graph=null; g.destroy(); }
   if(view==="today") return renderToday(v);
-  if(view==="inbox") return renderInbox(v);
   if(view==="tasks") return renderTasks(v);
   if(view==="notes") return renderNotes(v);
   if(view==="board") return renderFolders(v);
@@ -113,7 +113,7 @@ function renderToday(v){
   const todayAll=S.items.filter(it=>isT(it)&&it.due&&ymd(parseYmd(it.due))===ymdT);
   const doneT=todayAll.filter(it=>it.done).length, dayTotal=todayAll.length, pct=dayTotal?Math.round(doneT/dayTotal*100):0;
   const over=S.items.filter(it=>isT(it)&&!it.done&&it.due&&parseYmd(it.due)<T).sort((a,b)=>(b.priority||0)-(a.priority||0));
-  const inb=S.items.filter(it=>!it.deleted&&it.status==="inbox").length;
+  const inb=S.items.filter(it=>!it.deleted&&it.x==null).length;   // неразобранное = ещё не на холсте
   // ритм по дням выполнения (doneAt)
   const byDay={}; S.items.forEach(it=>{ if(isT(it)&&it.done&&it.doneAt){ const k=ymd(new Date(it.doneAt)); byDay[k]=(byDay[k]||0)+1; } });
   const has=k=>!!byDay[k];
@@ -140,7 +140,7 @@ function renderToday(v){
         <div class="ring-side">
           <div class="ring-big">${pct}<span>%</span></div>
           <div class="ring-sub">${dayTotal?`${doneT} из ${dayTotal} на сегодня`:"на сегодня нет задач"}</div>
-          <div class="ring-stat">${over.length?`<span class="rs-warn" data-goto="tasks"><i class="ti ti-alert-triangle"></i>${over.length} просрочено</span> · <span class="rs-link" data-overtoday="1" title="Перенести всю просрочку на сегодня"><i class="ti ti-target"></i>всё на сегодня</span>`:`<span class="rs-ok"><i class="ti ti-check"></i>без долгов</span>`}${inb?` · <span class="rs-link" data-goto="inbox">${inb} в инбоксе</span>`:""}</div>
+          <div class="ring-stat">${over.length?`<span class="rs-warn" data-goto="tasks"><i class="ti ti-alert-triangle"></i>${over.length} просрочено</span> · <span class="rs-link" data-overtoday="1" title="Перенести всю просрочку на сегодня"><i class="ti ti-target"></i>всё на сегодня</span>`:`<span class="rs-ok"><i class="ti ti-check"></i>без долгов</span>`}${inb?` · <span class="rs-link" data-goto="notes">${inb} не разобрано</span>`:""}</div>
         </div>
       </div>
       <div class="card home-card spark-card">
@@ -164,22 +164,17 @@ function renderToday(v){
         ${focusHtml}
       </div>
     </div>
-    ${(over.length||inb)?`<button class="home-foot" data-goto="${over.length?'tasks':'inbox'}"><i class="ti ti-moon"></i>${[over.length?`${over.length} просрочено`:'',inb?`${inb} в инбоксе`:''].filter(Boolean).join(' · ')} — когда будут силы</button>`:""}
+    ${(over.length||inb)?`<button class="home-foot" data-goto="${over.length?'tasks':'notes'}"><i class="ti ti-moon"></i>${[over.length?`${over.length} просрочено`:'',inb?`${inb} не разобрано`:''].filter(Boolean).join(' · ')} — когда будут силы</button>`:""}
   </div>`;
-}
-function renderInbox(v){
-  head("Inbox","Свалка мыслей — раскидай по областям, когда удобно",
-    `<button class="btn ghost" data-telegram="1" title="Забрать новые сообщения боту"><i class="ti ti-brand-telegram"></i>Telegram</button>
-     <button class="btn" data-new="task"><i class="ti ti-plus"></i>Добавить</button>`);
-  const arr=S.items.filter(it=>!it.deleted&&it.status==="inbox");
-  // triage: чипы областей прямо на карточке — раскидывать инбокс одним кликом, без редактора
-  v.innerHTML = arr.length?arr.map(it=>taskCard(it,{today:true,triage:true})).join(""):emptyBox("ti-inbox","Пусто. Брось мысль в поле сверху ↑ или нажми <b>/</b>");
 }
 function renderTasks(v){
   recomputeHierarchy();   // свежая иерархия из графа — подтягиваем её в задачи
   const f=areaFilter, T=today();
   const FILT={ all:()=>true, today:it=>it.due&&parseYmd(it.due)<=T, week:it=>it.due&&daysBetween(parseYmd(it.due),T)<=7, nodue:it=>!it.due };
-  const isTask=it=>!it.deleted&&it.kind==="task"&&it.status!=="inbox";
+  // Раньше тут отсекался status==="inbox" — вкладка Inbox прятала свои задачи от «Задач».
+  // Теперь такого статуса нет: задача есть задача, даже если её ещё не поставили на холст.
+  // Корни без области подхватит секция «Без области» ниже — ничего не теряется.
+  const isTask=it=>!it.deleted&&it.kind==="task";
   const doneCount=S.items.filter(it=>isTask(it)&&it.done).length;
   const filt=FILT[taskFilter]||FILT.all;
   // видимые задачи: фильтр срока + (done только при showDone) + фильтр по тегу + текстовый фильтр
@@ -365,7 +360,7 @@ function renderCal(v){
     cell.ondragleave=()=>cell.classList.remove("drop");
     cell.ondrop=e=>{ e.preventDefault(); cell.classList.remove("drop");
       const it=S.items.find(i=>i.id===e.dataTransfer.getData("text/plain")); if(!it||it.due===cell.dataset.day) return;
-      it.due=cell.dataset.day; if(it.status==="inbox") it.status="todo"; touch(it); persist(); render();
+      it.due=cell.dataset.day; touch(it); persist(); render();
       toast("Перенесено: "+((dueLabel(it.due)||{}).txt||it.due),{icon:"ti-calendar-event"});
     };
   });
