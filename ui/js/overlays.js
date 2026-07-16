@@ -97,17 +97,13 @@ function openItemEditor(existing, defaultKind, presetDue){
     </div>
     <div class="field"><label>Название</label><input type="text" id="f-title" value="${esc(it.title)}" placeholder="Что нужно сделать / о чём заметка"></div>
     <div class="field" id="wrap-body"><label>Заметка / детали</label><textarea id="f-body" placeholder="Текст, ссылки, мысли…">${esc(it.body||"")}</textarea></div>
-    <div class="row2">
-      <div class="field"><label>Область</label><select id="f-area">
-        <option value="">— нет —</option>
-        ${S.areas.map(a=>`<option value="${a.id}" ${it.area===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}
-      </select></div>
-      <div class="field" id="wrap-due"><label>Срок</label><input type="date" id="f-due" value="${it.due||""}"></div>
-    </div>
-    <div class="row2" id="wrap-task2">
+    <div class="row2" id="wrap-due">
+      <div class="field"><label>Срок</label><input type="date" id="f-due" value="${it.due||""}"></div>
       <div class="field"><label>Повтор</label><select id="f-rep">
         ${Object.entries(REPEAT).map(([k,vv])=>`<option value="${k}" ${it.repeat===k?"selected":""}>${k==="none"?"нет":vv}</option>`).join("")}
       </select></div>
+    </div>
+    <div class="row2" id="wrap-task2">
       <div class="field"><label>Приоритет</label>
         <div class="seg" id="f-pri">
           ${[0,1,2,3].map(p=>`<button data-p="${p}" class="${(it.priority||0)===p?"on":""}">${["—","низкий","средний","высокий"][p]}</button>`).join("")}
@@ -184,7 +180,10 @@ function openItemEditor(existing, defaultKind, presetDue){
   if($("#f-delete",m)) $("#f-delete",m).onclick=()=>{ const id=it.id; deleteItem(id); ov.remove(); render(); toast("Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restoreItem(id); render(); }}); };
   $("#f-save",m).onclick=()=>{
     const title=$("#f-title",m).value.trim(); if(!title){ $("#f-title",m).focus(); return; }
-    const data={ kind, title, body:$("#f-body",m).value, area:$("#f-area",m).value||null,
+    // area здесь НЕТ намеренно: область назначается только в графе (бросок на неё, см. _linkTo).
+    // Ключ именно отсутствует, а не area:undefined — Object.assign ниже копирует и undefined,
+    // то есть затёр бы уже проставленную область.
+    const data={ kind, title, body:$("#f-body",m).value,
       due: kind==="note"?null:($("#f-due",m).value||null), repeat: kind==="note"?"none":$("#f-rep",m).value,
       priority: kind==="note"?0:priority, tags, color, folder: folder||null };
     if(isNew){ addItem(data); }
@@ -263,24 +262,15 @@ function openAreaEditor(area, after){
    NOTE READER
    =========================================================== */
 function openNoteReader(it){
-  const m=el("div","modal");
-  const conn=linksOf(it.id);
-  const linked=conn.map(id=>{ const x=S.items.find(i=>i.id===id); if(x) return x; const a=S.areas.find(a=>"hub_"+a.id===id||a.id===id); if(a) return {id:a.id,kind:"area",title:a.name,icon:a.icon}; return null; }).filter(Boolean);
+  const m=el("div","modal reader-win");   // reader-win: окно можно двигать за заголовок и тянуть за угол
   const kids=childrenOf(it.id);
-  const parent=it.parent ? S.items.find(i=>i.id===it.parent) : null;
   const parentChain=noteParentChain(it.id).slice(0,-1); // without self
   m.innerHTML=`
-    <h3><i class="ti ti-note"></i>${esc(it.title)}</h3>
+    <h3><i class="ti ${it.kind==="task"?"ti-checklist":"ti-note"}"></i>${esc(it.title)}</h3>
     ${it.area?`<div style="margin-bottom:10px;"><span class="tag"><i class="ti ${areaIcon(it.area)}"></i>${esc(areaName(it.area))}</span></div>`:""}
     ${it.folder?`<div style="margin-bottom:10px;"><button class="tag folder-tag" id="nr-folder" title="${esc(it.folder)}"><i class="ti ti-folder"></i>Открыть папку</button></div>`:""}
     ${parentChain.length?`<div style="margin-bottom:10px;"><span class="tag"><i class="ti ti-sitemap"></i>Иерархия: ${parentChain.map(id=>{const p=S.items.find(i=>i.id===id);return p?esc(p.title):"";}).join(" → ")}</span></div>`:""}
-    <div class="reader-body">${it.body?esc(it.body):`<span class="reader-empty">Пустая заметка — нажми «Изменить» чтобы добавить текст.</span>`}</div>
-    ${linked.length?`<div class="field"><label>Связи (${linked.length})</label><div class="reader-links" id="rl-list">
-      ${linked.map(x=>`<div class="rl-it" data-rl="${x.id}"><i class="ti ${x.kind==="area"?(x.icon||"ti-folder"):x.kind==="note"?"ti-note":"ti-checklist"}"></i>${esc(x.title)}</div>`).join("")}
-    </div></div>`:""}
-    ${parent?`<div class="field"><label>Родитель</label><div class="reader-links" id="par-list">
-      <div class="rl-it" data-rl="${parent.id}"><i class="ti ti-note"></i>${esc(parent.title)}</div>
-    </div></div>`:""}
+    <div class="reader-body" id="nr-body" title="Кликни, чтобы править прямо здесь">${it.body?esc(it.body):`<span class="reader-empty">Пока пусто — кликни, чтобы написать.</span>`}</div>
     ${kids.length?`<div class="field"><label>Дочерние заметки (${kids.length})</label><div class="reader-links" id="kid-list">
       ${kids.map(k=>`<div class="rl-it" data-rl="${k.id}"><i class="ti ti-note"></i>${esc(k.title)}</div>`).join("")}
     </div></div>`:""}
@@ -292,6 +282,38 @@ function openNoteReader(it){
   setTimeout(()=>{ const c=$("#nr-close",m); if(c)c.focus(); },30);   // автофокус для клавиатуры
   $("#nr-close",m).onclick=()=>ov.remove();
   $("#nr-edit",m).onclick=()=>{ ov.remove(); openItemEditor(it); };
+
+  /* Правка текста на месте: ради одной строки в длинной заметке лезть в форму правки —
+     перебор. Сохраняем по уходу фокуса, а не на каждую букву. */
+  { const nb=$("#nr-body",m);
+    nb.onclick=()=>{
+      if(nb.isContentEditable) return;
+      if(!it.body) nb.textContent="";                  // убрать плашку «пока пусто»
+      nb.contentEditable="true"; nb.classList.add("editing"); nb.focus();
+    };
+    nb.addEventListener("blur",()=>{
+      if(!nb.isContentEditable) return;
+      nb.contentEditable="false"; nb.classList.remove("editing");
+      const t=nb.innerText.replace(/ /g," ").replace(/\s+$/,"");
+      if(t!==(it.body||"")){ it.body=t; touch(it); persist(); if(graph) graph.build(); }
+      if(!t) nb.innerHTML=`<span class="reader-empty">Пока пусто — кликни, чтобы написать.</span>`;
+    });
+  }
+
+  /* Окно двигаем за заголовок (размер тянется за угол — resize в CSS у .reader-win).
+     Сдвиг держим в transform: overlay центрует окно флексом, трогать left/top нельзя. */
+  { const h=$("h3",m); let on=false, sx=0, sy=0, ox=0, oy=0;
+    h.addEventListener("pointerdown",e=>{
+      if(e.button!==0) return;
+      const t=/translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(m.style.transform||"");
+      ox=t?+t[1]:0; oy=t?+t[2]:0; sx=e.clientX; sy=e.clientY; on=true;
+      try{ h.setPointerCapture(e.pointerId); }catch(_){}
+      e.preventDefault();
+    });
+    h.addEventListener("pointermove",e=>{ if(on) m.style.transform=`translate(${ox+e.clientX-sx}px, ${oy+e.clientY-sy}px)`; });
+    h.addEventListener("pointerup",()=>{ on=false; });
+    h.addEventListener("pointercancel",()=>{ on=false; });
+  }
   { const nf=$("#nr-folder",m); if(nf) nf.onclick=()=>openItemFolder(it); }
   $$(".rl-it",m).forEach(e=>e.onclick=()=>{
     const rid=e.dataset.rl;

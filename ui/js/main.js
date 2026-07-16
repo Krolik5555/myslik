@@ -229,10 +229,12 @@ function wireGlobal(){
   // в фоне приложение не должно жечь CPU: пауза анимации графа при потере фокуса/сворачивании.
   // graph существует только на вкладке «Заметки» (иначе null) — потому проверка через if(graph).
   const pauseGraph=()=>{ if(graph) graph.pause(); };
-  const resumeGraph=()=>{ if(graph) graph.resume(); };
+  // Вернулись к окну — будим граф и заодно спрашиваем про обновление. Дёргать autoCheckUpdate
+  // на каждый фокус безопасно: в сеть она сходит не чаще раза в час (сторож _updNext).
+  const onActive=()=>{ if(graph) graph.resume(); autoCheckUpdate(); };
   window.addEventListener("blur", pauseGraph);
-  window.addEventListener("focus", resumeGraph);
-  document.addEventListener("visibilitychange", ()=>{ if(document.hidden) pauseGraph(); else resumeGraph(); });
+  window.addEventListener("focus", onActive);
+  document.addEventListener("visibilitychange", ()=>{ if(document.hidden) pauseGraph(); else onActive(); });
 }
 /* ===========================================================
    ПЕРЕТАСКИВАНИЕ СЕКЦИЙ-ОБЛАСТЕЙ прямо в списке («РАБОТА», «ПРОЧЕЕ» …):
@@ -359,25 +361,43 @@ async function boot(){
     const overdue=S.items.filter(it=>!it.deleted&&it.kind==="task"&&!it.done&&it.due&&parseYmd(it.due)<today());
     if(overdue.length) toast("⚠️ Просрочено: "+overdue.length+" задач");
   }, 600);
-  // авто-проверка обновлений: при запуске + раз в 6 часов (тихо; тост только если реально есть новее)
+  // Авто-проверка обновлений (тихо; тост только если реально есть новее). При запуске — сразу,
+  // дальше тик каждые 5 минут ТОЛЬКО сверяет часы: в сеть уходит не чаще раза в час и только
+  // когда окно видно. Тик короткий не ради частоты, а ради точности: час отсчитывается от
+  // последней удачной проверки, и длинный интервал промахивался бы мимо этого момента.
   autoCheckUpdate(true);
-  setInterval(()=>autoCheckUpdate(), UPD_EVERY);
+  setInterval(()=>autoCheckUpdate(), UPD_TICK);
 }
 
-/* Фоновая проверка обновлений: при старте и дальше раз в 6 часов — приложение могут не
-   закрывать сутками, иначе о новой версии оно не узнает до перезапуска.
-   Ничего не качает — только спрашивает GitHub: ~3 КБ на запрос, 4 запроса в сутки.
-   Нагрузки нет, до лимита GitHub (60 запросов/час) далеко.
-   Про одну и ту же версию говорим ОДИН раз: иначе тост лез бы каждые 6 часов, пока
-   человек не обновится. Ошибки глотаем молча — оффлайн не повод пугать. */
-const UPD_EVERY = 6*60*60*1000;
-let _updNotified = null;   // версия, о которой уже сообщили
+/* Фоновая проверка обновлений: спрашивает у GitHub, не вышло ли новее. Ничего не качает —
+   ~3 КБ на запрос. Про одну и ту же версию говорим ОДИН раз: иначе тост лез бы каждый час,
+   пока человек не обновится. Ошибки глотаем молча — оффлайн не повод пугать.
+
+   ЗАЧЕМ СТОРОЖ ПО ЧАСАМ, А НЕ ПРОСТО ТАЙМЕР. Раньше стоял setInterval на 6 часов: пока апп
+   свёрнут, он тикал вхолостую, а вернувшись к аппу человек мог ждать новости до 6 часов.
+   Теперь наоборот: триггеров МНОГО (фокус, показ окна, тик таймера), но решают не они, а
+   _updNext. Сколько бы событий ни пришло — хоть двадцать alt-tab'ов подряд — в сеть уйдёт
+   не больше одного запроса в час, потому что гейт по метке времени, а не по событию.
+   Метку занимаем ДО await: иначе два триггера подряд успели бы проскочить оба.
+   В фоне (document.hidden) не спрашиваем вообще — там запросов ровно ноль.
+   Лимит GitHub — 60/час на КАЖДЫЙ IP, так что 1/час это ~2% бюджета; а если в него всё же
+   упереться, check_update вернёт ok:false → просто «обновлений нет» и переспросим позже
+   (сам zip качается с другого хоста и от лимита API не зависит). */
+const UPD_EVERY = 60*60*1000;      // не чаще раза в час ходим в сеть
+const UPD_RETRY = 5*60*1000;       // сеть отвалилась — переспросим скоро, не проедая целый час
+const UPD_TICK  = 5*60*1000;       // тик только сверяет часы (сеть решает _updNext) — стоит ноль
+let _updNotified = null;           // версия, о которой уже сообщили
+let _updNext = 0;                  // раньше этого времени в сеть не идём
 
 async function autoCheckUpdate(delayed){
   if(!HasPy()) return;                              // только в приложении
+  if(document.hidden) return;                       // свёрнуты/скрыты — не наше время
+  if(Date.now() < _updNext) return;                 // ещё не пора (см. коммент выше)
+  _updNext = Date.now() + UPD_EVERY;                // окно занимаем СРАЗУ — параллельные триггеры отсекутся
   if(delayed) await new Promise(r=>setTimeout(r,1800));   // не мешаем старту/фокусу поля захвата
-  let r; try{ r=await window.pywebview.api.check_update(); }catch(e){ return; }
-  if(!r || !r.ok || !r.hasUpdate) return;
+  let r; try{ r=await window.pywebview.api.check_update(); }catch(e){ _updNext=Date.now()+UPD_RETRY; return; }
+  if(!r || !r.ok){ _updNext=Date.now()+UPD_RETRY; return; }   // сеть/лимит — не считаем за состоявшуюся проверку
+  if(!r.hasUpdate) return;
   if(_updNotified===r.latest) return;               // уже говорили про эту версию
   _updNotified=r.latest;
   toast("Вышла новая версия "+r.latest, {icon:"ti-rocket", label:"Обновить",

@@ -86,14 +86,23 @@ const ICONS=["ti-home","ti-briefcase","ti-puzzle","ti-video","ti-bulb","ti-shopp
   "ti-rocket","ti-camera","ti-music","ti-palette","ti-code","ti-book","ti-plane","ti-coin","ti-flame",
   "ti-star","ti-bolt","ti-leaf","ti-paw","ti-movie","ti-pencil","ti-world","ti-coffee"];
 
-// приглушённая палитра, читаемая и на чёрном, и на белом; null = по умолчанию (белый/чёрный по теме, всегда перетекает)
-const PALETTE=[null,"#e0625a","#e8a14b","#5fb98e","#5b9bd6","#9b7fd6","#d67fb0","#8a8f98"];
+// приглушённая палитра, читаемая и на чёрном, и на белом.
+// null = НЕТ своего цвета: нода наследует цвет области (см. itemColor) — это не «белый».
+// "#ffffff" = ЯВНЫЙ белый: он самостоятельный, область его не перекрывает. Раньше белого в
+// палитре не было вовсе, а null рисовался белым кружком — выбрав «белый», человек получал
+// цвет области. Теперь это два разных кружка: прочерк (наследовать) и белый (свой).
+const PALETTE=[null,"#ffffff","#e0625a","#e8a14b","#5fb98e","#5b9bd6","#9b7fd6","#d67fb0","#8a8f98"];
 const NEUTRAL=()=>getComputedStyle(document.body).getPropertyValue("--acc").trim()||"#ffffff";
 const areaColor = id => { const a=areaById(id); return a&&a.color?a.color:null; };
 const itemColor = it => it.color || (it.area?areaColor(it.area):null) || null;
-// набор кружков выбора цвета; null отрисовываем как нейтральный (белый по умолчанию)
+// Набор кружков выбора цвета. «Нет цвета» рисуем приглушённым кружком с прочерком (.none),
+// а НЕ белым: белый кружок читался как «белый цвет», хотя означал «наследовать» — и нода
+// в зелёной области становилась зелёной. Явный белый теперь отдельный кружок палитры.
 function swatchRow(current){
-  return PALETTE.map((c,i)=>`<button class="swatch${(current||null)===(c||null)?" on":""}" data-ci="${i}" title="${c?c:"по умолчанию"}" style="background:${c||"var(--acc)"}"></button>`).join("");
+  return PALETTE.map((c,i)=> c
+    ? `<button class="swatch${(current||null)===c?" on":""}" data-ci="${i}" title="${c==="#ffffff"?"Белый — свой цвет, область его не перекроет":c}" style="background:${c}"></button>`
+    : `<button class="swatch none${current?"":" on"}" data-ci="${i}" title="Без своего цвета — наследует цвет области">—</button>`
+  ).join("");
 }
 
 // привязать папку к ноде (выбор через системный диалог; только в приложении)
@@ -198,6 +207,19 @@ function sanitizeState(s){
   s.links=s.links.filter(l=>Array.isArray(l)&&l.length>=2 &&
     (seen.has(l[0])||/^hub_/.test(l[0])) && (seen.has(l[1])||/^hub_/.test(l[1])))   // выкинуть связи в никуда
     .map(l=>{ const len=+l[2]; return (len>=0.3&&len<=3)?[l[0],l[1],len]:[l[0],l[1]]; });   // per-link длина (3-й элемент, множитель)
+  // МИГРАЦИЯ: членство в области — это поле it.area, связь элемент↔область граф рисует из него сам.
+  // Раньше бросок на область писал вместо этого обычную связь в s.links: линия была, а области у
+  // элемента не было (в списках он не числился). Если же область всё-таки стояла — хранимая связь
+  // заслоняла авто-связь, и «Открепить» не снимало область. Переносим членство в поле и связь убираем.
+  { const byId=new Map(s.items.map(it=>[it.id,it]));
+    const areaIds=new Set(s.areas.map(a=>a.id));
+    s.links=s.links.filter(l=>{
+      const ah=/^hub_/.test(l[0]), bh=/^hub_/.test(l[1]);
+      if(ah===bh) return true;                                 // элемент↔элемент (и хаб↔хаб) — не наш случай
+      const it=byId.get(ah?l[1]:l[0]), aid=(ah?l[0]:l[1]).slice(4);
+      if(it && !it.area && areaIds.has(aid)) it.area=aid;      // область ещё не проставлена — берём из связи
+      return false;                                            // саму связь не храним
+    }); }
   s.v=2;
   return s;
 }

@@ -540,7 +540,11 @@ class Graph{
         if(e.altKey && n.type!=="hub"){ this._startConnectDrag(n,e); svg.setPointerCapture(e.pointerId); return; }   // Alt+тащи от ноды — связь / новая связанная заметка
         if(e.shiftKey){ if(this.selNodes.has(n.id)) this.selNodes.delete(n.id); else this.selNodes.add(n.id); this._paintSel(); return; }   // shift-клик — в выделение
         if(!this.selNodes.has(n.id)){ this.selNodes.clear(); this.selNodes.add(n.id); this._paintSel(); }   // обычный клик по ноде — выделить
-        this.drag=n; n._moved=false; svg.setPointerCapture(e.pointerId);
+        // Смещение захвата: за какую точку ноды взялись. Без него нода при старте
+        // перетаскивания прыгала центром под курсор — схватил за край, а она дёрнулась.
+        this.drag=n; n._moved=false; this._dragFrom={x:e.clientX,y:e.clientY};
+        { const p0=this._pt(e); this._grab={dx:n.x-p0.x, dy:n.y-p0.y}; }
+        svg.setPointerCapture(e.pointerId);
         return;
       }
       const lk=e.target.closest(".g-hit");
@@ -554,7 +558,21 @@ class Graph{
         this.tempLine.setAttribute("x1",f.x); this.tempLine.setAttribute("y1",f.y); this.tempLine.setAttribute("x2",p.x); this.tempLine.setAttribute("y2",p.y);
         const elx=document.elementFromPoint(e.clientX,e.clientY), tg=elx&&elx.closest?elx.closest(".g-node"):null; this._hover(tg&&tg.dataset.id!==this.connectDrag?tg.dataset.id:null); return; }
       if(this.marq){ this._updateMarquee(e); return; }
-      if(this.drag){ const p=this._pt(e); this.drag.x=p.x; this.drag.y=p.y; this.drag.vx=0; this.drag.vy=0; this.drag._moved=true; this.alpha=Math.max(this.alpha,.4); return; }
+      if(this.drag){
+        // Порог 4 px (системная константа Windows SM_CXDRAG): пока мышь не ушла дальше — это КЛИК,
+        // ноду не двигаем. Без порога любая дрожь в 1 px считалась перетаскиванием: нода уезжала
+        // (при отдалении — на несколько мировых px, т.к. мир = экран/zoom), а клик и двойной клик
+        // не засчитывались вовсе. Отсюда же «двойной клик срабатывает через раз».
+        if(!this.drag._moved){
+          const f=this._dragFrom;
+          if(f && Math.hypot(e.clientX-f.x, e.clientY-f.y) < 4) return;
+          this.drag._moved=true;
+        }
+        // тянем за ТУ ЖЕ точку, за которую взялись (см. _grab) — нода не прыгает центром под курсор
+        const p=this._pt(e), g=this._grab||{dx:0,dy:0};
+        this.drag.x=p.x+g.dx; this.drag.y=p.y+g.dy; this.drag.vx=0; this.drag.vy=0;
+        this.alpha=Math.max(this.alpha,.4); return;
+      }
       if(this.panning){ const rc=svg.getBoundingClientRect(); this.tx=this.panning.tx+(e.clientX-this.panning.x)/rc.width*this.W; this.ty=this.panning.ty+(e.clientY-this.panning.y)/rc.height*this.H;
         this.bgPanX=this.panning.bx+(this.tx-this.panning.tx)/this.zoom; this.bgPanY=this.panning.by+(this.ty-this.panning.ty)/this.zoom;   // пан двигает параллакс (в мировых ед.); зум — нет
         this._applyTransform(); return; }
@@ -564,20 +582,33 @@ class Graph{
     svg.onpointerup=(e)=>{
       if(this.connectDrag){ const from=this.connectDrag; this.connectDrag=null; this.tempLine.style.display="none"; this._hover(null);
         const elx=document.elementFromPoint(e.clientX,e.clientY), g=elx&&elx.closest?elx.closest(".g-node"):null;
-        if(g){ const tid=g.dataset.id, bothHubs=tid.indexOf("hub_")===0&&from.indexOf("hub_")===0;
-          if(tid!==from && !bothHubs){ if(addLink(from,tid)){ recomputeHierarchy(); this.build(); toast("Связь создана"); } else toast("Уже связаны"); } }
+        if(g){ const msg=this._linkTo(from, g.dataset.id); if(msg){ recomputeHierarchy(); this.build(); toast(msg); } }   // бросок на область назначает её (см. _linkTo)
         else { const p=this._pt(e); this._quickAdd("note",p.x,p.y,from); }   // отпустил на пустом → новая заметка + связь
         return; }
       if(this.marq){ this._finishMarquee(); return; }
       if(this.drag){
         const n=this.drag;
-        if(n.ref){ n.ref.x=n.x; n.ref.y=n.y; persist(); }
-        else if(n.hubArea){ n.hubArea.x=n.x; n.hubArea.y=n.y; persist(); }   // позиция области
-        if(!n._moved){
+        if(n._moved){   // позиции пишем ТОЛЬКО после настоящего перетаскивания — клик не должен трогать файл
+          if(n.ref){ n.ref.x=n.x; n.ref.y=n.y; persist(); }
+          else if(n.hubArea){ n.hubArea.x=n.x; n.hubArea.y=n.y; persist(); }   // позиция области
+        } else {
           // ручное определение двойного клика (надёжнее нативного dblclick при pointer capture)
+          // Два РАЗНЫХ окна, их нельзя мерить одним числом:
+          //   350 мс — сколько ждём второй клик (двойной клик должен ловиться уверенно);
+          //   170 мс — через сколько показать превью (отклик на одиночный клик).
+          // Раньше это было одно число: чтобы двойной клик не промахивался, превью ждало
+          // все 350 мс и ощущалось вязким. Теперь превью успевает показаться, а если второй
+          // клик всё же пришёл — _openNode его закроет (он зовёт _closePop) и откроет ридер.
           const now=Date.now();
-          if(this._lcId===n.id && (now-this._lcT)<350){ this._lcId=null; this._lcT=0; this._openNode(n); }
-          else { this._lcId=n.id; this._lcT=now; }
+          if(this._lcId===n.id && (now-this._lcT)<350){
+            this._lcId=null; this._lcT=0;
+            clearTimeout(this._pvT); this._pvT=null;
+            this._openNode(n);
+          } else {
+            this._lcId=n.id; this._lcT=now;
+            clearTimeout(this._pvT);
+            this._pvT=setTimeout(()=>{ this._pvT=null; this._openPreview(n); }, 170);
+          }
         }
         this.drag=null;
       }
@@ -721,6 +752,39 @@ class Graph{
     });
     ctx.stroke(); ctx.restore();
   }
+  /* Превью по одиночному клику: заглянуть внутрь, не открывая. Показывается через 350 мс —
+     ждём, не будет ли второго клика (тогда открывается ридер, а превью отменяется).
+     Переиспользуем id="node-pop": позиционирование и закрытие по клику мимо уже работают на нём. */
+  _openPreview(n){
+    this._closePop();
+    const it=n.ref; if(!it) return;
+    this.sel=n.id;
+    const km = it.kind==="flow"?{i:"ti-artboard",n:"полотно"} : it.kind==="note"?{i:"ti-note",n:"заметка"} : {i:"ti-checklist",n:"задача"};
+    const conn=linksOf(it.id);
+    const body=(it.body||"").trim();
+    const pv=el("div"); pv.id="node-pop"; pv.className="node-preview";
+    pv.innerHTML=`
+      <div class="np-ttl">${esc(it.title)||"<i>без названия</i>"}</div>
+      <div class="np-meta">
+        <span><i class="ti ${km.i}"></i> ${km.n}</span>
+        ${it.done?`<span><i class="ti ti-check"></i>готово</span>`:(it.status==="doing"?`<span><i class="ti ti-player-play"></i>в работе</span>`:"")}
+        ${it.area?`<span><i class="ti ${areaIcon(it.area)}"></i>${esc(areaName(it.area))}</span>`:""}
+        ${conn.length?`<span><i class="ti ti-link"></i>${conn.length}</span>`:""}
+      </div>
+      <div class="pv-body">${it.kind==="flow" ? "<i>схема на полотне</i>" : (body?esc(body):"<i>пусто</i>")}</div>
+      <div class="np-row"><button class="btn" data-pv="open"><i class="ti ${it.kind==="flow"?"ti-artboard":"ti-eye"}"></i>Открыть</button></div>`;
+    $("#graph-wrap").appendChild(pv);
+    this._posPop(pv,n);
+    // «Открыть» ведёт в ЧИТАЛЬНЫЙ вид, а не в редактор: из превью человек хочет прочитать
+    // подробности, а не править поля. Задачи раньше открывались формой правки (Тип/Повтор/
+    // Приоритет…) — она выглядит как настройки и к чтению отношения не имеет.
+    // Полотно — исключение: у него нет текста, только своя схема.
+    pv.querySelector('[data-pv="open"]').onclick=()=>{
+      this._closePop();
+      if(it.kind==="flow") openFlowEditor(it); else openNoteReader(it);
+    };
+  }
+
   _openNode(n){
     // двойной клик: область → фильтр задач; заметка → ридер; задача → редактор
     this._closePop();
@@ -745,18 +809,32 @@ class Graph{
   _linkPath(ax,ay,bx,by){ return `M ${ax.toFixed(1)} ${ay.toFixed(1)} L ${bx.toFixed(1)} ${by.toFixed(1)}`; }
   startLink(id){ this.linkFrom=id; this.svg.classList.add("linking"); $("#g-hint").innerHTML="Режим связи: кликни по второму узлу. Esc — отмена."; this._closePop(); }
   cancelLink(){ this.linkFrom=null; this.svg.classList.remove("linking"); this.tempLine.style.display="none"; if($("#g-hint"))$("#g-hint").innerHTML="Alt+тащи от ноды — связь/заметка · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · Delete — удалить"; }
-  _finishLink(n){
-    const a=this.linkFrom;
-    // связывать можно с чем угодно (заметка/задача/область), но не сам с собой и не область с областью
-    const bothHubs = n.id.indexOf("hub_")===0 && a.indexOf("hub_")===0;
-    if(n.id!==a && !bothHubs){
-      if(addLink(a,n.id)){
-        // иерархию не задаём вручную — она выводится от области (см. recomputeHierarchy)
-        recomputeHierarchy();
-        toast("Связь создана"); this.cancelLink(); this.build(); return;
-      }
-      toast("Уже связаны");
+  // Связать два узла. Связывать можно с чем угодно (заметка/задача/область), но не сам с собой
+  // и не область с областью. ОБЛАСТЬ — ОСОБЫЙ СЛУЧАЙ: членство в области это поле it.area, а не
+  // связь — линию элемент↔область граф рисует сам (см. build). Поэтому конец в хабе означает
+  // «назначить область», а не addLink: хранимая связь заслонила бы авто-связь (pairs в build),
+  // и «Открепить» в поп-апе связи перестало бы снимать область.
+  // Возвращает текст тоста, либо null если связывать нечего.
+  _linkTo(from, to){
+    if(to===from) return null;
+    const fh=from.indexOf("hub_")===0, th=to.indexOf("hub_")===0;
+    if(fh && th) return null;                        // область с областью не связываем
+    if(fh || th){
+      const it=S.items.find(x=>x.id===(fh?to:from));
+      if(!it) return null;
+      const aid=(fh?from:to).slice(4);
+      if(it.area===aid) return "Уже в области";
+      it.area=aid;
+      if(it.status==="inbox") it.status="todo";      // разобран из инбокса — как чип триажа (main.js)
+      touch(it); persist();
+      return "В области: "+areaName(aid);
     }
+    return addLink(from,to) ? "Связь создана" : "Уже связаны";
+  }
+  _finishLink(n){
+    // иерархию не задаём вручную — она выводится от области (см. recomputeHierarchy)
+    const msg=this._linkTo(this.linkFrom, n.id);
+    if(msg){ recomputeHierarchy(); toast(msg); this.cancelLink(); this.build(); return; }
     this.cancelLink();
   }
   refit(){
@@ -817,7 +895,12 @@ class Graph{
     // «дыхание» в покое — чтобы граф жил, не выглядел вкопанным (амплитуда из настроек)
     const _it=performance.now()*0.001, AMP=(S.settings.graphDrift!=null?S.settings.graphDrift:4);
     N.forEach((n,i)=>{
-      if(n===this.drag||n.fixed){ n._ix=0; n._iy=0; return; }
+      // Дрейф со СХВАЧЕННОЙ ноды не снимаем. Раньше тут было n===this.drag: на pointerdown
+      // _ix/_iy мгновенно схлопывались в 0, и нода роняла себя из дрейфующей позиции в базовую
+      // (до AMP px по оси), а pointerup возвращал дрейф и она прыгала обратно — вот этот «дёрг»
+      // и ловился на обычном клике. Точку захвата дрейф не сбивает: _grab (см. onpointerdown)
+      // считается от базовой n.x, а рисуем по n.x+_ix — разница постоянна и уже была на экране.
+      if(n.fixed){ n._ix=0; n._iy=0; return; }
       n._ix=Math.sin(_it*0.5 + i*1.7)*AMP;
       n._iy=Math.cos(_it*0.43 + i*2.3)*AMP;
     });
@@ -909,8 +992,15 @@ class Graph{
     const conn=linksOf(it.id);
     const km = it.kind==="flow"?{i:"ti-artboard",n:"полотно"} : it.kind==="note"?{i:"ti-note",n:"заметка"} : {i:"ti-checklist",n:"задача"};
     const hasOpen = (it.kind==="note" || it.kind==="flow");
+    // Меню — только действия, которых больше негде взять. «Изменить», «Связать» и «Удалить»
+    // убраны намеренно: они дублировали двойной клик, Alt+тащи и клавишу Delete — то есть
+    // занимали половину окна, ничего не добавляя (всё это написано в подсказке графа).
+    // «Закрепить» — иконкой в шапке: это переключатель состояния, ему не нужна целая строка.
     pop.innerHTML=`
-      <div class="np-ttl">${esc(it.title)}</div>
+      <div class="np-hd">
+        <div class="np-ttl">${esc(it.title)}</div>
+        <button class="np-pin${n.fixed?" on":""}" data-pop="pin" title="${n.fixed?"Открепить":"Закрепить"}"><i class="ti ${n.fixed?"ti-pin-filled":"ti-pin"}"></i></button>
+      </div>
       <div class="np-meta">
         <span><i class="ti ${km.i}"></i> ${km.n}</span>
         ${it.area?`<span><i class="ti ${areaIcon(it.area)}"></i>${esc(areaName(it.area))}</span>`:""}
@@ -922,22 +1012,18 @@ class Graph{
                 :`<button class="btn ${(!it.done&&it.status!=="doing")?"primary":""}" data-pop="done"><i class="ti ${it.done?"ti-arrow-back-up":"ti-check"}"></i>${it.done?"Вернуть":"Готово"}</button>${it.done?"":`<button class="btn ${it.status==="doing"?"primary":""}" data-pop="doing"><i class="ti ti-player-play"></i>${it.status==="doing"?"В работе":"В работу"}</button>`}`}
       </div>
       <div class="np-row" style="margin-bottom:6px;">
-        <button class="btn" data-pop="edit"><i class="ti ti-pencil"></i>Изменить</button>
-        <button class="btn" data-pop="link"><i class="ti ti-plus"></i>Связать</button>
+        ${it.folder
+          ? `<div class="np-split">
+               <button class="btn" data-pop="folder-open" title="${esc(it.folder)}"><i class="ti ti-folder"></i>Папка</button>
+               <button class="btn np-side" data-pop="folder-pick" title="Сменить папку"><i class="ti ti-folder-cog"></i></button>
+             </div>`
+          : `<button class="btn" data-pop="folder-pick"><i class="ti ti-folder-search"></i>Привязать папку</button>`}
       </div>
       <div class="np-row np-size">
         <span class="np-sz-lbl">Размер ноды</span>
         <button class="np-sz-btn" data-pop="size-" title="Меньше"><i class="ti ti-minus"></i></button>
         <span class="np-sz-val">${(+it.size||1).toFixed(1)}×</span>
         <button class="np-sz-btn" data-pop="size+" title="Больше"><i class="ti ti-plus"></i></button>
-      </div>
-      <div class="np-row">
-        ${it.folder?`<button class="btn" data-pop="folder-open" title="${esc(it.folder)}"><i class="ti ti-folder"></i>Папка</button>`:""}
-        <button class="btn" data-pop="folder-pick"><i class="ti ti-folder-search"></i>${it.folder?"Сменить папку":"Привязать папку"}</button>
-      </div>
-      <div class="np-row">
-        <button class="btn" data-pop="pin"><i class="ti ${n.fixed?"ti-pin-filled":"ti-pin"}"></i>${n.fixed?"Открепить":"Закрепить"}</button>
-        <button class="btn" data-pop="del"><i class="ti ti-trash"></i>Удалить</button>
       </div>`;
     $("#graph-wrap").appendChild(pop);
     this._posPop(pop,n);
@@ -945,8 +1031,6 @@ class Graph{
     if(pop.querySelector('[data-pop="open"]')) pop.querySelector('[data-pop="open"]').onclick=()=>{ this._closePop(); openItemSmart(it); };
     if(pop.querySelector('[data-pop="done"]')) pop.querySelector('[data-pop="done"]').onclick=()=>{ toggleDone(it); this._closePop(); this.build(); toast(it.done?"Выполнено":"Возвращено в работу"); };
     if(pop.querySelector('[data-pop="doing"]')) pop.querySelector('[data-pop="doing"]').onclick=()=>{ it.status = it.status==="doing" ? "todo" : "doing"; touch(it); persist(); this._closePop(); this.build(); toast(it.status==="doing"?"В работе":"Снято с работы",{icon:it.status==="doing"?"ti-player-play":"ti-player-pause"}); };
-    pop.querySelector('[data-pop="edit"]').onclick=()=>{ this._closePop(); if(it.kind==="flow") openFlowEditor(it); else openItemEditor(it); };   // схему правим в её редакторе, не в окне заметки
-    pop.querySelector('[data-pop="link"]').onclick=()=>{ this.startLink(it.id); };
     const setSize=(d)=>{ const cur=+it.size||1; it.size=Math.max(0.4,Math.min(3,+(cur+d).toFixed(2))); touch(it); persist(); this.build(); const v=$(".np-sz-val",pop); if(v) v.textContent=(+it.size).toFixed(1)+"×"; };
     if(pop.querySelector('[data-pop="size-"]')) pop.querySelector('[data-pop="size-"]').onclick=()=>setSize(-0.2);
     if(pop.querySelector('[data-pop="size+"]')) pop.querySelector('[data-pop="size+"]').onclick=()=>setSize(0.2);
@@ -958,7 +1042,6 @@ class Graph{
       const o=this.nodeEls.find(x=>x.n.id===n.id); if(o)o.pin.style.display=node.fixed?"":"none";
       this._closePop();
     };
-    pop.querySelector('[data-pop="del"]').onclick=()=>{ this._closePop(); const id=it.id; deleteItem(id); this.build(); toast("Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restoreItem(id); render(); }}); };
   }
   _posPop(pop,n){
     const rc=this.svg.getBoundingClientRect();

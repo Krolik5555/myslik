@@ -276,6 +276,27 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .g-node.faded .g-label{fill:var(--mut);}
 .g-node.faded .g-ticon{opacity:.5;}
 .g-node.doing .nd{fill:color-mix(in srgb, var(--nc, var(--acc)) 15%, var(--surf));}   /* «в работе» — еле заметный НЕПРОЗРАЧНЫЙ тон цвета самой ноды (не сквозной, не бьёт глаза) */
+/* шапка меню ноды: название + булавка иконкой. Булавка — переключатель состояния,
+   целая строка ей была не нужна; состояние видно по заливке иконки. */
+.np-hd{display:flex;align-items:flex-start;gap:8px;}
+.np-hd .np-ttl{flex:1;min-width:0;}
+.np-pin{flex:none;width:26px;height:26px;border-radius:7px;color:var(--mut2);font-size:14px;
+  display:flex;align-items:center;justify-content:center;border:0.5px solid transparent;}
+.np-pin:hover{color:var(--tx);background:var(--surf2);border-color:var(--bd);}
+.np-pin.on{color:var(--acc);background:var(--surf2);border-color:var(--bd2);}
+/* папка: открыть — основная часть, сменить — узкий довесок; две отдельные кнопки не нужны.
+   Селекторы с #node-pop не для красоты: ниже лежит #node-pop .np-row .btn{flex:1}, а правило
+   с id перебивает любые классы. Довесок — тоже .btn, поэтому растягивался на всю ширину
+   наравне с основной кнопкой (поймано тестом: обе выходили по 131 px). */
+#node-pop .np-row .np-split{display:flex;flex:1;min-width:0;}
+#node-pop .np-row .np-split .btn{flex:1;min-width:0;border-top-right-radius:0;border-bottom-right-radius:0;border-right:none;}
+#node-pop .np-row .np-split .np-side{flex:0 0 36px;width:36px;min-width:36px;padding:0;justify-content:center;
+  border-top-left-radius:0;border-bottom-left-radius:0;}
+/* превью по клику: только заглянуть — текст выделяемый, длинный скроллится, окно не растёт */
+.node-preview{max-width:320px;}
+.node-preview .pv-body{max-height:170px;overflow-y:auto;margin:8px 0 10px;font-size:13px;line-height:1.5;
+  white-space:pre-wrap;word-break:break-word;color:var(--mut);user-select:text;cursor:text;}
+.node-preview .pv-body i{color:var(--mut2);}
 .g-pin{fill:none;stroke:var(--acc);stroke-width:1;stroke-dasharray:2 2;opacity:.7;}
 .graph-toolbar{position:absolute;top:12px;left:12px;display:flex;gap:7px;z-index:5;}
 .graph-more{position:absolute;top:54px;left:12px;z-index:7;display:flex;flex-direction:column;gap:2px;background:var(--surf2);border:0.5px solid var(--bd2);border-radius:10px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.5),0 0 18px var(--glow);}
@@ -796,6 +817,16 @@ button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:va
 /* стилизованное подтверждение (вместо нативного confirm) */
 .confirm-modal{width:420px;}
 .confirm-msg{font-size:14px;line-height:1.55;color:var(--tx);margin:2px 0 20px;}
+/* окно чтения: двигается за заголовок, тянется за правый нижний угол */
+/* animation:none — обязательно: modalIn заканчивается на transform:none, а CSS-анимация
+   перебивает inline-стиль. С ней перетаскивание окна не работало бы, пока она играет. */
+.reader-win{resize:both;overflow:auto;min-width:340px;min-height:220px;max-width:92vw;max-height:88vh;
+  animation:none;}
+.reader-win h3{cursor:move;user-select:none;}
+/* текст правится на месте — клик по нему включает редактирование */
+#nr-body{cursor:text;border-radius:8px;padding:6px 8px;margin:0 -8px;border:0.5px solid transparent;}
+#nr-body:hover{border-color:var(--bd);}
+#nr-body.editing{border-color:var(--bd2);background:var(--surf2);outline:none;white-space:pre-wrap;}
 /* пояснение в окне отчёта о проблеме — что именно уходит автору */
 .fb-note{font-size:12.5px;line-height:1.5;color:var(--mut);margin:2px 0 14px;}
 .btn.danger{background:var(--warn);color:#fff;border-color:var(--warn);}
