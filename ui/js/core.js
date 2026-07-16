@@ -269,7 +269,85 @@ function sanitizeState(s){
 let S = defaultState();
 let _prevView=null;   // для анимации входа: отличаем смену вкладки от обычной перерисовки
 let saveTimer=null;
-function persist(){ clearTimeout(saveTimer); saveTimer=setTimeout(()=>Store.save(S),250); }
+/* persist(quiet) — единственная воронка записи. quiet=true: сохранить, но НЕ считать это
+   действием человека (см. undo ниже). Нужен ровно одному месту — авто-сохранению раскладки,
+   когда физика графа остыла сама по себе. */
+function persist(quiet){
+  // Снимок кладём в момент, когда окно дебаунса ОТКРЫВАЕТСЯ. Это и есть граница действия:
+  // пока человек тянет ползунок или пока одно «создать ноду» дёргает persist четыре раза
+  // подряд, таймер каждый раз сбрасывается и окно не закрывается — значит снимок будет один.
+  // Иначе Ctrl+Z отматывал бы свечение по пикселю, а создание ноды требовало бы четырёх нажатий.
+  if(saveTimer===null && !quiet) undoPush();
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>{ saveTimer=null; _undoLast=_undoSnap(); _undoKeyLast=_undoKey(); Store.save(S); },250);
+}
+
+/* ===========================================================
+   ОТКАТ (Ctrl+Z) / ПОВТОР (Ctrl+Shift+Z)
+   Историю храним СНИМКАМИ: снимок ловит любое действие сам, без правки 68 мест вызова persist.
+   Снимок — строка: её дешевле мерить и она вдвое компактнее клона объекта.
+
+   В СНИМОК ИДУТ ТОЛЬКО ДАННЫЕ (заметки, связи, области, теги) — и НЕ идут настройки.
+   Причина не в экономии: settings.view — это текущая вкладка, то есть навигация лежит в том же
+   объекте, что и данные. Со снимком всего S выходило двойное зло: переключение вкладки само
+   становилось шагом отката, а откат правки заодно перебрасывал на ту вкладку, где ты был в
+   момент снимка. Тема, ползунки, свёрнутые ветки и лоток — тоже вид, а не содержимое: откат
+   их не трогает.
+   Отсюда же второе правило: шаг кладём, ТОЛЬКО если данные реально изменились. Иначе переход
+   по вкладкам плодил бы пустые шаги, и Ctrl+Z молча ничего не делал.
+
+   КООРДИНАТЫ — ТОЖЕ ВИД, А НЕ СОДЕРЖИМОЕ. Подвинул ноду — это не правка, отменять нечего.
+   Поэтому сравниваем состояния по КЛЮЧУ, из которого x/y выброшены (_undoKey), а восстанавливаем
+   из ПОЛНОГО снимка (_undoSnap). Координаты в снимке всё же нужны: без них воскресшая нода
+   (откат удаления, повтор создания) потеряла бы место и уехала в лоток.
+   Но «поставлена ли нода на холст» (x==null) — это как раз содержимое: вытянуть мысль из лотка
+   значит разобрать её, и такое отменять надо. Поэтому в ключе координат нет, а признак
+   размещённости есть.
+
+   Два предела, и второй важнее первого: медиа полотен лежит в S строкой base64 (одно видео —
+   до 24 МБ), поэтому лимита «50 шагов» мало — 50 таких снимков это гигабайт. Режем и по памяти.
+   =========================================================== */
+const UNDO_STEPS=50;                    // 50 × ~43 КБ ≈ 2 МБ на обычных данных — с запасом
+const UNDO_BYTES=16*1024*1024;          // потолок на всю историю: спасает, когда в полотне видео
+let _undoStack=[], _redoStack=[], _undoLast=null, _undoKeyLast=null, _undoBusy=false;
+// полный снимок — для восстановления
+const _undoSnap=()=>JSON.stringify({items:S.items, links:S.links, areas:S.areas, tags:S.tags});
+// ключ — для сравнения: без x/y, но с признаком «стоит на холсте»
+const _noXY=o=>{ const r=Object.assign({},o); delete r.x; delete r.y; r._on=(o.x!=null); return r; };
+const _undoKey=()=>JSON.stringify({items:S.items.map(_noXY), links:S.links, areas:S.areas.map(_noXY), tags:S.tags});
+const _undoTrim=a=>{ let n=a.reduce((s,x)=>s+x.length,0);
+  while(a.length>UNDO_STEPS || (a.length>1 && n>UNDO_BYTES)) n-=a.shift().length; };
+function undoInit(){ _undoLast=_undoSnap(); _undoKeyLast=_undoKey(); _undoStack=[]; _redoStack=[]; }
+function undoPush(){
+  if(_undoLast===null || _undoBusy) return;
+  // не шаг: переключили вкладку, дёрнули ползунок, подвинули ноду — содержимое то же
+  if(_undoKey()===_undoKeyLast) return;
+  _undoStack.push(_undoLast); _undoTrim(_undoStack);
+  _redoStack.length=0;                  // новое действие обрывает ветку повтора — как везде
+}
+function _undoApply(snap){
+  // _undoBusy: render() ниже сам зовёт persist() (синхронизация view в views.js и
+  // recomputeHierarchy в графе). Без флага откат положил бы снимок сам на себя и убил повтор.
+  _undoBusy=true;
+  const d=JSON.parse(snap);
+  /* Ноды остаются там, где стоят: откат — про содержимое, а не про раскладку.
+     Но координаты из снимка всё же берём в двух случаях: нода воскресла (её сейчас нет —
+     иначе потеряла бы место и уехала в лоток) или в снимке она лежала в лотке (x==null),
+     то есть откатываем сам факт «разобрал» и обязаны вернуть её обратно в лоток. */
+  const держать=(было,стало)=>{ const p=new Map(); было.forEach(o=>{ if(o.x!=null) p.set(o.id,o); });
+    стало.forEach(o=>{ if(o.x==null) return; const c=p.get(o.id); if(c){ o.x=c.x; o.y=c.y; } }); };
+  держать(S.items, d.items); держать(S.areas, d.areas);
+  S.items=d.items; S.links=d.links; S.areas=d.areas; S.tags=d.tags;   // настройки и вкладку не трогаем
+  if(areaFilter && !S.areas.some(a=>a.id===areaFilter)) areaFilter=null;   // область могли откатить в небытие
+  render();
+  _undoBusy=false;
+  _undoLast=_undoSnap(); _undoKeyLast=_undoKey();   // снимок правим координатами — пересчитываем от факта
+  clearTimeout(saveTimer); saveTimer=null; Store.save(S);
+}
+function undoStep(){ if(!_undoStack.length) return false;
+  _redoStack.push(_undoLast); _undoTrim(_redoStack); _undoApply(_undoStack.pop()); return true; }
+function redoStep(){ if(!_redoStack.length) return false;
+  _undoStack.push(_undoLast); _undoTrim(_undoStack); _undoApply(_redoStack.pop()); return true; }
 function touch(it){ it.updated=Date.now(); }
 
 const areaById = id => S.areas.find(a=>a.id===id);

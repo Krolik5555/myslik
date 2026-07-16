@@ -215,6 +215,18 @@ function wireGlobal(){
     if(e.key==="Escape"){ if(graph&&graph.linkFrom){graph.cancelLink();return;} closeOverlays(); return; }
     if(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
     if($("#overlay-root").children.length) return;
+    // Ctrl+Z / Ctrl+Shift+Z — только ЗДЕСЬ, ниже двух стражей выше по функции: в полях ввода
+    // работает нативный откат текста, а при открытом редакторе откат запрещён вовсе. Это не
+    // лень: формы держат прямые ссылки на объекты внутри S, и подмена состояния под ними
+    // заставила бы их молча писать в пустоту. Закрывать их перед откатом — хуже: окно чтения
+    // сохраняет текст по уходу фокуса, то есть само закрытие записало бы правку в призрак.
+    if((e.ctrlKey||e.metaKey) && e.code==="KeyZ"){
+      e.preventDefault();
+      const back=!e.shiftKey, ok=back?undoStep():redoStep();
+      toast(ok ? (back?"Отменено":"Возвращено") : (back?"Отменять нечего":"Возвращать нечего"),
+            {icon: back?"ti-arrow-back-up":"ti-arrow-forward-up"});
+      return;
+    }
     if((e.key==="Delete"||e.key==="Backspace") && view==="notes" && graph && graph.selNodes && graph.selNodes.size){ e.preventDefault(); graph.deleteSelected(); return; }
     if((e.ctrlKey||e.metaKey) && view==="notes" && graph){
       if(e.code==="KeyC" && graph.selNodes.size){ e.preventDefault(); graph.copySelection(); return; }
@@ -344,6 +356,7 @@ async function boot(){
     S=defaultState(); seedDemo();
     const v=P.get("view"); if(v) S.settings.view=v;
     if(P.has("light")) S.settings.theme="light";
+    undoInit();
     view=S.settings.view||"today"; applySettings(); wireGlobal(); render();
     console.log("[dev] preview mode: fresh demo, view="+view);
     return;
@@ -352,6 +365,7 @@ async function boot(){
   if(loaded && loaded.areas){ S=sanitizeState(Object.assign(defaultState(),loaded)); }
   else { seedDemo(); await Store.save(S); }
   const v=P.get("view"); if(v) S.settings.view=v;   // ?view= работает и в реальном аппе
+  undoInit();   // точка отсчёта истории — состояние, с которым приложение открылось
   view=S.settings.view||"today"; applySettings(); wireGlobal(); render();
   installWindowResize();   // ресайз безрамочного окна тянущим за края (только в нативном аппе)
   setTimeout(()=>{ const c=$("#cap"); if(c && !$("#overlay-root").children.length) c.focus(); }, 120);  // готов печатать мысль сразу

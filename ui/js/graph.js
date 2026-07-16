@@ -1138,7 +1138,7 @@ class Graph{
     // авто-раскладка остыла после активности → сохраняем позиции один раз, чтобы следующее открытие было статичным
     if(this.alpha===0 && this._moved){ this._moved=false;
       this.nodes.forEach(n=>{ if(n.ref){ n.ref.x=n.x; n.ref.y=n.y; } else if(n.hubArea){ n.hubArea.x=n.x; n.hubArea.y=n.y; } });
-      persist();
+      persist(true);   // тихо: раскладка улеглась сама, человек ничего не делал — в историю отката это не шаг
     }
     this.raf = this._paused ? null : requestAnimationFrame(()=>this._tick());
   }
