@@ -30,6 +30,7 @@ function openPalette(){
     {t:"Теги со стилем",i:"ti-tags",run:()=>{closeOverlays();openTagManager();}},
     {t:"Удалить пустые заметки",i:"ti-eraser",run:()=>{closeOverlays();cleanEmptyNotes();}},
     {t:"Одинокие ноды (найти/удалить)",i:"ti-circle-dashed",run:()=>{closeOverlays();openLonelyNodes();}},
+    {t:"Умный захват (ИИ): вкл/выкл",i:"ti-sparkles",run:()=>{closeOverlays(); if(typeof aiToggle==="function") aiToggle();}},
     {t:"Горячие клавиши",i:"ti-keyboard",run:()=>{closeOverlays();openShortcuts();}}
   ];
   function go(v){ closeOverlays(); areaFilter=null; view=v; render(); }
@@ -201,11 +202,15 @@ function wireGlobal(){
   cap.addEventListener("input",updatePreview);
   cap.addEventListener("keydown",e=>{
     if(e.key==="Enter" && cap.value.trim()){
-      const it=captureText(cap.value);
+      const raw=cap.value;
+      const it=captureText(raw);
       if(!it){ cap.classList.add("shake"); setTimeout(()=>cap.classList.remove("shake"),420); return; }  // не плодим «(без названия)»
       cap.value=""; if(capPrev){ capPrev.innerHTML=""; capPrev.classList.remove("show"); } render();
       // мысль без координат ждёт в лотке графа, пока её не поставят на холст (см. Graph.build)
       toast("Добавлено — "+(it.x==null?"в лоток на графе":it.kind==="note"?"заметка":"в задачи"),{icon:"ti-check"});
+      // умный захват (ai.js): тихо спросить локальную модель и предложить чистый вариант.
+      // Нет ИИ → функция не определена / сама выходит, поведение не меняется.
+      if(typeof aiRefineCapture==="function") aiRefineCapture(it, raw);
     }
   });
 

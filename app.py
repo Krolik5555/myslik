@@ -23,6 +23,14 @@ try:
 except Exception:
     _HAS_TRAY = False
 
+# локальный ИИ-слой (умный захват) — ПОЛНОСТЬЮ опционален. Нет модуля/движка/модели —
+# просто работаем как раньше. Импорт под try, чтобы даже сломанный ai.py не ронял приложение.
+try:
+    import ai as ai_mod
+except Exception as _e:
+    ai_mod = None
+    print("[ai] module not loaded:", _e)
+
 # Пути: в собранном exe (PyInstaller) ресурсы (ui/) лежат в бандле (_MEIPASS, read-only),
 # а данные пишем РЯДОМ С EXE (портативно: переносишь папку — заметки с тобой).
 if getattr(sys, "frozen", False):
@@ -37,6 +45,9 @@ DATA_DIR = os.path.join(_DATA_BASE, "data")
 DATA_FILE = os.path.join(DATA_DIR, "planner.json")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 MAX_BACKUPS = 30
+# Папка с файлом модели (*.gguf) — РЯДОМ с приложением (портативно, как data/),
+# в exe НЕ зашивается. Кладёшь модель сюда — умный захват оживает; убираешь — гаснет.
+AI_DIR = os.path.join(_DATA_BASE, "ai")
 # токен/чат Telegram — ОТДЕЛЬНЫЙ файл, а не часть planner.json: он не должен попадать
 # в экспорт/импорт данных (иначе токен бота утечёт вместе с шарингом заметок).
 TG_FILE = os.path.join(DATA_DIR, "telegram.json")
@@ -518,6 +529,27 @@ class Api:
         threading.Thread(target=_close, daemon=True).start()
         return {"ok": True}
 
+    # ---------- локальный ИИ (умный захват) ----------
+    # Оба метода никогда не бросают в JS: при любой беде честно возвращают
+    # available:false / ok:false, и фронт просто не показывает ИИ-подсказки.
+    def ai_status(self):
+        if not ai_mod:
+            return {"available": False, "reason": "no_module"}
+        try:
+            return ai_mod.status()
+        except Exception as e:
+            print("[ai] status error:", e)
+            return {"available": False, "reason": "error", "detail": repr(e)}
+
+    def ai_capture(self, text):
+        if not ai_mod:
+            return {"ok": False, "error": "no_module"}
+        try:
+            return ai_mod.capture(text or "")
+        except Exception as e:
+            print("[ai] capture error:", e)
+            return {"ok": False, "error": "exception", "detail": repr(e)}
+
     # ---------- window ----------
     def win_min(self):
         try:
@@ -736,6 +768,14 @@ def main():
     api = Api()
     if os.path.exists(DATA_FILE):
         api.backup()
+    # инициализация ИИ-слоя: только запоминаем путь к модели рядом с приложением;
+    # сама модель грузится лениво при первом захвате, старт не тормозит.
+    if ai_mod:
+        try:
+            info = ai_mod.init(AI_DIR)
+            print("[ai] init:", info, "->", ai_mod.status())
+        except Exception as e:
+            print("[ai] init error:", e)
     trace("api created")
 
     frameless = os.environ.get("PLANNER_FRAMED") != "1"
