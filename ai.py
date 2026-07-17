@@ -49,6 +49,27 @@ _LOAD_ERR = ""
 _N_CTX = 2048
 _MAX_TOKENS = 320
 _TEMPERATURE = 0.2
+# НЕ душить ПК: жёсткий потолок потоков. На 32-ядерном «половина ядер» = 16 потоков,
+# что пилит CPU в полку; 1.5B-модели столько не нужно. 4 потока — заметно тише, а
+# по скорости на коротких ответах почти без разницы. Плюс на время генерации
+# понижаем класс приоритета процесса (см. _set_priority), чтобы ИИ уступал активной
+# работе (Blender/Houdini/Resolve), а не отбирал у неё ядра.
+_MAX_THREADS = 4
+
+
+def _set_priority(low):
+    """Windows: понизить/вернуть класс приоритета процесса на время инференса.
+    Нативные потоки llama.cpp наследуют класс процесса, поэтому так они уступают
+    переднему плану. Тихо пропускаем на не-Windows / при ошибке."""
+    try:
+        import ctypes
+        BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+        NORMAL_PRIORITY_CLASS = 0x00000020
+        k = ctypes.windll.kernel32
+        k.SetPriorityClass(k.GetCurrentProcess(),
+                           BELOW_NORMAL_PRIORITY_CLASS if low else NORMAL_PRIORITY_CLASS)
+    except Exception:
+        pass
 
 # набор допустимых значений (для санитизации ответа)
 _PRIOS = ("high", "medium", "low", "none")
@@ -141,7 +162,7 @@ def _get_llm():
             _LOAD_ERR = "model file not found"
             return None
         try:
-            n_threads = max(2, (os.cpu_count() or 4) // 2)  # половина ядер — не душим ПК
+            n_threads = max(2, min(_MAX_THREADS, (os.cpu_count() or 4) // 2))  # потолок 4 — не пилим все ядра
             _LLM = GPT4All(
                 model_name=os.path.basename(path),
                 model_path=os.path.dirname(path),
@@ -193,11 +214,15 @@ def _extract_json(s):
 def _run(llm, text):
     prompt = _build_user_prompt(text)
     with _INFER_LOCK:
-        with llm.chat_session(system_prompt=_SYS, prompt_template=_TMPL):
-            out = llm.generate(
-                prompt, max_tokens=_MAX_TOKENS, temp=_TEMPERATURE,
-                top_k=40, top_p=0.9, repeat_penalty=1.1,
-            )
+        _set_priority(True)                 # на время генерации уступаем CPU переднему плану
+        try:
+            with llm.chat_session(system_prompt=_SYS, prompt_template=_TMPL):
+                out = llm.generate(
+                    prompt, max_tokens=_MAX_TOKENS, temp=_TEMPERATURE,
+                    top_k=40, top_p=0.9, repeat_penalty=1.1,
+                )
+        finally:
+            _set_priority(False)            # вернуть обычный приоритет что бы ни случилось
     return out
 
 
