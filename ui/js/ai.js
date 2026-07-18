@@ -63,22 +63,31 @@ async function aiSwitchBackend(){
 }
 
 // ---- вкладка «ИИ» в настройках (вся начинка здесь, чтобы фича оставалась вырезаемой) ----
-async function aiRenderSettings(panel){
-  if(!panel) return;
-  panel.innerHTML = `<div class="set-hint">Локальная модель при вводе мысли предлагает чистый заголовок, дату, срочность и вид. Всё локально — в сеть ничего не уходит.</div><div class="set-hint">Проверяю…</div>`;
+const aiFmtGB = b => (b/1e9).toFixed(b<1e9?2:1)+" ГБ";
+async function aiRenderSettings(panel){ if(panel) await aiPaintSettings(panel); }
+
+async function aiPaintSettings(panel){
+  panel.innerHTML = `<div class="set-hint">Проверяю…</div>`;
   const st = (await aiCheckStatus()) || AICap.status || {};
-  const avail = !!st.available, model = st.model || "—";
-  const backends = st.backends || [], cur = st.backend || (backends[0]||"cpu");
-  const enabled = S.settings.aiCapture!==false;
-  const autoOn = S.settings.aiAutoApply===true;
-  const lbl = b => b==="gpu" ? "GPU (Vulkan)" : "CPU";
-  const restartNow = !!(st.active && st.active!==cur);
-  const why = {no_engine:"нет движка (папки ai/engine-cpu или ai/engine-vulkan рядом с приложением)",
-               no_model:"нет файла модели (*.gguf) в папке ai/", no_module:"ИИ-модуль не подключён",
-               load_error:"движок не загрузился"}[st.reason] || "проверь папку ai/ рядом с приложением";
+  let catalog=[]; try{ catalog = await window.pywebview.api.ai_model_catalog() || []; }catch(e){}
+  const avail=!!st.available, models=st.models||[], selModel=st.model||"";
+  const backends=st.backends||[], curB=st.backend||(backends[0]||"cpu");
+  const enabled=S.settings.aiCapture!==false, autoOn=S.settings.aiAutoApply===true;
+  const lbl=b=>b==="gpu"?"GPU (Vulkan)":"CPU";
+  const titleOf=n=>{ const c=catalog.find(x=>x.name===n); return c?c.title:n.replace(/\.gguf$/i,""); };
+  const restartB=!!(st.active && st.active!==curB);
+  const restartM=!!(st.active_model && st.active_model!==selModel);
+  const why={no_engine:"нет движка (папки ai/engine-cpu/engine-vulkan рядом с приложением)",
+             no_model:"нет ни одной модели — скачай ниже", no_module:"ИИ-модуль не подключён",
+             load_error:"движок не загрузился"}[st.reason]||"проверь папку ai/ рядом с приложением";
+  const installed=new Set(models.map(m=>m.name));
+  const toGet=catalog.filter(c=>!installed.has(c.name));
+
   panel.innerHTML = `
-    <div class="set-hint">Локальная модель при вводе мысли предлагает чистый заголовок, дату, срочность и вид. Всё локально — в сеть ничего не уходит.</div>
-    ${avail ? "" : `<div class="set-hint" style="color:var(--warn)"><i class="ti ti-alert-triangle"></i> ИИ недоступен: ${why}</div>`}
+    <div class="set-hint">Локальная модель при вводе мысли предлагает чистый заголовок, дату и вид. Всё локально — в сеть ничего не уходит. По умолчанию ИИ выключен: включаешь и качаешь модель под своё железо.</div>
+    ${(!avail && !models.length) ? `<div class="set-hint" style="color:var(--mut)">Моделей пока нет — скачай одну ниже, чтобы включить ИИ.</div>`
+      : (!avail ? `<div class="set-hint" style="color:var(--warn)"><i class="ti ti-alert-triangle"></i> ИИ недоступен: ${why}</div>` : "")}
+
     <div class="set-sec">Умный захват</div>
     <div class="field"><label>Предлагать разбор мысли</label>
       <div class="seg" id="set-ai-onoff">
@@ -90,38 +99,79 @@ async function aiRenderSettings(panel){
         <button data-v="1" class="${autoOn?"on":""}" ${avail?"":"disabled"}>Да</button>
         <button data-v="0" class="${autoOn?"":"on"}">Нет</button>
       </div></div>
-    <div class="set-hint">Без карточки заголовок и вид меняются молча — если модель ошибётся, не заметишь. Надёжнее в паре с моделью поумнее.</div>
-    <div class="set-row"><span class="set-val">Модель</span><div class="right"><b>${esc(model)}</b></div></div>
+
+    <div class="set-sec">Установленные модели</div>
+    ${models.length ? models.map(m=>`
+      <div class="set-row ai-modrow" data-name="${esc(m.name)}">
+        <span class="ai-modpick" style="cursor:pointer;display:flex;align-items:center;gap:7px">
+          <i class="ti ${m.name===selModel?"ti-circle-check":"ti-circle"}" style="${m.name===selModel?"color:var(--acc)":"color:var(--mut2)"}"></i>
+          <span class="set-val"><b>${esc(titleOf(m.name))}</b> · ${aiFmtGB(m.size)}${m.name===st.active_model?" · загружена":""}</span></span>
+        <div class="right"><button class="btn ghost ai-moddel" data-name="${esc(m.name)}" title="Удалить"><i class="ti ti-trash"></i></button></div>
+      </div>`).join("") : `<div class="set-hint">Нет ни одной — скачай ниже.</div>`}
+    <div class="set-hint" id="set-ai-mrestart" style="display:${restartM?"flex":"none"};align-items:center;gap:5px;color:var(--pri2)"><i class="ti ti-refresh"></i> Перезапусти Мыслик, чтобы применить выбранную модель.</div>
+
+    <div class="set-sec">Скачать модель</div>
+    <div class="set-hint">По требованию, только по кнопке. Слабый ПК → «Лёгкая», нормальный → «Средняя», сильный/GPU → «Мощная».</div>
+    <div id="ai-dl-progress" style="display:none;margin:8px 0"></div>
+    ${toGet.length ? toGet.map(c=>`
+      <div class="set-row">
+        <span class="set-val"><b>${esc(c.title)}</b> <span style="color:var(--mut)">· ${esc(c.tier)} · ${aiFmtGB(c.size)}</span><br><span style="color:var(--mut);font-size:12px">${esc(c.note)}</span></span>
+        <div class="right"><button class="btn ghost ai-dl" data-name="${esc(c.name)}"><i class="ti ti-download"></i>Скачать</button></div>
+      </div>`).join("") : `<div class="set-hint">Все модели каталога уже установлены.</div>`}
+
     <div class="set-sec">Движок</div>
-    <div class="set-hint">CPU — лёгкий и работает у всех. GPU (Vulkan) — на видеокарте, чуть быстрее. Смена применяется после перезапуска.</div>
+    <div class="set-hint">CPU — работает у всех, память в RAM. GPU (Vulkan) — на видеокарте, но занимает видеопамять. Смена — после перезапуска.</div>
     <div class="field"><label>Где считать</label>
       <div class="seg" id="set-ai-engine">
-        ${["cpu","gpu"].map(b=>`<button data-v="${b}" class="${cur===b?"on":""}" ${backends.includes(b)?"":"disabled"}>${lbl(b)}${backends.includes(b)?"":" — нет пака"}</button>`).join("")}
+        ${["cpu","gpu"].map(b=>`<button data-v="${b}" class="${curB===b?"on":""}" ${backends.includes(b)?"":"disabled"}>${lbl(b)}${backends.includes(b)?"":" — нет пака"}</button>`).join("")}
       </div></div>
-    <div class="set-hint" id="set-ai-restart" style="display:${restartNow?"flex":"none"};align-items:center;gap:5px;color:var(--pri2)"><i class="ti ti-refresh"></i> Перезапусти Мыслик, чтобы применить движок.</div>`;
-  panel.querySelectorAll("#set-ai-onoff button").forEach(b=>b.onclick=()=>{
-    if(b.disabled) return;
-    S.settings.aiCapture = b.dataset.v==="1"; persist();
-    panel.querySelectorAll("#set-ai-onoff button").forEach(x=>x.classList.toggle("on",x===b));
-  });
-  panel.querySelectorAll("#set-ai-auto button").forEach(b=>b.onclick=()=>{
-    if(b.disabled) return;
-    S.settings.aiAutoApply = b.dataset.v==="1"; persist();
-    panel.querySelectorAll("#set-ai-auto button").forEach(x=>x.classList.toggle("on",x===b));
-  });
-  panel.querySelectorAll("#set-ai-engine button").forEach(b=>b.onclick=async()=>{
-    if(b.disabled) return;
-    const name=b.dataset.v;
-    try{
-      const r=await window.pywebview.api.ai_set_backend(name);
-      if(r&&r.ok){
-        AICap.status.backend=name;
-        panel.querySelectorAll("#set-ai-engine button").forEach(x=>x.classList.toggle("on",x===b));
-        const rs=panel.querySelector("#set-ai-restart"); if(rs) rs.style.display=(st.active && st.active!==name)?"flex":"none";
-        toast("Движок ИИ → "+lbl(name)+" (после перезапуска)",{icon:"ti-refresh"});
-      } else toast("Не удалось переключить движок",{icon:"ti-alert-triangle"});
-    }catch(e){ toast("Не удалось переключить движок",{icon:"ti-alert-triangle"}); }
-  });
+    <div class="set-hint" id="set-ai-restart" style="display:${restartB?"flex":"none"};align-items:center;gap:5px;color:var(--pri2)"><i class="ti ti-refresh"></i> Перезапусти Мыслик, чтобы применить движок.</div>`;
+
+  panel.querySelectorAll("#set-ai-onoff button").forEach(b=>b.onclick=()=>{ if(b.disabled)return; S.settings.aiCapture=b.dataset.v==="1"; persist(); panel.querySelectorAll("#set-ai-onoff button").forEach(x=>x.classList.toggle("on",x===b)); });
+  panel.querySelectorAll("#set-ai-auto button").forEach(b=>b.onclick=()=>{ if(b.disabled)return; S.settings.aiAutoApply=b.dataset.v==="1"; persist(); panel.querySelectorAll("#set-ai-auto button").forEach(x=>x.classList.toggle("on",x===b)); });
+  panel.querySelectorAll("#set-ai-engine button").forEach(b=>b.onclick=async()=>{ if(b.disabled)return; const name=b.dataset.v;
+    try{ const r=await window.pywebview.api.ai_set_backend(name);
+      if(r&&r.ok){ AICap.status.backend=name; panel.querySelectorAll("#set-ai-engine button").forEach(x=>x.classList.toggle("on",x===b));
+        const rs=panel.querySelector("#set-ai-restart"); if(rs) rs.style.display=(st.active&&st.active!==name)?"flex":"none";
+        toast("Движок ИИ → "+lbl(name)+" (после перезапуска)",{icon:"ti-refresh"}); }
+      else toast("Не удалось переключить движок",{icon:"ti-alert-triangle"});
+    }catch(e){ toast("Не удалось переключить движок",{icon:"ti-alert-triangle"}); } });
+  panel.querySelectorAll(".ai-modrow .ai-modpick").forEach(el=>el.onclick=async()=>{ const name=el.closest(".ai-modrow").dataset.name;
+    try{ const r=await window.pywebview.api.ai_set_model(name);
+      if(r&&r.ok){ toast("Модель → "+titleOf(name)+" (после перезапуска)",{icon:"ti-check"}); aiPaintSettings(panel); }
+      else toast("Не удалось выбрать модель",{icon:"ti-alert-triangle"});
+    }catch(e){ toast("Не удалось выбрать модель",{icon:"ti-alert-triangle"}); } });
+  panel.querySelectorAll(".ai-moddel").forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); const name=b.dataset.name;
+    if(!(await uiConfirm("Удалить модель «"+titleOf(name)+"»? Файл будет стёрт с диска.",{danger:true,title:"Удалить модель",okLabel:"Удалить"}))) return;
+    try{ const r=await window.pywebview.api.ai_delete_model(name);
+      if(r&&r.ok){ toast("Модель удалена",{icon:"ti-trash"}); aiPaintSettings(panel); }
+      else if(r&&r.error==="loaded") toast("Эта модель загружена — перезапусти Мыслик и удали",{icon:"ti-alert-triangle"});
+      else toast("Не удалось удалить",{icon:"ti-alert-triangle"});
+    }catch(e){ toast("Не удалось удалить",{icon:"ti-alert-triangle"}); } });
+  panel.querySelectorAll(".ai-dl").forEach(b=>b.onclick=async()=>{ const name=b.dataset.name;
+    try{ const r=await window.pywebview.api.ai_download_model(name);
+      if(r&&r.ok){ toast("Загрузка началась",{icon:"ti-download"}); aiPollDownload(panel); }
+      else if(r&&r.error==="busy") toast("Уже качается другая модель",{icon:"ti-download"});
+      else toast("Не удалось начать загрузку",{icon:"ti-alert-triangle"});
+    }catch(e){ toast("Не удалось начать загрузку",{icon:"ti-alert-triangle"}); } });
+  aiPollDownload(panel, true);   // если загрузка уже идёт — подхватить прогресс
+}
+
+let _aiDlTimer=null;
+async function aiPollDownload(panel, silent){
+  if(_aiDlTimer){ clearInterval(_aiDlTimer); _aiDlTimer=null; }
+  const box=panel.querySelector("#ai-dl-progress"); if(!box) return;
+  if(silent){ let s={}; try{ s=await window.pywebview.api.ai_download_status()||{}; }catch(e){} if(!s.active) return; }
+  const tick=async()=>{
+    let s={}; try{ s=await window.pywebview.api.ai_download_status()||{}; }catch(e){}
+    if(s.active){ box.style.display="block";
+      box.innerHTML=`<div class="set-hint" style="margin-bottom:4px">Качаю ${esc(s.active.replace(/\.gguf$/i,""))}… ${s.pct||0}%</div><div style="height:6px;background:var(--surf3);border-radius:3px;overflow:hidden"><div style="height:100%;width:${s.pct||0}%;background:var(--acc);transition:width .3s"></div></div>`;
+    } else { if(_aiDlTimer){ clearInterval(_aiDlTimer); _aiDlTimer=null; }
+      if(s.done){ toast("Модель скачана",{icon:"ti-check"}); aiPaintSettings(panel); }
+      else if(s.error){ box.style.display="block"; box.innerHTML=`<div class="set-hint" style="color:var(--warn)">Ошибка загрузки — проверь интернет и попробуй снова.</div>`; }
+      else box.style.display="none"; }
+  };
+  tick(); _aiDlTimer=setInterval(tick, 1000);
 }
 
 // ---- резолв ответа модели в поля Мыслика (даты/приоритет — через хелперы core.js) ----

@@ -28,9 +28,9 @@ _BACKENDS = {
 }
 
 _AI_DIR = None
-_MODEL_PATH = None
+_ACTIVE_MODEL = None              # путь модели, реально загруженной в этой сессии
 _LLM = None
-_ACTIVE_BACKEND = None            # что реально загружено в этой сессии
+_ACTIVE_BACKEND = None            # движок, реально загруженный в этой сессии
 _LOAD_LOCK = threading.Lock()
 _INFER_LOCK = threading.Lock()
 _LOAD_ERR = ""
@@ -116,31 +116,41 @@ def _config_path():
     return os.path.join(_AI_DIR, "ai_config.json") if _AI_DIR else None
 
 
-def _read_backend():
-    """Выбранный движок из ai_config.json (по умолчанию cpu)."""
+def _load_config():
     try:
         with open(_config_path(), "r", encoding="utf-8") as f:
-            b = json.load(f).get("backend")
-            if b in _BACKENDS:
-                return b
+            d = json.load(f)
+            return d if isinstance(d, dict) else {}
     except Exception:
-        pass
-    return "cpu"
+        return {}
+
+
+def _save_config(patch):
+    cfg = _load_config()
+    cfg.update(patch)
+    try:
+        with open(_config_path(), "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False)
+        return True
+    except Exception:
+        return False
+
+
+def _read_backend():
+    b = _load_config().get("backend")
+    return b if b in _BACKENDS else "cpu"
 
 
 def set_backend(name):
-    """Сменить движок (применится при перезапуске). Зовётся из app.py по кнопке."""
+    """Сменить движок (применится при перезапуске)."""
     if name not in _BACKENDS:
         return {"ok": False, "error": "unknown_backend"}
     if not _backend_installed(name):
         return {"ok": False, "error": "not_installed"}
-    try:
-        with open(_config_path(), "w", encoding="utf-8") as f:
-            json.dump({"backend": name}, f, ensure_ascii=False)
-        return {"ok": True, "backend": name,
-                "restart_required": bool(_ACTIVE_BACKEND and _ACTIVE_BACKEND != name)}
-    except Exception as e:
-        return {"ok": False, "error": "write", "detail": repr(e)}
+    if not _save_config({"backend": name}):
+        return {"ok": False, "error": "write"}
+    return {"ok": True, "backend": name,
+            "restart_required": bool(_ACTIVE_BACKEND and _ACTIVE_BACKEND != name)}
 
 
 def _engine_dir(backend):
@@ -156,46 +166,105 @@ def _available_backends():
     return [b for b in _BACKENDS if _backend_installed(b)]
 
 
-def _find_model(ai_dir):
+# ---- модели: файлы .gguf в ai/models/ ----
+def _models_dir():
+    return os.path.join(_AI_DIR, "models") if _AI_DIR else None
+
+
+def list_models():
+    """Список установленных моделей (файлов .gguf в ai/models/) с размерами."""
+    d = _models_dir()
+    out = []
     try:
-        if not ai_dir or not os.path.isdir(ai_dir):
-            return None
-        ggufs = sorted(f for f in os.listdir(ai_dir) if f.lower().endswith(".gguf"))
-        return os.path.join(ai_dir, ggufs[0]) if ggufs else None
+        for f in sorted(os.listdir(d)):
+            if f.lower().endswith(".gguf"):
+                try:
+                    sz = os.path.getsize(os.path.join(d, f))
+                except Exception:
+                    sz = 0
+                out.append({"name": f, "size": sz})
     except Exception:
+        pass
+    return out
+
+
+def _selected_model_path():
+    """Путь к выбранной модели: из конфига, иначе первая установленная."""
+    d = _models_dir()
+    if not d:
         return None
+    want = _load_config().get("model")
+    if want and os.path.isfile(os.path.join(d, want)):
+        return os.path.join(d, want)
+    ms = list_models()
+    return os.path.join(d, ms[0]["name"]) if ms else None
+
+
+def set_model(name):
+    """Выбрать активную модель (применится при перезапуске)."""
+    d = _models_dir()
+    if not name or not d or not os.path.isfile(os.path.join(d, name)):
+        return {"ok": False, "error": "not_found"}
+    if not _save_config({"model": name}):
+        return {"ok": False, "error": "write"}
+    active = os.path.basename(_ACTIVE_MODEL) if _ACTIVE_MODEL else None
+    return {"ok": True, "model": name, "restart_required": bool(active and active != name)}
+
+
+def delete_model(name):
+    """Удалить файл модели. Активную загруженную удалить нельзя (замаплена) — нужен перезапуск."""
+    d = _models_dir()
+    if not name or not d:
+        return {"ok": False, "error": "bad"}
+    path = os.path.join(d, name)
+    if not os.path.isfile(path):
+        return {"ok": False, "error": "not_found"}
+    if _ACTIVE_MODEL and os.path.basename(_ACTIVE_MODEL) == name:
+        return {"ok": False, "error": "loaded"}
+    try:
+        os.remove(path)
+        # если удалили выбранную — сбрасываем выбор (возьмётся первая доступная)
+        if _load_config().get("model") == name:
+            _save_config({"model": None})
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": "locked", "detail": repr(e)}
 
 
 def init(ai_dir):
-    """Задать папку ai/ (модель + паки движков). Ничего тяжёлого не грузим."""
-    global _AI_DIR, _MODEL_PATH
+    """Задать папку ai/ (модели + паки движков). Ничего тяжёлого не грузим."""
+    global _AI_DIR
     _AI_DIR = ai_dir
-    _MODEL_PATH = _find_model(ai_dir)
-    return {"ai_dir": ai_dir, "model_path": _MODEL_PATH,
+    return {"ai_dir": ai_dir, "models": list_models(),
             "backends": _available_backends(), "backend": _read_backend()}
 
 
 def status():
     """Быстрая проверка без загрузки. available:true = есть хотя бы один пак движка
     И файл модели."""
-    model_path = _MODEL_PATH or _find_model(_AI_DIR)
+    sel = _selected_model_path()
+    sel_name = os.path.basename(sel) if sel else ""
+    active_model = os.path.basename(_ACTIVE_MODEL) if _ACTIVE_MODEL else None
     avail = _available_backends()
     want = _read_backend()
     reason = ""
     if not avail:
         reason = "no_engine"
-    elif not model_path:
+    elif not sel:
         reason = "no_model"
     elif _LOAD_ERR:
         reason = "load_error"
     return {
-        "available": bool(avail and model_path and not _LOAD_ERR),
+        "available": bool(avail and sel and not _LOAD_ERR),
         "reason": reason,
-        "model": os.path.basename(model_path) if model_path else "",
-        "backends": avail,            # какие паки реально стоят
-        "backend": want,              # выбранный
-        "active": _ACTIVE_BACKEND,    # что загружено в этой сессии
-        "restart_required": bool(_ACTIVE_BACKEND and _ACTIVE_BACKEND != want),
+        "model": sel_name,               # выбранная модель
+        "models": list_models(),         # все установленные
+        "active_model": active_model,    # реально загруженная в этой сессии
+        "backends": avail,               # какие паки движка стоят
+        "backend": want,                 # выбранный движок
+        "active": _ACTIVE_BACKEND,       # загруженный движок
+        "restart_required": bool((_ACTIVE_BACKEND and _ACTIVE_BACKEND != want)
+                                 or (active_model and active_model != sel_name)),
         "loaded": _LLM is not None,
         "detail": _LOAD_ERR,
     }
@@ -203,7 +272,7 @@ def status():
 
 def _get_llm():
     """Ленивая загрузка: выбрать движок по конфигу, подцепить его DLL, загрузить модель."""
-    global _LLM, _LOAD_ERR, _ACTIVE_BACKEND
+    global _LLM, _LOAD_ERR, _ACTIVE_BACKEND, _ACTIVE_MODEL
     if _LLM is not None:
         return _LLM
     with _LOAD_LOCK:
@@ -216,7 +285,7 @@ def _get_llm():
                 _LOAD_ERR = "no engine installed"
                 return None
             backend = av[0]                      # выбранного пака нет — берём любой доступный
-        path = _MODEL_PATH or _find_model(_AI_DIR)
+        path = _selected_model_path()
         if not path or not os.path.exists(path):
             _LOAD_ERR = "model file not found"
             return None
@@ -235,6 +304,7 @@ def _get_llm():
                 verbose=False,
             )
             _ACTIVE_BACKEND = backend
+            _ACTIVE_MODEL = path
             _LOAD_ERR = ""
         except Exception as e:
             _LOAD_ERR = repr(e)

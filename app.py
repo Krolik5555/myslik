@@ -45,9 +45,37 @@ DATA_DIR = os.path.join(_DATA_BASE, "data")
 DATA_FILE = os.path.join(DATA_DIR, "planner.json")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 MAX_BACKUPS = 30
-# Папка с файлом модели (*.gguf) — РЯДОМ с приложением (портативно, как data/),
-# в exe НЕ зашивается. Кладёшь модель сюда — умный захват оживает; убираешь — гаснет.
+# Папка ИИ — РЯДОМ с приложением (портативно, как data/), в exe НЕ зашивается.
+# Внутри: models/ (файлы моделей .gguf), engine-cpu/, engine-vulkan/ (движки).
 AI_DIR = os.path.join(_DATA_BASE, "ai")
+
+# Каталог скачиваемых моделей. HOST-AGNOSTIC: сейчас — прямые ссылки на ОФИЦИАЛЬНЫЕ
+# HuggingFace-репозитории (ничего никуда заливать не надо, лимитов нет, HF работает
+# под DPI, в отличие от GitHub-релизов с их лимитом 2 ГБ/файл). Захочешь свой
+# хостинг/зеркало — поменяй только url. Модели по умолчанию НЕ качаются: только по
+# кнопке пользователя. Порядок = от лёгкой к тяжёлой.
+_HF = "https://huggingface.co"
+AI_MODEL_CATALOG = [
+    {"name": "Qwen3-0.6B-Q8_0.gguf", "size": 639446688, "title": "Qwen3 0.6B",
+     "tier": "Лёгкая", "note": "Для слабых ПК/ноутов. Быстрая, но заголовки проще.",
+     "url": _HF + "/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf"},
+    {"name": "QVikhr-3-1.7B-noreasoning-Q8_0.gguf", "size": 1834426080, "title": "QVikhr-3 1.7B",
+     "tier": "Средняя", "note": "Русская, не думает. Хорошие заголовки.",
+     "url": _HF + "/Vikhrmodels/QVikhr-3-1.7B-Instruction-noreasoning-GGUF/resolve/main/QVikhr-3-1.7B-Instruction-noreasoning-Q8_0.gguf"},
+    {"name": "Qwen3-1.7B-Q8_0.gguf", "size": 1834430400, "title": "Qwen3 1.7B",
+     "tier": "Средняя", "note": "Универсальная, хорошие заголовки.",
+     "url": _HF + "/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q8_0.gguf"},
+    {"name": "ruadapt_qwen2.5_3B_v4-Q4_K_M.gguf", "size": 1924000000, "title": "RuAdapt 2.5 3B",
+     "tier": "Средняя+", "note": "Русская адаптация, вообще не думает.",
+     "url": _HF + "/RefalMachine/ruadapt_qwen2.5_3B_ext_u48_instruct_v4_gguf/resolve/main/Q4_K_M.gguf"},
+    {"name": "RuadaptQwen3-4B-Q5_K_M.gguf", "size": 2884000000, "title": "RuAdapt Qwen3 4B",
+     "tier": "Мощная", "note": "Лучший русский. Для сильного CPU или GPU.",
+     "url": _HF + "/RefalMachine/RuadaptQwen3-4B-Instruct-GGUF/resolve/main/Q5_K_M.gguf"},
+]
+
+# состояние текущей загрузки модели (для прогресса в UI)
+_AI_DL = {"active": None, "pct": 0, "done": False, "error": None}
+_AI_DL_LOCK = threading.Lock()
 # токен/чат Telegram — ОТДЕЛЬНЫЙ файл, а не часть planner.json: он не должен попадать
 # в экспорт/импорт данных (иначе токен бота утечёт вместе с шарингом заметок).
 TG_FILE = os.path.join(DATA_DIR, "telegram.json")
@@ -559,6 +587,86 @@ class Api:
         except Exception as e:
             print("[ai] set_backend error:", e)
             return {"ok": False, "error": "exception", "detail": repr(e)}
+
+    # ---------- модели ИИ (список / выбор / удаление / каталог / скачивание) ----------
+    def ai_list_models(self):
+        if not ai_mod:
+            return []
+        try:
+            return ai_mod.list_models()
+        except Exception as e:
+            print("[ai] list_models error:", e)
+            return []
+
+    def ai_set_model(self, name):
+        if not ai_mod:
+            return {"ok": False, "error": "no_module"}
+        try:
+            return ai_mod.set_model(name or "")
+        except Exception as e:
+            return {"ok": False, "error": "exception", "detail": repr(e)}
+
+    def ai_delete_model(self, name):
+        if not ai_mod:
+            return {"ok": False, "error": "no_module"}
+        try:
+            return ai_mod.delete_model(name or "")
+        except Exception as e:
+            return {"ok": False, "error": "exception", "detail": repr(e)}
+
+    def ai_model_catalog(self):
+        """Каталог скачиваемых моделей + пометка, что уже установлено."""
+        try:
+            installed = set(m["name"] for m in (ai_mod.list_models() if ai_mod else []))
+        except Exception:
+            installed = set()
+        return [dict(m, installed=(m["name"] in installed)) for m in AI_MODEL_CATALOG]
+
+    def ai_download_model(self, name):
+        """Скачать модель из каталога (в фоне, с прогрессом). Только по кнопке."""
+        entry = next((m for m in AI_MODEL_CATALOG if m["name"] == name), None)
+        if not entry:
+            return {"ok": False, "error": "unknown_model"}
+        with _AI_DL_LOCK:
+            if _AI_DL["active"]:
+                return {"ok": False, "error": "busy", "active": _AI_DL["active"]}
+            _AI_DL.update(active=name, pct=0, done=False, error=None)
+        models_dir = os.path.join(AI_DIR, "models")
+        os.makedirs(models_dir, exist_ok=True)
+        dest = os.path.join(models_dir, name)
+
+        def _worker():
+            import urllib.request
+            tmp = dest + ".part"
+            try:
+                req = urllib.request.Request(entry["url"], headers={"User-Agent": "Myslik"})
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    total = int(resp.headers.get("Content-Length") or entry.get("size") or 0)
+                    got = 0
+                    with open(tmp, "wb") as f:
+                        while True:
+                            chunk = resp.read(262144)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            got += len(chunk)
+                            if total:
+                                _AI_DL["pct"] = min(99, int(got * 100 / total))
+                os.replace(tmp, dest)          # атомарно: недокачанный .part не «установится»
+                _AI_DL.update(pct=100, done=True, active=None)
+            except Exception as e:
+                print("[ai] download error:", e)
+                try:
+                    os.remove(tmp)
+                except Exception:
+                    pass
+                _AI_DL.update(error=repr(e), active=None)
+
+        threading.Thread(target=_worker, daemon=True).start()
+        return {"ok": True, "name": name}
+
+    def ai_download_status(self):
+        return dict(_AI_DL)
 
     # ---------- window ----------
     def win_min(self):
