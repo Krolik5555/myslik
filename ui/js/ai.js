@@ -70,6 +70,7 @@ async function aiRenderSettings(panel){
   const avail = !!st.available, model = st.model || "—";
   const backends = st.backends || [], cur = st.backend || (backends[0]||"cpu");
   const enabled = S.settings.aiCapture!==false;
+  const autoOn = S.settings.aiAutoApply===true;
   const lbl = b => b==="gpu" ? "GPU (Vulkan)" : "CPU";
   const restartNow = !!(st.active && st.active!==cur);
   const why = {no_engine:"нет движка (папки ai/engine-cpu или ai/engine-vulkan рядом с приложением)",
@@ -84,6 +85,12 @@ async function aiRenderSettings(panel){
         <button data-v="1" class="${enabled?"on":""}" ${avail?"":"disabled"}>Вкл</button>
         <button data-v="0" class="${enabled?"":"on"}">Выкл</button>
       </div></div>
+    <div class="field"><label>Применять сразу, без карточки</label>
+      <div class="seg" id="set-ai-auto">
+        <button data-v="1" class="${autoOn?"on":""}" ${avail?"":"disabled"}>Да</button>
+        <button data-v="0" class="${autoOn?"":"on"}">Нет</button>
+      </div></div>
+    <div class="set-hint">Без карточки заголовок и вид меняются молча — если модель ошибётся, не заметишь. Надёжнее в паре с моделью поумнее.</div>
     <div class="set-row"><span class="set-val">Модель</span><div class="right"><b>${esc(model)}</b></div></div>
     <div class="set-sec">Движок</div>
     <div class="set-hint">CPU — лёгкий и работает у всех. GPU (Vulkan) — на видеокарте, чуть быстрее. Смена применяется после перезапуска.</div>
@@ -96,6 +103,11 @@ async function aiRenderSettings(panel){
     if(b.disabled) return;
     S.settings.aiCapture = b.dataset.v==="1"; persist();
     panel.querySelectorAll("#set-ai-onoff button").forEach(x=>x.classList.toggle("on",x===b));
+  });
+  panel.querySelectorAll("#set-ai-auto button").forEach(b=>b.onclick=()=>{
+    if(b.disabled) return;
+    S.settings.aiAutoApply = b.dataset.v==="1"; persist();
+    panel.querySelectorAll("#set-ai-auto button").forEach(x=>x.classList.toggle("on",x===b));
   });
   panel.querySelectorAll("#set-ai-engine button").forEach(b=>b.onclick=async()=>{
     if(b.disabled) return;
@@ -158,7 +170,7 @@ function aiBuildProposal(it, res){
 }
 
 // ---- применить предложение к ноде ----
-function aiApply(it, prop){
+function aiApply(it, prop, auto){
   if(!it || it.deleted) return;
   if(prop.title) it.title=prop.title;
   if(prop.body!==undefined) it.body=prop.body;
@@ -166,7 +178,7 @@ function aiApply(it, prop){
   if(prop.priority!==undefined) it.priority=prop.priority;
   if(prop.kind){ it.kind=prop.kind; it.status = prop.kind==="note" ? "note" : (it.done?"done":"todo"); }
   touch(it); persist(); render();
-  toast("Применено", {icon:"ti-sparkles"});
+  toast(auto ? "ИИ поправил заголовок" : "Применено", {icon:"ti-sparkles"});
 }
 
 // ---- главный вход: зовётся из main.js сразу после создания ноды ----
@@ -181,6 +193,7 @@ async function aiRefineCapture(it, raw){
     if(!res || !res.ok || it.deleted){ aiClear(host); return; }
     const prop=aiBuildProposal(it, res);
     if(!prop.changes.length){ aiClear(host); return; }   // ничего лучше — молчим
+    if(S.settings.aiAutoApply){ aiClear(host); aiApply(it, prop, true); return; }   // авто-применение без карточки
     aiRenderProposal(host, it, prop);
   } finally {
     AICap.busy=false;   // что бы ни случилось — не залипаем, следующий захват снова спросит ИИ
