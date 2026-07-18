@@ -550,6 +550,16 @@ class Api:
             print("[ai] capture error:", e)
             return {"ok": False, "error": "exception", "detail": repr(e)}
 
+    def ai_set_backend(self, name):
+        # сменить движок ИИ (cpu/gpu). Применяется при перезапуске.
+        if not ai_mod:
+            return {"ok": False, "error": "no_module"}
+        try:
+            return ai_mod.set_backend(name or "")
+        except Exception as e:
+            print("[ai] set_backend error:", e)
+            return {"ok": False, "error": "exception", "detail": repr(e)}
+
     # ---------- window ----------
     def win_min(self):
         try:

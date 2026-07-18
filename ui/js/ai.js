@@ -45,6 +45,23 @@ async function aiToggle(){
         {icon: S.settings.aiCapture!==false ? "ti-sparkles" : "ti-sparkles-off"});
 }
 
+// ---- переключение движка CPU ⇄ GPU (применяется при перезапуске) ----
+async function aiSwitchBackend(){
+  if(!AICap.checked) await aiCheckStatus();
+  const st=AICap.status||{}, bs=st.backends||[];
+  if(!bs.length){ toast("ИИ недоступен: нет движка/модели рядом с приложением", {icon:"ti-cpu"}); return; }
+  if(bs.length<2){ toast("Установлен только один движок: "+(bs[0]==="gpu"?"GPU (Vulkan)":"CPU"), {icon:"ti-cpu"}); return; }
+  const cur=st.backend||bs[0];
+  const next=bs.find(b=>b!==cur)||cur;
+  const nm=next==="gpu"?"GPU (Vulkan)":"CPU";
+  try{
+    const r=await window.pywebview.api.ai_set_backend(next);
+    if(r&&r.ok){ AICap.status.backend=next;
+      toast("Движок ИИ → "+nm+". Перезапусти Мыслик, чтобы применить.", {icon:"ti-refresh", hold:true}); }
+    else toast("Не удалось переключить движок", {icon:"ti-alert-triangle"});
+  }catch(e){ toast("Не удалось переключить движок", {icon:"ti-alert-triangle"}); }
+}
+
 // ---- резолв ответа модели в поля Мыслика (даты/приоритет — через хелперы core.js) ----
 function aiResolveDue(when){
   if(!when) return null;

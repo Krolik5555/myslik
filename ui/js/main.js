@@ -31,6 +31,7 @@ function openPalette(){
     {t:"Удалить пустые заметки",i:"ti-eraser",run:()=>{closeOverlays();cleanEmptyNotes();}},
     {t:"Одинокие ноды (найти/удалить)",i:"ti-circle-dashed",run:()=>{closeOverlays();openLonelyNodes();}},
     {t:"Умный захват (ИИ): вкл/выкл",i:"ti-sparkles",run:()=>{closeOverlays(); if(typeof aiToggle==="function") aiToggle();}},
+    {t:"ИИ движок: CPU ⇄ GPU",i:"ti-cpu",run:()=>{closeOverlays(); if(typeof aiSwitchBackend==="function") aiSwitchBackend();}},
     {t:"Горячие клавиши",i:"ti-keyboard",run:()=>{closeOverlays();openShortcuts();}}
   ];
   function go(v){ closeOverlays(); areaFilter=null; view=v; render(); }
