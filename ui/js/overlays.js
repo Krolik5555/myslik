@@ -534,6 +534,7 @@ function openSettings(tab){
       <button class="set-tab" data-tab="graph"><i class="ti ti-affiliate"></i>Граф</button>
       <button class="set-tab" data-tab="done"><i class="ti ti-checks"></i>Завершённые</button>
       <button class="set-tab" data-tab="data"><i class="ti ti-database"></i>Данные</button>
+      <button class="set-tab" data-tab="ai"><i class="ti ti-sparkles"></i>ИИ</button>
     </div>
     <div class="set-panel" data-panel="view">
       <div class="field"><label>Тема</label>
@@ -610,11 +611,13 @@ function openSettings(tab){
       </div>
       <div id="upd-notes" class="upd-notes" style="display:none"></div>
     </div>
+    <div class="set-panel" data-panel="ai" hidden id="set-ai-panel"></div>
     <div class="modal-foot">
       <button class="btn ghost" id="set-reset"><i class="ti ti-refresh"></i>Сбросить</button>
       <div class="right"><button class="btn primary" id="set-close"><i class="ti ti-check"></i>Готово</button></div>
     </div>`;
   const ov=overlay(m);
+  if(typeof aiRenderSettings==="function") aiRenderSettings($("#set-ai-panel",m));   // вкладка «ИИ» — вся начинка в ai.js (вырезаемо)
   $("#set-backup",m).onclick=doBackup;
   // Telegram: статус подтягиваем асинхронно (не блокируем открытие модалки IPC-round-trip'ом)
   const tgStatus=$("#tg-status",m), tgToken=$("#tg-token",m), tgClear=$("#tg-clear",m);

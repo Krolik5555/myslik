@@ -62,6 +62,56 @@ async function aiSwitchBackend(){
   }catch(e){ toast("Не удалось переключить движок", {icon:"ti-alert-triangle"}); }
 }
 
+// ---- вкладка «ИИ» в настройках (вся начинка здесь, чтобы фича оставалась вырезаемой) ----
+async function aiRenderSettings(panel){
+  if(!panel) return;
+  panel.innerHTML = `<div class="set-hint">Локальная модель при вводе мысли предлагает чистый заголовок, дату, срочность и вид. Всё локально — в сеть ничего не уходит.</div><div class="set-hint">Проверяю…</div>`;
+  const st = (await aiCheckStatus()) || AICap.status || {};
+  const avail = !!st.available, model = st.model || "—";
+  const backends = st.backends || [], cur = st.backend || (backends[0]||"cpu");
+  const enabled = S.settings.aiCapture!==false;
+  const lbl = b => b==="gpu" ? "GPU (Vulkan)" : "CPU";
+  const restartNow = !!(st.active && st.active!==cur);
+  const why = {no_engine:"нет движка (папки ai/engine-cpu или ai/engine-vulkan рядом с приложением)",
+               no_model:"нет файла модели (*.gguf) в папке ai/", no_module:"ИИ-модуль не подключён",
+               load_error:"движок не загрузился"}[st.reason] || "проверь папку ai/ рядом с приложением";
+  panel.innerHTML = `
+    <div class="set-hint">Локальная модель при вводе мысли предлагает чистый заголовок, дату, срочность и вид. Всё локально — в сеть ничего не уходит.</div>
+    ${avail ? "" : `<div class="set-hint" style="color:var(--warn)"><i class="ti ti-alert-triangle"></i> ИИ недоступен: ${why}</div>`}
+    <div class="set-sec">Умный захват</div>
+    <div class="field"><label>Предлагать разбор мысли</label>
+      <div class="seg" id="set-ai-onoff">
+        <button data-v="1" class="${enabled?"on":""}" ${avail?"":"disabled"}>Вкл</button>
+        <button data-v="0" class="${enabled?"":"on"}">Выкл</button>
+      </div></div>
+    <div class="set-row"><span class="set-val">Модель</span><div class="right"><b>${esc(model)}</b></div></div>
+    <div class="set-sec">Движок</div>
+    <div class="set-hint">CPU — лёгкий и работает у всех. GPU (Vulkan) — на видеокарте, чуть быстрее. Смена применяется после перезапуска.</div>
+    <div class="field"><label>Где считать</label>
+      <div class="seg" id="set-ai-engine">
+        ${["cpu","gpu"].map(b=>`<button data-v="${b}" class="${cur===b?"on":""}" ${backends.includes(b)?"":"disabled"}>${lbl(b)}${backends.includes(b)?"":" — нет пака"}</button>`).join("")}
+      </div></div>
+    <div class="set-hint" id="set-ai-restart" style="display:${restartNow?"flex":"none"};align-items:center;gap:5px;color:var(--pri2)"><i class="ti ti-refresh"></i> Перезапусти Мыслик, чтобы применить движок.</div>`;
+  panel.querySelectorAll("#set-ai-onoff button").forEach(b=>b.onclick=()=>{
+    if(b.disabled) return;
+    S.settings.aiCapture = b.dataset.v==="1"; persist();
+    panel.querySelectorAll("#set-ai-onoff button").forEach(x=>x.classList.toggle("on",x===b));
+  });
+  panel.querySelectorAll("#set-ai-engine button").forEach(b=>b.onclick=async()=>{
+    if(b.disabled) return;
+    const name=b.dataset.v;
+    try{
+      const r=await window.pywebview.api.ai_set_backend(name);
+      if(r&&r.ok){
+        AICap.status.backend=name;
+        panel.querySelectorAll("#set-ai-engine button").forEach(x=>x.classList.toggle("on",x===b));
+        const rs=panel.querySelector("#set-ai-restart"); if(rs) rs.style.display=(st.active && st.active!==name)?"flex":"none";
+        toast("Движок ИИ → "+lbl(name)+" (после перезапуска)",{icon:"ti-refresh"});
+      } else toast("Не удалось переключить движок",{icon:"ti-alert-triangle"});
+    }catch(e){ toast("Не удалось переключить движок",{icon:"ti-alert-triangle"}); }
+  });
+}
+
 // ---- резолв ответа модели в поля Мыслика (даты/приоритет — через хелперы core.js) ----
 function aiResolveDue(when){
   if(!when) return null;
