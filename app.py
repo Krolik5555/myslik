@@ -526,6 +526,12 @@ class Api:
                 break
         if not src_root:
             return {"ok": False, "error": "no_exe_in_zip"}
+        # НЕ подменять рабочую сборку неполным обновлением: проверяем, что в скачанном
+        # билде реально есть интерфейс. Без этого оборванная загрузка убила бы _internal
+        # (у пользователя вылезал бы голый 404 «index.html does not exist»).
+        if not os.path.isfile(os.path.join(src_root, "_internal", "ui", "index.html")):
+            print("apply_update: скачанный билд без ui/index.html — подмену отменяем")
+            return {"ok": False, "error": "bad_bundle"}
         bat_path = os.path.join(tempfile.gettempdir(), "myslik_update.bat")
         try:
             with open(bat_path, "w", encoding="ascii") as f:
@@ -865,6 +871,35 @@ def _enable_frameless_resize(title="Мыслик", border=8):
         print("[resize] error:", e)
 
 
+def _repair_bundle_if_broken():
+    """Защита от битой сборки у пользователя (обычно после оборванного авто-обновления):
+    если файлов интерфейса нет — пробуем восстановить ui/ из остатков обновления
+    (_internal.bak / _internal.new), а не показываем голый 404. Если восстановить нечем —
+    честное окно с инструкцией. Копируем ТОЛЬКО ui/ (не трогаем занятые python-либы в
+    _internal и заметки в data/)."""
+    if not getattr(sys, "frozen", False) or os.path.exists(UI):
+        return
+    install = os.path.dirname(sys.executable)
+    for src in (os.path.join(install, "_internal.bak", "ui"),
+                os.path.join(install, "_internal.new", "ui")):
+        try:
+            if os.path.isfile(os.path.join(src, "index.html")):
+                shutil.copytree(src, _UI_BASE, dirs_exist_ok=True)
+                print("[repair] ui/ восстановлен из", src)
+                break
+        except Exception as e:
+            print("[repair] ошибка восстановления:", e)
+    if not os.path.exists(UI):
+        msg = ("Файлы Мыслика повреждены — не найден интерфейс приложения.\n\n"
+               "Скорее всего оборвалось обновление. Скачай свежую версию с GitHub и "
+               "распакуй заново. Папку data с заметками НЕ трогай — они целы.")
+        try:
+            ctypes.windll.user32.MessageBoxW(0, msg, "Мыслик", 0x10)
+        except Exception:
+            print(msg)
+        sys.exit(1)
+
+
 def main():
     global _WINDOW
     trace("main start, file=", __file__)
@@ -873,6 +908,7 @@ def main():
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("krolik.planner")
     except Exception as e:
         print("[appid] error:", e)
+    _repair_bundle_if_broken()   # битый _internal после сорванного обновления → чиним или честно сообщаем
     _ensure_dirs()
     # сброс кэша WebView2 (CSS/JS закэширован)
     cache_dir = os.path.join(os.environ.get("LOCALAPPDATA", ""), "planner", "EBWebView")
