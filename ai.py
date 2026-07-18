@@ -169,6 +169,53 @@ def _available_backends():
     return [b for b in _BACKENDS if _backend_installed(b)]
 
 
+# ---- провайдеры: off (по умолчанию) / api (groq, cerebras) / local ----
+# API — OpenAI-совместимые, ключ у КАЖДОГО пользователя свой (BYO). Ноль нагрузки
+# на ПК (считается на сервере провайдера).
+_API_PROVIDERS = {
+    "groq": {"title": "Groq", "base": "https://api.groq.com/openai/v1",
+             "default_model": "llama-3.3-70b-versatile",
+             "keys_url": "https://console.groq.com/keys",
+             "note": "Бесплатно без карты. На заметках не учится. Нужен интернет."},
+    "cerebras": {"title": "Cerebras", "base": "https://api.cerebras.ai/v1",
+                 "default_model": "llama-3.3-70b",
+                 "keys_url": "https://cloud.cerebras.ai/",
+                 "note": "Бесплатно без карты. Данные сразу стираются (топ-приватность)."},
+}
+
+
+def _all_providers():
+    return ("off", "local") + tuple(_API_PROVIDERS)
+
+
+def _read_provider():
+    p = _load_config().get("provider")
+    if p in _all_providers():
+        return p
+    # обратная совместимость: если провайдер не задан, но модель установлена — локаль.
+    return "local" if list_models() else "off"
+
+
+def set_provider(name):
+    if name not in _all_providers():
+        return {"ok": False, "error": "unknown_provider"}
+    if not _save_config({"provider": name}):
+        return {"ok": False, "error": "write"}
+    return {"ok": True, "provider": name}
+
+
+def set_api_key(provider, key):
+    if provider not in _API_PROVIDERS:
+        return {"ok": False, "error": "unknown_provider"}
+    return {"ok": _save_config({provider + "_key": (key or "").strip()})}
+
+
+def set_api_model(provider, model):
+    if provider not in _API_PROVIDERS:
+        return {"ok": False, "error": "unknown_provider"}
+    return {"ok": _save_config({provider + "_model": (model or "").strip()})}
+
+
 # ---- модели: файлы .gguf в ai/models/ ----
 def _models_dir():
     return os.path.join(_AI_DIR, "models") if _AI_DIR else None
@@ -245,27 +292,39 @@ def init(ai_dir):
 def status():
     """Быстрая проверка без загрузки. available:true = есть хотя бы один пак движка
     И файл модели."""
+    provider = _read_provider()
+    cfg = _load_config()
     sel = _selected_model_path()
     sel_name = os.path.basename(sel) if sel else ""
     active_model = os.path.basename(_ACTIVE_MODEL) if _ACTIVE_MODEL else None
     avail = _available_backends()
     want = _read_backend()
-    reason = ""
-    if not avail:
-        reason = "no_engine"
-    elif not sel:
-        reason = "no_model"
-    elif _LOAD_ERR:
-        reason = "load_error"
+    # доступность зависит от выбранного провайдера
+    if provider == "off":
+        available, reason = False, "off"
+    elif provider in _API_PROVIDERS:
+        has_key = bool((cfg.get(provider + "_key") or "").strip())
+        available, reason = has_key, ("" if has_key else "no_key")
+    else:  # local
+        reason = "no_engine" if not avail else ("no_model" if not sel else ("load_error" if _LOAD_ERR else ""))
+        available = bool(avail and sel and not _LOAD_ERR)
+    # инфо об API-провайдерах для UI (сам ключ НЕ отдаём — только флаг has_key)
+    api = {n: {"title": p["title"], "keys_url": p["keys_url"], "note": p["note"],
+               "default_model": p["default_model"],
+               "has_key": bool((cfg.get(n + "_key") or "").strip()),
+               "model": cfg.get(n + "_model") or ""}
+           for n, p in _API_PROVIDERS.items()}
     return {
-        "available": bool(avail and sel and not _LOAD_ERR),
+        "available": available,
         "reason": reason,
-        "model": sel_name,               # выбранная модель
-        "models": list_models(),         # все установленные
-        "active_model": active_model,    # реально загруженная в этой сессии
-        "backends": avail,               # какие паки движка стоят
+        "provider": provider,            # off / groq / cerebras / local
+        "api": api,                      # инфо об API-провайдерах (без ключей)
+        "model": sel_name,               # выбранная локальная модель
+        "models": list_models(),         # установленные локальные модели
+        "active_model": active_model,    # реально загруженная в сессии
+        "backends": avail,               # паки движка
         "backend": want,                 # выбранный движок
-        "active": _ACTIVE_BACKEND,       # загруженный движок
+        "active": _ACTIVE_BACKEND,
         "restart_required": bool((_ACTIVE_BACKEND and _ACTIVE_BACKEND != want)
                                  or (active_model and active_model != sel_name)),
         "loaded": _LLM is not None,
@@ -329,15 +388,52 @@ def _messages(text):
     return msgs
 
 
+def _extract_json(s):
+    """Достать первый {...} из ответа (на случай текста вокруг JSON)."""
+    if not s:
+        return None
+    import re
+    m = re.search(r"\{.*\}", s, re.S)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group(0))
+    except Exception:
+        return None
+
+
+def _sanitize(data, text):
+    """Ответ модели → безопасная карточка. Резолв даты/приоритета — на фронте."""
+    if not isinstance(data, dict):
+        return {"ok": False, "error": "parse"}
+    title = (data.get("title") or "").strip() or text[:60].strip()
+    kind = data.get("kind") if data.get("kind") in ("task", "note") else "task"
+    priority = data.get("priority") if data.get("priority") in _PRIOS else "none"
+    when = data.get("when") if data.get("when") in _WHENS else ""
+    # заголовок срезал заметный кусок → полный текст в описание ДОСЛОВНО.
+    body = text if (len(text) - len(title) >= _KEEP_DIFF) else ""
+    return {"ok": True, "title": title, "kind": kind, "priority": priority,
+            "when": when, "body": body, "raw": text}
+
+
 def capture(text):
-    """Сырой текст → предложение-карточка (dict) ИЛИ {'ok': False, ...}."""
+    """Сырой текст → предложение-карточка (dict) ИЛИ {'ok': False, ...}.
+    Диспетчер по провайдеру: off / api (groq, cerebras) / local."""
     text = (text or "").strip()
     if not text:
         return {"ok": False, "error": "empty"}
-    # мусор/случайный ввод: если букв почти нет — не зовём модель. Иначе на
-    # бессмысленном вводе крохотная модель копирует пример из few-shot («Земский собор»).
+    # мусор/случайный ввод: если букв почти нет — не зовём модель.
     if sum(1 for c in text if c.isalpha()) < 3:
         return {"ok": False, "error": "junk"}
+    provider = _read_provider()
+    if provider == "off":
+        return {"ok": False, "error": "off"}
+    if provider in _API_PROVIDERS:
+        return _capture_api(provider, text)
+    return _capture_local(text)
+
+
+def _capture_local(text):
     llm = _get_llm()
     if llm is None:
         return {"ok": False, "error": "unavailable", "detail": _LOAD_ERR}
@@ -346,7 +442,7 @@ def capture(text):
             _set_priority(True)
             try:
                 try:
-                    llm.reset()        # чистим KV-кэш: ответ прошлого запроса не должен течь в этот
+                    llm.reset()        # чистим KV-кэш: прошлый ответ не должен течь в новый
                 except Exception:
                     pass
                 resp = llm.create_chat_completion(
@@ -360,16 +456,45 @@ def capture(text):
         data = json.loads(resp["choices"][0]["message"]["content"])
     except Exception as e:
         return {"ok": False, "error": "infer", "detail": repr(e)}
-    if not isinstance(data, dict):
-        return {"ok": False, "error": "parse"}
+    return _sanitize(data, text)
 
-    title = (data.get("title") or "").strip() or text[:60].strip()
-    kind = data.get("kind") if data.get("kind") in ("task", "note") else "task"
-    priority = data.get("priority") if data.get("priority") in _PRIOS else "none"
-    when = data.get("when") if data.get("when") in _WHENS else ""
-    # Заголовок срезал заметный кусок → полный текст в описание ДОСЛОВНО.
-    body = text if (len(text) - len(title) >= _KEEP_DIFF) else ""
-    return {
-        "ok": True, "title": title, "kind": kind, "priority": priority,
-        "when": when, "body": body, "raw": text,
-    }
+
+def _capture_api(provider, text):
+    """Запрос к OpenAI-совместимому API провайдера. Ключ — пользователя (BYO).
+    Ноль нагрузки на ПК: считается на сервере."""
+    import urllib.request
+    import urllib.error
+    cfg = _load_config()
+    key = (cfg.get(provider + "_key") or "").strip()
+    if not key:
+        return {"ok": False, "error": "no_key"}
+    p = _API_PROVIDERS[provider]
+    model = (cfg.get(provider + "_model") or "").strip() or p["default_model"]
+    schema = dict(_SCHEMA)
+    schema["additionalProperties"] = False           # требуется строгим json_schema (Cerebras/Groq)
+    payload = json.dumps({
+        "model": model,
+        "messages": _messages(text),
+        "temperature": _TEMPERATURE,
+        "max_tokens": _MAX_TOKENS,
+        "response_format": {"type": "json_schema",
+                            "json_schema": {"name": "capture", "strict": True, "schema": schema}},
+    }, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        p["base"] + "/chat/completions", data=payload,
+        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            d = json.loads(resp.read().decode("utf-8"))
+        content = d["choices"][0]["message"]["content"] or ""
+        data = json.loads(content) if content.strip().startswith("{") else _extract_json(content)
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", "replace")[:300]
+        except Exception:
+            pass
+        return {"ok": False, "error": "http_%d" % e.code, "detail": body}
+    except Exception as e:
+        return {"ok": False, "error": "net", "detail": repr(e)}
+    return _sanitize(data, text)

@@ -55,22 +55,15 @@ AI_DIR = os.path.join(_DATA_BASE, "ai")
 # хостинг/зеркало — поменяй только url. Модели по умолчанию НЕ качаются: только по
 # кнопке пользователя. Порядок = от лёгкой к тяжёлой.
 _HF = "https://huggingface.co"
+# Каталог локальных моделей: намеренно ДВЕ — минимально допустимая и средняя
+# (по просьбе КРОЛИКа: «оставим 2 модели — среднюю и минимально допустимую»).
 AI_MODEL_CATALOG = [
     {"name": "Qwen3-0.6B-Q8_0.gguf", "size": 639446688, "title": "Qwen3 0.6B",
-     "tier": "Лёгкая", "note": "Для слабых ПК/ноутов. Быстрая, но заголовки проще.",
+     "tier": "Минимальная", "note": "Для слабых ПК. Быстрая и лёгкая, заголовки попроще.",
      "url": _HF + "/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf"},
     {"name": "QVikhr-3-1.7B-noreasoning-Q8_0.gguf", "size": 1834426080, "title": "QVikhr-3 1.7B",
-     "tier": "Средняя", "note": "Русская, не думает. Хорошие заголовки.",
+     "tier": "Средняя", "note": "Русская, не «думает». Заметно чище заголовки — золотая середина.",
      "url": _HF + "/Vikhrmodels/QVikhr-3-1.7B-Instruction-noreasoning-GGUF/resolve/main/QVikhr-3-1.7B-Instruction-noreasoning-Q8_0.gguf"},
-    {"name": "Qwen3-1.7B-Q8_0.gguf", "size": 1834430400, "title": "Qwen3 1.7B",
-     "tier": "Средняя", "note": "Универсальная, хорошие заголовки.",
-     "url": _HF + "/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q8_0.gguf"},
-    {"name": "ruadapt_qwen2.5_3B_v4-Q4_K_M.gguf", "size": 1924000000, "title": "RuAdapt 2.5 3B",
-     "tier": "Средняя+", "note": "Русская адаптация, вообще не думает.",
-     "url": _HF + "/RefalMachine/ruadapt_qwen2.5_3B_ext_u48_instruct_v4_gguf/resolve/main/Q4_K_M.gguf"},
-    {"name": "RuadaptQwen3-4B-Q5_K_M.gguf", "size": 2884000000, "title": "RuAdapt Qwen3 4B",
-     "tier": "Мощная", "note": "Лучший русский. Для сильного CPU или GPU.",
-     "url": _HF + "/RefalMachine/RuadaptQwen3-4B-Instruct-GGUF/resolve/main/Q5_K_M.gguf"},
 ]
 
 # состояние текущей загрузки модели (для прогресса в UI)
@@ -347,6 +340,19 @@ class Api:
                 return False
         except Exception as e:
             print("open_path error:", e)
+            return False
+
+    def open_url(self, url):
+        # открыть http(s)-ссылку в браузере (для «как получить ключ»). Только http/https.
+        try:
+            u = (url or "").strip()
+            if not (u.startswith("http://") or u.startswith("https://")):
+                return False
+            import webbrowser
+            webbrowser.open(u)
+            return True
+        except Exception as e:
+            print("open_url error:", e)
             return False
 
     # ---------- telegram (захват заметок с телефона; проверка ТОЛЬКО по клику пользователя,
@@ -673,6 +679,31 @@ class Api:
 
     def ai_download_status(self):
         return dict(_AI_DL)
+
+    # ---------- провайдер ИИ (off / groq / cerebras / local) + ключи API ----------
+    def ai_set_provider(self, name):
+        if not ai_mod:
+            return {"ok": False, "error": "no_module"}
+        try:
+            return ai_mod.set_provider(name or "")
+        except Exception as e:
+            return {"ok": False, "error": "exception", "detail": repr(e)}
+
+    def ai_set_api_key(self, provider, key):
+        if not ai_mod:
+            return {"ok": False, "error": "no_module"}
+        try:
+            return ai_mod.set_api_key(provider or "", key or "")
+        except Exception as e:
+            return {"ok": False, "error": "exception", "detail": repr(e)}
+
+    def ai_set_api_model(self, provider, model):
+        if not ai_mod:
+            return {"ok": False, "error": "no_module"}
+        try:
+            return ai_mod.set_api_model(provider or "", model or "")
+        except Exception as e:
+            return {"ok": False, "error": "exception", "detail": repr(e)}
 
     # ---------- window ----------
     def win_min(self):

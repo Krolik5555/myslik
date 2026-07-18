@@ -27,22 +27,32 @@ async function aiCheckStatus(){
   }catch(e){ AICap.status={available:false, reason:"error"}; }
   return AICap.status;
 }
-function aiEnabled(){ return !!AICap.status.available && S.settings.aiCapture!==false; }
+// провайдер сам определяет, включён ли ИИ (off → выкл). available учитывает готовность.
+function aiEnabled(){ return !!AICap.status.available; }
 
-// ---- вкл/выкл (команда в палитре Ctrl+K) ----
+// открыть ссылку (получить ключ API) в браузере
+async function aiOpenUrl(url){ try{ if(HasPy()&&window.pywebview.api.open_url) await window.pywebview.api.open_url(url); }catch(e){} }
+
+// ---- быстрый тумблер ИИ (команда в палитре Ctrl+K): off ⇄ подходящий провайдер ----
 async function aiToggle(){
   if(!AICap.checked) await aiCheckStatus();
-  if(!AICap.status.available){
-    const why = {no_module:"модуль ИИ не подключён", no_engine:"не установлен движок (gpt4all)",
-                 no_model:"нет файла модели рядом с приложением (папка ai/)", load_error:"модель не загрузилась"}[AICap.status.reason]
-              || "ИИ недоступен";
-    toast("Умный захват выключен: "+why, {icon:"ti-sparkles-off"});
-    return;
+  const st=AICap.status||{}, prov=st.provider||"off", api=st.api||{};
+  let next;
+  if(prov!=="off"){ next="off"; }
+  else {
+    // включаем самый готовый: API с ключом → он; иначе локалка с моделью; иначе просим настроить
+    const keyed=Object.keys(api).find(n=>api[n]&&api[n].has_key);
+    if(keyed) next=keyed;
+    else if((st.models||[]).length) next="local";
+    else { toast("Сначала выбери провайдера в Настройки → ИИ", {icon:"ti-sparkles"}); return; }
   }
-  S.settings.aiCapture = (S.settings.aiCapture===false);   // было выключено → включаем
-  persist();
-  toast(S.settings.aiCapture!==false ? "Умный захват включён" : "Умный захват выключен",
-        {icon: S.settings.aiCapture!==false ? "ti-sparkles" : "ti-sparkles-off"});
+  try{
+    const r=await window.pywebview.api.ai_set_provider(next);
+    if(r&&r.ok){ await aiCheckStatus();
+      toast(next==="off"?"Умный захват выключен":"Умный захват включён ("+next+")",
+            {icon: next==="off"?"ti-sparkles-off":"ti-sparkles"}); }
+    else toast("Не удалось переключить", {icon:"ti-alert-triangle"});
+  }catch(e){ toast("Не удалось переключить", {icon:"ti-alert-triangle"}); }
 }
 
 // ---- переключение движка CPU ⇄ GPU (применяется при перезапуске) ----
@@ -66,40 +76,113 @@ async function aiSwitchBackend(){
 const aiFmtGB = b => (b/1e9).toFixed(b<1e9?2:1)+" ГБ";
 async function aiRenderSettings(panel){ if(panel) await aiPaintSettings(panel); }
 
+// провайдеры: порядок и честные подписи (что грузит/куда уходят данные)
+const AI_PROVS = [
+  {id:"off",      title:"Выключен",       note:"ИИ нет. Ноль нагрузки, ничего не уходит из Мыслика."},
+  {id:"groq",     title:"Groq · API",     note:"Бесплатно, не грузит ПК, на заметках не учится. Нужен свой ключ + интернет."},
+  {id:"cerebras", title:"Cerebras · API", note:"Бесплатно, не грузит ПК, данные сразу стираются. Нужен свой ключ + интернет."},
+  {id:"local",    title:"Локально",       note:"Модель на твоём ПК: приватно, без ключа и интернета, но грузит проц на пару секунд."},
+];
+
 async function aiPaintSettings(panel){
   panel.innerHTML = `<div class="set-hint">Проверяю…</div>`;
   const st = (await aiCheckStatus()) || AICap.status || {};
+  const provider = st.provider || "off";
+  const api = st.api || {};
+  const autoOn = S.settings.aiAutoApply===true;
+
+  let html = `<div class="set-hint">Умный захват: при вводе мысли ИИ предлагает чистый заголовок, дату и вид карточкой «Понял так». По умолчанию выключен — выбери, где его считать.</div>
+    <div class="set-sec">Где считать</div>
+    <div id="ai-prov">
+      ${AI_PROVS.map(p=>`
+        <div class="set-row ai-provrow" data-id="${p.id}" style="cursor:pointer">
+          <span style="display:flex;align-items:flex-start;gap:8px">
+            <i class="ti ${provider===p.id?"ti-circle-check":"ti-circle"}" style="margin-top:2px;${provider===p.id?"color:var(--acc)":"color:var(--mut2)"}"></i>
+            <span class="set-val"><b>${esc(p.title)}</b><br><span style="color:var(--mut);font-size:12px">${esc(p.note)}</span></span>
+          </span>
+        </div>`).join("")}
+    </div>`;
+
+  if(provider==="groq" || provider==="cerebras"){
+    html += aiApiSectionHtml(provider, api[provider]||{});
+  } else if(provider==="local"){
+    html += await aiLocalSectionHtml(st);
+  } else {
+    html += `<div class="set-hint" style="color:var(--mut)">ИИ выключен — Мыслик работает без нагрузки. Выбери провайдера выше, чтобы включить.</div>`;
+  }
+
+  if(provider!=="off"){
+    html += `<div class="set-sec">Поведение</div>
+      <div class="field"><label>Применять сразу, без карточки</label>
+        <div class="seg" id="set-ai-auto">
+          <button data-v="1" class="${autoOn?"on":""}">Да</button>
+          <button data-v="0" class="${autoOn?"":"on"}">Нет</button>
+        </div></div>`;
+  }
+
+  panel.innerHTML = html;
+
+  // выбор провайдера
+  panel.querySelectorAll(".ai-provrow").forEach(el=>el.onclick=async()=>{
+    const id=el.dataset.id; if(id===provider) return;
+    try{ const r=await window.pywebview.api.ai_set_provider(id);
+      if(r&&r.ok){ await aiCheckStatus(); aiPaintSettings(panel); }
+      else toast("Не удалось переключить провайдера",{icon:"ti-alert-triangle"});
+    }catch(e){ toast("Не удалось переключить провайдера",{icon:"ti-alert-triangle"}); }
+  });
+  // авто-применение
+  panel.querySelectorAll("#set-ai-auto button").forEach(b=>b.onclick=()=>{ S.settings.aiAutoApply=b.dataset.v==="1"; persist(); panel.querySelectorAll("#set-ai-auto button").forEach(x=>x.classList.toggle("on",x===b)); });
+
+  if(provider==="groq"||provider==="cerebras") aiWireApiSection(panel, provider, api[provider]||{});
+  else if(provider==="local") aiWireLocalSection(panel, st);
+}
+
+// --- секция API-провайдера (ключ + как получить + модель) ---
+function aiApiSectionHtml(provider, info){
+  return `<div class="set-sec">${esc(info.title||provider)} — ключ доступа</div>
+    <div class="set-hint">${esc(info.note||"")} Ключ хранится только у тебя на диске и уходит лишь этому провайдеру.</div>
+    <div class="field"><label>API-ключ</label>
+      <input type="password" id="ai-apikey" placeholder="${info.has_key?"••••••••••  (сохранён)":"вставь ключ сюда"}" autocomplete="off" spellcheck="false"
+        style="flex:1;min-width:0;background:var(--surf3);border:1px solid var(--bd);border-radius:var(--r-s);color:var(--tx);padding:7px 10px;font-family:var(--font)"></div>
+    <div class="set-row">
+      <span class="set-val">${info.has_key?"<span style='color:var(--pri1)'><i class='ti ti-check'></i> Ключ сохранён</span>":"Ключ ещё не задан"}</span>
+      <div class="right" style="display:flex;gap:6px">
+        <button class="btn ghost" id="ai-key-how"><i class="ti ti-external-link"></i>Как получить</button>
+        ${info.has_key?`<button class="btn ghost" id="ai-key-clear" title="Удалить ключ"><i class="ti ti-trash"></i></button>`:""}
+        <button class="btn primary" id="ai-key-save"><i class="ti ti-check"></i>Сохранить</button>
+      </div>
+    </div>
+    <div class="set-hint">Модель: <b>${esc(info.model||info.default_model||"")}</b> <span style="color:var(--mut)">(по умолчанию, менять не нужно)</span></div>`;
+}
+function aiWireApiSection(panel, provider, info){
+  const how=panel.querySelector("#ai-key-how"); if(how) how.onclick=()=>aiOpenUrl(info.keys_url||"");
+  const clr=panel.querySelector("#ai-key-clear"); if(clr) clr.onclick=async()=>{
+    try{ await window.pywebview.api.ai_set_api_key(provider,""); toast("Ключ удалён",{icon:"ti-trash"}); await aiCheckStatus(); aiPaintSettings(panel); }catch(e){}
+  };
+  const save=panel.querySelector("#ai-key-save"); if(save) save.onclick=async()=>{
+    const k=(panel.querySelector("#ai-apikey").value||"").trim(); if(!k){ toast("Вставь ключ",{icon:"ti-key"}); return; }
+    try{ const r=await window.pywebview.api.ai_set_api_key(provider,k);
+      if(r&&r.ok){ toast("Ключ сохранён — ИИ готов",{icon:"ti-check"}); await aiCheckStatus(); aiPaintSettings(panel); }
+      else toast("Не удалось сохранить ключ",{icon:"ti-alert-triangle"});
+    }catch(e){ toast("Не удалось сохранить ключ",{icon:"ti-alert-triangle"}); }
+  };
+}
+
+// --- секция локальных моделей (менеджер + движок) ---
+async function aiLocalSectionHtml(st){
   let catalog=[]; try{ catalog = await window.pywebview.api.ai_model_catalog() || []; }catch(e){}
-  const avail=!!st.available, models=st.models||[], selModel=st.model||"";
+  const models=st.models||[], selModel=st.model||"";
   const backends=st.backends||[], curB=st.backend||(backends[0]||"cpu");
-  const enabled=S.settings.aiCapture!==false, autoOn=S.settings.aiAutoApply===true;
   const lbl=b=>b==="gpu"?"GPU (Vulkan)":"CPU";
   const titleOf=n=>{ const c=catalog.find(x=>x.name===n); return c?c.title:n.replace(/\.gguf$/i,""); };
   const restartB=!!(st.active && st.active!==curB);
   const restartM=!!(st.active_model && st.active_model!==selModel);
-  const why={no_engine:"нет движка (папки ai/engine-cpu/engine-vulkan рядом с приложением)",
-             no_model:"нет ни одной модели — скачай ниже", no_module:"ИИ-модуль не подключён",
-             load_error:"движок не загрузился"}[st.reason]||"проверь папку ai/ рядом с приложением";
   const installed=new Set(models.map(m=>m.name));
   const toGet=catalog.filter(c=>!installed.has(c.name));
-
-  panel.innerHTML = `
-    <div class="set-hint">Локальная модель при вводе мысли предлагает чистый заголовок, дату и вид. Всё локально — в сеть ничего не уходит. По умолчанию ИИ выключен: включаешь и качаешь модель под своё железо.</div>
-    ${(!avail && !models.length) ? `<div class="set-hint" style="color:var(--mut)">Моделей пока нет — скачай одну ниже, чтобы включить ИИ.</div>`
-      : (!avail ? `<div class="set-hint" style="color:var(--warn)"><i class="ti ti-alert-triangle"></i> ИИ недоступен: ${why}</div>` : "")}
-
-    <div class="set-sec">Умный захват</div>
-    <div class="field"><label>Предлагать разбор мысли</label>
-      <div class="seg" id="set-ai-onoff">
-        <button data-v="1" class="${enabled?"on":""}" ${avail?"":"disabled"}>Вкл</button>
-        <button data-v="0" class="${enabled?"":"on"}">Выкл</button>
-      </div></div>
-    <div class="field"><label>Применять сразу, без карточки</label>
-      <div class="seg" id="set-ai-auto">
-        <button data-v="1" class="${autoOn?"on":""}" ${avail?"":"disabled"}>Да</button>
-        <button data-v="0" class="${autoOn?"":"on"}">Нет</button>
-      </div></div>
-
+  const why={no_engine:"нет движка (папки ai/engine-cpu/engine-vulkan рядом с приложением)",
+             no_model:"нет ни одной модели — скачай ниже", load_error:"движок не загрузился"}[st.reason];
+  return `
+    ${(st.reason && st.reason!=="no_model") ? `<div class="set-hint" style="color:var(--warn)"><i class="ti ti-alert-triangle"></i> ${esc(why||"проверь папку ai/")}</div>` : ""}
     <div class="set-sec">Установленные модели</div>
     ${models.length ? models.map(m=>`
       <div class="set-row ai-modrow" data-name="${esc(m.name)}">
@@ -111,7 +194,7 @@ async function aiPaintSettings(panel){
     <div class="set-hint" id="set-ai-mrestart" style="display:${restartM?"flex":"none"};align-items:center;gap:5px;color:var(--pri2)"><i class="ti ti-refresh"></i> Перезапусти Мыслик, чтобы применить выбранную модель.</div>
 
     <div class="set-sec">Скачать модель</div>
-    <div class="set-hint">По требованию, только по кнопке. Слабый ПК → «Лёгкая», нормальный → «Средняя», сильный/GPU → «Мощная».</div>
+    <div class="set-hint">По требованию, только по кнопке. «Минимальная» — для слабого ПК, «Средняя» — золотая середина.</div>
     <div id="ai-dl-progress" style="display:none;margin:8px 0"></div>
     ${toGet.length ? toGet.map(c=>`
       <div class="set-row">
@@ -120,31 +203,32 @@ async function aiPaintSettings(panel){
       </div>`).join("") : `<div class="set-hint">Все модели каталога уже установлены.</div>`}
 
     <div class="set-sec">Движок</div>
-    <div class="set-hint">CPU — работает у всех, память в RAM. GPU (Vulkan) — на видеокарте, но занимает видеопамять. Смена — после перезапуска.</div>
+    <div class="set-hint">CPU — работает у всех. GPU (Vulkan) — на видеокарте, но занимает видеопамять. Смена — после перезапуска.</div>
     <div class="field"><label>Где считать</label>
       <div class="seg" id="set-ai-engine">
         ${["cpu","gpu"].map(b=>`<button data-v="${b}" class="${curB===b?"on":""}" ${backends.includes(b)?"":"disabled"}>${lbl(b)}${backends.includes(b)?"":" — нет пака"}</button>`).join("")}
       </div></div>
     <div class="set-hint" id="set-ai-restart" style="display:${restartB?"flex":"none"};align-items:center;gap:5px;color:var(--pri2)"><i class="ti ti-refresh"></i> Перезапусти Мыслик, чтобы применить движок.</div>`;
-
-  panel.querySelectorAll("#set-ai-onoff button").forEach(b=>b.onclick=()=>{ if(b.disabled)return; S.settings.aiCapture=b.dataset.v==="1"; persist(); panel.querySelectorAll("#set-ai-onoff button").forEach(x=>x.classList.toggle("on",x===b)); });
-  panel.querySelectorAll("#set-ai-auto button").forEach(b=>b.onclick=()=>{ if(b.disabled)return; S.settings.aiAutoApply=b.dataset.v==="1"; persist(); panel.querySelectorAll("#set-ai-auto button").forEach(x=>x.classList.toggle("on",x===b)); });
+}
+function aiWireLocalSection(panel, st){
+  let catalog=[]; // заголовки моделей достаём лениво из каталога при действиях
+  const titleOf=n=>n.replace(/\.gguf$/i,"");
   panel.querySelectorAll("#set-ai-engine button").forEach(b=>b.onclick=async()=>{ if(b.disabled)return; const name=b.dataset.v;
     try{ const r=await window.pywebview.api.ai_set_backend(name);
       if(r&&r.ok){ AICap.status.backend=name; panel.querySelectorAll("#set-ai-engine button").forEach(x=>x.classList.toggle("on",x===b));
         const rs=panel.querySelector("#set-ai-restart"); if(rs) rs.style.display=(st.active&&st.active!==name)?"flex":"none";
-        toast("Движок ИИ → "+lbl(name)+" (после перезапуска)",{icon:"ti-refresh"}); }
+        toast("Движок ИИ → "+(name==="gpu"?"GPU (Vulkan)":"CPU")+" (после перезапуска)",{icon:"ti-refresh"}); }
       else toast("Не удалось переключить движок",{icon:"ti-alert-triangle"});
     }catch(e){ toast("Не удалось переключить движок",{icon:"ti-alert-triangle"}); } });
   panel.querySelectorAll(".ai-modrow .ai-modpick").forEach(el=>el.onclick=async()=>{ const name=el.closest(".ai-modrow").dataset.name;
     try{ const r=await window.pywebview.api.ai_set_model(name);
-      if(r&&r.ok){ toast("Модель → "+titleOf(name)+" (после перезапуска)",{icon:"ti-check"}); aiPaintSettings(panel); }
+      if(r&&r.ok){ toast("Модель выбрана (после перезапуска)",{icon:"ti-check"}); await aiCheckStatus(); aiPaintSettings(panel); }
       else toast("Не удалось выбрать модель",{icon:"ti-alert-triangle"});
     }catch(e){ toast("Не удалось выбрать модель",{icon:"ti-alert-triangle"}); } });
   panel.querySelectorAll(".ai-moddel").forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); const name=b.dataset.name;
     if(!(await uiConfirm("Удалить модель «"+titleOf(name)+"»? Файл будет стёрт с диска.",{danger:true,title:"Удалить модель",okLabel:"Удалить"}))) return;
     try{ const r=await window.pywebview.api.ai_delete_model(name);
-      if(r&&r.ok){ toast("Модель удалена",{icon:"ti-trash"}); aiPaintSettings(panel); }
+      if(r&&r.ok){ toast("Модель удалена",{icon:"ti-trash"}); await aiCheckStatus(); aiPaintSettings(panel); }
       else if(r&&r.error==="loaded") toast("Эта модель загружена — перезапусти Мыслик и удали",{icon:"ti-alert-triangle"});
       else toast("Не удалось удалить",{icon:"ti-alert-triangle"});
     }catch(e){ toast("Не удалось удалить",{icon:"ti-alert-triangle"}); } });
