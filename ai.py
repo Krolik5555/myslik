@@ -60,10 +60,14 @@ _SCHEMA = {
         "kind":     {"type": "string", "enum": ["task", "note"]},
         "priority": {"type": "string", "enum": ["high", "medium", "low", "none"]},
         "when":     {"type": "string", "enum": list(_WHENS)},
-        "body":     {"type": "string"},
     },
-    "required": ["title", "kind", "priority", "when", "body"],
+    "required": ["title", "kind", "priority", "when"],
 }
+
+# «Длинная» мысль (символов): её полный текст сохраняем ДОСЛОВНО в описание, а
+# модель лишь придумывает короткий заголовок. Модель тело НЕ переписывает —
+# иначе рискует срезать нужное (правка по фидбеку КРОЛИКа).
+_LONG_CHARS = 80
 
 # /no_think — второй пояс: явно просим Qwen3 не размышлять (грамматика и так глушит).
 _INSTRUCT = (
@@ -79,22 +83,21 @@ _INSTRUCT = (
     "- when: относительная дата ОДНИМ токеном если названа: \"today\", "
     "\"tomorrow\", \"day_after\", \"mon\"..\"sun\". Если даты нет — \"\". "
     "Не вычисляй календарные числа.\n"
-    "- body: если мысль длинная — полный текст-подробности сюда; если короткая — \"\".\n"
+    "Заголовок делай КОРОТКИМ даже для длинной мысли — полный текст сохранится "
+    "отдельно сам, ничего в заголовок впихивать не надо.\n"
     "Не выдумывай фактов, которых нет во вводе."
 )
 
 _FEWSHOT = [
     ("срочно сделать дело",
-     {"title": "Сделать дело", "kind": "task", "priority": "high", "when": "", "body": ""}),
+     {"title": "Сделать дело", "kind": "task", "priority": "high", "when": ""}),
     ("завтра надо намыть жопу",
-     {"title": "Намыть жопу", "kind": "task", "priority": "none", "when": "tomorrow", "body": ""}),
+     {"title": "Намыть жопу", "kind": "task", "priority": "none", "when": "tomorrow"}),
     ("глянуть в пятницу почту по договору",
-     {"title": "Глянуть почту по договору", "kind": "task", "priority": "none", "when": "fri", "body": ""}),
+     {"title": "Глянуть почту по договору", "kind": "task", "priority": "none", "when": "fri"}),
     ("мысль: свет в ролике МТС слишком холодный, надо на этапе цвета прогреть "
      "тени и вытянуть кожу, глянуть рефы с прошлой съёмки",
-     {"title": "Прогреть свет в ролике МТС", "kind": "note", "priority": "none", "when": "",
-      "body": "Свет слишком холодный. На этапе цвета прогреть тени и вытянуть кожу. "
-              "Глянуть рефы с прошлой съёмки."}),
+     {"title": "Прогреть свет в ролике МТС", "kind": "note", "priority": "none", "when": ""}),
 ]
 
 
@@ -221,9 +224,9 @@ def capture(text):
     kind = data.get("kind") if data.get("kind") in ("task", "note") else "task"
     priority = data.get("priority") if data.get("priority") in _PRIOS else "none"
     when = data.get("when") if data.get("when") in _WHENS else ""
-    body = (data.get("body") or "").strip()
-    if body and body.strip().lower() == title.strip().lower():
-        body = ""
+    # ДЛИННАЯ мысль → полный текст в описание ДОСЛОВНО (не пересказ модели!),
+    # короткая → без описания (заголовок сам и есть мысль).
+    body = text if len(text) >= _LONG_CHARS else ""
     return {
         "ok": True, "title": title, "kind": kind, "priority": priority,
         "when": when, "body": body, "raw": text,
