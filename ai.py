@@ -172,15 +172,31 @@ def _available_backends():
 # ---- провайдеры: off (по умолчанию) / api (groq, cerebras) / local ----
 # API — OpenAI-совместимые, ключ у КАЖДОГО пользователя свой (BYO). Ноль нагрузки
 # на ПК (считается на сервере провайдера).
+# OpenAI-совместимые провайдеры. base может содержать {account} (подставляется из
+# ai_config[provider+"_account"]). json_mode: "object" → response_format json_object;
+# "none" → полагаемся на промпт (некоторые провайдеры не принимают response_format).
+# Порядок = порядок в UI: сверху доступные из РФ, снизу — только для заграницы.
 _API_PROVIDERS = {
+    "huggingface": {"title": "HuggingFace", "base": "https://router.huggingface.co/v1",
+                    "default_model": "Qwen/Qwen2.5-72B-Instruct:together",
+                    "keys_url": "https://huggingface.co/settings/tokens",
+                    "json_mode": "object",
+                    "note": "Работает из РФ без VPN. Бесплатно, без карты. HF не хранит запросы; провайдер пиннится в имени модели (:together)."},
+    "cloudflare": {"title": "Cloudflare AI", "base": "https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1",
+                   "default_model": "@cf/qwen/qwen3-30b-a3b-fp8",
+                   "keys_url": "https://dash.cloudflare.com/profile/api-tokens",
+                   "needs_account": True, "json_mode": "none",
+                   "note": "Лучшая приватность (не учится на данных). Бесплатно 10k/день, без карты. Из РФ — через Zapret. Нужен Account ID."},
     "groq": {"title": "Groq", "base": "https://api.groq.com/openai/v1",
              "default_model": "llama-3.3-70b-versatile",
              "keys_url": "https://console.groq.com/keys",
-             "note": "Бесплатно без карты. На заметках не учится. Нужен интернет."},
+             "json_mode": "object",
+             "note": "Быстрый, бесплатный. НЕ работает из РФ (гео-блок) — для пользователей за рубежом."},
     "cerebras": {"title": "Cerebras", "base": "https://api.cerebras.ai/v1",
                  "default_model": "llama-3.3-70b",
                  "keys_url": "https://cloud.cerebras.ai/",
-                 "note": "Бесплатно без карты. Данные сразу стираются (топ-приватность)."},
+                 "json_mode": "object",
+                 "note": "Быстрый, приватный. НЕ работает из РФ (гео-блок) — для пользователей за рубежом."},
 }
 
 
@@ -214,6 +230,13 @@ def set_api_model(provider, model):
     if provider not in _API_PROVIDERS:
         return {"ok": False, "error": "unknown_provider"}
     return {"ok": _save_config({provider + "_model": (model or "").strip()})}
+
+
+def set_api_account(provider, account):
+    """Для провайдеров с {account} в base (Cloudflare — Account ID)."""
+    if provider not in _API_PROVIDERS:
+        return {"ok": False, "error": "unknown_provider"}
+    return {"ok": _save_config({provider + "_account": (account or "").strip()})}
 
 
 # ---- модели: файлы .gguf в ai/models/ ----
@@ -303,8 +326,15 @@ def status():
     if provider == "off":
         available, reason = False, "off"
     elif provider in _API_PROVIDERS:
+        pinfo = _API_PROVIDERS[provider]
         has_key = bool((cfg.get(provider + "_key") or "").strip())
-        available, reason = has_key, ("" if has_key else "no_key")
+        has_acc = bool((cfg.get(provider + "_account") or "").strip())
+        if not has_key:
+            available, reason = False, "no_key"
+        elif pinfo.get("needs_account") and not has_acc:
+            available, reason = False, "no_account"
+        else:
+            available, reason = True, ""
     else:  # local
         reason = "no_engine" if not avail else ("no_model" if not sel else ("load_error" if _LOAD_ERR else ""))
         available = bool(avail and sel and not _LOAD_ERR)
@@ -312,7 +342,10 @@ def status():
     api = {n: {"title": p["title"], "keys_url": p["keys_url"], "note": p["note"],
                "default_model": p["default_model"],
                "has_key": bool((cfg.get(n + "_key") or "").strip()),
-               "model": cfg.get(n + "_model") or ""}
+               "model": cfg.get(n + "_model") or "",
+               "needs_account": bool(p.get("needs_account")),
+               "has_account": bool((cfg.get(n + "_account") or "").strip()),
+               "account": cfg.get(n + "_account") or ""}
            for n, p in _API_PROVIDERS.items()}
     return {
         "available": available,
@@ -465,23 +498,29 @@ def _capture_api(provider, text):
     import urllib.request
     import urllib.error
     cfg = _load_config()
+    p = _API_PROVIDERS[provider]
     key = (cfg.get(provider + "_key") or "").strip()
     if not key:
         return {"ok": False, "error": "no_key"}
-    p = _API_PROVIDERS[provider]
+    base = p["base"]
+    if "{account}" in base:                          # Cloudflare: Account ID в URL
+        acc = (cfg.get(provider + "_account") or "").strip()
+        if not acc:
+            return {"ok": False, "error": "no_account"}
+        base = base.replace("{account}", acc)
     model = (cfg.get(provider + "_model") or "").strip() or p["default_model"]
-    schema = dict(_SCHEMA)
-    schema["additionalProperties"] = False           # требуется строгим json_schema (Cerebras/Groq)
-    payload = json.dumps({
+    body = {
         "model": model,
         "messages": _messages(text),
         "temperature": _TEMPERATURE,
         "max_tokens": _MAX_TOKENS,
-        "response_format": {"type": "json_schema",
-                            "json_schema": {"name": "capture", "strict": True, "schema": schema}},
-    }, ensure_ascii=False).encode("utf-8")
+    }
+    # json_object поддерживают не все; где нет — полагаемся на промпт + _extract_json.
+    if p.get("json_mode") == "object":
+        body["response_format"] = {"type": "json_object"}
+    payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
-        p["base"] + "/chat/completions", data=payload,
+        base + "/chat/completions", data=payload,
         headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:

@@ -76,13 +76,9 @@ async function aiSwitchBackend(){
 const aiFmtGB = b => (b/1e9).toFixed(b<1e9?2:1)+" ГБ";
 async function aiRenderSettings(panel){ if(panel) await aiPaintSettings(panel); }
 
-// провайдеры: порядок и честные подписи (что грузит/куда уходят данные)
-const AI_PROVS = [
-  {id:"off",      title:"Выключен",       note:"ИИ нет. Ноль нагрузки, ничего не уходит из Мыслика."},
-  {id:"groq",     title:"Groq · API",     note:"Бесплатно, не грузит ПК, на заметках не учится. Нужен свой ключ + интернет."},
-  {id:"cerebras", title:"Cerebras · API", note:"Бесплатно, не грузит ПК, данные сразу стираются. Нужен свой ключ + интернет."},
-  {id:"local",    title:"Локально",       note:"Модель на твоём ПК: приватно, без ключа и интернета, но грузит проц на пару секунд."},
-];
+// off/local — статичные; API-провайдеры строятся из st.api (порядок задаёт ai.py)
+const AI_PROV_OFF   = {id:"off",   title:"Выключен", note:"ИИ нет. Ноль нагрузки, ничего не уходит из Мыслика."};
+const AI_PROV_LOCAL = {id:"local", title:"Локально", note:"Модель на твоём ПК: приватно, без ключа и интернета, но грузит проц на пару секунд."};
 
 async function aiPaintSettings(panel){
   panel.innerHTML = `<div class="set-hint">Проверяю…</div>`;
@@ -90,11 +86,15 @@ async function aiPaintSettings(panel){
   const provider = st.provider || "off";
   const api = st.api || {};
   const autoOn = S.settings.aiAutoApply===true;
+  // список: Выключен → все API-провайдеры (из бэкенда) → Локально
+  const provs = [AI_PROV_OFF,
+    ...Object.keys(api).map(id=>({id, title:(api[id].title||id)+" · API", note:api[id].note||""})),
+    AI_PROV_LOCAL];
 
   let html = `<div class="set-hint">Умный захват: при вводе мысли ИИ предлагает чистый заголовок, дату и вид карточкой «Понял так». По умолчанию выключен — выбери, где его считать.</div>
     <div class="set-sec">Где считать</div>
     <div id="ai-prov">
-      ${AI_PROVS.map(p=>`
+      ${provs.map(p=>`
         <div class="set-row ai-provrow" data-id="${p.id}" style="cursor:pointer">
           <span style="display:flex;align-items:flex-start;gap:8px">
             <i class="ti ${provider===p.id?"ti-circle-check":"ti-circle"}" style="margin-top:2px;${provider===p.id?"color:var(--acc)":"color:var(--mut2)"}"></i>
@@ -103,8 +103,8 @@ async function aiPaintSettings(panel){
         </div>`).join("")}
     </div>`;
 
-  if(provider==="groq" || provider==="cerebras"){
-    html += aiApiSectionHtml(provider, api[provider]||{});
+  if(api[provider]){
+    html += aiApiSectionHtml(provider, api[provider]);
   } else if(provider==="local"){
     html += await aiLocalSectionHtml(st);
   } else {
@@ -133,19 +133,23 @@ async function aiPaintSettings(panel){
   // авто-применение
   panel.querySelectorAll("#set-ai-auto button").forEach(b=>b.onclick=()=>{ S.settings.aiAutoApply=b.dataset.v==="1"; persist(); panel.querySelectorAll("#set-ai-auto button").forEach(x=>x.classList.toggle("on",x===b)); });
 
-  if(provider==="groq"||provider==="cerebras") aiWireApiSection(panel, provider, api[provider]||{});
+  if(api[provider]) aiWireApiSection(panel, provider, api[provider]);
   else if(provider==="local") aiWireLocalSection(panel, st);
 }
 
-// --- секция API-провайдера (ключ + как получить + модель) ---
+// --- секция API-провайдера (ключ + [Account ID] + как получить + модель) ---
+const _aiInp = `style="flex:1;min-width:0;background:var(--surf3);border:1px solid var(--bd);border-radius:var(--r-s);color:var(--tx);padding:7px 10px;font-family:var(--font)"`;
 function aiApiSectionHtml(provider, info){
-  return `<div class="set-sec">${esc(info.title||provider)} — ключ доступа</div>
-    <div class="set-hint">${esc(info.note||"")} Ключ хранится только у тебя на диске и уходит лишь этому провайдеру.</div>
+  const acct = info.needs_account ? `
+    <div class="field"><label>Account ID</label>
+      <input type="text" id="ai-apiacct" placeholder="${info.has_account?esc(info.account||"сохранён"):"ID аккаунта из дашборда"}" autocomplete="off" spellcheck="false" ${_aiInp}></div>` : "";
+  return `<div class="set-sec">${esc(info.title||provider)} — доступ</div>
+    <div class="set-hint">${esc(info.note||"")} Данные хранятся только у тебя на диске и уходят лишь этому провайдеру.</div>
+    ${acct}
     <div class="field"><label>API-ключ</label>
-      <input type="password" id="ai-apikey" placeholder="${info.has_key?"••••••••••  (сохранён)":"вставь ключ сюда"}" autocomplete="off" spellcheck="false"
-        style="flex:1;min-width:0;background:var(--surf3);border:1px solid var(--bd);border-radius:var(--r-s);color:var(--tx);padding:7px 10px;font-family:var(--font)"></div>
+      <input type="password" id="ai-apikey" placeholder="${info.has_key?"••••••••••  (сохранён)":"вставь ключ сюда"}" autocomplete="off" spellcheck="false" ${_aiInp}></div>
     <div class="set-row">
-      <span class="set-val">${info.has_key?"<span style='color:var(--pri1)'><i class='ti ti-check'></i> Ключ сохранён</span>":"Ключ ещё не задан"}</span>
+      <span class="set-val">${info.has_key?(info.needs_account&&!info.has_account?"<span style='color:var(--warn)'>Ключ есть, нужен Account ID</span>":"<span style='color:var(--pri1)'><i class='ti ti-check'></i> Готово</span>"):"Ключ ещё не задан"}</span>
       <div class="right" style="display:flex;gap:6px">
         <button class="btn ghost" id="ai-key-how"><i class="ti ti-external-link"></i>Как получить</button>
         ${info.has_key?`<button class="btn ghost" id="ai-key-clear" title="Удалить ключ"><i class="ti ti-trash"></i></button>`:""}
@@ -160,11 +164,15 @@ function aiWireApiSection(panel, provider, info){
     try{ await window.pywebview.api.ai_set_api_key(provider,""); toast("Ключ удалён",{icon:"ti-trash"}); await aiCheckStatus(); aiPaintSettings(panel); }catch(e){}
   };
   const save=panel.querySelector("#ai-key-save"); if(save) save.onclick=async()=>{
-    const k=(panel.querySelector("#ai-apikey").value||"").trim(); if(!k){ toast("Вставь ключ",{icon:"ti-key"}); return; }
-    try{ const r=await window.pywebview.api.ai_set_api_key(provider,k);
-      if(r&&r.ok){ toast("Ключ сохранён — ИИ готов",{icon:"ti-check"}); await aiCheckStatus(); aiPaintSettings(panel); }
-      else toast("Не удалось сохранить ключ",{icon:"ti-alert-triangle"});
-    }catch(e){ toast("Не удалось сохранить ключ",{icon:"ti-alert-triangle"}); }
+    const k=(panel.querySelector("#ai-apikey").value||"").trim();
+    const acctEl=panel.querySelector("#ai-apiacct");
+    const acct=acctEl?(acctEl.value||"").trim():"";
+    if(!k && !acct){ toast("Вставь ключ",{icon:"ti-key"}); return; }
+    try{
+      if(acct) await window.pywebview.api.ai_set_api_account(provider, acct);
+      if(k) await window.pywebview.api.ai_set_api_key(provider, k);
+      toast("Сохранено",{icon:"ti-check"}); await aiCheckStatus(); aiPaintSettings(panel);
+    }catch(e){ toast("Не удалось сохранить",{icon:"ti-alert-triangle"}); }
   };
 }
 

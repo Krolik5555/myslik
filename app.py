@@ -705,6 +705,14 @@ class Api:
         except Exception as e:
             return {"ok": False, "error": "exception", "detail": repr(e)}
 
+    def ai_set_api_account(self, provider, account):
+        if not ai_mod:
+            return {"ok": False, "error": "no_module"}
+        try:
+            return ai_mod.set_api_account(provider or "", account or "")
+        except Exception as e:
+            return {"ok": False, "error": "exception", "detail": repr(e)}
+
     # ---------- window ----------
     def win_min(self):
         try:
