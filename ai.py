@@ -38,7 +38,10 @@ _LOAD_ERR = ""
 _N_CTX = 2048
 _MAX_TOKENS = 320
 _TEMPERATURE = 0.2
-_MAX_THREADS = 4
+# Фоновое приложение НЕ должно жрать CPU: потолок 2 потока = ~6% (2 ядра из многих)
+# на короткий ответ. РЕАЛЬНЫЙ вентиль — OMP_NUM_THREADS в _get_llm: без него OpenMP
+# внутри ggml хватал ВСЕ ядра (100%), игнорируя это число.
+_MAX_THREADS = 2
 
 _PRIOS = ("high", "medium", "low", "none")
 _WHENS = ("", "today", "tomorrow", "day_after", "mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -294,12 +297,17 @@ def _get_llm():
             if eng not in sys.path:
                 sys.path.insert(0, eng)          # llama_cpp берём из этого пака
             os.environ["LLAMA_CPP_LIB_PATH"] = os.path.join(eng, "llama_cpp", "lib")
+            n_threads = max(1, min(_MAX_THREADS, (os.cpu_count() or 4) // 2))
+            # КРИТИЧНО: без этого OpenMP внутри ggml хватает ВСЕ ядра (CPU в 100%),
+            # игнорируя n_threads. Закрываем вентиль до инициализации нативной либы.
+            os.environ["OMP_NUM_THREADS"] = str(n_threads)
+            os.environ["GGML_NTHREADS"] = str(n_threads)
             from llama_cpp import Llama
-            n_threads = max(2, min(_MAX_THREADS, (os.cpu_count() or 4) // 2))
             _LLM = Llama(
                 model_path=path,
                 n_ctx=_N_CTX,
                 n_threads=n_threads,
+                n_threads_batch=n_threads,       # префилл тоже не должен разбегаться по всем ядрам
                 n_gpu_layers=_BACKENDS[backend]["ngl"],
                 verbose=False,
             )
