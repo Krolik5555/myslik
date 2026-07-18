@@ -256,6 +256,10 @@ def capture(text):
     text = (text or "").strip()
     if not text:
         return {"ok": False, "error": "empty"}
+    # мусор/случайный ввод: если букв почти нет — не зовём модель. Иначе на
+    # бессмысленном вводе крохотная модель копирует пример из few-shot («Земский собор»).
+    if sum(1 for c in text if c.isalpha()) < 3:
+        return {"ok": False, "error": "junk"}
     llm = _get_llm()
     if llm is None:
         return {"ok": False, "error": "unavailable", "detail": _LOAD_ERR}
@@ -263,6 +267,10 @@ def capture(text):
         with _INFER_LOCK:
             _set_priority(True)
             try:
+                try:
+                    llm.reset()        # чистим KV-кэш: ответ прошлого запроса не должен течь в этот
+                except Exception:
+                    pass
                 resp = llm.create_chat_completion(
                     messages=_messages(text),
                     response_format={"type": "json_object", "schema": _SCHEMA},

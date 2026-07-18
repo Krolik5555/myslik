@@ -182,22 +182,20 @@ function aiApply(it, prop, auto){
 }
 
 // ---- главный вход: зовётся из main.js сразу после создания ноды ----
+let _aiSeq = 0;   // метка последнего захвата: результат более раннего игнорируем
 async function aiRefineCapture(it, raw){
   if(!AICap.checked) await aiCheckStatus();
-  if(!aiEnabled() || !it || it.deleted || AICap.busy) return;
-  AICap.busy=true;
-  try{
-    const host=aiHost(); aiRenderPending(host, it);
-    let res=null;
-    try{ res = await window.pywebview.api.ai_capture(raw); }catch(e){ res=null; }
-    if(!res || !res.ok || it.deleted){ aiClear(host); return; }
-    const prop=aiBuildProposal(it, res);
-    if(!prop.changes.length){ aiClear(host); return; }   // ничего лучше — молчим
-    if(S.settings.aiAutoApply){ aiClear(host); aiApply(it, prop, true); return; }   // авто-применение без карточки
-    aiRenderProposal(host, it, prop);
-  } finally {
-    AICap.busy=false;   // что бы ни случилось — не залипаем, следующий захват снова спросит ИИ
-  }
+  if(!aiEnabled() || !it || it.deleted) return;
+  const seq = ++_aiSeq;                        // этот захват стал «последним»
+  const host=aiHost(); aiRenderPending(host, it);
+  let res=null;
+  try{ res = await window.pywebview.api.ai_capture(raw); }catch(e){ res=null; }
+  if(seq !== _aiSeq) return;                    // пока думали — пришёл новый захват; этот ответ устарел, молчим
+  if(!res || !res.ok || it.deleted){ aiClear(host); return; }
+  const prop=aiBuildProposal(it, res);
+  if(!prop.changes.length){ aiClear(host); return; }   // ничего лучше — молчим
+  if(S.settings.aiAutoApply){ aiClear(host); aiApply(it, prop, true); return; }   // авто-применение без карточки
+  aiRenderProposal(host, it, prop);
 }
 
 /* ---------- UI ---------- */
