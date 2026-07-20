@@ -38,7 +38,8 @@ function aiErrMsg(res){
   const e=(res&&res.error)||"";
   const simple={ no_key:"не задан ключ API", no_account:"не задан Account ID",
     off:"ИИ выключен", unavailable:"локальная модель не загрузилась",
-    infer:"сбой локальной модели", net:"нет связи с провайдером (интернет или блокировка из РФ)" };
+    infer:"сбой локальной модели", parse:"модель вернула не-JSON",
+    net:"нет связи с провайдером (интернет или блокировка из РФ)" };
   if(simple[e]) return simple[e];
   if(e.indexOf("http_")===0){
     const c=e.slice(5);
@@ -195,7 +196,9 @@ function aiWireApiSection(panel, provider, info){
       // авто-проверка: сразу зовём модель тестовой фразой и показываем результат/причину
       const r=await window.pywebview.api.ai_capture("завтра в 15 часов позвонить маме по работе");
       if(r&&r.ok) toast("Связь есть · понял так: «"+esc(r.title||"")+"»",{icon:"ti-check",hold:true});
-      else toast("Ключ сохранён, но связь не прошла: "+aiErrMsg(r),{icon:"ti-alert-triangle",hold:true});
+      else{ console.warn("[ai] test error:", r&&r.error, r&&r.detail);
+        const dt=(r&&r.detail)?" · "+String(r.detail).slice(0,140):"";
+        toast("Не прошло: "+aiErrMsg(r)+dt,{icon:"ti-alert-triangle",hold:true}); }
       aiPaintSettings(panel);
     }catch(e){ toast("Не удалось сохранить",{icon:"ti-alert-triangle"}); }
   };

@@ -183,7 +183,7 @@ _API_PROVIDERS = {
                     "json_mode": "none",
                     "note": "Работает из РФ без VPN. Бесплатно, без карты. HF не хранит запросы; провайдер пиннится в имени модели (:deepinfra — не учится на данных)."},
     "cloudflare": {"title": "Cloudflare AI", "base": "https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1",
-                   "default_model": "@cf/qwen/qwen3-30b-a3b-fp8",
+                   "default_model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
                    "keys_url": "https://dash.cloudflare.com/profile/api-tokens",
                    "needs_account": True, "json_mode": "none",
                    "note": "Лучшая приватность (не учится на данных). Бесплатно 10k/день, без карты. Из РФ — через Zapret. Нужен Account ID."},
@@ -553,4 +553,7 @@ def _capture_api(provider, text):
         return {"ok": False, "error": "http_%d" % e.code, "detail": body}
     except Exception as e:
         return {"ok": False, "error": "net", "detail": repr(e)}
+    if not isinstance(data, dict):
+        # запрос прошёл, но модель вернула не-JSON — покажем её сырой ответ для диагностики
+        return {"ok": False, "error": "parse", "detail": (content or "")[:200]}
     return _sanitize(data, text)
