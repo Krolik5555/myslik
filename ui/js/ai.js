@@ -33,6 +33,32 @@ function aiEnabled(){ return !!AICap.status.available; }
 // открыть ссылку (получить ключ API) в браузере
 async function aiOpenUrl(url){ try{ if(HasPy()&&window.pywebview.api.open_url) await window.pywebview.api.open_url(url); }catch(e){} }
 
+// отдельное окно-инструкция для Cloudflare: пошагово + кнопки на нужные страницы
+function aiCloudflareHelp(){
+  const m=el("div","modal");
+  m.innerHTML=`
+    <h3><i class="ti ti-cloud"></i>Подключение Cloudflare AI</h3>
+    <div class="set-hint" style="margin-bottom:10px">Бесплатно, карта не нужна. Нужны <b>два</b> значения — <b>API-ключ</b> и <b>Account ID</b>. Кнопки ниже открывают нужные страницы (не грузятся — включи Zapret).</div>
+    <ol style="margin:0 0 12px;padding-left:20px;line-height:1.6;font-size:13px;color:var(--tx)">
+      <li><b>Регистрация:</b> заведи аккаунт Cloudflare по почте (или войди).</li>
+      <li><b>API-ключ:</b> на странице «API Tokens» → <b>Create Token</b> → шаблон <b>«Workers AI»</b> → Continue → Create Token → скопируй строку (показывается один раз).</li>
+      <li><b>Account ID:</b> открой «Workers &amp; Pages» — справа блок <b>Account ID</b>, скопируй. (Или возьми из адреса: dash.cloudflare.com/<b>…</b>/…)</li>
+      <li>Вставь оба значения в поля в настройках и нажми <b>Сохранить</b> — Мыслик проверит связь.</li>
+    </ol>
+    <div style="display:flex;flex-direction:column;gap:7px">
+      <button class="btn ghost cf-lnk" data-u="https://dash.cloudflare.com/sign-up"><i class="ti ti-user-plus"></i>Регистрация / вход в Cloudflare</button>
+      <button class="btn ghost cf-lnk" data-u="https://dash.cloudflare.com/profile/api-tokens"><i class="ti ti-key"></i>Создать API-ключ (шаблон «Workers AI»)</button>
+      <button class="btn ghost cf-lnk" data-u="https://dash.cloudflare.com/?to=/:account/workers-and-pages"><i class="ti ti-id-badge-2"></i>Workers &amp; Pages — там Account ID</button>
+    </div>
+    <div class="modal-foot"><div class="right">
+      <button class="btn primary" id="cf-help-done"><i class="ti ti-check"></i>Понятно</button>
+    </div></div>`;
+  const ov=overlay(m);
+  m.querySelectorAll(".cf-lnk").forEach(b=>b.onclick=()=>aiOpenUrl(b.dataset.u));
+  const done=m.querySelector("#cf-help-done"); if(done) done.onclick=()=>ov.remove();
+  return ov;
+}
+
 // человекочитаемая причина отказа (чтобы «не работает» стало понятным)
 function aiErrMsg(res){
   const e=(res&&res.error)||"";
@@ -164,16 +190,10 @@ function aiApiSectionHtml(provider, info){
   const acct = info.needs_account ? `
     <div class="field"><label>Account ID</label>
       <input type="text" id="ai-apiacct" placeholder="${info.has_account?esc(info.account||"сохранён"):"строка из адреса dash.cloudflare.com/…"}" autocomplete="off" spellcheck="false" ${_aiInp}></div>` : "";
-  // подробная инструкция только для Cloudflare (нужны токен + Account ID)
+  // короткая подсказка; полная инструкция с кнопками-ссылками — в окне по «Как получить»
   const guide = (provider==="cloudflare") ? `
-    <div style="background:var(--surf3);border:1px solid var(--bd);border-radius:var(--r-s);padding:10px 12px;margin:8px 0;font-size:12.5px;color:var(--mut)">
-      <b style="color:var(--tx)">Как подключить (≈2 минуты, бесплатно, карта не нужна):</b>
-      <ol style="margin:6px 0 0;padding-left:18px;line-height:1.55">
-        <li>Открой <b>dash.cloudflare.com</b> → зарегистрируйся по почте (или войди). Если страница не грузится — включи Zapret.</li>
-        <li><b>API-ключ:</b> правый верхний угол → значок профиля → <b>My Profile</b> → слева <b>API Tokens</b> → <b>Create Token</b> → выбери готовый шаблон <b>«Workers AI»</b> → <b>Continue</b> → <b>Create Token</b> → скопируй строку (показывается один раз) и вставь в поле «API-ключ» ниже.</li>
-        <li><b>Account ID:</b> он прямо в адресной строке — <span style="color:var(--mut)">dash.cloudflare.com/</span><b>вот эта длинная строка</b><span style="color:var(--mut)">/…</span>. Скопируй её и вставь в «Account ID». <span style="color:var(--mut)">(Ещё вариант: слева «Workers &amp; Pages» → справа блок «Account ID».)</span></li>
-        <li>Нажми <b>Сохранить</b> — Мыслик сразу проверит связь.</li>
-      </ol>
+    <div style="background:var(--surf3);border:1px solid var(--bd);border-radius:var(--r-s);padding:9px 12px;margin:8px 0;font-size:12.5px;color:var(--mut)">
+      Нужны <b style="color:var(--tx)">API-ключ</b> и <b style="color:var(--tx)">Account ID</b> (бесплатно, карта не нужна). Жми <b style="color:var(--tx)">«Как получить»</b> — там пошагово и кнопки на нужные страницы Cloudflare.
     </div>` : "";
   return `<div class="set-sec">${esc(info.title||provider)} — доступ</div>
     <div class="set-hint">${esc(info.note||"")} Ключ хранится только у тебя на диске и уходит лишь этому провайдеру.</div>
@@ -201,7 +221,7 @@ function aiApiSectionHtml(provider, info){
     })()}`;
 }
 function aiWireApiSection(panel, provider, info){
-  const how=panel.querySelector("#ai-key-how"); if(how) how.onclick=()=>aiOpenUrl(info.keys_url||"");
+  const how=panel.querySelector("#ai-key-how"); if(how) how.onclick=()=> (provider==="cloudflare" ? aiCloudflareHelp() : aiOpenUrl(info.keys_url||""));
   const clr=panel.querySelector("#ai-key-clear"); if(clr) clr.onclick=async()=>{
     try{ await window.pywebview.api.ai_set_api_key(provider,""); toast("Ключ удалён",{icon:"ti-trash"}); await aiCheckStatus(); aiPaintSettings(panel); }catch(e){}
   };
@@ -222,7 +242,7 @@ function aiWireApiSection(panel, provider, info){
       toast("Сохранено, проверяю связь…",{icon:"ti-loader"});
       // авто-проверка: сразу зовём модель тестовой фразой и показываем результат/причину
       const r=await window.pywebview.api.ai_capture("завтра в 15 часов позвонить маме по работе");
-      if(r&&r.ok) toast("Связь есть · понял так: «"+esc(r.title||"")+"»",{icon:"ti-check",hold:true});
+      if(r&&r.ok) toast("Связь есть ✓ Cloudflare отвечает — умный захват готов",{icon:"ti-check",hold:true});
       else{ console.warn("[ai] test error:", r&&r.error, r&&r.detail);
         const dt=(r&&r.detail)?" · "+String(r.detail).slice(0,140):"";
         toast("Не прошло: "+aiErrMsg(r)+dt,{icon:"ti-alert-triangle",hold:true}); }
@@ -270,7 +290,12 @@ async function aiLocalSectionHtml(st){
       </div>`).join("") : `<div class="set-hint">Все модели каталога уже установлены.</div>`}
 
     <div class="set-sec">Движок</div>
-    <div class="set-hint">CPU — работает у всех. GPU (Vulkan) — на видеокарте, но занимает видеопамять. Смена — после перезапуска.</div>
+    <div class="set-hint">Локальному ИИ нужен движок (llama_cpp) рядом с приложением. CPU — работает у всех. GPU (Vulkan) — на видеокарте, но занимает видеопамять. Смена движка — после перезапуска.</div>
+    ${["cpu","gpu"].filter(b=>!backends.includes(b)).map(b=>{
+      const nm=b==="gpu"?"GPU (Vulkan)":"CPU", sz=b==="gpu"?"~80 МБ":"~10 МБ";
+      return `<div class="set-row"><span class="set-val">Движок ${nm} не установлен <span style="color:var(--mut)">· ${sz}</span></span>
+        <div class="right"><button class="btn ghost ai-engdl" data-b="${b}"><i class="ti ti-download"></i>Скачать</button></div></div>`;
+    }).join("")}
     <div class="field"><label>Где считать</label>
       <div class="seg" id="set-ai-engine">
         ${["cpu","gpu"].map(b=>`<button data-v="${b}" class="${curB===b?"on":""}" ${backends.includes(b)?"":"disabled"}>${lbl(b)}${backends.includes(b)?"":" — нет пака"}</button>`).join("")}
@@ -305,6 +330,13 @@ function aiWireLocalSection(panel, st){
       else if(r&&r.error==="busy") toast("Уже качается другая модель",{icon:"ti-download"});
       else toast("Не удалось начать загрузку",{icon:"ti-alert-triangle"});
     }catch(e){ toast("Не удалось начать загрузку",{icon:"ti-alert-triangle"}); } });
+  // скачать движок (llama_cpp) — распакуется в ai/engine-*
+  panel.querySelectorAll(".ai-engdl").forEach(b=>b.onclick=async()=>{ const bk=b.dataset.b;
+    try{ const r=await window.pywebview.api.ai_download_engine(bk);
+      if(r&&r.ok){ toast("Загрузка движка началась",{icon:"ti-download"}); aiPollDownload(panel); }
+      else if(r&&r.error==="busy") toast("Уже что-то качается — дождись",{icon:"ti-download"});
+      else toast("Не удалось начать загрузку движка",{icon:"ti-alert-triangle"});
+    }catch(e){ toast("Не удалось начать загрузку движка",{icon:"ti-alert-triangle"}); } });
   aiPollDownload(panel, true);   // если загрузка уже идёт — подхватить прогресс
 }
 
@@ -318,7 +350,7 @@ async function aiPollDownload(panel, silent){
     if(s.active){ box.style.display="block";
       box.innerHTML=`<div class="set-hint" style="margin-bottom:4px">Качаю ${esc(s.active.replace(/\.gguf$/i,""))}… ${s.pct||0}%</div><div style="height:6px;background:var(--surf3);border-radius:3px;overflow:hidden"><div style="height:100%;width:${s.pct||0}%;background:var(--acc);transition:width .3s"></div></div>`;
     } else { if(_aiDlTimer){ clearInterval(_aiDlTimer); _aiDlTimer=null; }
-      if(s.done){ toast("Модель скачана",{icon:"ti-check"}); aiPaintSettings(panel); }
+      if(s.done){ toast("Скачано ✓",{icon:"ti-check"}); aiPaintSettings(panel); }
       else if(s.error){ box.style.display="block"; box.innerHTML=`<div class="set-hint" style="color:var(--warn)">Ошибка загрузки — проверь интернет и попробуй снова.</div>`; }
       else box.style.display="none"; }
   };

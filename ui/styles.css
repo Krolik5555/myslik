@@ -342,7 +342,12 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .gt-it:hover{color:var(--tx);border-color:var(--bd2);}
 .gt-it:active{cursor:grabbing;}
 .gt-it i{flex:0 0 auto;font-size:13px;}
-.gt-it span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.gt-it span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
+.gt-del{flex:0 0 auto;width:18px;height:18px;display:flex;align-items:center;justify-content:center;
+  border:none;background:transparent;color:var(--mut2);border-radius:5px;cursor:pointer;opacity:0;transition:opacity .12s,color .12s,background .12s;}
+.gt-it:hover .gt-del{opacity:1;}
+.gt-del:hover{color:var(--warn);background:var(--surf3);}
+.gt-del i{font-size:13px;}
 /* призрак под курсором. pointer-events:none обязателен: иначе он сам оказывался бы под курсором
    и elementFromPoint возвращал бы его вместо ноды, на которую целятся. */
 .gt-ghost{position:absolute;z-index:9;pointer-events:none;transform:translate(-50%,-50%);

@@ -977,8 +977,17 @@ class Graph{
     if(!open){ $(".gt-list",tray).innerHTML=""; return; }   // свёрнут — список не строим вовсе
     const ic=it=>it.kind==="flow"?"ti-artboard":it.kind==="note"?"ti-note":"ti-checklist";
     $(".gt-list",tray).innerHTML=loose.map(it=>{ const t=(it.title||"").trim()||"(без названия)";
-      return `<div class="gt-it" data-tid="${it.id}" title="${esc(t)}"><i class="ti ${ic(it)}"></i><span>${esc(t)}</span></div>`; }).join("");
-    $$(".gt-it",tray).forEach(el=>{ el.onpointerdown=e=>{ if(e.button===0) this._trayGrab(e,el); }; });
+      return `<div class="gt-it" data-tid="${it.id}" title="${esc(t)}"><i class="ti ${ic(it)}"></i><span>${esc(t)}</span><button class="gt-del" data-del="${it.id}" title="Удалить в корзину"><i class="ti ti-x"></i></button></div>`; }).join("");
+    // тащить на холст — но не когда жмут на крестик удаления
+    $$(".gt-it",tray).forEach(el=>{ el.onpointerdown=e=>{ if(e.button===0 && !e.target.closest(".gt-del")) this._trayGrab(e,el); }; });
+    // удалить элемент из лотка (мягко, в Корзину, с отменой)
+    $$(".gt-del",tray).forEach(b=>{
+      b.onpointerdown=e=>e.stopPropagation();   // не запускать перетаскивание
+      b.onclick=e=>{ e.stopPropagation(); const id=b.dataset.del;
+        deleteItem(id); render();
+        toast("Удалено в корзину",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restoreItem(id); render(); }});
+      };
+    });
   }
   /* Тянем мысль из лотка на холст. Бросил на пустое место — она там и встала (это и есть «разобрал»).
      Бросил на ноду — встала и привязалась к ней (через _linkTo, поэтому бросок на область назначит область).

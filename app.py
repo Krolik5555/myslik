@@ -66,7 +66,21 @@ AI_MODEL_CATALOG = [
      "url": _HF + "/Vikhrmodels/QVikhr-3-1.7B-Instruction-noreasoning-GGUF/resolve/main/QVikhr-3-1.7B-Instruction-noreasoning-Q8_0.gguf"},
 ]
 
-# состояние текущей загрузки модели (для прогресса в UI)
+# Каталог движков llama_cpp (паки рядом с приложением: ai/engine-cpu, ai/engine-vulkan).
+# ХОСТ — HuggingFace, НЕ github release-assets: последний рвётся под DPI у части юзеров
+# (см. историю КРОЛИКа). Загрузи два zip (содержимое папок engine-*, т.е. llama_cpp/ в корне
+# архива) в свой HF-репозиторий и подставь сюда resolve-ссылки. Скачивание — только по кнопке.
+_HF_ENGINES = "https://huggingface.co/Krolik5555/myslik-engines/resolve/main"
+ENGINE_CATALOG = [
+    {"backend": "cpu", "dir": "engine-cpu", "title": "CPU-движок", "size": 9800000,
+     "note": "Работает на любом ПК. Нужен для локального ИИ.",
+     "url": _HF_ENGINES + "/engine-cpu.zip"},
+    {"backend": "gpu", "dir": "engine-vulkan", "title": "GPU-движок (Vulkan)", "size": 79700000,
+     "note": "Считает на видеокарте (любой), занимает видеопамять.",
+     "url": _HF_ENGINES + "/engine-vulkan.zip"},
+]
+
+# состояние текущей загрузки модели/движка (для прогресса в UI)
 _AI_DL = {"active": None, "pct": 0, "done": False, "error": None}
 _AI_DL_LOCK = threading.Lock()
 # токен/чат Telegram — ОТДЕЛЬНЫЙ файл, а не часть planner.json: он не должен попадать
@@ -676,6 +690,99 @@ class Api:
 
         threading.Thread(target=_worker, daemon=True).start()
         return {"ok": True, "name": name}
+
+    def ai_engine_catalog(self):
+        """Каталог движков + флаг установлен ли (по наличию llama_cpp в паке)."""
+        out = []
+        for e in ENGINE_CATALOG:
+            inst = os.path.isfile(os.path.join(AI_DIR, e["dir"], "llama_cpp", "__init__.py"))
+            out.append(dict(e, installed=inst))
+        return out
+
+    def ai_download_engine(self, backend):
+        """Скачать пак движка (zip с HF) и распаковать в ai/engine-*. Атомарно, с ретраями
+        (DPI может рвать соединение). Только по кнопке."""
+        entry = next((e for e in ENGINE_CATALOG if e["backend"] == backend), None)
+        if not entry:
+            return {"ok": False, "error": "unknown_engine"}
+        with _AI_DL_LOCK:
+            if _AI_DL["active"]:
+                return {"ok": False, "error": "busy", "active": _AI_DL["active"]}
+            _AI_DL.update(active=entry["dir"], pct=0, done=False, error=None)
+        os.makedirs(AI_DIR, exist_ok=True)
+        dest_dir = os.path.join(AI_DIR, entry["dir"])
+        tmp_zip = os.path.join(AI_DIR, entry["dir"] + ".part.zip")
+        stage = dest_dir + ".new"
+
+        def _worker():
+            import urllib.request
+            import zipfile
+            try:
+                last = None
+                for _attempt in range(3):            # ретраи: DPI/сеть иногда рвут поток
+                    try:
+                        req = urllib.request.Request(entry["url"], headers={"User-Agent": "Myslik"})
+                        with urllib.request.urlopen(req, timeout=120) as resp:
+                            total = int(resp.headers.get("Content-Length") or entry.get("size") or 0)
+                            got = 0
+                            with open(tmp_zip, "wb") as f:
+                                while True:
+                                    chunk = resp.read(262144)
+                                    if not chunk:
+                                        break
+                                    f.write(chunk)
+                                    got += len(chunk)
+                                    if total:
+                                        _AI_DL["pct"] = min(98, int(got * 100 / total))
+                        last = None
+                        break
+                    except Exception as e:
+                        last = e
+                        try:
+                            os.remove(tmp_zip)
+                        except Exception:
+                            pass
+                if last:
+                    raise last
+                # распаковка в stage + защита от zip-slip
+                if os.path.isdir(stage):
+                    shutil.rmtree(stage, ignore_errors=True)
+                os.makedirs(stage, exist_ok=True)
+                with zipfile.ZipFile(tmp_zip) as z:
+                    base = os.path.realpath(stage)
+                    for m in z.namelist():
+                        d = os.path.realpath(os.path.join(stage, m))
+                        if d != base and not d.startswith(base + os.sep):
+                            raise ValueError("zip slip: %s" % m)
+                    z.extractall(stage)
+                # архив мог положить llama_cpp/ в корень ИЛИ во вложенную папку engine-*/
+                inner = os.path.join(stage, entry["dir"])
+                root = inner if os.path.isfile(os.path.join(inner, "llama_cpp", "__init__.py")) else stage
+                if not os.path.isfile(os.path.join(root, "llama_cpp", "__init__.py")):
+                    raise ValueError("bad_engine_zip")   # нет llama_cpp — не ставим битый пак
+                if os.path.isdir(dest_dir):
+                    shutil.rmtree(dest_dir, ignore_errors=True)
+                os.replace(root, dest_dir)               # атомарно на том же диске
+                if os.path.isdir(stage):
+                    shutil.rmtree(stage, ignore_errors=True)
+                os.remove(tmp_zip)
+                _AI_DL.update(pct=100, done=True, active=None)
+            except Exception as e:
+                print("[ai] engine download error:", e)
+                for p in (tmp_zip,):
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+                try:
+                    if os.path.isdir(stage):
+                        shutil.rmtree(stage, ignore_errors=True)
+                except Exception:
+                    pass
+                _AI_DL.update(error=repr(e), active=None)
+
+        threading.Thread(target=_worker, daemon=True).start()
+        return {"ok": True, "backend": backend}
 
     def ai_download_status(self):
         return dict(_AI_DL)
