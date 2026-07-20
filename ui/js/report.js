@@ -86,42 +86,54 @@ function openReportModal(items){
       <button data-m="simple" class="on">Простой</button>
       <button data-m="ai">Через ИИ${aiReady?"":" ·  выкл"}</button>
     </div>
+    <div class="field rep-purpose-row" style="display:none">
+      <label>Цель</label>
+      <input type="text" id="rep-purpose" placeholder="напр. «баг-репорт разработчику» — необязательно" autocomplete="off"
+        style="flex:1;min-width:0;background:var(--surf3);border:1px solid var(--bd);border-radius:var(--r-s);color:var(--tx);padding:7px 10px;font-family:var(--font)">
+    </div>
     <div class="report-body"><pre id="rep-out"></pre></div>
     <div class="modal-foot">
       <button class="btn ghost" id="rep-copy"><i class="ti ti-copy"></i>Копировать</button>
       <button class="btn ghost" id="rep-save"><i class="ti ti-note"></i>Сохранить заметкой</button>
-      <div class="right"><button class="btn primary" id="rep-close"><i class="ti ti-check"></i>Закрыть</button></div>
+      <div class="right">
+        <button class="btn ghost" id="rep-regen" style="display:none"><i class="ti ti-refresh"></i>Пересобрать</button>
+        <button class="btn primary" id="rep-close"><i class="ti ti-check"></i>Закрыть</button>
+      </div>
     </div>`;
   const ov=overlay(m);
   const out=m.querySelector("#rep-out");
+  const purposeRow=m.querySelector(".rep-purpose-row");
+  const regenBtn=m.querySelector("#rep-regen");
   const paint=()=>{
     if(mode==="simple"){ out.textContent=simple; }
     else if(loading){ out.textContent="ИИ собирает отчёт…"; }
     else if(aiText){ out.textContent=aiText; }
-    else { out.textContent=""; }
+    else { out.textContent="Нажми «Через ИИ» ещё раз или «Пересобрать»."; }
+    purposeRow.style.display = (mode==="ai") ? "" : "none";
+    regenBtn.style.display = (mode==="ai" && aiReady) ? "" : "none";
   };
   const curText=()=> (mode==="ai" && aiText) ? aiText : simple;
+
+  const genAi=async()=>{
+    if(!aiReady){ toast("Включи ИИ в Настройки → ИИ",{icon:"ti-sparkles"}); return; }
+    if(loading) return;
+    loading=true; aiText=null; paint();
+    const purpose=(m.querySelector("#rep-purpose").value||"").trim();
+    try{
+      const r=await window.pywebview.api.ai_report(simple, purpose);
+      if(r&&r.ok){ aiText=(r.text||"").trim()||"(пустой ответ)"; }
+      else { toast("ИИ-отчёт: "+((typeof aiErrMsg==="function")?aiErrMsg(r):"ошибка"),{icon:"ti-alert-triangle"}); }
+    }catch(e){ toast("Не удалось собрать ИИ-отчёт",{icon:"ti-alert-triangle"}); }
+    loading=false; paint();
+  };
   paint();
 
-  // переключатель режима
-  m.querySelectorAll("#rep-mode button").forEach(b=>b.onclick=async()=>{
-    const wantAi=b.dataset.m==="ai";
+  m.querySelectorAll("#rep-mode button").forEach(b=>b.onclick=()=>{
     m.querySelectorAll("#rep-mode button").forEach(x=>x.classList.toggle("on",x===b));
-    mode=wantAi?"ai":"simple";
-    if(mode==="ai" && !aiText && !loading){
-      if(!aiReady){ toast("Включи ИИ в Настройки → ИИ",{icon:"ti-sparkles"}); }
-      else {
-        loading=true; paint();
-        try{
-          const r=await window.pywebview.api.ai_report(simple);
-          if(r&&r.ok){ aiText=(r.text||"").trim()||"(пустой ответ)"; }
-          else { toast("ИИ-отчёт: "+((typeof aiErrMsg==="function")?aiErrMsg(r):"ошибка"),{icon:"ti-alert-triangle"}); }
-        }catch(e){ toast("Не удалось собрать ИИ-отчёт",{icon:"ti-alert-triangle"}); }
-        loading=false;
-      }
-    }
-    paint();
+    mode = b.dataset.m==="ai" ? "ai" : "simple";
+    if(mode==="ai" && !aiText && !loading){ genAi(); } else { paint(); }
   });
+  regenBtn.onclick=genAi;
 
   m.querySelector("#rep-copy").onclick=async()=>{
     const ok=await _repCopy(curText());
@@ -129,7 +141,7 @@ function openReportModal(items){
   };
   m.querySelector("#rep-save").onclick=()=>{
     let title="Отчёт"; try{ title="Отчёт "+new Date().toLocaleDateString("ru"); }catch(e){}
-    const it=addItem({kind:"note", title:title, body:curText()});
+    addItem({kind:"note", title:title, body:curText()});
     persist(); if(typeof render==="function") render();
     toast("Отчёт сохранён заметкой",{icon:"ti-note"});
   };
