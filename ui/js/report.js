@@ -19,45 +19,52 @@ function reportStatusOf(it){
 // человекочитаемая дата timestamp → «дд.мм.гггг»
 function _repTs(ts){ try{ return new Date(ts).toLocaleDateString("ru"); }catch(e){ return ""; } }
 
-// детерминированный «простой» отчёт по выделенным элементам
+// маркер пункта: • заметка · ✓/►/○ задача по статусу
+function _reportMarker(it){
+  const st=reportStatusOf(it);
+  if(st==="done") return "✓";
+  if(st==="doing") return "►";
+  if(st==="todo") return "○";
+  return "•";
+}
+function _reportMeta(it){
+  const st=reportStatusOf(it), meta=[];
+  if(st==="done" && it.doneAt) meta.push("выполнено "+_repTs(it.doneAt));
+  if(st && st!=="done" && it.due){ const dl=(typeof dueLabel==="function")?dueLabel(it.due):null; meta.push("срок "+(dl&&dl.txt?dl.txt:it.due)); }
+  if(it.priority) meta.push("!".repeat(it.priority));
+  return meta.length?"  ("+meta.join(", ")+")":"";
+}
+// детерминированный «простой» отчёт: ДЕРЕВО по иерархии (parent), маркеры статусов, сводка задач
 function buildReportText(items){
   items=(items||[]).filter(Boolean);
-  const notes=items.filter(i=>i.kind==="note"||i.kind==="flow");
-  const tasks=items.filter(i=>i.kind==="task");
+  const idset=new Set(items.map(i=>i.id));
+  const children={}, roots=[];
+  items.forEach(i=>{ if(i.parent && idset.has(i.parent)){ (children[i.parent]=children[i.parent]||[]).push(i); } else roots.push(i); });
+
   const L=[];
   let head="Отчёт · "+items.length+" элем.";
   try{ head+=" · "+new Date().toLocaleDateString("ru"); }catch(e){}
-  L.push(head); L.push("");
-
-  if(notes.length){
-    L.push("ЗАМЕТКИ ("+notes.length+")");
-    notes.forEach(n=>{
-      L.push("• "+((n.title||"").trim()||"(без названия)"));
-      const b=(n.body||"").trim();
-      if(b) L.push("  "+b.replace(/\n/g,"\n  "));
-    });
-    L.push("");
-  }
-
+  L.push(head);
+  // краткая сводка по задачам (если они есть)
+  const tasks=items.filter(i=>i.kind==="task");
   if(tasks.length){
-    L.push("ЗАДАЧИ ("+tasks.length+")");
-    const groups=[["done","✓ Выполнено"],["doing","► В работе"],["todo","○ Не начато"]];
-    groups.forEach(([st,label])=>{
-      const g=tasks.filter(t=>reportStatusOf(t)===st);
-      if(!g.length) return;
-      L.push(label+" ("+g.length+")");
-      g.forEach(t=>{
-        const meta=[];
-        if(st==="done" && t.doneAt) meta.push("выполнено "+_repTs(t.doneAt));
-        if(st!=="done" && t.due){ const dl=(typeof dueLabel==="function")?dueLabel(t.due):null; meta.push("срок "+(dl&&dl.txt?dl.txt:t.due)); }
-        if(t.priority) meta.push("!".repeat(t.priority));
-        L.push("  • "+((t.title||"").trim()||"(без названия)")+(meta.length?"  ("+meta.join(", ")+")":""));
-        const b=(t.body||"").trim();
-        if(b) L.push("    "+b.replace(/\n/g,"\n    "));
-      });
-    });
+    const cnt=s=>tasks.filter(t=>reportStatusOf(t)===s).length;
+    const p=[]; if(cnt("done"))p.push("✓ "+cnt("done")+" выполнено"); if(cnt("doing"))p.push("► "+cnt("doing")+" в работе"); if(cnt("todo"))p.push("○ "+cnt("todo")+" не начато");
+    L.push("Задачи: "+tasks.length+(p.length?" — "+p.join(", "):""));
   }
-  if(!notes.length && !tasks.length) L.push("(в выделении нет заметок или задач)");
+  L.push("");
+
+  const seen=new Set();
+  const walk=(it, depth)=>{
+    if(seen.has(it.id)) return; seen.add(it.id);   // защита от циклов parent
+    const ind="  ".repeat(depth);
+    L.push(ind+_reportMarker(it)+" "+((it.title||"").trim()||"(без названия)")+_reportMeta(it));
+    const b=(it.body||"").trim();
+    if(b) L.push(ind+"    "+b.replace(/\n/g,"\n"+ind+"    "));
+    (children[it.id]||[]).forEach(ch=>walk(ch, depth+1));
+  };
+  roots.forEach(r=>walk(r,0));
+  if(!items.length) L.push("(в выделении нет заметок или задач)");
   return L.join("\n");
 }
 
@@ -108,9 +115,12 @@ function openReportModal(items){
     if(mode==="simple"){ out.textContent=simple; }
     else if(loading){ out.textContent="ИИ собирает отчёт…"; }
     else if(aiText){ out.textContent=aiText; }
-    else { out.textContent="Нажми «Через ИИ» ещё раз или «Пересобрать»."; }
+    else if(!aiReady){ out.textContent="ИИ выключен. Включи провайдера в Настройки → ИИ."; }
+    else { out.textContent="Нажми «Собрать через ИИ» ниже — модель соберёт отчёт (потратит немного токенов провайдера)."; }
     purposeRow.style.display = (mode==="ai") ? "" : "none";
     regenBtn.style.display = (mode==="ai" && aiReady) ? "" : "none";
+    // одна кнопка: «Собрать через ИИ» пока отчёта нет, дальше «Пересобрать»
+    regenBtn.innerHTML = aiText ? `<i class="ti ti-refresh"></i>Пересобрать` : `<i class="ti ti-sparkles"></i>Собрать через ИИ`;
   };
   const curText=()=> (mode==="ai" && aiText) ? aiText : simple;
 
@@ -131,7 +141,7 @@ function openReportModal(items){
   m.querySelectorAll("#rep-mode button").forEach(b=>b.onclick=()=>{
     m.querySelectorAll("#rep-mode button").forEach(x=>x.classList.toggle("on",x===b));
     mode = b.dataset.m==="ai" ? "ai" : "simple";
-    if(mode==="ai" && !aiText && !loading){ genAi(); } else { paint(); }
+    paint();   // НЕ запускаем ИИ автоматически — только по кнопке (чтобы случайно не жечь токены)
   });
   regenBtn.onclick=genAi;
 
