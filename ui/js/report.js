@@ -68,6 +68,17 @@ function buildReportText(items){
   return L.join("\n");
 }
 
+// подстраховка: если модель всё же выдала markdown (*, +, -, ###, **) — чистим в аккуратный текст
+function _reportCleanMd(s){
+  return (s||"").split("\n").map(line=>{
+    line=line.replace(/^(\s*)#{1,6}\s+/, "$1");           // ### заголовок → без решётки
+    line=line.replace(/^(\s*)[*+\-]\s+/, "$1• ");          // маркер списка → чистый буллет (отступ = иерархия)
+    line=line.replace(/\*\*(.+?)\*\*/g, "$1");             // **жирный** → просто текст
+    line=line.replace(/`([^`]+)`/g, "$1");                 // `код` → просто текст
+    return line;
+  }).join("\n").replace(/\n{3,}/g,"\n\n").trim();
+}
+
 // надёжное копирование в буфер (file:// в WebView2 — не secure context, clipboard API может не сработать)
 async function _repCopy(text){
   try{ if(navigator.clipboard && navigator.clipboard.writeText){ await navigator.clipboard.writeText(text); return true; } }catch(e){}
@@ -101,7 +112,7 @@ function openReportModal(items){
     <div class="report-body"><pre id="rep-out"></pre></div>
     <div class="modal-foot">
       <button class="btn ghost" id="rep-copy"><i class="ti ti-copy"></i>Копировать</button>
-      <button class="btn ghost" id="rep-save"><i class="ti ti-note"></i>Сохранить заметкой</button>
+      <button class="btn ghost" id="rep-save" title="Сохранить отчёт как заметку"><i class="ti ti-note"></i>Сохранить</button>
       <div class="right">
         <button class="btn ghost" id="rep-regen" style="display:none"><i class="ti ti-refresh"></i>Пересобрать</button>
         <button class="btn primary" id="rep-close"><i class="ti ti-check"></i>Закрыть</button>
@@ -131,7 +142,7 @@ function openReportModal(items){
     const purpose=(m.querySelector("#rep-purpose").value||"").trim();
     try{
       const r=await window.pywebview.api.ai_report(simple, purpose);
-      if(r&&r.ok){ aiText=(r.text||"").trim()||"(пустой ответ)"; }
+      if(r&&r.ok){ aiText=_reportCleanMd((r.text||"").trim())||"(пустой ответ)"; }
       else { toast("ИИ-отчёт: "+((typeof aiErrMsg==="function")?aiErrMsg(r):"ошибка"),{icon:"ti-alert-triangle"}); }
     }catch(e){ toast("Не удалось собрать ИИ-отчёт",{icon:"ti-alert-triangle"}); }
     loading=false; paint();
