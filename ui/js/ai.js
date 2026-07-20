@@ -186,7 +186,7 @@ function aiWireApiSection(panel, provider, info){
     const k=(panel.querySelector("#ai-apikey").value||"").trim();
     const acctEl=panel.querySelector("#ai-apiacct");
     const acct=acctEl?(acctEl.value||"").trim():"";
-    if(!k && !acct){ toast("Вставь ключ",{icon:"ti-key"}); return; }
+    if(!k && !acct && !info.has_key){ toast("Вставь ключ",{icon:"ti-key"}); return; }  // ключа ещё нет
     try{
       if(acct) await window.pywebview.api.ai_set_api_account(provider, acct);
       if(k) await window.pywebview.api.ai_set_api_key(provider, k);
