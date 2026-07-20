@@ -809,7 +809,13 @@ class Graph{
       {par:1.00, sp:118, sz:5.4, a:light?0.175:0.150, wob:20}
     ];
     for(let li=0;li<layers.length;li++){
-      const L=layers[li], tile=L.sp*z; if(tile<5) continue;
+      const L=layers[li]; let tile=L.sp*z; if(tile<5) continue;
+      // При сильном отдалении тайл мельчает → тайлов на экран становятся тысячи. Раньше стоял
+      // жёсткий лимит в 420 звёзд, и он ОБРЫВАЛ отрисовку на верхних рядах — низ фона оставался
+      // чёрным (обрезка). Теперь вместо обрыва РАЗРЕЖАЕМ тайл до бюджета: слой рисуется ЦЕЛИКОМ и
+      // покрывает весь экран, просто реже. Бюджет ограничивает стоимость кадра.
+      const _CAP=2600, _nt=(Math.ceil(w/tile)+2)*(Math.ceil(h/tile)+2);
+      if(_nt>_CAP) tile*=Math.sqrt(_nt/_CAP);
       // мировой сдвиг слоя от параллакса: копится ТОЛЬКО от пана (bgPan). origin слоя = мировая точка,
       // умноженная на общий зум/сдвиг → при зуме слой масштабируется РОВНО как мир (курсор-точка неподвижна, чисто).
       const loX=-this.bgPanX*(1-L.par), loY=-this.bgPanY*(1-L.par);
@@ -817,9 +823,7 @@ class Graph{
       const offX=((totX)%tile+tile)%tile, offY=((totY)%tile+tile)%tile;
       const baseX=Math.floor(totX/tile), baseY=Math.floor(totY/tile);
       const cols=Math.ceil(w/tile)+2, rows=Math.ceil(h/tile)+2, dr=L.sz*z, wobA=L.wob*z;
-      let drawn=0;
       for(let gy=-1; gy<rows; gy++){ for(let gx=-1; gx<cols; gx++){
-        if(drawn>420) break;
         const ci=gx+baseX, cj=gy+baseY;
         const hx=hash(ci+li*131,cj+li*977), hy=hash(ci+li*491,cj+li*263), ho=hash(ci+li*53,cj+li*97);
         const jx=(hx-0.5)*tile*0.5, jy=(hy-0.5)*tile*0.5;
@@ -830,7 +834,6 @@ class Graph{
         if(x<-dr-2||x>w+dr+2||y<-dr-2||y>h+dr+2) continue;
         ctx.globalAlpha=L.a*breathe;
         ctx.drawImage(star, x-dr, y-dr, dr*2, dr*2);
-        drawn++;
       }}
     }
     ctx.globalAlpha=1;
