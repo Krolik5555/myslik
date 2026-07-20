@@ -537,8 +537,12 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .seg button.on{background:var(--acc);color:var(--bg);border-color:var(--acc);box-shadow:0 0 12px var(--glow);}
 .seg button:hover{color:var(--tx);}
 .seg button.on:hover{color:var(--bg);}
-.modal-foot{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;row-gap:8px;margin-top:8px;}
-.modal-foot .right{display:flex;flex-wrap:wrap;gap:9px;margin-left:auto;}
+.modal-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:8px;}
+.modal-foot .right{display:flex;gap:9px;margin-left:auto;}
+/* строка отчёта: «Цель» + поле + кнопка «Собрать через ИИ» на одной линии */
+.rep-ai-ctl{display:flex;align-items:center;gap:8px;margin:8px 0;}
+.rep-ai-ctl label{font-size:12px;color:var(--mut);flex:0 0 auto;}
+.rep-ai-ctl input{flex:1;min-width:0;background:var(--surf3);border:1px solid var(--bd);border-radius:var(--r-s);color:var(--tx);padding:7px 10px;font-family:var(--font);}
 .set-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;}
 .set-row .right{display:flex;gap:9px;margin-left:auto;}
 .set-row .set-val{margin-left:0;font-size:12.5px;}

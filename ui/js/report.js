@@ -104,32 +104,28 @@ function openReportModal(items){
       <button data-m="simple" class="on">Простой</button>
       <button data-m="ai">Через ИИ${aiReady?"":" ·  выкл"}</button>
     </div>
-    <div class="field rep-purpose-row" style="display:none">
+    <div class="rep-ai-ctl" style="display:none">
       <label>Цель</label>
-      <input type="text" id="rep-purpose" placeholder="напр. «баг-репорт разработчику» — необязательно" autocomplete="off"
-        style="flex:1;min-width:0;background:var(--surf3);border:1px solid var(--bd);border-radius:var(--r-s);color:var(--tx);padding:7px 10px;font-family:var(--font)">
+      <input type="text" id="rep-purpose" placeholder="напр. «баг-репорт разработчику» — необязательно" autocomplete="off">
+      <button class="btn primary" id="rep-regen"><i class="ti ti-sparkles"></i>Собрать через ИИ</button>
     </div>
     <div class="report-body"><pre id="rep-out"></pre></div>
     <div class="modal-foot">
       <button class="btn ghost" id="rep-copy"><i class="ti ti-copy"></i>Копировать</button>
       <button class="btn ghost" id="rep-save" title="Сохранить отчёт как заметку"><i class="ti ti-note"></i>Сохранить</button>
-      <div class="right">
-        <button class="btn ghost" id="rep-regen" style="display:none"><i class="ti ti-refresh"></i>Пересобрать</button>
-        <button class="btn primary" id="rep-close"><i class="ti ti-check"></i>Закрыть</button>
-      </div>
+      <div class="right"><button class="btn ghost" id="rep-close"><i class="ti ti-x"></i>Закрыть</button></div>
     </div>`;
   const ov=overlay(m);
   const out=m.querySelector("#rep-out");
-  const purposeRow=m.querySelector(".rep-purpose-row");
+  const aiCtl=m.querySelector(".rep-ai-ctl");
   const regenBtn=m.querySelector("#rep-regen");
   const paint=()=>{
     if(mode==="simple"){ out.textContent=simple; }
     else if(loading){ out.textContent="ИИ собирает отчёт…"; }
     else if(aiText){ out.textContent=aiText; }
     else if(!aiReady){ out.textContent="ИИ выключен. Включи провайдера в Настройки → ИИ."; }
-    else { out.textContent="Нажми «Собрать через ИИ» ниже — модель соберёт отчёт (потратит немного токенов провайдера)."; }
-    purposeRow.style.display = (mode==="ai") ? "" : "none";
-    regenBtn.style.display = (mode==="ai" && aiReady) ? "" : "none";
+    else { out.textContent="Впиши цель (по желанию) и нажми «Собрать через ИИ» — модель соберёт отчёт (потратит немного токенов провайдера)."; }
+    aiCtl.style.display = (mode==="ai" && aiReady) ? "flex" : "none";
     // одна кнопка: «Собрать через ИИ» пока отчёта нет, дальше «Пересобрать»
     regenBtn.innerHTML = aiText ? `<i class="ti ti-refresh"></i>Пересобрать` : `<i class="ti ti-sparkles"></i>Собрать через ИИ`;
   };
