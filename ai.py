@@ -175,7 +175,11 @@ def _save_config(patch):
     cfg = _load_config()
     cfg.update(patch)
     try:
-        with open(_config_path(), "w", encoding="utf-8") as f:
+        p = _config_path()
+        if not p:
+            return False
+        os.makedirs(os.path.dirname(p), exist_ok=True)   # свежая установка: папки ai/ ещё нет — создаём перед записью
+        with open(p, "w", encoding="utf-8") as f:
             json.dump(cfg, f, ensure_ascii=False)
         return True
     except Exception:
