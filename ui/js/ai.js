@@ -33,6 +33,25 @@ function aiEnabled(){ return !!AICap.status.available; }
 // открыть ссылку (получить ключ API) в браузере
 async function aiOpenUrl(url){ try{ if(HasPy()&&window.pywebview.api.open_url) await window.pywebview.api.open_url(url); }catch(e){} }
 
+// человекочитаемая причина отказа (чтобы «не работает» стало понятным)
+function aiErrMsg(res){
+  const e=(res&&res.error)||"";
+  const simple={ no_key:"не задан ключ API", no_account:"не задан Account ID",
+    off:"ИИ выключен", unavailable:"локальная модель не загрузилась",
+    infer:"сбой локальной модели", net:"нет связи с провайдером (интернет или блокировка из РФ)" };
+  if(simple[e]) return simple[e];
+  if(e.indexOf("http_")===0){
+    const c=e.slice(5);
+    if(c==="401"||c==="403") return "ключ отклонён или у токена нет прав Inference (пересоздай с пресетом Inference)";
+    if(c==="404") return "модель недоступна у провайдера (проверь имя модели)";
+    if(c==="400") return "провайдер не принял запрос (модель или формат)";
+    if(c==="402") return "кончились бесплатные кредиты провайдера";
+    if(c==="429") return "слишком часто — подожди (лимит запросов)";
+    return "ошибка провайдера ("+c+")";
+  }
+  return "ИИ недоступен";
+}
+
 // ---- быстрый тумблер ИИ (команда в палитре Ctrl+K): off ⇄ подходящий провайдер ----
 async function aiToggle(){
   if(!AICap.checked) await aiCheckStatus();
@@ -171,7 +190,13 @@ function aiWireApiSection(panel, provider, info){
     try{
       if(acct) await window.pywebview.api.ai_set_api_account(provider, acct);
       if(k) await window.pywebview.api.ai_set_api_key(provider, k);
-      toast("Сохранено",{icon:"ti-check"}); await aiCheckStatus(); aiPaintSettings(panel);
+      await aiCheckStatus();
+      toast("Сохранено, проверяю связь…",{icon:"ti-loader"});
+      // авто-проверка: сразу зовём модель тестовой фразой и показываем результат/причину
+      const r=await window.pywebview.api.ai_capture("завтра в 15 часов позвонить маме по работе");
+      if(r&&r.ok) toast("Связь есть · понял так: «"+esc(r.title||"")+"»",{icon:"ti-check",hold:true});
+      else toast("Ключ сохранён, но связь не прошла: "+aiErrMsg(r),{icon:"ti-alert-triangle",hold:true});
+      aiPaintSettings(panel);
     }catch(e){ toast("Не удалось сохранить",{icon:"ti-alert-triangle"}); }
   };
 }
@@ -333,7 +358,12 @@ async function aiRefineCapture(it, raw){
   let res=null;
   try{ res = await window.pywebview.api.ai_capture(raw); }catch(e){ res=null; }
   if(seq !== _aiSeq) return;                    // пока думали — пришёл новый захват; этот ответ устарел, молчим
-  if(!res || !res.ok || it.deleted){ aiClear(host); return; }
+  if(!res || !res.ok || it.deleted){
+    // молча гасим только «безобидные» отказы; реальные ошибки показываем, иначе «просто не работает»
+    const benign = !res || it.deleted || ["off","junk","empty"].indexOf(res.error)>=0;
+    if(res && !benign){ console.warn("[ai] capture error:", res.error, res.detail||""); toast("Умный захват: "+aiErrMsg(res), {icon:"ti-alert-triangle"}); }
+    aiClear(host); return;
+  }
   const prop=aiBuildProposal(it, res);
   if(!prop.changes.length){ aiClear(host); return; }   // ничего лучше — молчим
   if(S.settings.aiAutoApply){ aiClear(host); aiApply(it, prop, true); return; }   // авто-применение без карточки

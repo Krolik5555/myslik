@@ -178,10 +178,10 @@ def _available_backends():
 # Порядок = порядок в UI: сверху доступные из РФ, снизу — только для заграницы.
 _API_PROVIDERS = {
     "huggingface": {"title": "HuggingFace", "base": "https://router.huggingface.co/v1",
-                    "default_model": "Qwen/Qwen2.5-72B-Instruct:together",
+                    "default_model": "Qwen/Qwen2.5-72B-Instruct:deepinfra",
                     "keys_url": "https://huggingface.co/settings/tokens",
-                    "json_mode": "object",
-                    "note": "Работает из РФ без VPN. Бесплатно, без карты. HF не хранит запросы; провайдер пиннится в имени модели (:together)."},
+                    "json_mode": "none",
+                    "note": "Работает из РФ без VPN. Бесплатно, без карты. HF не хранит запросы; провайдер пиннится в имени модели (:deepinfra — не учится на данных)."},
     "cloudflare": {"title": "Cloudflare AI", "base": "https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1",
                    "default_model": "@cf/qwen/qwen3-30b-a3b-fp8",
                    "keys_url": "https://dash.cloudflare.com/profile/api-tokens",
