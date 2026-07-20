@@ -67,17 +67,17 @@ AI_MODEL_CATALOG = [
 ]
 
 # Каталог движков llama_cpp (паки рядом с приложением: ai/engine-cpu, ai/engine-vulkan).
-# ХОСТ — HuggingFace, НЕ github release-assets: последний рвётся под DPI у части юзеров
-# (см. историю КРОЛИКа). Загрузи два zip (содержимое папок engine-*, т.е. llama_cpp/ в корне
-# архива) в свой HF-репозиторий и подставь сюда resolve-ссылки. Скачивание — только по кнопке.
-_HF_ENGINES = "https://huggingface.co/Krolik5555/myslik-engines/resolve/main"
+# ХОСТ — GitHub-релиз `engines` (prerelease, НЕ участвует в авто-обновлении: апдейтер берёт
+# /releases/latest). Проверено 2026-07: GitHub release-assets у КРОЛИКа качаются нормально, в
+# т.ч. большие файлы — старый DPI-блок ушёл. Ассеты — zip с llama_cpp/ в корне. Только по кнопке.
+_ENGINE_BASE = "https://github.com/Krolik5555/myslik/releases/download/engines"
 ENGINE_CATALOG = [
-    {"backend": "cpu", "dir": "engine-cpu", "title": "CPU-движок", "size": 9800000,
+    {"backend": "cpu", "dir": "engine-cpu", "title": "CPU-движок", "size": 2685084,
      "note": "Работает на любом ПК. Нужен для локального ИИ.",
-     "url": _HF_ENGINES + "/engine-cpu.zip"},
-    {"backend": "gpu", "dir": "engine-vulkan", "title": "GPU-движок (Vulkan)", "size": 79700000,
+     "url": _ENGINE_BASE + "/engine-cpu.zip"},
+    {"backend": "gpu", "dir": "engine-vulkan", "title": "GPU-движок (Vulkan)", "size": 19497996,
      "note": "Считает на видеокарте (любой), занимает видеопамять.",
-     "url": _HF_ENGINES + "/engine-vulkan.zip"},
+     "url": _ENGINE_BASE + "/engine-vulkan.zip"},
 ]
 
 # состояние текущей загрузки модели/движка (для прогресса в UI)
@@ -91,7 +91,7 @@ TRACE = os.environ.get("PLANNER_TRACE") == "1"
 
 # ---- авто-обновление с GitHub Releases ----
 # Единый источник версии для сравнения с релизом. Теги релизов: vX.Y.Z (напр. v1.3.0).
-APP_VERSION = "1.4.7"
+APP_VERSION = "1.4.8"
 # owner/repo публичного репозитория (заполнится после gh auth login — owner = твой GitHub-логин)
 GH_REPO_SLUG = "Krolik5555/myslik"
 
