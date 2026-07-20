@@ -37,6 +37,7 @@ _LOAD_ERR = ""
 
 _N_CTX = 2048
 _MAX_TOKENS = 320
+_MAX_REPORT_TOKENS = 900          # отчёт — длиннее одного заголовка
 _TEMPERATURE = 0.2
 # Фоновое приложение НЕ должно жрать CPU: потолок 2 потока = ~6% (2 ядра из многих)
 # на короткий ответ. РЕАЛЬНЫЙ вентиль — OMP_NUM_THREADS в _get_llm: без него OpenMP
@@ -107,6 +108,19 @@ _FEWSHOT = [
      "выделили на игру 250 млн рублей. Дату релиза не назвали.",
      {"title": "Новая игра «Земский собор»", "kind": "note", "priority": "none", "when": "", "date": ""}),
 ]
+
+
+_REPORT_INSTRUCT = (
+    "Ты — ассистент персонального планировщика «Мыслик». Пользователь выделил несколько "
+    "заметок и задач и просит отчёт. Напиши связный аккуратный отчёт на русском СТРОГО по "
+    "данным ниже:\n"
+    "1) Кратко изложи суть заметок — о чём они, что важно.\n"
+    "2) Перечисли задачи и ЯВНО укажи статус каждой: выполнено, в работе или не начато; "
+    "сгруппируй по статусу.\n"
+    "3) Если видишь общую тему или связь между пунктами — отметь одной-двумя фразами.\n"
+    "Деловой тон, маркдаун-списки, без длинного вступления. НЕ выдумывай того, чего нет во "
+    "вводе."
+)
 
 
 def _set_priority(low):
@@ -572,3 +586,84 @@ def _capture_api(provider, text):
         # запрос прошёл, но модель вернула не-JSON — покажем её сырой ответ для диагностики
         return {"ok": False, "error": "parse", "detail": (content or "")[:200]}
     return _sanitize(data, text)
+
+
+# ---------- отчёт по выделенному (свободный текст, не JSON) ----------
+def report(text):
+    """Структурированный текст выделенного → прозаический отчёт. Диспетчер по провайдеру."""
+    text = (text or "").strip()
+    if not text:
+        return {"ok": False, "error": "empty"}
+    provider = _read_provider()
+    if provider == "off":
+        return {"ok": False, "error": "off"}
+    if provider in _API_PROVIDERS:
+        return _report_api(provider, text)
+    return _report_local(text)
+
+
+def _report_local(text):
+    llm = _get_llm()
+    if llm is None:
+        return {"ok": False, "error": "unavailable", "detail": _LOAD_ERR}
+    try:
+        with _INFER_LOCK:
+            _set_priority(True)
+            try:
+                try:
+                    llm.reset()
+                except Exception:
+                    pass
+                resp = llm.create_chat_completion(
+                    messages=[{"role": "system", "content": _REPORT_INSTRUCT},
+                              {"role": "user", "content": text}],
+                    temperature=0.4, max_tokens=_MAX_REPORT_TOKENS)
+            finally:
+                _set_priority(False)
+        out = resp["choices"][0]["message"]["content"] or ""
+    except Exception as e:
+        return {"ok": False, "error": "infer", "detail": repr(e)}
+    return {"ok": True, "text": out.strip()}
+
+
+def _report_api(provider, text):
+    import urllib.request
+    import urllib.error
+    cfg = _load_config()
+    p = _API_PROVIDERS[provider]
+    key = (cfg.get(provider + "_key") or "").strip()
+    if not key:
+        return {"ok": False, "error": "no_key"}
+    base = p["base"]
+    if "{account}" in base:
+        acc = (cfg.get(provider + "_account") or "").strip()
+        if not acc:
+            return {"ok": False, "error": "no_account"}
+        base = base.replace("{account}", acc)
+    model = (cfg.get(provider + "_model") or "").strip() or p["default_model"]
+    payload = json.dumps({
+        "model": model,
+        "messages": [{"role": "system", "content": _REPORT_INSTRUCT},
+                     {"role": "user", "content": text}],
+        "temperature": 0.4,
+        "max_tokens": _MAX_REPORT_TOKENS,
+    }, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        base + "/chat/completions", data=payload,
+        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            d = json.loads(resp.read().decode("utf-8"))
+        out = d["choices"][0]["message"]["content"] or ""
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", "replace")[:300]
+        except Exception:
+            pass
+        return {"ok": False, "error": "http_%d" % e.code, "detail": body}
+    except Exception as e:
+        return {"ok": False, "error": "net", "detail": repr(e)}
+    if not out.strip():
+        return {"ok": False, "error": "parse", "detail": ""}
+    return {"ok": True, "text": out.strip()}

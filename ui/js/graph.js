@@ -56,6 +56,10 @@ function renderNotes(v){
       <span><span class="lg-dot flow"></span>полотно</span>
     </div>
     <div class="graph-hint" id="g-hint">Alt+тащи от ноды — связь/заметка · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · колесо — зум · Delete — удалить</div>
+    <div class="graph-selbar" id="g-selbar" style="display:none">
+      <span class="gsb-n"></span>
+      <button class="gsb-btn" id="gsb-report" title="Собрать отчёт по выделенному"><i class="ti ti-file-text"></i>Отчёт</button>
+    </div>
     <div class="graph-tray" id="g-tray" style="display:none">
       <button class="gt-tab" id="gt-tab" title="Неразобранные мысли"><i class="ti ti-inbox"></i><span class="gt-n"></span></button>
       <div class="gt-body">
@@ -268,7 +272,21 @@ class Graph{
     if(!this._paused) this._tick(true);   // перерисовать сразу: в покое кадр мог бы быть пропущен
     return true;
   }
-  _paintSel(){ if(this.nodeEls) this.nodeEls.forEach(o=>o.g.classList.toggle("sel",this.selNodes.has(o.n.id))); }
+  _paintSel(){ if(this.nodeEls) this.nodeEls.forEach(o=>o.g.classList.toggle("sel",this.selNodes.has(o.n.id))); this._renderSelBar(); }
+  // панель действий над выделением (кнопка «Отчёт»); показывается когда выбран ≥1 реальный элемент
+  _renderSelBar(){
+    const wrap=this.svg.parentNode; if(!wrap) return;
+    const bar=wrap.querySelector("#g-selbar"); if(!bar) return;
+    const ids=[...this.selNodes].filter(id=>this.byId[id]&&this.byId[id].ref);
+    if(!ids.length){ bar.style.display="none"; return; }
+    bar.style.display="";
+    const nEl=bar.querySelector(".gsb-n"); if(nEl) nEl.textContent="Выделено: "+ids.length;
+    const rep=bar.querySelector("#gsb-report");
+    if(rep && !rep._wired){ rep._wired=true; rep.onclick=()=>{
+      const items=[...this.selNodes].map(id=>this.byId[id]&&this.byId[id].ref).filter(Boolean);
+      if(typeof openReportModal==="function") openReportModal(items);
+    }; }
+  }
   _startMarquee(e){ const wrap=this.svg.parentNode; let el=wrap.querySelector(".graph-marquee");
     if(!el){ el=document.createElement("div"); el.className="graph-marquee"; wrap.appendChild(el); }
     this._marqEl=el; const rc=wrap.getBoundingClientRect();
