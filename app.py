@@ -1073,7 +1073,7 @@ def main():
     if ai_mod:
         try:
             info = ai_mod.init(AI_DIR)
-            print("[ai] init:", info, "->", ai_mod.status())
+            print("[ai] init:", info)   # без status(): в нём кириллица (названия провайдеров) — падает print в cp1252-консоли frozen-сборки
         except Exception as e:
             print("[ai] init error:", e)
     trace("api created")
