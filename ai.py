@@ -53,6 +53,7 @@ _SCHEMA = {
         "kind":     {"type": "string", "enum": ["task", "note"]},
         "priority": {"type": "string", "enum": ["high", "medium", "low", "none"]},
         "when":     {"type": "string", "enum": list(_WHENS)},
+        "date":     {"type": "string"},
     },
     "required": ["title", "kind", "priority", "when"],
 }
@@ -72,10 +73,13 @@ _INSTRUCT = (
     "«подумать».\n"
     "- priority: \"high\" при явной срочности («срочно», «горит», «важно»); иначе "
     "\"none\". Не придумывай срочность на пустом месте.\n"
-    "- when: относительная дата ОДНИМ токеном ТОЛЬКО если явно названо слово-дата "
-    "(«сегодня»→today, «завтра»→tomorrow, «послезавтра»→day_after, день недели→mon..sun). "
-    "ВАЖНО: «срочно», «важно», «горит» — это priority, а НЕ дата, при них when=\"\". "
-    "Нет слова-даты — when=\"\". Календарь не вычисляй.\n"
+    "- when: ОБЫЧНЫЙ близкий день одним токеном («сегодня»→today, «завтра»→tomorrow, "
+    "«послезавтра»→day_after, день недели→mon..sun). Иначе when=\"\".\n"
+    "- date: точная дата в формате ГГГГ-ММ-ДД, если срок задан ИНАЧЕ, чем словом выше "
+    "(«через неделю», «через 3 дня», «в конце месяца», «25 декабря», «15.03»). Считай от "
+    "СЕГОДНЯШНЕЙ даты (она указана в конце). Год — ближайший будущий, если не назван. "
+    "Если when уже заполнено или срока в мысли нет — date=\"\". Не выдумывай даты.\n"
+    "ВАЖНО: «срочно», «важно», «горит» — это priority, а НЕ дата.\n"
     "Заголовок — МАКСИМУМ 3–4 слова, только САМАЯ СУТЬ (о чём это). ВЫБРОСЬ числа, "
     "суммы, проценты, названия организаций, второстепенные детали — они уже в "
     "описании. Не пересказывай мысль, назови её сутью. Полный текст сохранится "
@@ -85,19 +89,23 @@ _INSTRUCT = (
 
 _FEWSHOT = [
     ("срочно сделать дело",
-     {"title": "Сделать дело", "kind": "task", "priority": "high", "when": ""}),
+     {"title": "Сделать дело", "kind": "task", "priority": "high", "when": "", "date": ""}),
     ("завтра надо намыть жопу",
-     {"title": "Намыть жопу", "kind": "task", "priority": "none", "when": "tomorrow"}),
+     {"title": "Намыть жопу", "kind": "task", "priority": "none", "when": "tomorrow", "date": ""}),
     ("глянуть в пятницу почту по договору",
-     {"title": "Глянуть почту по договору", "kind": "task", "priority": "none", "when": "fri"}),
+     {"title": "Глянуть почту по договору", "kind": "task", "priority": "none", "when": "fri", "date": ""}),
+    ("оплатить аренду через неделю",
+     {"title": "Оплатить аренду", "kind": "task", "priority": "none", "when": "", "date": "%(week)s"}),
+    ("записаться к врачу 25 декабря",
+     {"title": "Записаться к врачу", "kind": "task", "priority": "none", "when": "", "date": "%(dec25)s"}),
     ("Внутрянка портала - убери космос либо приглуши цвет в ещё более тёмный",
-     {"title": "Портал: убрать космос", "kind": "task", "priority": "none", "when": ""}),
+     {"title": "Портал: убрать космос", "kind": "task", "priority": "none", "when": "", "date": ""}),
     ("мысль: свет в ролике МТС слишком холодный, надо на этапе цвета прогреть "
      "тени и вытянуть кожу, глянуть рефы с прошлой съёмки",
-     {"title": "Прогреть свет в ролике МТС", "kind": "note", "priority": "none", "when": ""}),
+     {"title": "Прогреть свет в ролике МТС", "kind": "note", "priority": "none", "when": "", "date": ""}),
     ("Авторы «Смуты» анонсировали новую игру «Земский собор: Решающий выбор» — ИРИ "
      "выделили на игру 250 млн рублей. Дату релиза не назвали.",
-     {"title": "Новая игра «Земский собор»", "kind": "note", "priority": "none", "when": ""}),
+     {"title": "Новая игра «Земский собор»", "kind": "note", "priority": "none", "when": "", "date": ""}),
 ]
 
 
@@ -181,11 +189,20 @@ _API_PROVIDERS = {
                     "default_model": "Qwen/Qwen2.5-72B-Instruct:deepinfra",
                     "keys_url": "https://huggingface.co/settings/tokens",
                     "json_mode": "none",
+                    "models": [
+                        {"id": "Qwen/Qwen2.5-72B-Instruct:deepinfra", "label": "Qwen2.5 72B — умный русский"},
+                        {"id": "Qwen/Qwen2.5-7B-Instruct:deepinfra", "label": "Qwen2.5 7B — эконом"},
+                    ],
                     "note": "Работает из РФ без VPN. Бесплатно, без карты. HF не хранит запросы; провайдер пиннится в имени модели (:deepinfra — не учится на данных)."},
     "cloudflare": {"title": "Cloudflare AI", "base": "https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1",
-                   "default_model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+                   "default_model": "@cf/meta/llama-3.1-8b-instruct-fp8",
                    "keys_url": "https://dash.cloudflare.com/profile/api-tokens",
                    "needs_account": True, "json_mode": "none",
+                   "models": [
+                       {"id": "@cf/meta/llama-3.1-8b-instruct-fp8", "label": "Llama 3.1 8B — эконом (~660/день)"},
+                       {"id": "@cf/mistralai/mistral-small-3.1-24b-instruct", "label": "Mistral 24B — русский получше (~290/день)"},
+                       {"id": "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "label": "Llama 3.3 70B — самый умный (~270/день)"},
+                   ],
                    "note": "Лучшая приватность (не учится на данных). Бесплатно 10k/день, без карты. Из РФ — через Zapret. Нужен Account ID."},
     "groq": {"title": "Groq", "base": "https://api.groq.com/openai/v1",
              "default_model": "llama-3.3-70b-versatile",
@@ -341,6 +358,7 @@ def status():
     # инфо об API-провайдерах для UI (сам ключ НЕ отдаём — только флаг has_key)
     api = {n: {"title": p["title"], "keys_url": p["keys_url"], "note": p["note"],
                "default_model": p["default_model"],
+               "models": p.get("models") or [],
                "has_key": bool((cfg.get(n + "_key") or "").strip()),
                "model": cfg.get(n + "_model") or "",
                "needs_account": bool(p.get("needs_account")),
@@ -413,10 +431,26 @@ def _get_llm():
 
 
 def _messages(text):
-    msgs = [{"role": "system", "content": _INSTRUCT}]
+    import datetime
+    d = datetime.date.today()
+    wd = ["понедельник", "вторник", "среда", "четверг",
+          "пятница", "суббота", "воскресенье"][d.weekday()]
+    # подстановки для «живых» примеров-дат (чтобы обучающий сигнал был согласован с сегодня)
+    dec25 = d.replace(month=12, day=25)
+    if dec25 < d:
+        dec25 = dec25.replace(year=d.year + 1)
+    subst = {"week": (d + datetime.timedelta(days=7)).isoformat(), "dec25": dec25.isoformat()}
+    sys_content = _INSTRUCT + "\n\nСегодня: %s, %s." % (d.isoformat(), wd)
+    msgs = [{"role": "system", "content": sys_content}]
     for raw, out in _FEWSHOT:
+        o = dict(out)
+        if o.get("date") and "%" in o["date"]:
+            try:
+                o["date"] = o["date"] % subst
+            except Exception:
+                o["date"] = ""
         msgs.append({"role": "user", "content": raw})
-        msgs.append({"role": "assistant", "content": json.dumps(out, ensure_ascii=False)})
+        msgs.append({"role": "assistant", "content": json.dumps(o, ensure_ascii=False)})
     msgs.append({"role": "user", "content": text})
     return msgs
 
@@ -460,10 +494,12 @@ def _sanitize(data, text):
     kind = data.get("kind") if data.get("kind") in ("task", "note") else "task"
     priority = data.get("priority") if data.get("priority") in _PRIOS else "none"
     when = data.get("when") if data.get("when") in _WHENS else ""
+    date = data.get("date") or ""
+    date = date.strip()[:10] if isinstance(date, str) else ""   # ГГГГ-ММ-ДД; проверка формата/диапазона — на фронте
     # заголовок срезал заметный кусок → полный текст в описание ДОСЛОВНО.
     body = text if (len(text) - len(title) >= _KEEP_DIFF) else ""
     return {"ok": True, "title": title, "kind": kind, "priority": priority,
-            "when": when, "body": body, "raw": text}
+            "when": when, "date": date, "body": body, "raw": text}
 
 
 def capture(text):

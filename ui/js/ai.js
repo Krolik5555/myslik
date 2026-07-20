@@ -176,12 +176,26 @@ function aiApiSectionHtml(provider, info){
         <button class="btn primary" id="ai-key-save"><i class="ti ti-check"></i>Сохранить</button>
       </div>
     </div>
-    <div class="set-hint">Модель: <b>${esc(info.model||info.default_model||"")}</b> <span style="color:var(--mut)">(по умолчанию, менять не нужно)</span></div>`;
+    ${(function(){
+      const cur=info.model||info.default_model||"";
+      if(info.models && info.models.length) return `
+        <div class="field"><label>Модель</label>
+          <select id="ai-apimodel" ${_aiInp}>
+            ${info.models.map(m=>`<option value="${esc(m.id)}" ${m.id===cur?"selected":""}>${esc(m.label||m.id)}</option>`).join("")}
+          </select></div>
+        <div class="set-hint">Проще модель — дешевле по лимиту, но русский/даты слабее. Умнее — точнее, но запросов в день меньше.</div>`;
+      return `<div class="set-hint">Модель: <b>${esc(cur)}</b></div>`;
+    })()}`;
 }
 function aiWireApiSection(panel, provider, info){
   const how=panel.querySelector("#ai-key-how"); if(how) how.onclick=()=>aiOpenUrl(info.keys_url||"");
   const clr=panel.querySelector("#ai-key-clear"); if(clr) clr.onclick=async()=>{
     try{ await window.pywebview.api.ai_set_api_key(provider,""); toast("Ключ удалён",{icon:"ti-trash"}); await aiCheckStatus(); aiPaintSettings(panel); }catch(e){}
+  };
+  const msel=panel.querySelector("#ai-apimodel"); if(msel) msel.onchange=async()=>{
+    try{ const r=await window.pywebview.api.ai_set_api_model(provider, msel.value);
+      if(r&&r.ok){ toast("Модель: "+msel.options[msel.selectedIndex].text,{icon:"ti-check"}); await aiCheckStatus(); }
+    }catch(e){}
   };
   const save=panel.querySelector("#ai-key-save"); if(save) save.onclick=async()=>{
     const k=(panel.querySelector("#ai-apikey").value||"").trim();
@@ -305,6 +319,16 @@ function aiResolveDue(when){
   if(when in wd){ const cur=t.getDay(); let add=(wd[when]-cur+7)%7; if(add===0)add=7; return ymd(addDays(t,add)); }
   return null;
 }
+// точная дата от модели (ГГГГ-ММ-ДД): принять ТОЛЬКО настоящую и в разумном диапазоне
+function aiValidDate(s){
+  if(!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d=(typeof parseYmd==="function")?parseYmd(s):null;
+  if(!d || isNaN(+d)) return null;
+  if(typeof ymd==="function" && ymd(d)!==s) return null;      // отсеять 2026-13-45 и прочий бред
+  const t=today();
+  if(d<addDays(t,-1) || d>addDays(t,730)) return null;        // не прошлое и не дальше ~2 лет
+  return s;
+}
 const AI_PR = {high:3, medium:2, low:1, none:0};
 
 // ---- сравнить предложение модели с тем, что уже наделал parseCapture ----
@@ -319,7 +343,8 @@ function aiBuildProposal(it, res){
 
   // дата — только если модель нашла, а у ноды её ещё НЕТ. Явную дату пользователя
   // (её уже проставил parseCapture из «25.12»/«пт»/…) НЕ перебиваем.
-  const due=aiResolveDue(res.when);
+  // сначала надёжный when (точная календарная математика), иначе — валидированная дата от модели
+  const due=aiResolveDue(res.when) || aiValidDate(res.date);
   if(due && !it.due){ out.due=due; const dl=(typeof dueLabel==="function")?dueLabel(due):null; changes.push({k:"срок", v:dl?dl.txt:due, i:"ti-calendar-event"}); }
 
   // срочность — только если модель дала уровень ВЫШЕ текущего (и только по клику)
