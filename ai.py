@@ -177,43 +177,22 @@ def _available_backends():
     return [b for b in _BACKENDS if _backend_installed(b)]
 
 
-# ---- провайдеры: off (по умолчанию) / api (groq, cerebras) / local ----
-# API — OpenAI-совместимые, ключ у КАЖДОГО пользователя свой (BYO). Ноль нагрузки
-# на ПК (считается на сервере провайдера).
-# OpenAI-совместимые провайдеры. base может содержать {account} (подставляется из
-# ai_config[provider+"_account"]). json_mode: "object" → response_format json_object;
-# "none" → полагаемся на промпт (некоторые провайдеры не принимают response_format).
-# Порядок = порядок в UI: сверху доступные из РФ, снизу — только для заграницы.
+# ---- провайдер ИИ-облака: off (по умолчанию) / cloudflare / local ----
+# Cloudflare Workers AI — OpenAI-совместимый, ключ пользователя свой (BYO), считается
+# на сервере провайдера (ноль нагрузки на ПК). base с {account} (Account ID берётся из
+# ai_config[cloudflare_account]). json_mode "none": полагаемся на промпт (роутер не
+# всегда принимает response_format). Оставлен ОДИН провайдер — реально доступный из РФ,
+# бесплатный, приватный. Groq/Cerebras/HuggingFace убраны (гео-блок / жалкий лимит).
 _API_PROVIDERS = {
-    "huggingface": {"title": "HuggingFace", "base": "https://router.huggingface.co/v1",
-                    "default_model": "Qwen/Qwen2.5-72B-Instruct:deepinfra",
-                    "keys_url": "https://huggingface.co/settings/tokens",
-                    "json_mode": "none",
-                    "models": [
-                        {"id": "Qwen/Qwen2.5-72B-Instruct:deepinfra", "label": "Qwen2.5 72B — умный русский"},
-                        {"id": "Qwen/Qwen2.5-7B-Instruct:deepinfra", "label": "Qwen2.5 7B — эконом"},
-                    ],
-                    "note": "Работает из РФ без VPN. Бесплатно, без карты. HF не хранит запросы; провайдер пиннится в имени модели (:deepinfra — не учится на данных)."},
     "cloudflare": {"title": "Cloudflare AI", "base": "https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1",
-                   "default_model": "@cf/meta/llama-3.1-8b-instruct-fp8",
+                   "default_model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
                    "keys_url": "https://dash.cloudflare.com/profile/api-tokens",
                    "needs_account": True, "json_mode": "none",
                    "models": [
-                       {"id": "@cf/meta/llama-3.1-8b-instruct-fp8", "label": "Llama 3.1 8B — эконом (~660/день)"},
-                       {"id": "@cf/mistralai/mistral-small-3.1-24b-instruct", "label": "Mistral 24B — русский получше (~290/день)"},
-                       {"id": "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "label": "Llama 3.3 70B — самый умный (~270/день)"},
+                       {"id": "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "label": "Умная — точнее заголовки и даты (~270 заметок/день)"},
+                       {"id": "@cf/meta/llama-3.1-8b-instruct-fp8", "label": "Экономная — проще, но больше запросов (~660/день)"},
                    ],
-                   "note": "Лучшая приватность (не учится на данных). Бесплатно 10k/день, без карты. Из РФ — через Zapret. Нужен Account ID."},
-    "groq": {"title": "Groq", "base": "https://api.groq.com/openai/v1",
-             "default_model": "llama-3.3-70b-versatile",
-             "keys_url": "https://console.groq.com/keys",
-             "json_mode": "object",
-             "note": "Быстрый, бесплатный. НЕ работает из РФ (гео-блок) — для пользователей за рубежом."},
-    "cerebras": {"title": "Cerebras", "base": "https://api.cerebras.ai/v1",
-                 "default_model": "llama-3.3-70b",
-                 "keys_url": "https://cloud.cerebras.ai/",
-                 "json_mode": "object",
-                 "note": "Быстрый, приватный. НЕ работает из РФ (гео-блок) — для пользователей за рубежом."},
+                   "note": "Бесплатно, без карты. Не учится на твоих заметках. Считается на сервере — ПК не грузит. Из РФ работает через Zapret."},
 }
 
 

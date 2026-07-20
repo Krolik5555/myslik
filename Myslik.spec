@@ -36,7 +36,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,     # UPX ломает сборку: антивирус часто режет UPX-файлы из _internal → битый билд у пользователя
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -50,7 +50,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,     # см. выше: без UPX, чтобы антивирус не крошил _internal
     upx_exclude=[],
     name='Myslik',
 )

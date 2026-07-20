@@ -20,7 +20,9 @@
   --dot:rgba(0,0,0,.07); --halo:rgba(0,0,0,.035);
 }
 *{box-sizing:border-box;margin:0;padding:0;}
-html,body{height:100%;}
+/* корень заперт наглухо: иначе при возврате фокуса колесом WebView2 прокручивает
+   documentElement и вся вёрстка «съезжает». overscroll-behavior гасит и эластик-оверскролл. */
+html,body{height:100%;overflow:hidden;overscroll-behavior:none;}
 body{background:var(--bg);color:var(--tx);font-family:var(--font);font-size:14px;overflow:hidden;-webkit-font-smoothing:antialiased;user-select:none;}
 /* минималистичный фон всего приложения: мягкое свечение сверху */
 #app{position:relative;}

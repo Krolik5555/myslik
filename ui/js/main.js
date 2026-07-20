@@ -142,6 +142,14 @@ function openTimer(){
    GLOBAL EVENTS
    =========================================================== */
 function wireGlobal(){
+  // Страховка от «съезда» вёрстки: если корневой documentElement/body всё же получил
+  // прокрутку (WebView2 иногда прокручивает корень при возврате фокуса колесом) — тут же
+  // возвращаем в 0. Внутренние скроллы (#view, списки, модалки) это не трогает.
+  const pinRoot=()=>{ const de=document.documentElement, b=document.body;
+    if(de.scrollTop||de.scrollLeft){ de.scrollTop=0; de.scrollLeft=0; }
+    if(b.scrollTop||b.scrollLeft){ b.scrollTop=0; b.scrollLeft=0; } };
+  window.addEventListener("scroll", pinRoot, true);   // capture: ловим до того, как корень уедет
+
   // window controls
   $("#win-min").onclick=()=>HasPy()&&window.pywebview.api.win_min();
   $("#win-max").onclick=()=>HasPy()&&window.pywebview.api.win_max();

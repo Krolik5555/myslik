@@ -133,10 +133,11 @@ async function aiPaintSettings(panel){
 
   if(provider!=="off"){
     html += `<div class="set-sec">Поведение</div>
-      <div class="field"><label>Применять сразу, без карточки</label>
+      <div class="set-hint">Обычно после ввода мысли ИИ показывает бледную карточку-подсказку «Понял так» — с чистым заголовком, датой и видом — и ты сам решаешь: принять её кнопкой «Применить» или проигнорировать (тогда заметка остаётся как ты её написал). Если включить «сразу» — ИИ будет молча применять свой вариант к заметке, без карточки и без твоего подтверждения.</div>
+      <div class="field"><label>Применять сразу, без подтверждения</label>
         <div class="seg" id="set-ai-auto">
           <button data-v="1" class="${autoOn?"on":""}">Да</button>
-          <button data-v="0" class="${autoOn?"":"on"}">Нет</button>
+          <button data-v="0" class="${autoOn?"":"on"}">Нет (показывать карточку)</button>
         </div></div>`;
   }
 
@@ -162,9 +163,21 @@ const _aiInp = `style="flex:1;min-width:0;background:var(--surf3);border:1px sol
 function aiApiSectionHtml(provider, info){
   const acct = info.needs_account ? `
     <div class="field"><label>Account ID</label>
-      <input type="text" id="ai-apiacct" placeholder="${info.has_account?esc(info.account||"сохранён"):"ID аккаунта из дашборда"}" autocomplete="off" spellcheck="false" ${_aiInp}></div>` : "";
+      <input type="text" id="ai-apiacct" placeholder="${info.has_account?esc(info.account||"сохранён"):"строка из адреса dash.cloudflare.com/…"}" autocomplete="off" spellcheck="false" ${_aiInp}></div>` : "";
+  // подробная инструкция только для Cloudflare (нужны токен + Account ID)
+  const guide = (provider==="cloudflare") ? `
+    <div style="background:var(--surf3);border:1px solid var(--bd);border-radius:var(--r-s);padding:10px 12px;margin:8px 0;font-size:12.5px;color:var(--mut)">
+      <b style="color:var(--tx)">Как подключить (≈2 минуты, бесплатно, карта не нужна):</b>
+      <ol style="margin:6px 0 0;padding-left:18px;line-height:1.55">
+        <li>Открой <b>dash.cloudflare.com</b> → зарегистрируйся по почте (или войди). Если страница не грузится — включи Zapret.</li>
+        <li><b>API-ключ:</b> правый верхний угол → значок профиля → <b>My Profile</b> → слева <b>API Tokens</b> → <b>Create Token</b> → выбери готовый шаблон <b>«Workers AI»</b> → <b>Continue</b> → <b>Create Token</b> → скопируй строку (показывается один раз) и вставь в поле «API-ключ» ниже.</li>
+        <li><b>Account ID:</b> он прямо в адресной строке — <span style="color:var(--mut)">dash.cloudflare.com/</span><b>вот эта длинная строка</b><span style="color:var(--mut)">/…</span>. Скопируй её и вставь в «Account ID». <span style="color:var(--mut)">(Ещё вариант: слева «Workers &amp; Pages» → справа блок «Account ID».)</span></li>
+        <li>Нажми <b>Сохранить</b> — Мыслик сразу проверит связь.</li>
+      </ol>
+    </div>` : "";
   return `<div class="set-sec">${esc(info.title||provider)} — доступ</div>
-    <div class="set-hint">${esc(info.note||"")} Данные хранятся только у тебя на диске и уходят лишь этому провайдеру.</div>
+    <div class="set-hint">${esc(info.note||"")} Ключ хранится только у тебя на диске и уходит лишь этому провайдеру.</div>
+    ${guide}
     ${acct}
     <div class="field"><label>API-ключ</label>
       <input type="password" id="ai-apikey" placeholder="${info.has_key?"••••••••••  (сохранён)":"вставь ключ сюда"}" autocomplete="off" spellcheck="false" ${_aiInp}></div>
@@ -232,6 +245,10 @@ async function aiLocalSectionHtml(st){
   const why={no_engine:"нет движка (папки ai/engine-cpu/engine-vulkan рядом с приложением)",
              no_model:"нет ни одной модели — скачай ниже", load_error:"движок не загрузился"}[st.reason];
   return `
+    <div style="background:var(--surf3);border:1px solid var(--bd);border-radius:var(--r-s);padding:9px 12px;margin:6px 0;font-size:12.5px;color:var(--mut)">
+      <b style="color:var(--warn)"><i class="ti ti-cpu"></i> Локальная модель считается на твоём процессоре.</b><br>
+      При разборе каждой мысли будет короткая нагрузка на CPU (пара секунд). Приватно и без интернета, но на слабом ПК это заметно. Не хочешь грузить ПК — выбери «Cloudflare AI» выше (считается на сервере).
+    </div>
     ${(st.reason && st.reason!=="no_model") ? `<div class="set-hint" style="color:var(--warn)"><i class="ti ti-alert-triangle"></i> ${esc(why||"проверь папку ai/")}</div>` : ""}
     <div class="set-sec">Установленные модели</div>
     ${models.length ? models.map(m=>`

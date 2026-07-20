@@ -972,9 +972,19 @@ def main():
     trace("api created")
 
     frameless = os.environ.get("PLANNER_FRAMED") != "1"
+    # ВАЖНО: в собранной сборке грузим index.html ПЛОСКИМ путём (file://), без ?v.
+    # Query-строка на пути файла ломает pywebview: он не может открыть файл напрямую и
+    # поднимает http-сервер, который у части пользователей промахивается мимо корня и
+    # отдаёт голый 404 «index.html File does not exist». Кэш WebView2 и так чистим на
+    # старте (см. cache_dir выше), так что ?v для свежести не нужен. В деве — оставляем
+    # ?v для hot-reload (там грузимся не из бандла).
+    if getattr(sys, "frozen", False):
+        start_url = UI
+    else:
+        start_url = UI + "?v=" + str(int(time.time()))
     window = webview.create_window(
         "Мыслик",
-        url=UI+"?v="+str(int(time.time())),   # уникальный ?v на каждый запуск → WebView2 не залипает на старом закэшированном index.html (дев-режим)
+        url=start_url,
         js_api=api,
         width=1200,
         height=800,
