@@ -422,15 +422,32 @@ def _messages(text):
 
 
 def _extract_json(s):
-    """Достать первый {...} из ответа (на случай текста вокруг JSON)."""
+    """Достать JSON из ответа модели, даже если вокруг текст или блок раздумий.
+    Устойчиво к Qwen3 <think>...</think> и к скобкам внутри рассуждений."""
     if not s:
         return None
     import re
-    m = re.search(r"\{.*\}", s, re.S)
-    if not m:
-        return None
+    # срезать рассуждения reasoning-моделей (закрытые и незакрытый в начале)
+    s = re.sub(r"<think>.*?</think>", "", s, flags=re.S)
+    s = re.sub(r"^.*?</think>", "", s, flags=re.S)
+    # первый СБАЛАНСИРОВАННЫЙ {...} (а не жадный до последней скобки)
+    start = s.find("{")
+    if start >= 0:
+        depth = 0
+        for i in range(start, len(s)):
+            if s[i] == "{":
+                depth += 1
+            elif s[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(s[start:i + 1])
+                    except Exception:
+                        break
+    # запасной жадный вариант
     try:
-        return json.loads(m.group(0))
+        m = re.search(r"\{.*\}", s, re.S)
+        return json.loads(m.group(0)) if m else None
     except Exception:
         return None
 
@@ -526,7 +543,7 @@ def _capture_api(provider, text):
         with urllib.request.urlopen(req, timeout=30) as resp:
             d = json.loads(resp.read().decode("utf-8"))
         content = d["choices"][0]["message"]["content"] or ""
-        data = json.loads(content) if content.strip().startswith("{") else _extract_json(content)
+        data = _extract_json(content)     # устойчиво к тексту/раздумьям вокруг JSON
     except urllib.error.HTTPError as e:
         body = ""
         try:
