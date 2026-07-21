@@ -91,7 +91,7 @@ TRACE = os.environ.get("PLANNER_TRACE") == "1"
 
 # ---- авто-обновление с GitHub Releases ----
 # Единый источник версии для сравнения с релизом. Теги релизов: vX.Y.Z (напр. v1.3.0).
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.5.0.1"
 APP_ID = "krolik.planner"   # идентификатор приложения для панели задач (группировка + иконка)
 # owner/repo публичного репозитория (заполнится после gh auth login — owner = твой GitHub-логин)
 GH_REPO_SLUG = "Krolik5555/myslik"
