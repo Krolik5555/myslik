@@ -90,13 +90,30 @@ function cleanEmptyNotes(){
   ids.forEach(id=>deleteItem(id)); render();
   toast("Удалено: "+ids.length,{icon:"ti-eraser",label:"Вернуть",onAction:()=>{ ids.forEach(id=>restoreItem(id)); render(); }});
 }
-async function doBackup(){ const p=await Store.backup(); toast("Бэкап сохранён",{icon:"ti-shield-check"}); }
+// Бэкап рапортует по ФАКТУ: backup() возвращает "" и когда файла данных ещё нет, и когда копия
+// не удалась. Врать «сохранено» тут особенно вредно — бэкап делают перед рискованным шагом.
+async function makeBackup(){
+  try{ await flushSave(); return await Store.backup(); }catch(e){ return null; }
+}
+async function doBackup(){
+  const p=await makeBackup();
+  toast(p?"Бэкап сохранён":"Не удалось сделать бэкап",{icon:p?"ti-shield-check":"ti-alert-triangle"});
+}
 async function doExport(){ const p=await Store.exportData(S); toast(p?"Экспортировано":"Экспорт отменён",{icon:p?"ti-download":"ti-x"}); }
 async function doImport(){
-  const data=await Store.importData(); if(!data){ return; }
+  let data=null;
+  try{ data=await Store.importData(); }catch(e){ toast("Не удалось прочитать файл",{icon:"ti-alert-triangle"}); return; }
+  if(!data){ return; }
   if(!Array.isArray(data.areas) || !Array.isArray(data.items)){ toast("Файл не похож на экспорт Мыслика",{icon:"ti-alert-triangle"}); return; }
   if(!(await uiConfirm("Импорт заменит текущие данные. Продолжить?",{danger:true,title:"Импорт",okLabel:"Заменить"}))) return;
-  S=sanitizeState(Object.assign(defaultState(),data));   // валидация + нормализация перед записью на диск
+  // Чужой файл может быть подпорчен как угодно. sanitizeState рассчитан на это, но сорваться
+  // на середине всё же может — тогда прежнее состояние обязано остаться нетронутым, поэтому
+  // разбираем копию и подменяем S только при полном успехе.
+  let next;
+  try{ next=sanitizeState(Object.assign(defaultState(), JSON.parse(JSON.stringify(data)))); }
+  catch(e){ toast("Файл повреждён — импорт отменён",{icon:"ti-alert-triangle"}); return; }
+  await makeBackup();                                    // перед заменой данных — тихая копия текущих
+  S=next;
   areaFilter=null; view=S.settings.view||"today"; persist(); applySettings(); render(); toast("Импортировано");
 }
 // разовая проверка Telegram (по клику, БЕЗ фонового поллинга) — сообщения боту прогоняются
@@ -109,9 +126,19 @@ async function checkTelegram(btn){
   let res; try{ res=await window.pywebview.api.telegram_check(); } catch(e){ res={ok:false,error:"network"}; }
   if(btn) btn.classList.remove("spin");
   if(!res || !res.ok){ toast(res&&res.error==="no_token"?"Токен не настроен":"Не удалось связаться с Telegram",{icon:"ti-alert-triangle"}); return; }
-  let n=0; (res.messages||[]).forEach(text=>{ if(captureText(text)) n++; });
+  /* Сообщение не должно пропасть, даже если парсер не нашёл в нём названия (текст целиком
+     ушёл в #область/дату/приоритет — например «#дом завтра»). Раньше такие тихо отбрасывались,
+     а offset на бэкенде уже был сдвинут: Telegram их больше не отдаст, мысль потеряна.
+     Теперь неразобранное кладём как есть, а offset двигаем ТОЛЬКО после успешного создания. */
+  let n=0;
+  (res.messages||[]).forEach(text=>{
+    const it=captureText(text) || addItem({kind:"task", title:String(text).trim().slice(0,200)});
+    if(it) n++;
+  });
   if(n){ persist(); render(); toast("Из Telegram: "+n,{icon:"ti-brand-telegram"}); }
   else toast("Новых сообщений нет",{icon:"ti-brand-telegram"});
+  // подтверждаем приём по факту: до этого момента сообщения на стороне Telegram не считаются прочитанными
+  if(res.ack!=null){ try{ await flushSave(); await window.pywebview.api.telegram_ack(res.ack); }catch(e){} }
 }
 
 function openTimer(){
@@ -150,10 +177,22 @@ function wireGlobal(){
     if(b.scrollTop||b.scrollLeft){ b.scrollTop=0; b.scrollLeft=0; } };
   window.addEventListener("scroll", pinRoot, true);   // capture: ловим до того, как корень уедет
 
+  /* Файл, брошенный мимо зоны, которая его ждёт (холст полотна), — это не «ничего не
+     произошло»: движок открывает файл ВМЕСТО приложения, и окно Мыслика уезжает на pdf или
+     картинку. Возврата назад в безрамочном окне нет. Гасим на уровне документа; обработчики,
+     которым дроп действительно нужен, стоят на своих узлах и отрабатывают раньше. */
+  document.addEventListener("dragover",e=>{ if(e.dataTransfer && [...(e.dataTransfer.items||[])].some(i=>i.kind==="file")) e.preventDefault(); });
+  document.addEventListener("drop",e=>{ if(e.dataTransfer && (e.dataTransfer.files||[]).length) e.preventDefault(); });
+  // Страховка на случай, когда окно закрывают мимо нашей кнопки (Alt+F4, перезагрузка страницы):
+  // beforeunload синхронен, поэтому шлём запись без ожидания — успевает уйти в мост.
+  window.addEventListener("beforeunload",()=>{ if(saveTimer!==null){ clearTimeout(saveTimer); saveTimer=null; try{ Store.save(S); }catch(e){} } });
+
   // window controls
   $("#win-min").onclick=()=>HasPy()&&window.pywebview.api.win_min();
   $("#win-max").onclick=()=>HasPy()&&window.pywebview.api.win_max();
-  $("#win-close").onclick=()=>HasPy()&&window.pywebview.api.win_close();
+  // Закрытие обязано дождаться записи: persist() держит правку в дебаунсе 250 мс, а win_close()
+  // рвал окно немедленно — последнее действие человека просто не доезжало до диска.
+  $("#win-close").onclick=async ()=>{ if(!HasPy()) return; try{ await flushSave(); }catch(e){} window.pywebview.api.win_close(); };
   $("#titlebar").addEventListener("dblclick",e=>{ if(e.target.closest(".winbtns")) return; if(HasPy()) window.pywebview.api.win_max(); });   // дабл-клик по титлбару — развернуть/восстановить (привычно)
   const kh=$("#kbd-hint"); if(kh) kh.onclick=openShortcuts;
 
@@ -188,7 +227,7 @@ function wireGlobal(){
     const ct=e.target.closest("[data-cleartag]"); if(ct){ tagFilter=null; render(); return; }
     const tg2=e.target.closest("[data-tag]"); if(tg2){ tagFilter=tg2.dataset.tag; areaFilter=null; view="tasks"; render(); return; }   // клик по тегу — фильтр по нему
     const tf=e.target.closest("[data-tf]"); if(tf){ taskFilter=tf.dataset.tf; render(); return; }
-    const go=e.target.closest("[data-goto]"); if(go){ areaFilter=null; view=go.dataset.goto; render(); return; }
+    const go=e.target.closest("[data-goto]"); if(go){ areaFilter=null; tagFilter=null; taskFilter="all"; view=go.dataset.goto; render(); return; }
     const ga=e.target.closest("[data-area]"); if(ga){ areaFilter=ga.dataset.area; view="tasks"; render(); return; }
     const nw=e.target.closest("[data-new]"); if(nw){ createNew(nw.dataset.new); return; }
   });
@@ -225,7 +264,9 @@ function wireGlobal(){
 
   // keyboard — используем e.code (раскладко-независимо: работает и на русской)
   document.addEventListener("keydown",e=>{
-    if((e.ctrlKey||e.metaKey) && e.code==="KeyK"){ e.preventDefault(); if(!$("#palette"))openPalette(); return; }
+    // Палитра НЕ лезет поверх открытого окна: closeOverlays() внутри её команд снёс бы модалку
+    // молча — например «Импорт заменит данные?» исчезал бы, не ответив ни да, ни нет.
+    if((e.ctrlKey||e.metaKey) && e.code==="KeyK"){ e.preventDefault(); if(!$("#overlay-root").children.length) openPalette(); return; }
     if(e.key==="Escape"){ if(graph&&graph.linkFrom){graph.cancelLink();return;} closeOverlays(); return; }
     if(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
     if($("#overlay-root").children.length) return;
@@ -324,8 +365,11 @@ function toast(msg, opt){
   t.classList.remove("show"); void t.offsetWidth;            // рестарт glow-анимации на каждый показ
   t.classList.add("show"); t.style.pointerEvents=opt.onAction?"auto":"none";
   clearTimeout(toastT);
-  toastT=setTimeout(()=>t.classList.remove("show"), opt.hold?30000:(opt.onAction?5000:1800));
-  if(opt.onAction){ const b=t.querySelector(".toast-act"); if(b) b.onclick=()=>{ clearTimeout(toastT); t.classList.remove("show"); opt.onAction(); }; }
+  // pointer-events снимаем ВМЕСТЕ со скрытием. Инлайновый "auto" перебивает CSS, и раньше он
+  // жил до следующего тоста: невидимая полоса внизу экрана продолжала перехватывать клики.
+  const hide=()=>{ t.classList.remove("show"); t.style.pointerEvents="none"; };
+  toastT=setTimeout(hide, opt.hold?30000:(opt.onAction?5000:1800));
+  if(opt.onAction){ const b=t.querySelector(".toast-act"); if(b) b.onclick=()=>{ clearTimeout(toastT); hide(); opt.onAction(); }; }
 }
 
 /* ===========================================================
@@ -375,9 +419,10 @@ async function boot(){
     console.log("[dev] preview mode: fresh demo, view="+view);
     return;
   }
+  bootedWithoutBridge = !HasPy();   // помним, что стартовали без моста: см. onBridgeReady
   const loaded=await Store.load();
   if(loaded && loaded.areas){ S=sanitizeState(Object.assign(defaultState(),loaded)); }
-  else { seedDemo(); await Store.save(S); }
+  else { seedDemo(); await writeNow(); }
   const v=P.get("view"); if(v) S.settings.view=v;   // ?view= работает и в реальном аппе
   undoInit();   // точка отсчёта истории — состояние, с которым приложение открылось
   view=S.settings.view||"today"; applySettings(); wireGlobal(); render();
@@ -480,14 +525,47 @@ function seedDemo(){
   persist();
 }
 
-let booted=false;
-function tryBoot(){ if(booted) return; booted=true; boot(); }
-// pywebview fires this when the JS<->Python bridge is ready
-window.addEventListener("pywebviewready", tryBoot, {once:true});
-// robust against event-race: poll for the bridge, fall back to browser mode
+/* СТАРТ. Два способа узнать про мост, и оба ненадёжны поодиночке: событие pywebviewready
+   может прийти до того, как навесится слушатель, а опрос не отличает «моста нет» от «мост
+   ещё едет». Раньше опрос по истечении 1,28 с ОБЪЯВЛЯЛ окружение браузером — необратимо, с
+   {once:true} на событии. На медленной машине это означало: демо-данные + через мгновение
+   живой мост + отложенная запись → planner.json затирался девятью демо-записями.
+   Теперь решение обратимо: пришёл мост позже — перечитываем файл и переинициализируемся,
+   ДО того как что-либо запишем. */
+let booted=false, bootedWithoutBridge=false;
+function tryBoot(){
+  if(booted) return; booted=true;
+  /* Исключение внутри boot() оставляло окно пустым навсегда: обработчики не навешаны, данных
+     нет, и человек видит чёрный прямоугольник без единой подсказки, что делать. Ловим, честно
+     говорим, что случилось, и даём кнопку повторить — состояние на диске при этом не тронуто. */
+  Promise.resolve().then(boot).catch(err=>{
+    console.error("[boot] сорвался:", err);
+    booted=false;
+    const box=document.getElementById("view");
+    if(box) box.innerHTML=`<div class="empty"><i class="ti ti-alert-triangle"></i>
+      Не удалось запуститься: ${esc((err&&err.message)||String(err))}<br><br>
+      <button class="btn" id="boot-retry"><i class="ti ti-refresh"></i>Попробовать снова</button></div>`;
+    const b=document.getElementById("boot-retry");
+    if(b) b.onclick=()=>tryBoot();
+  });
+}
+async function onBridgeReady(){
+  if(!booted){ tryBoot(); return; }
+  if(!bootedWithoutBridge || !HasPy()) return;
+  bootedWithoutBridge=false;
+  clearTimeout(saveTimer); saveTimer=null;            // выбросить отложенную запись демо-данных
+  const loaded=await Store.load();
+  if(loaded && loaded.areas){ S=sanitizeState(Object.assign(defaultState(),loaded)); }
+  else { await writeNow(); }                          // файла и правда нет — тогда демо законно
+  undoInit();
+  view=S.settings.view||"today"; applySettings(); render();
+  installWindowResize();                              // в браузерной ветке он не ставился
+}
+window.addEventListener("pywebviewready", onBridgeReady);
+// опрос — страховка от гонки события; дедлайн больше НЕ приговор, см. onBridgeReady
 (function poll(n){
   if(booted) return;
-  if(HasPy()){ tryBoot(); return; }      // pywebview bridge appeared
-  if(n<=0){ tryBoot(); return; }          // no bridge -> plain browser
+  if(HasPy()){ tryBoot(); return; }      // мост появился
+  if(n<=0){ tryBoot(); return; }         // моста пока нет -> стартуем как браузер, но обратимо
   setTimeout(()=>poll(n-1), 80);
 })(16);

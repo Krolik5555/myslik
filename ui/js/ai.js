@@ -63,6 +63,10 @@ function aiCloudflareHelp(){
 function aiErrMsg(res){
   const e=(res&&res.error)||"";
   const simple={ no_key:"не задан ключ API", no_account:"не задан Account ID",
+    no_engine:"не установлен движок локального ИИ", no_model:"не скачана модель",
+    engine_restart_required:"движок сменён — нужен перезапуск Мыслика",
+    too_long:"выделено слишком много для локальной модели — возьми меньше элементов",
+    load_error:"модель не загрузилась (см. Настройки → ИИ)",
     off:"ИИ выключен", unavailable:"локальная модель не загрузилась",
     infer:"сбой локальной модели", parse:"модель вернула не-JSON",
     net:"нет связи с провайдером (интернет или блокировка из РФ)" };
@@ -86,18 +90,33 @@ async function aiToggle(){
   let next;
   if(prov!=="off"){ next="off"; }
   else {
-    // включаем самый готовый: API с ключом → он; иначе локалка с моделью; иначе просим настроить
-    const keyed=Object.keys(api).find(n=>api[n]&&api[n].has_key);
-    if(keyed) next=keyed;
-    else if((st.models||[]).length) next="local";
-    else { toast("Сначала выбери провайдера в Настройки → ИИ", {icon:"ti-sparkles"}); return; }
+    /* Включаем ГОТОВЫЙ провайдер, а не просто «у которого есть ключ». У Cloudflare, например,
+       кроме ключа нужен ещё Account ID: раньше тумблер бодро рапортовал «Умный захват включён»,
+       а бэкенд при первом же захвате отвечал no_account — то есть ИИ был «включён» и не работал.
+       Локальная модель точно так же требует и пак движка, и файл модели. */
+    const ready=Object.keys(api).find(n=>{ const a=api[n]; return a && a.has_key && (!a.needs_account || a.has_account); });
+    const localReady=(st.models||[]).length && (st.backends||[]).length;
+    if(ready) next=ready;
+    else if(localReady) next="local";
+    else {
+      const почти=Object.keys(api).find(n=>api[n]&&api[n].has_key);   // ключ есть, но не хватает Account ID
+      toast(почти?"У провайдера не хватает Account ID — допиши в Настройки → ИИ"
+                 :"Сначала выбери провайдера в Настройки → ИИ", {icon:"ti-sparkles"});
+      return;
+    }
   }
   try{
     const r=await window.pywebview.api.ai_set_provider(next);
-    if(r&&r.ok){ await aiCheckStatus();
-      toast(next==="off"?"Умный захват выключен":"Умный захват включён ("+next+")",
-            {icon: next==="off"?"ti-sparkles-off":"ti-sparkles"}); }
-    else toast("Не удалось переключить", {icon:"ti-alert-triangle"});
+    if(!r||!r.ok){ toast("Не удалось переключить", {icon:"ti-alert-triangle"}); return; }
+    await aiCheckStatus();
+    if(next==="off"){ toast("Умный захват выключен",{icon:"ti-sparkles-off"}); return; }
+    // сверяем с бэкендом ФАКТ готовности: он знает то, чего фронт знать не может (движок не грузится)
+    if(!aiEnabled()){
+      toast("Не включилось: "+aiErrMsg({error:(AICap.status||{}).reason}),{icon:"ti-alert-triangle"});
+      try{ await window.pywebview.api.ai_set_provider("off"); await aiCheckStatus(); }catch(e){}
+      return;
+    }
+    toast("Умный захват включён ("+next+")",{icon:"ti-sparkles"});
   }catch(e){ toast("Не удалось переключить", {icon:"ti-alert-triangle"}); }
 }
 
@@ -346,6 +365,9 @@ async function aiPollDownload(panel, silent){
   const box=panel.querySelector("#ai-dl-progress"); if(!box) return;
   if(silent){ let s={}; try{ s=await window.pywebview.api.ai_download_status()||{}; }catch(e){} if(!s.active) return; }
   const tick=async()=>{
+    // окно настроек могли закрыть — опрос обязан умереть вместе с ним, иначе интервал
+    // раз в секунду ходит в бэкенд и пишет в отсоединённый от документа узел
+    if(!box.isConnected){ if(_aiDlTimer){ clearInterval(_aiDlTimer); _aiDlTimer=null; } return; }
     let s={}; try{ s=await window.pywebview.api.ai_download_status()||{}; }catch(e){}
     if(s.active){ box.style.display="block";
       box.innerHTML=`<div class="set-hint" style="margin-bottom:4px">Качаю ${esc(s.active.replace(/\.gguf$/i,""))}… ${s.pct||0}%</div><div style="height:6px;background:var(--surf3);border-radius:3px;overflow:hidden"><div style="height:100%;width:${s.pct||0}%;background:var(--acc);transition:width .3s"></div></div>`;
@@ -431,19 +453,34 @@ async function aiRefineCapture(it, raw){
   if(!AICap.checked) await aiCheckStatus();
   if(!aiEnabled() || !it || it.deleted) return;
   const seq = ++_aiSeq;                        // этот захват стал «последним»
+  const stamp = it.updated;                    // снимок: если мысль правили руками, тихо поверх не пишем
   const host=aiHost(); aiRenderPending(host, it);
   let res=null;
   try{ res = await window.pywebview.api.ai_capture(raw); }catch(e){ res=null; }
-  if(seq !== _aiSeq) return;                    // пока думали — пришёл новый захват; этот ответ устарел, молчим
+  /* «Устарел» — про КАРТОЧКУ, а не про ответ. Карточка предложения в интерфейсе одна, поэтому
+     показывать можно только для последней мысли. Раньше глобальный счётчик глушил ответ
+     целиком: бросил две мысли подряд — и первая не получала обработки даже при включённом
+     авто-применении, где никакая карточка не нужна и конфликта нет. */
+  const stale = seq !== _aiSeq;
   if(!res || !res.ok || it.deleted){
-    // молча гасим только «безобидные» отказы; реальные ошибки показываем, иначе «просто не работает»
-    const benign = !res || it.deleted || ["off","junk","empty"].indexOf(res.error)>=0;
-    if(res && !benign){ console.warn("[ai] capture error:", res.error, res.detail||""); toast("Умный захват: "+aiErrMsg(res), {icon:"ti-alert-triangle"}); }
-    aiClear(host); return;
+    if(!stale){
+      // молча гасим только «безобидные» отказы; реальные ошибки показываем, иначе «просто не работает»
+      const benign = !res || it.deleted || ["off","junk","empty"].indexOf(res.error)>=0;
+      if(res && !benign){ console.warn("[ai] capture error:", res.error, res.detail||""); toast("Умный захват: "+aiErrMsg(res), {icon:"ti-alert-triangle"}); }
+      aiClear(host);
+    }
+    return;
   }
   const prop=aiBuildProposal(it, res);
-  if(!prop.changes.length){ aiClear(host); return; }   // ничего лучше — молчим
-  if(S.settings.aiAutoApply){ aiClear(host); aiApply(it, prop, true); return; }   // авто-применение без карточки
+  if(!prop.changes.length){ if(!stale) aiClear(host); return; }   // ничего лучше — молчим
+  if(S.settings.aiAutoApply){
+    if(!stale) aiClear(host);
+    // Человек успел поправить мысль, пока модель думала. Тихо перезаписать его правку —
+    // худшее, что тут можно сделать: предлагаем карточкой, а если её место занято — молчим.
+    if(it.updated!==stamp){ if(!stale) aiRenderProposal(host, it, prop); return; }
+    aiApply(it, prop, true); return;
+  }
+  if(stale) return;                              // место карточки занято более свежей мыслью
   aiRenderProposal(host, it, prop);
 }
 

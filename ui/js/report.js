@@ -138,7 +138,15 @@ function openReportModal(items){
     const purpose=(m.querySelector("#rep-purpose").value||"").trim();
     try{
       const r=await window.pywebview.api.ai_report(simple, purpose);
-      if(r&&r.ok){ aiText=_reportCleanMd((r.text||"").trim())||"(пустой ответ)"; }
+      if(r&&r.ok){
+        aiText=_reportCleanMd((r.text||"").trim())||"(пустой ответ)";
+        // Модель упёрлась в лимит токенов и оборвала текст на полуслове. Молчать об этом
+        // нельзя: обрубок выглядит как законченный отчёт, и человек унесёт его дальше как есть.
+        if(r.truncated){
+          aiText+="\n\n— — —\nОтвет оборван на лимите длины: возьми меньше элементов или сузь цель.";
+          toast("Отчёт оборван по длине",{icon:"ti-alert-triangle"});
+        }
+      }
       else { toast("ИИ-отчёт: "+((typeof aiErrMsg==="function")?aiErrMsg(r):"ошибка"),{icon:"ti-alert-triangle"}); }
     }catch(e){ toast("Не удалось собрать ИИ-отчёт",{icon:"ti-alert-triangle"}); }
     loading=false; paint();

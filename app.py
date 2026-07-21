@@ -91,7 +91,8 @@ TRACE = os.environ.get("PLANNER_TRACE") == "1"
 
 # ---- авто-обновление с GitHub Releases ----
 # Единый источник версии для сравнения с релизом. Теги релизов: vX.Y.Z (напр. v1.3.0).
-APP_VERSION = "1.4.9"
+APP_VERSION = "1.5.0"
+APP_ID = "krolik.planner"   # идентификатор приложения для панели задач (группировка + иконка)
 # owner/repo публичного репозитория (заполнится после gh auth login — owner = твой GitHub-логин)
 GH_REPO_SLUG = "Krolik5555/myslik"
 
@@ -179,9 +180,21 @@ def trace(*a):
         print("[trace]", *a, flush=True)
 
 
-def _ensure_dirs():
-    os.makedirs(DATA_DIR, exist_ok=True)
-    os.makedirs(BACKUP_DIR, exist_ok=True)
+def _ensure_dirs(safe=False):
+    """Создать каталоги данных. safe=True — вернуть False вместо исключения.
+
+    Методы Api исключений бросать не должны: pywebview превращает их в reject промиса на
+    стороне JS, где его никто не ловит, — и отказ файловой системы выглядел как «ничего не
+    произошло». Внутри main() наоборот важно узнать об отказе до создания окна."""
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        return True
+    except Exception as e:
+        print("ensure dirs error:", e)
+        if safe:
+            return False
+        raise
 
 
 def _atomic_write(path, text):
@@ -202,7 +215,7 @@ def _tg_load():
 
 
 def _tg_save(cfg):
-    _ensure_dirs()
+    _ensure_dirs(safe=True)
     try:
         _atomic_write(TG_FILE, json.dumps(cfg, ensure_ascii=False, indent=1))
     except Exception as e:
@@ -219,15 +232,22 @@ _HWND = 0
 
 
 def _get_hwnd():
-    """HWND нативного окна (ищем по заголовку 'Мыслик', кэшируем)."""
+    """HWND нативного окна НАШЕГО процесса (кэшируем).
+
+    Раньше окно искалось по заголовку — FindWindow(None, "Мыслик"). Заголовок не уникален:
+    вторая копия приложения, окно проводника с такой папкой или редактор с открытым файлом
+    «Мыслик» перехватывали поиск, и ресайз за края начинал тянуть ЧУЖОЕ окно. Ищем по PID.
+    Кэш проверяем на живость: после пересоздания окна старый HWND указывает в никуда."""
     global _HWND
     if _HWND:
-        return _HWND
-    try:
-        import win32gui
-        _HWND = win32gui.FindWindow(None, "Мыслик") or 0
-    except Exception:
+        try:
+            import win32gui
+            if win32gui.IsWindow(_HWND):
+                return _HWND
+        except Exception:
+            return _HWND
         _HWND = 0
+    _HWND = _find_own_window() or 0
     return _HWND
 
 
@@ -235,7 +255,7 @@ class Api:
     # ---------- data ----------
     def load(self):
         trace("load() called")
-        _ensure_dirs()
+        _ensure_dirs(safe=True)
         if not os.path.exists(DATA_FILE):
             return None
         try:
@@ -262,7 +282,8 @@ class Api:
 
     def save(self, state):
         trace("save() called, items=", len((state or {}).get("items", [])))
-        _ensure_dirs()
+        if not _ensure_dirs(safe=True):
+            return False          # папка недоступна — честный отказ, фронт покажет предупреждение
         with _SAVE_LOCK:
             try:
                 _atomic_write(DATA_FILE, json.dumps(state, ensure_ascii=False, indent=1))
@@ -272,7 +293,8 @@ class Api:
                 return False
 
     def backup(self):
-        _ensure_dirs()
+        if not _ensure_dirs(safe=True):
+            return ""
         if not os.path.exists(DATA_FILE):
             return ""
         stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -430,10 +452,27 @@ class Api:
             if chat_id is not None and cid != chat_id:
                 continue
             messages.append(text)
-        cfg["offset"] = max_update + 1
+        # ВАЖНО: offset здесь НЕ сдвигаем. Сдвиг offset — это «сообщения приняты», а принимает их
+        # фронт: он прогоняет текст через парсер и создаёт элементы. Раньше offset записывался
+        # прямо здесь, до возврата в JS, и любая осечка на той стороне (парсер не выделил
+        # названия, ошибка при создании) означала, что сообщение исчезло навсегда — Telegram
+        # его больше не отдаст. Теперь подтверждает фронт через telegram_ack, уже по факту.
+        # Привязку чата сохраняем сразу: она не зависит от обработки.
         cfg["chat_id"] = chat_id
         _tg_save(cfg)
-        return {"ok": True, "messages": messages}
+        return {"ok": True, "messages": messages, "ack": max_update + 1}
+
+    def telegram_ack(self, ack):
+        """Подтвердить обработку: сдвинуть offset. Зовётся фронтом ПОСЛЕ создания элементов."""
+        try:
+            cfg = _tg_load()
+            if int(ack) > int(cfg.get("offset", 0) or 0):
+                cfg["offset"] = int(ack)
+                _tg_save(cfg)
+            return True
+        except Exception as e:
+            print("telegram ack error:", e)
+            return False
 
     # ---------- обновление ----------
     def app_version(self):
@@ -664,12 +703,18 @@ class Api:
         entry = next((m for m in AI_MODEL_CATALOG if m["name"] == name), None)
         if not entry:
             return {"ok": False, "error": "unknown_model"}
+        # Каталог создаём ДО захвата флага: раньше os.makedirs стоял после него и, упав
+        # (нет прав, диск полон), оставлял active=<модель> навсегда — кнопка скачивания
+        # до перезапуска отвечала «уже идёт загрузка», хотя не шло ничего.
+        models_dir = os.path.join(AI_DIR, "models")
+        try:
+            os.makedirs(models_dir, exist_ok=True)
+        except Exception as e:
+            return {"ok": False, "error": "no_dir", "detail": repr(e)}
         with _AI_DL_LOCK:
             if _AI_DL["active"]:
                 return {"ok": False, "error": "busy", "active": _AI_DL["active"]}
             _AI_DL.update(active=name, pct=0, done=False, error=None)
-        models_dir = os.path.join(AI_DIR, "models")
-        os.makedirs(models_dir, exist_ok=True)
         dest = os.path.join(models_dir, name)
 
         def _worker():
@@ -689,6 +734,11 @@ class Api:
                             got += len(chunk)
                             if total:
                                 _AI_DL["pct"] = min(99, int(got * 100 / total))
+                # Обрыв соединения НЕ бросает исключение: read() просто возвращает пустой кусок,
+                # и файл размером 300 МБ вместо 1,8 ГБ переезжал в models/ как «скачано».
+                # Дальше llama.cpp падал на битом gguf, а пользователь видел «модель есть».
+                if total and got != total:
+                    raise IOError("неполная загрузка: %d из %d байт" % (got, total))
                 os.replace(tmp, dest)          # атомарно: недокачанный .part не «установится»
                 _AI_DL.update(pct=100, done=True, active=None)
             except Exception as e:
@@ -922,24 +972,37 @@ def _selftest(window):
         pass
 
 
-def _find_own_window():
-    """Верхнеуровневое окно НАШЕГО процесса. Надёжнее поиска по заголовку: заголовок может
-    занять чужое окно, а у безрамочного окна он вообще способен отличаться."""
+def _find_own_window(title="Мыслик"):
+    """Главное окно НАШЕГО процесса.
+
+    Два критерия вместе, потому что поодиночке врёт каждый:
+    - поиск по заголовку (FindWindow) хватает ЧУЖОЕ окно — вторую копию приложения, папку с
+      таким именем в проводнике, редактор с открытым файлом;
+    - «первое видимое окно своего процесса» на ранних миллисекундах старта возвращает
+      служебное окно (GDI+, WinForms-брокер, окно значка в трее), а не то, что видит человек.
+    Поэтому: только свой PID, только верхнеуровневое видимое окно с непустой площадью, и
+    предпочтение — окну с нашим заголовком. Из оставшихся берём самое крупное: главное окно
+    всегда больше любой служебной заглушки."""
     try:
         import win32gui
         import win32process
     except Exception:
         return 0
     pid = os.getpid()
-    found = []
+    named, other = [], []
 
     def _cb(hwnd, _):
         try:
             if not win32gui.IsWindowVisible(hwnd) or win32gui.GetParent(hwnd):
                 return True
             _, wpid = win32process.GetWindowThreadProcessId(hwnd)
-            if wpid == pid:
-                found.append(hwnd)
+            if wpid != pid:
+                return True
+            l, t, r, b = win32gui.GetWindowRect(hwnd)
+            area = max(0, r - l) * max(0, b - t)
+            if area <= 1:
+                return True                      # окна-точки 1x1 и 0x0 — служебные
+            (named if win32gui.GetWindowText(hwnd) == title else other).append((area, hwnd))
         except Exception:
             pass
         return True
@@ -948,7 +1011,8 @@ def _find_own_window():
         win32gui.EnumWindows(_cb, None)
     except Exception:
         return 0
-    return found[0] if found else 0
+    pool = named or other
+    return max(pool)[1] if pool else 0
 
 
 def _set_taskbar_icon(icon_path):
@@ -988,11 +1052,51 @@ def _set_taskbar_icon(icon_path):
 
     ok = _apply()
     print("[icon] window icon set, hwnd=", hwnd, "ok=", ok)
+    _set_taskbar_button_icon(hwnd, icon_path)
     # WebView2 доинициализируется ПОЗЖЕ создания окна и способен сбросить иконку — повторяем.
     # Стоит копейки (два вызова за 6 секунд), зато иконка не пропадает из панели задач.
     for delay in (1.5, 4.0):
         time.sleep(delay)
         _apply()
+
+
+def _set_taskbar_button_icon(hwnd, icon_path):
+    """Иконка КНОПКИ на панели задач.
+
+    WM_SETICON задаёт иконку окна — её видно в Alt+Tab и в системном меню, но кнопку на панели
+    задач Windows рисует иначе: процесс объявил себе AppUserModelID ("krolik.planner"), а ярлыка
+    с таким идентификатором в системе нет, поэтому иконка бралась от исполняемого файла. В
+    собранном exe она вшита и совпадает, а при запуске из исходников на панели висел значок
+    python.exe. Проверено снимком панели задач: до правки — консоль с питоном, после — логотип.
+    (Появление иконки при втором открытии Мыслика — тот же механизм: группа кнопок
+    перестраивается и перечитывает свойства окна.)
+
+    Официальный способ указать иконку конкретному окну — свойство оболочки
+    System.AppUserModel.RelaunchIconResource. Никаких хаков со скрытием окна не нужно."""
+    if not hwnd or not icon_path or not os.path.isfile(icon_path):
+        return False
+    try:
+        import pythoncom
+        from win32comext.propsys import propsys, pscon
+    except Exception as e:
+        print("[icon] propsys недоступен:", e)
+        return False
+    try:
+        pythoncom.CoInitialize()
+    except Exception:
+        pass
+    try:
+        store = propsys.SHGetPropertyStoreForWindow(hwnd, propsys.IID_IPropertyStore)
+        store.SetValue(pscon.PKEY_AppUserModel_RelaunchIconResource,
+                       propsys.PROPVARIANTType(os.path.abspath(icon_path) + ",0", pythoncom.VT_LPWSTR))
+        store.SetValue(pscon.PKEY_AppUserModel_ID,
+                       propsys.PROPVARIANTType(APP_ID, pythoncom.VT_LPWSTR))
+        store.Commit()
+        print("[icon] taskbar button icon set")
+        return True
+    except Exception as e:
+        print("[icon] taskbar button icon error:", e)
+        return False
 
 
 # держим ссылки глобально, иначе GC соберёт callback → краш
@@ -1013,7 +1117,9 @@ def _enable_frameless_resize(title="Мыслик", border=8):
         return
     hwnd = 0
     for _ in range(120):  # до ~12 c ждём появления окна
-        hwnd = win32gui.FindWindow(None, title)
+        # по процессу, а не по заголовку: подменять оконную процедуру ЧУЖОМУ окну (второй копии
+        # приложения, проводнику с такой же папкой) — верный способ уронить чужую программу
+        hwnd = _find_own_window() or 0
         if hwnd:
             break
         time.sleep(0.1)
@@ -1068,6 +1174,28 @@ def _enable_frameless_resize(title="Мыслик", border=8):
         print("[resize] error:", e)
 
 
+def _sweep_partial_downloads():
+    """Убрать хвосты прерванных закачек (*.part, *.part.zip).
+
+    Поток загрузки — демон: при закрытии приложения он обрывается посреди записи, и except с
+    уборкой уже не выполняется. Файл на гигабайты оставался лежать в ai/ навсегда — место
+    занято, а модели нет. Чистим на старте: в этот момент никакая закачка ещё не идёт."""
+    if not AI_DIR or not os.path.isdir(AI_DIR):
+        return
+    freed = 0
+    for root, _dirs, files in os.walk(AI_DIR):
+        for f in files:
+            if f.endswith(".part") or f.endswith(".part.zip"):
+                p = os.path.join(root, f)
+                try:
+                    freed += os.path.getsize(p)
+                    os.remove(p)
+                except Exception:
+                    pass
+    if freed:
+        print("[ai] cleaned partial downloads: %.1f MB" % (freed / 1048576.0))
+
+
 def _repair_bundle_if_broken():
     """Защита от битой сборки у пользователя (обычно после оборванного авто-обновления):
     если файлов интерфейса нет — пробуем восстановить ui/ из остатков обновления
@@ -1102,11 +1230,24 @@ def main():
     trace("main start, file=", __file__)
     # отдельная идентичность приложения → Windows не группирует под pythonw и берёт нашу иконку
     try:
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("krolik.planner")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
     except Exception as e:
         print("[appid] error:", e)
     _repair_bundle_if_broken()   # битый _internal после сорванного обновления → чиним или честно сообщаем
-    _ensure_dirs()
+    if not _ensure_dirs(safe=True):
+        # Папка рядом с exe бывает недоступна на запись: Program Files, сетевой диск, флешка
+        # с защитой. Раньше здесь летел трейсбек в консоль, которой у собранного exe нет, —
+        # приложение просто не открывалось молча.
+        try:
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                "Не удалось создать папку данных:\n%s\n\n"
+                "Запусти Мыслика из папки, куда можно писать "
+                "(например, Документы), или дай доступ на запись." % DATA_DIR,
+                "Мыслик", 0x10)
+        except Exception:
+            pass
+        return
     # сброс кэша WebView2 (CSS/JS закэширован)
     cache_dir = os.path.join(os.environ.get("LOCALAPPDATA", ""), "planner", "EBWebView")
     if os.path.exists(cache_dir):
@@ -1127,6 +1268,7 @@ def main():
             print("[ai] init:", info)   # без status(): в нём кириллица (названия провайдеров) — падает print в cp1252-консоли frozen-сборки
         except Exception as e:
             print("[ai] init error:", e)
+        _sweep_partial_downloads()
     trace("api created")
 
     frameless = os.environ.get("PLANNER_FRAMED") != "1"

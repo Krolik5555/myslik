@@ -3,8 +3,13 @@
    planner — KROLIK edition
    =========================================================== */
 
-/* ---------- storage abstraction (pywebview OR browser) ---------- */
-const HasPy = () => !!(window.pywebview && window.pywebview.api);
+/* ---------- storage abstraction (pywebview OR browser) ----------
+   HasPy проверяет КОНКРЕТНЫЙ метод, а не сам объект api. Причина: pywebview собирает мост
+   двумя скриптами — api.js создаёт window.pywebview с ПУСТЫМ api:{}, и только finish.js
+   навешивает методы через _createApi и диспатчит pywebviewready. В зазоре между ними
+   проверка «объект api существует» истинна, а api.load() бросает TypeError: приложение
+   стартовало бы в мёртвое окно. */
+const HasPy = () => typeof (window.pywebview && window.pywebview.api && window.pywebview.api.load) === "function";
 const Store = {
   async load(){
     if(HasPy()) return await window.pywebview.api.load();
@@ -72,13 +77,42 @@ function dueBadge(it){
   }
   return dueLabel(it.due);
 }
+/* makeDate(y,mo,d) — Date из ЧЕЛОВЕЧЕСКИХ чисел (mo 1..12) или null, если такой даты не было.
+   new Date(y,mo-1,d) молча нормализует переполнение: 29 февраля невисокосного года становится
+   1 марта, 31.04 — 1 мая, а месяц «00» уезжает в декабрь прошлого года. Поэтому после создания
+   сверяем результат с тем, что просили: не сошлось — даты не существует. */
+function makeDate(y,mo,d){
+  y=+y; mo=+mo; d=+d;
+  if(!(y>=1970 && y<=9999) || !(mo>=1 && mo<=12) || !(d>=1 && d<=31)) return null;
+  const x=startOfDay(new Date(y,mo-1,d));
+  return (x.getFullYear()===y && x.getMonth()===mo-1 && x.getDate()===d) ? x : null;
+}
+const daysInMonth = (y,mo)=> new Date(y,mo,0).getDate();   // mo 1..12
+
 const REPEAT={none:"",daily:"каждый день",weekly:"каждую неделю",monthly:"каждый месяц"};
+/* Следующий срок повтора. Два правила, оба про «дата должна остаться осмысленной»:
+   1) месяц считаем через 1-е число с зажимом дня по длине целевого месяца — иначе
+      31.01 + месяц = «31 февраля» = 3 марта, и февраль пропускается целиком, а число
+      31 навсегда превращается в 1–3;
+   2) крутим вперёд, пока срок не окажется в будущем: повтор просроченной задачи иначе
+      рождает копию, уже просроченную, и её приходится закрывать по разу за период. */
 function nextRepeat(due,rep){
-  const d=parseYmd(due)||today();
-  if(rep==="daily") return ymd(addDays(d,1));
-  if(rep==="weekly") return ymd(addDays(d,7));
-  if(rep==="monthly"){ const n=new Date(d); n.setMonth(n.getMonth()+1); return ymd(n); }
-  return null;
+  const start=parseYmd(due)||today();
+  if(!REPEAT[rep] || rep==="none") return null;
+  const anchor=start.getDate();          // «число месяца», от которого пляшем: 31 остаётся 31
+  const T=today();
+  let d=start, guard=0;
+  do{
+    if(rep==="daily") d=addDays(d,1);
+    else if(rep==="weekly") d=addDays(d,7);
+    else if(rep==="monthly"){
+      const n=new Date(d); n.setDate(1); n.setMonth(n.getMonth()+1);
+      n.setDate(Math.min(anchor, daysInMonth(n.getFullYear(), n.getMonth()+1)));
+      d=startOfDay(n);
+    }
+    else return null;
+  } while(d<=T && ++guard<4000);          // guard: страховка от вечного цикла на битых данных
+  return ymd(d);
 }
 
 /* ---------- default state ---------- */
@@ -211,6 +245,11 @@ function sanitizeState(s){
   if(!Array.isArray(s.areas)) s.areas=[];
   if(!Array.isArray(s.items)) s.items=[];
   if(!Array.isArray(s.links)) s.links=[];
+  // Сами ЭЛЕМЕНТЫ массивов тоже могут быть мусором (null, число, строка) — функция для того и
+  // существует, чтобы принять чужой/подпорченный json. Без фильтра первый же it.title ронял
+  // импорт с TypeError, и приложение оставалось с наполовину применённым состоянием.
+  s.areas=s.areas.filter(a=>a && typeof a==="object" && !Array.isArray(a));
+  s.items=s.items.filter(it=>it && typeof it==="object" && !Array.isArray(it));
   const okColor=c=>(typeof c==="string"&&/^#[0-9a-fA-F]{3,8}$/.test(c))?c:null;
   s.areas.forEach(a=>{ if(!ICONS.includes(a.icon)) a.icon="ti-folder"; a.color=okColor(a.color); a.name=String(a.name==null?"":a.name); });
   // реестр стилизованных тегов (все свойства опциональны → null если не заданы), дедуп по имени
@@ -243,6 +282,9 @@ function sanitizeState(s){
     if(it.kind==="flow") ensureFlow(it);   // нормализуем содержимое схемы
     if(it.size!=null){ const sz=+it.size; it.size = (sz>=0.4&&sz<=3)?sz:1; }   // индивидуальный множитель размера ноды
     if(it.doneAt!=null && typeof it.doneAt!=="number") delete it.doneAt;       // дата выполнения (для метки опоздания)
+    // срок: только «YYYY-MM-DD», и только существующая дата — иначе parseYmd отдаст сдвинутый
+    // день (2026-02-31 → 3 марта) и он тихо разъедется по календарю, спискам и повторам
+    if(it.due!=null){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(it.due)); it.due = (m && makeDate(m[1],m[2],m[3])) ? String(it.due) : null; }
     if(it.folder!=null){ it.folder = typeof it.folder==="string" ? it.folder : undefined; if(it.folder==="") it.folder=undefined; }   // привязанная папка на ПК: только непустая строка
   });
   s.items.forEach(it=>{ if(it.parent && !seen.has(it.parent)) it.parent=null; });   // снять висячие parent
@@ -269,6 +311,7 @@ function sanitizeState(s){
 let S = defaultState();
 let _prevView=null;   // для анимации входа: отличаем смену вкладки от обычной перерисовки
 let saveTimer=null;
+let _undoWindow=false;   // открыто ли окно «одного действия человека» (см. persist)
 /* persist(quiet) — единственная воронка записи. quiet=true: сохранить, но НЕ считать это
    действием человека (см. undo ниже). Нужен ровно одному месту — авто-сохранению раскладки,
    когда физика графа остыла сама по себе. */
@@ -277,10 +320,44 @@ function persist(quiet){
   // пока человек тянет ползунок или пока одно «создать ноду» дёргает persist четыре раза
   // подряд, таймер каждый раз сбрасывается и окно не закрывается — значит снимок будет один.
   // Иначе Ctrl+Z отматывал бы свечение по пикселю, а создание ноды требовало бы четырёх нажатий.
-  if(saveTimer===null && !quiet) undoPush();
+  /* Границу действия отмечает ОТДЕЛЬНЫЙ флаг, а не «висит ли таймер записи». Раньше признаком
+     служило saveTimer!==null, но тихое автосохранение раскладки (persist(true), когда физика
+     графа остыла сама) открывало ровно тот же таймер — не делая снимка. Действие человека,
+     попавшее в эти 250 мс, снимок уже не получало: Ctrl+Z молча пропускал шаг. */
+  if(!quiet && !_undoWindow){ undoPush(); _undoWindow=true; }
   clearTimeout(saveTimer);
-  saveTimer=setTimeout(()=>{ saveTimer=null; _undoLast=_undoSnap(); _undoKeyLast=_undoKey(); Store.save(S); },250);
+  saveTimer=setTimeout(()=>{ saveTimer=null; _undoWindow=false; _undoLast=_undoSnap(); _undoKeyLast=_undoKey(); writeNow(); },250);
 }
+
+/* writeNow / flushSave — фактическая запись. Раньше здесь стоял голый Store.save(S):
+   промис никто не читал, поэтому отказ диска (нет места, файл занят антивирусом, папка
+   стала недоступной) выглядел как успешная работа — человек продолжал писать в память,
+   а на диск не попадало ничего. Теперь результат читается и провал виден. */
+let _saveFailed=false;
+async function writeNow(){
+  try{
+    const ok=await Store.save(S);
+    if(ok===false){ _saveTrouble("Не удалось записать файл данных"); return false; }
+    if(_saveFailed){ _saveFailed=false; toast("Сохранение восстановлено",{icon:"ti-device-floppy"}); }
+    return true;
+  }catch(e){
+    _saveTrouble("Сохранение сорвалось: "+((e&&e.message)||e));
+    return false;
+  }
+}
+function _saveTrouble(msg){
+  if(_saveFailed) return;            // не долбить одним и тем же тостом на каждый автосейв
+  _saveFailed=true;
+  toast(msg+" — данные пока только в памяти",{icon:"ti-alert-triangle",label:"Экспортировать",hold:true,
+    onAction:()=>{ if(typeof doExport==="function") doExport(); }});
+}
+// Дожать отложенную запись немедленно: перед закрытием окна и перед выгрузкой страницы.
+// Без этого последние 250 мс работы (дебаунс persist) исчезали вместе с окном.
+async function flushSave(){
+  if(saveTimer!==null){ clearTimeout(saveTimer); saveTimer=null; _undoWindow=false; _undoLast=_undoSnap(); _undoKeyLast=_undoKey(); }
+  return await writeNow();
+}
+const saveBroken = ()=>_saveFailed;
 
 /* ===========================================================
    ОТКАТ (Ctrl+Z) / ПОВТОР (Ctrl+Shift+Z)
@@ -342,7 +419,7 @@ function _undoApply(snap){
   render();
   _undoBusy=false;
   _undoLast=_undoSnap(); _undoKeyLast=_undoKey();   // снимок правим координатами — пересчитываем от факта
-  clearTimeout(saveTimer); saveTimer=null; Store.save(S);
+  clearTimeout(saveTimer); saveTimer=null; writeNow();
 }
 function undoStep(){ if(!_undoStack.length) return false;
   _redoStack.push(_undoLast); _undoTrim(_redoStack); _undoApply(_undoStack.pop()); return true; }

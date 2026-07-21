@@ -35,11 +35,27 @@ function parseCapture(raw){
     const tgt=wd[w.toLowerCase()], cur=today().getDay(); let add=(tgt-cur+7)%7; if(add===0)add=7;
     due=ymd(addDays(today(),add)); return " ";
   });
-  s=s.replace(/\b(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\b/,(m,d,mo,y)=>{
+  /* «25.06» / «25.06.27» — дата. Но точкой разделяются ещё время («созвон в 18.00»), версии
+     («обновить до 1.4») и дроби («1.5 л молока»). Два ограничителя:
+     1) makeDate возвращает null для несуществующих дат — «18.00» (месяц 0), «29.02» в
+        невисокосный год, «31.04»; раньше new Date молча нормализовал их в другой день, срок
+        уезжал на год вперёд, а кусок текста при этом вырезался из названия;
+     2) справа и слева не должно быть цифр, точек и двоеточий — так «10.30.15» и «v1.4.2»
+        не притворяются датой. */
+  s=s.replace(/(?<![\d.,:])(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?(?![\d.,:])/,(m,d,mo,y)=>{
     if(due) return m;
-    let year= y? (y.length===2?2000+(+y):+y) : today().getFullYear();
-    const cand=startOfDay(new Date(year,(+mo)-1,+d));
-    if(!y && cand < today()) cand.setFullYear(year+1);
+    /* «1.5 л молока» и «обновить до 1.4» — синтаксически такие же «дата», как «1.05» и «25.6»:
+       различить их можно только по тому, КАК записано. Дробь и номер версии пишут в самой
+       короткой форме (обе части однозначные, первая маленькая), дату — либо с двузначным
+       месяцем («1.05», как в подсказке поля), либо с днём больше 12, который месяцем быть не
+       может («25.6»). Всё остальное оставляем текстом: пропущенный срок человек видит сразу
+       (в предпросмотре нет чипа с датой) и допишет ноль, а вот выдуманный срок с обрезанным
+       названием — порча тихая. */
+    if(mo.length===1 && +d<=12) return m;
+    const year= y? (y.length===2?2000+(+y):+y) : today().getFullYear();
+    let cand=makeDate(year,mo,d);
+    if(!cand) return m;                                    // такой даты нет — это не дата, текст не трогаем
+    if(!y && cand < today()){ const nx=makeDate(year+1,mo,d); if(!nx) return m; cand=nx; }   // 29.02 не переносим в невисокосный
     due=ymd(cand); return " ";
   });
   s=s.replace(/(?<![а-яёa-z0-9])через\s+(\d{1,3})\s*(дн|день|дня|дней|нед|недел\w*)(?![а-яёa-z0-9])/i,(m,n,unit)=>{
@@ -113,6 +129,13 @@ function linksOf(id){ return S.links.filter(l=>l[0]===id||l[1]===id).map(l=>l[0]
 // дата/область/статус НЕ влияют на присутствие в паутине; на холст ноду ставит человек (см. Graph.build)
 function inWeb(it){ return !it.deleted; }
 function childrenOf(id){ return S.items.filter(it=>it.parent===id); }
+/* Живые версии: удаление у нас МЯГКОЕ (deleteItem только ставит deleted=true и НЕ снимает parent
+   у детей — это делает лишь hardDeleteItem). Поэтому всё, что показывается человеку — счётчик
+   связей на карточке, список подветок, дерево в ридере — обязано считать по живым, иначе бейдж
+   обещает «3 подветки», а раскрывается одна, и корзина протекает в интерфейс. */
+const liveById = id => { const it=S.items.find(i=>i.id===id); return (it && inWeb(it)) ? it : null; };
+function childrenOfLive(id){ return S.items.filter(it=>it.parent===id && inWeb(it)); }
+function linksOfLive(id){ return linksOf(id).filter(x=>/^hub_/.test(x) ? true : !!liveById(x)); }
 // свёрнутые узлы/области в списке (ключи: id узла или "area:"+id)
 function isCollapsed(id){ const c=S.settings&&S.settings.collapsed; return !!(c&&c[id]); }
 function toggleCollapse(id){ if(!S.settings.collapsed) S.settings.collapsed={}; if(S.settings.collapsed[id]) delete S.settings.collapsed[id]; else S.settings.collapsed[id]=true; persist(); }

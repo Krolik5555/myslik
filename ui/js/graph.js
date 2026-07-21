@@ -88,7 +88,7 @@ function renderNotes(v){
 // каретка-сворачиватель для узла, у которого есть дочерние (в наборе паутины)
 function caretHTML(it, hasKids){
   // hasKids задан явно (для деревьев с обрезкой) — иначе считаем по всем web-детям
-  const has = hasKids!==undefined ? hasKids : childrenOf(it.id).some(k=>inWeb(k));
+  const has = hasKids!==undefined ? hasKids : childrenOfLive(it.id).length>0;
   if(!has) return "";
   const col=isCollapsed(it.id);
   return `<button class="nc-caret" data-collapse="${it.id}" title="${col?'Развернуть':'Свернуть'}"><i class="ti ${col?'ti-chevron-right':'ti-chevron-down'}"></i></button>`;
@@ -103,8 +103,8 @@ function noteCard(it, depth=0, hasKids, compact){
   const head=`<div class="nc-head">${caretHTML(it, hasKids)}${showIcn?`<i class="ti ${kicn} nc-icn"></i>`:''}<div class="nc-ttl">${esc(it.title)}</div></div>`;
   // compact: заметка как контекст-заголовок в дереве задач (без тела/футера)
   if(compact) return `<div class="note-card ctx ${isChild?'child':'root'}" data-nid="${it.id}" style="${border}">${head}</div>`;
-  const conn=linksOf(it.id);
-  const kids=childrenOf(it.id);
+  const conn=linksOfLive(it.id);
+  const kids=childrenOfLive(it.id);
   return `<div class="note-card ${isChild?'child':'root'}" data-nid="${it.id}" style="${border}">
     ${head}
     <div class="nc-body">${esc(it.body||"")}</div>
@@ -118,8 +118,8 @@ function noteCard(it, depth=0, hasKids, compact){
 }
 // карточка задачи в дереве: чекбокс «выполнить» + компактные мета, чтобы не перегружать
 function treeTaskCard(it, depth=0, hasKids){
-  const conn=linksOf(it.id);
-  const kids=childrenOf(it.id);
+  const conn=linksOfLive(it.id);
+  const kids=childrenOfLive(it.id);
   const isChild = depth > 0;
   const dl=dueBadge(it);
   // полоска слева + флажок = СРОЧНОСТЬ (приоритет): pri-3 красный · pri-2 жёлтый · pri-1 зелёный · pri-0 нейтральный
@@ -261,6 +261,17 @@ class Graph{
     this._onWinResize=()=>this._onResize();   // подстраховка: ResizeObserver не доставляется, пока окно скрыто
     window.addEventListener("resize", this._onWinResize);
   }
+  /* ЕДИНСТВЕННАЯ точка планирования кадра. Раньше requestAnimationFrame звался из четырёх мест,
+     и в _onResize (в отличие от build/resume) забыли проверить, что кадр уже запланирован:
+     каждое изменение размера окна добавляло ЕЩЁ ОДИН вечный цикл _tick поверх существующего.
+     Развернул окно, свернул, растянул — и граф считает физику в три-четыре параллельных потока
+     кадров, каждый со своим this.raf; отменить можно только последний. Здесь инвариант «ровно
+     один запланированный кадр» держится конструкцией, а не внимательностью. */
+  _schedule(){
+    if(this._paused){ this.raf=null; return; }
+    if(this.raf) cancelAnimationFrame(this.raf);
+    this.raf=requestAnimationFrame(()=>{ this.raf=null; this._tick(); });
+  }
   _onResize(){
     const w=this.svg.clientWidth, h=this.svg.clientHeight;
     if(!w || !h || (w===this.W && h===this.H)) return false;
@@ -269,7 +280,7 @@ class Graph{
     this.svg.setAttribute("viewBox",`0 0 ${w} ${h}`);
     this.tx=w/2-wx*this.zoom; this.ty=h/2-wy*this.zoom;                       // она же остаётся в центре
     this._applyTransform();
-    if(!this._paused) this._tick(true);   // перерисовать сразу: в покое кадр мог бы быть пропущен
+    if(!this._paused){ if(this.raf){ cancelAnimationFrame(this.raf); this.raf=null; } this._tick(true); }   // перерисовать сразу: в покое кадр мог бы быть пропущен
     return true;
   }
   _paintSel(){ if(this.nodeEls) this.nodeEls.forEach(o=>o.g.classList.toggle("sel",this.selNodes.has(o.n.id))); this._renderSelBar(); }
@@ -425,10 +436,20 @@ class Graph{
     // ОДНИМ вызовом, а дрейф/мерцание считает шейдер: 0.008 мс на 6 000 звёзд (и столько же на
     // 30 000). Микрооптимизации 2d-пути (alpha, масштаб, тригонометрия) давали лишь 7-9% — дело
     // было именно в количестве вызовов. Нет WebGL — откатываемся на прежний путь canvas2d.
+    /* GL-состояние живёт вместе с canvas, а НЕ с вызовом build(). build() дёргается на каждую
+       правку ноды, связь и движение ползунка — а _initBgGL компилирует два шейдера, линкует
+       программу, заливает буфер на 20 000 вершин и делает самопроверку с синхронным readPixels.
+       getContext на том же canvas возвращает ТОТ ЖЕ контекст, поэтому прежняя программа и буфер
+       не освобождались, а копились в драйвере. Теперь инициализация одна на canvas. */
     this.bgGL=null;
     if(this.bgCanvas){
-      try{ this.bgGL=this._initBgGL(this.bgCanvas); }
-      catch(e){ this.bgGL=null; console.warn("[graph] WebGL недоступен — фон графа отключён:", e); }
+      const c=this._glCache;
+      if(c && c.cv===this.bgCanvas && c.st && !c.st.gl.isContextLost()){ this.bgGL=c.st; }
+      else{
+        try{ this.bgGL=this._initBgGL(this.bgCanvas); }
+        catch(e){ this.bgGL=null; console.warn("[graph] WebGL недоступен — фон графа отключён:", e); }
+        this._glCache={cv:this.bgCanvas, st:this.bgGL};
+      }
     }
     this.glowCanvas=this.svg.parentNode?this.svg.parentNode.querySelector(".graph-glow-canvas"):null;   // слой цветной подсветки «в работе»
     this.glowCtx=this.glowCanvas?this.glowCanvas.getContext("2d"):null;
@@ -731,7 +752,15 @@ class Graph{
       if(this.connectDrag){ const from=this.connectDrag; this.connectDrag=null; this.tempLine.style.display="none"; this._hover(null);
         const elx=document.elementFromPoint(e.clientX,e.clientY), g=elx&&elx.closest?elx.closest(".g-node"):null;
         if(g){ const msg=this._linkTo(from, g.dataset.id); if(msg){ recomputeHierarchy(); this.build(); toast(msg); } }   // бросок на область назначает её (см. _linkTo)
-        else { const p=this._pt(e); this._quickAdd("note",p.x,p.y,from); }   // отпустил на пустом → новая заметка + связь
+        else {
+          // отпустил на пустом → новая заметка + связь. Но ТОЛЬКО если отпустил над холстом:
+          // курсор, уехавший за окно графа (на сайдбар, за край экрана), раньше всё равно
+          // создавал безымянную ноду — в точке, которой не видно, и с полем переименования,
+          // нарисованным мимо экрана. Найти её потом можно было только через «Одинокие ноды».
+          const rc=svg.getBoundingClientRect();
+          const inside = e.clientX>=rc.left && e.clientX<=rc.right && e.clientY>=rc.top && e.clientY<=rc.bottom;
+          if(inside){ const p=this._pt(e); this._quickAdd("note",p.x,p.y,from); }
+        }
         return; }
       if(this.marq){ this._finishMarquee(); return; }
       if(this.drag){
@@ -879,8 +908,19 @@ class Graph{
       try{ const e=gl.getExtension("WEBGL_lose_context"); if(e) e.loseContext(); }catch(_){}
       return null;
     }
-    // Потеря контекста (сон, смена GPU, перегруз): перестаём использовать GL, чтобы не рисовать в пустоту
-    cv.addEventListener("webglcontextlost", (e)=>{ e.preventDefault(); this.bgGL=null; }, {once:true});
+    /* Потеря контекста (сон, смена GPU, перегруз): перестаём использовать GL, чтобы не рисовать
+       в пустоту. preventDefault имеет смысл ТОЛЬКО в паре с восстановлением — он и просит браузер
+       прислать webglcontextrestored. Без парного слушателя (и с {once:true} у обоих) фон после
+       первого же засыпания машины оставался бы чёрным до перезапуска приложения. */
+    if(!cv._glHooked){
+      cv._glHooked=true;
+      cv.addEventListener("webglcontextlost", (e)=>{ e.preventDefault(); this.bgGL=null; this._glCache=null; });
+      cv.addEventListener("webglcontextrestored", ()=>{
+        this._glCache=null;
+        try{ this.bgGL=this._initBgGL(cv); this._glCache={cv, st:this.bgGL}; }
+        catch(e){ this.bgGL=null; }
+      });
+    }
     return st;
   }
   // Рисуем несколько заведомо ярких точек в маленький буфер и проверяем, что они там есть.
@@ -1008,6 +1048,7 @@ class Graph{
      ждём, не будет ли второго клика (тогда открывается ридер, а превью отменяется).
      Переиспользуем id="node-pop": позиционирование и закрытие по клику мимо уже работают на нём. */
   _openPreview(n){
+    if(!this.svg || !this.svg.isConnected) return;   // граф уже снесён (ушли на другую вкладку) — рисовать некуда
     this._closePop();
     const it=n.ref; if(!it) return;
     this.sel=n.id;
@@ -1199,7 +1240,7 @@ class Graph{
     const camKey=this.tx.toFixed(2)+"|"+this.ty.toFixed(2)+"|"+this.zoom.toFixed(4);
     const camMoving=camKey!==this._camKey; this._camKey=camKey;
     const busy=this.drag||this.connectDrag||this.panning||this.marq||this.linkFrom;
-    if(!force && this.alpha===0 && !camMoving && !busy){ this._sk=(this._sk||0)^1; if(this._sk){ this.raf=this._paused?null:requestAnimationFrame(()=>this._tick()); return; } }
+    if(!force && this.alpha===0 && !camMoving && !busy){ this._sk=(this._sk||0)^1; if(this._sk){ this._schedule(); return; } }
     this._drawBg();
     this._drawGlow();
     const N=this.nodes, cx=this.W/2, cy=this.H/2;
@@ -1281,7 +1322,7 @@ class Graph{
       this.nodes.forEach(n=>{ if(n.ref){ n.ref.x=n.x; n.ref.y=n.y; } else if(n.hubArea){ n.hubArea.x=n.x; n.hubArea.y=n.y; } });
       persist(true);   // тихо: раскладка улеглась сама, человек ничего не делал — в историю отката это не шаг
     }
-    this.raf = this._paused ? null : requestAnimationFrame(()=>this._tick());
+    this._schedule();
   }
   // вписать все узлы в видимую область (зум/пан), чтобы видеть дерево целиком
   _fitView(){
@@ -1330,8 +1371,14 @@ class Graph{
       pop.querySelector('[data-pop="tasks"]').onclick=()=>{ this._closePop(); areaFilter=a.id; view="tasks"; render(); };
       pop.querySelector('[data-pop="link"]').onclick=()=>{ this.startLink(n.id); };
       pop.querySelector('[data-pop="pin"]').onclick=()=>{
-        n.fixed=!n.fixed; a.pin=n.fixed; if(n.fixed){ a.x=n.x; a.y=n.y; } persist();
-        const o=this.nodeEls.find(x=>x.n===n); if(o)o.pin.style.display=n.fixed?"":"none";
+        /* Узел берём из ЖИВОГО реестра по id, а не из замыкания: build() пересоздаёт объекты
+           узлов (любая правка ноды, новая связь, авто-раскладка), и открытый поп-ап держит
+           ссылку на предыдущее поколение. Закрепление тогда писалось в объект-призрак:
+           координаты уходили не те, а иконка «булавка» не находилась поиском по идентичности
+           (x.n===n) и не переключалась. */
+        const node=this.byId[n.id]||n;
+        node.fixed=!node.fixed; a.pin=node.fixed; if(node.fixed){ a.x=node.x; a.y=node.y; } persist();
+        const o=this.nodeEls.find(x=>x.n.id===node.id); if(o)o.pin.style.display=node.fixed?"":"none";
         this._closePop();
       };
       return;
@@ -1443,9 +1490,13 @@ class Graph{
   _closePop(){ const p=$("#node-pop"); if(p)p.remove(); this.sel=null; }
   // пауза/возобновление цикла анимации: когда окно не в фокусе/свёрнуто, останавливаем rAF,
   // чтобы приложение в фоне не жгло CPU (иначе «дыхание» графа крутится 60fps впустую).
-  pause(){ this._paused=true; if(this.raf){ cancelAnimationFrame(this.raf); this.raf=null; } if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; } }
+  // отложенный показ превью ноды (170 мс после клика) обязан умирать вместе с графом:
+  // иначе переход на другую вкладку в этом окне рисовал попап поверх уже другого экрана
+  _killPreviewTimer(){ if(this._pvT){ clearTimeout(this._pvT); this._pvT=null; } }
+  pause(){ this._paused=true; this._killPreviewTimer(); if(this.raf){ cancelAnimationFrame(this.raf); this.raf=null; } if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; } }
   resume(){ if(!this._paused) return; this._paused=false; if(!this.raf) this._tick(); }
-  destroy(){ this._paused=true; if(this.raf) cancelAnimationFrame(this.raf); if(this._vraf) cancelAnimationFrame(this._vraf);
+
+  destroy(){ this._paused=true; this._killPreviewTimer(); if(this.raf) cancelAnimationFrame(this.raf); if(this._vraf) cancelAnimationFrame(this._vraf);
     // граф пересоздаётся на каждый render — без этого наблюдатели и слушатели копились бы
     if(this._ro){ this._ro.disconnect(); this._ro=null; }
     if(this._onWinResize){ window.removeEventListener("resize", this._onWinResize); this._onWinResize=null; }

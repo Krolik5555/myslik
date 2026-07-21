@@ -75,13 +75,47 @@ function emptyBox(icon,text){ return `<div class="empty"><i class="ti ${icon}"><
 // текстовый фильтр списков (#list-filter): ввод → перерендер → вернуть фокус и каретку (иначе теряются при innerHTML)
 function wireListFilter(v){
   const lf=$("#list-filter",v); if(!lf) return;
-  lf.oninput=()=>{ listQuery=lf.value; render();
-    const nf=$("#list-filter"); if(nf){ nf.focus(); nf.setSelectionRange(nf.value.length,nf.value.length); } };
+  // каретку НЕ трогаем: её положение снимает и возвращает render() (см. _viewSnapshot).
+  // Раньше здесь стояло setSelectionRange(в конец) — и правка середины слова была невозможна.
+  lf.oninput=()=>{ listQuery=lf.value; render(); const nf=$("#list-filter"); if(nf && document.activeElement!==nf) nf.focus(); };
   lf.onkeydown=e=>{ if(e.key==="Escape" && lf.value){ e.stopPropagation(); listQuery=""; render(); const nf=$("#list-filter"); if(nf) nf.focus(); } };
 }
 
+/* render() перерисовывает вид целиком через innerHTML — это просто и надёжно, но вместе с
+   разметкой стирается ЭФЕМЕРНОЕ состояние DOM: положение прокрутки и позиция каретки в поле
+   фильтра. Раньше каждое действие в длинном списке (галочка, перенос на сегодня) отбрасывало
+   человека в начало, а фильтр после каждой буквы ставил каретку в конец — править середину
+   слова было невозможно. Снимаем это состояние ДО перерисовки и возвращаем после; при смене
+   вкладки, наоборот, честно начинаем сверху. */
+function _viewSnapshot(){
+  const v=$("#view"); if(!v) return null;
+  const ae=document.activeElement;
+  const inField = ae && v.contains(ae) && /^(INPUT|TEXTAREA)$/.test(ae.tagName);
+  const scroller = v.scrollTop ? v : (v.querySelector(".list, .tree, .cards") || v);
+  return {
+    top: scroller===v ? v.scrollTop : scroller.scrollTop,
+    sameView: _prevView===view,
+    focusId: inField ? (ae.id||null) : null,
+    selStart: inField ? ae.selectionStart : null,
+    selEnd: inField ? ae.selectionEnd : null
+  };
+}
+function _viewRestore(sn){
+  const v=$("#view"); if(!v) return;
+  if(!sn || !sn.sameView){ v.scrollTop=0; return; }   // сменили вкладку — начинаем сверху, а не с середины прошлой
+  if(sn.top){ const scroller=(v.scrollHeight>v.clientHeight) ? v : (v.querySelector(".list, .tree, .cards")||v); scroller.scrollTop=sn.top; }
+  if(sn.focusId){
+    const f=document.getElementById(sn.focusId);
+    if(f && typeof f.setSelectionRange==="function"){
+      f.focus();
+      const n=f.value.length;
+      try{ f.setSelectionRange(Math.min(sn.selStart,n), Math.min(sn.selEnd,n)); }catch(e){}
+    }
+  }
+}
 function render(){
   if(!NAV.some(n=>n[0]===view)) view="today";   // устаревший/удалённый вид (напр. бывшая «board») → на главную
+  const _sn=_viewSnapshot();
   renderNav();
   const v=$("#view");
   if(S.settings.view!==view){ S.settings.view=view; persist(); }   // не переписываем весь стейт при простой навигации
@@ -90,12 +124,13 @@ function render(){
   _prevView=view;                                                  // плавный вход карточек только при смене вкладки
   // остановить анимацию графа, если уходим с вкладки «Заметки» (иначе rAF крутится на отсоединённых узлах)
   if(graph && view!=="notes"){ const g=graph; graph=null; g.destroy(); }
-  if(view==="today") return renderToday(v);
-  if(view==="tasks") return renderTasks(v);
-  if(view==="notes") return renderNotes(v);
-  if(view==="board") return renderFolders(v);
-  if(view==="cal") return renderCal(v);
-  if(view==="bin") return renderBin(v);
+  if(view==="today") renderToday(v);
+  else if(view==="tasks") renderTasks(v);
+  else if(view==="notes") renderNotes(v);
+  else if(view==="board") renderFolders(v);
+  else if(view==="cal") renderCal(v);
+  else if(view==="bin") renderBin(v);
+  _viewRestore(_sn);
 }
 
 function plural(n,one,few,many){ n=Math.abs(n)%100; const n1=n%10; if(n>10&&n<20) return many; if(n1>1&&n1<5) return few; if(n1===1) return one; return many; }

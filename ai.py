@@ -31,11 +31,20 @@ _AI_DIR = None
 _ACTIVE_MODEL = None              # путь модели, реально загруженной в этой сессии
 _LLM = None
 _ACTIVE_BACKEND = None            # движок, реально загруженный в этой сессии
+# Пак движка, чей llama_cpp УЖЕ импортирован в процесс. Отличается от _ACTIVE_BACKEND: тот
+# ставится только при успешной загрузке модели, а нативная библиотека подхватывается раньше —
+# в момент import. Если первая попытка провалилась на самой модели, DLL всё равно осталась в
+# процессе, и переключение CPU⇄GPU без перезапуска молча продолжало работать на старой:
+# человек «переключил на GPU», а считал по-прежнему процессор.
+_IMPORTED_BACKEND = None
 _LOAD_LOCK = threading.Lock()
 _INFER_LOCK = threading.Lock()
 _LOAD_ERR = ""
 
-_N_CTX = 2048
+# 4096, а не 2048: столько же стоит для короткого захвата (KV-кэш выделяется под окно, но
+# заполняется по факту), зато отчёт по десятку выделенных элементов перестаёт упираться в
+# потолок. Вход всё равно проверяется по токенам перед запуском — см. _report_local.
+_N_CTX = 4096
 _MAX_TOKENS = 320
 _MAX_REPORT_TOKENS = 900          # отчёт — длиннее одного заголовка
 _TEMPERATURE = 0.2
@@ -191,6 +200,18 @@ def _read_backend():
     return b if b in _BACKENDS else "cpu"
 
 
+def _clear_load_error():
+    """Сбросить память о неудачной загрузке.
+
+    _LOAD_ERR выставляется, когда модель не загрузилась, и обнуляется ТОЛЬКО при успешной
+    загрузке. Но status() отдаёт available=False, пока _LOAD_ERR непуст, а фронт по этому
+    флагу и решает, звать ли ИИ вообще, — то есть после первой осечки повторная попытка не
+    делалась НИКОГДА, даже когда человек скачал движок, выбрал другую модель и всё исправил.
+    Любое изменение конфигурации обязано снимать этот приговор."""
+    global _LOAD_ERR
+    _LOAD_ERR = ""
+
+
 def set_backend(name):
     """Сменить движок (применится при перезапуске)."""
     if name not in _BACKENDS:
@@ -199,8 +220,12 @@ def set_backend(name):
         return {"ok": False, "error": "not_installed"}
     if not _save_config({"backend": name}):
         return {"ok": False, "error": "write"}
+    _clear_load_error()
+    # Перезапуск нужен не только когда модель успешно грузилась на другом движке, но и когда
+    # его библиотека уже втянута в процесс неудачной попыткой — заменить её нельзя.
+    prev = _ACTIVE_BACKEND or _IMPORTED_BACKEND
     return {"ok": True, "backend": name,
-            "restart_required": bool(_ACTIVE_BACKEND and _ACTIVE_BACKEND != name)}
+            "restart_required": bool(prev and prev != name)}
 
 
 def _engine_dir(backend):
@@ -252,6 +277,7 @@ def set_provider(name):
         return {"ok": False, "error": "unknown_provider"}
     if not _save_config({"provider": name}):
         return {"ok": False, "error": "write"}
+    _clear_load_error()
     return {"ok": True, "provider": name}
 
 
@@ -315,6 +341,7 @@ def set_model(name):
         return {"ok": False, "error": "not_found"}
     if not _save_config({"model": name}):
         return {"ok": False, "error": "write"}
+    _clear_load_error()
     active = os.path.basename(_ACTIVE_MODEL) if _ACTIVE_MODEL else None
     return {"ok": True, "model": name, "restart_required": bool(active and active != name)}
 
@@ -334,6 +361,7 @@ def delete_model(name):
         # если удалили выбранную — сбрасываем выбор (возьмётся первая доступная)
         if _load_config().get("model") == name:
             _save_config({"model": None})
+        _clear_load_error()
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": "locked", "detail": repr(e)}
@@ -394,7 +422,7 @@ def status():
         "backends": avail,               # паки движка
         "backend": want,                 # выбранный движок
         "active": _ACTIVE_BACKEND,
-        "restart_required": bool((_ACTIVE_BACKEND and _ACTIVE_BACKEND != want)
+        "restart_required": bool(((_ACTIVE_BACKEND or _IMPORTED_BACKEND) and (_ACTIVE_BACKEND or _IMPORTED_BACKEND) != want)
                                  or (active_model and active_model != sel_name)),
         "loaded": _LLM is not None,
         "detail": _LOAD_ERR,
@@ -403,7 +431,7 @@ def status():
 
 def _get_llm():
     """Ленивая загрузка: выбрать движок по конфигу, подцепить его DLL, загрузить модель."""
-    global _LLM, _LOAD_ERR, _ACTIVE_BACKEND, _ACTIVE_MODEL
+    global _LLM, _LOAD_ERR, _ACTIVE_BACKEND, _ACTIVE_MODEL, _IMPORTED_BACKEND
     if _LLM is not None:
         return _LLM
     with _LOAD_LOCK:
@@ -421,6 +449,11 @@ def _get_llm():
             _LOAD_ERR = "model file not found"
             return None
         eng = _engine_dir(backend)
+        # Библиотеку в процесс можно втянуть ровно один раз: повторный import вернёт уже
+        # загруженный модуль вместе с прежней нативной DLL.
+        if _IMPORTED_BACKEND and _IMPORTED_BACKEND != backend:
+            _LOAD_ERR = "engine_restart_required"
+            return None
         try:
             if eng not in sys.path:
                 sys.path.insert(0, eng)          # llama_cpp берём из этого пака
@@ -431,6 +464,7 @@ def _get_llm():
             os.environ["OMP_NUM_THREADS"] = str(n_threads)
             os.environ["GGML_NTHREADS"] = str(n_threads)
             from llama_cpp import Llama
+            globals()["_IMPORTED_BACKEND"] = backend   # DLL этого пака теперь в процессе навсегда
             _LLM = Llama(
                 model_path=path,
                 n_ctx=_N_CTX,
@@ -634,6 +668,19 @@ def _report_local(text):
     llm = _get_llm()
     if llm is None:
         return {"ok": False, "error": "unavailable", "detail": _LOAD_ERR}
+    # Сколько места реально осталось под ответ. Раньше вход просто уезжал в модель: при
+    # переполнении окна llama.cpp молча срезает начало промпта — модель теряла инструкцию и
+    # писала отчёт «ни о чём», а человек не понимал, почему из десяти заметок вышла ерунда.
+    max_tokens = _MAX_REPORT_TOKENS
+    try:
+        n_in = len(llm.tokenize((_REPORT_INSTRUCT + "\n" + text).encode("utf-8")))
+        free = _N_CTX - n_in - 48            # запас на служебные токены шаблона чата
+        if free < 160:
+            return {"ok": False, "error": "too_long",
+                    "detail": "выделено слишком много: вход %d токенов из %d" % (n_in, _N_CTX)}
+        max_tokens = min(_MAX_REPORT_TOKENS, free)
+    except Exception:
+        pass                                  # токенизатор недоступен — идём как раньше
     try:
         with _INFER_LOCK:
             _set_priority(True)
@@ -645,13 +692,15 @@ def _report_local(text):
                 resp = llm.create_chat_completion(
                     messages=[{"role": "system", "content": _REPORT_INSTRUCT},
                               {"role": "user", "content": text}],
-                    temperature=0.4, max_tokens=_MAX_REPORT_TOKENS)
+                    temperature=0.4, max_tokens=max_tokens)
             finally:
                 _set_priority(False)
-        out = resp["choices"][0]["message"]["content"] or ""
+        _ch = (resp.get("choices") or [{}])[0]
+        out = (_ch.get("message") or {}).get("content") or ""
+        truncated = _ch.get("finish_reason") == "length"   # упёрлись в max_tokens — текст оборван
     except Exception as e:
         return {"ok": False, "error": "infer", "detail": repr(e)}
-    return {"ok": True, "text": out.strip()}
+    return {"ok": True, "text": out.strip(), "truncated": truncated}
 
 
 def _report_api(provider, text):
@@ -682,7 +731,12 @@ def _report_api(provider, text):
     try:
         with urllib.request.urlopen(req, timeout=45) as resp:
             d = json.loads(resp.read().decode("utf-8"))
-        out = d["choices"][0]["message"]["content"] or ""
+        choice = (d.get("choices") or [{}])[0]
+        out = (choice.get("message") or {}).get("content") or ""
+        # Модель обрывает ответ, упершись в max_tokens, и отдаёт finish_reason="length".
+        # Раньше он игнорировался: обрубок на полуслове показывался как готовый отчёт, и
+        # понять, что текст неполный, можно было только прочитав его до конца.
+        truncated = choice.get("finish_reason") == "length"
     except urllib.error.HTTPError as e:
         body = ""
         try:
@@ -694,4 +748,4 @@ def _report_api(provider, text):
         return {"ok": False, "error": "net", "detail": repr(e)}
     if not out.strip():
         return {"ok": False, "error": "parse", "detail": ""}
-    return {"ok": True, "text": out.strip()}
+    return {"ok": True, "text": out.strip(), "truncated": truncated}
