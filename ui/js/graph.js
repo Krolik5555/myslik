@@ -804,8 +804,13 @@ class Graph{
                (this.bgPanX||0).toFixed(1),(this.bgPanY||0).toFixed(1),
                cw,ch,dpr,light,S.settings.graphBg!==false].join("|");
     const now=performance.now();
-    if(this._bgKey===key && (now-(this._bgAt||0))<200) return;
+    // АДАПТИВНЫЙ ИНТЕРВАЛ (защита от «работает только на свободной машине»): интервал берём из
+    // реальной цены прошлой перерисовки — чем дороже кадр (большое окно, HiDPI, занятый другим
+    // приложением GPU), тем реже. Так декоративный фон физически не может съесть больше ~2.5%
+    // времени, что бы ни происходило вокруг.
+    if(this._bgKey===key && (now-(this._bgAt||0))<(this._bgIv||200)) return;
     this._bgKey=key; this._bgAt=now;
+    const _t0=now;
     if(cv.width!==Math.round(cw*dpr)||cv.height!==Math.round(ch*dpr)){ cv.width=Math.round(cw*dpr); cv.height=Math.round(ch*dpr); }
     ctx.setTransform(dpr,0,0,dpr,0,0);
     const w=cw, h=ch;
@@ -866,6 +871,9 @@ class Graph{
       }}
     }
     ctx.globalAlpha=1;
+    // подстраиваем интервал под РЕАЛЬНУЮ цену этого кадра: 40x цены = не больше ~2.5% времени
+    // на фон. На свободной машине это ~200 мс, на занятой/слабой — само разредится до 800 мс.
+    this._bgIv = Math.max(200, Math.min(800, Math.round((performance.now()-_t0)*40)));
   }
   // цветная подсветка «в работе»: каждая doing-нода светит СВОИМ цветом (радиальный градиент),
   // блобы накладываются → свет соседних doing-нод смешивается. Слой между звёздами и нодами.
