@@ -922,6 +922,35 @@ def _selftest(window):
         pass
 
 
+def _find_own_window():
+    """Верхнеуровневое окно НАШЕГО процесса. Надёжнее поиска по заголовку: заголовок может
+    занять чужое окно, а у безрамочного окна он вообще способен отличаться."""
+    try:
+        import win32gui
+        import win32process
+    except Exception:
+        return 0
+    pid = os.getpid()
+    found = []
+
+    def _cb(hwnd, _):
+        try:
+            if not win32gui.IsWindowVisible(hwnd) or win32gui.GetParent(hwnd):
+                return True
+            _, wpid = win32process.GetWindowThreadProcessId(hwnd)
+            if wpid == pid:
+                found.append(hwnd)
+        except Exception:
+            pass
+        return True
+
+    try:
+        win32gui.EnumWindows(_cb, None)
+    except Exception:
+        return 0
+    return found[0] if found else 0
+
+
 def _set_taskbar_icon(icon_path):
     """Поставить иконку нативному окну (иначе в панели задач/Alt-Tab — иконка pythonw).
     pystray даёт только значок в трее, но НЕ меняет иконку окна — это делаем здесь через WM_SETICON."""
@@ -931,28 +960,39 @@ def _set_taskbar_icon(icon_path):
     except Exception as e:
         print("[icon] win32 missing:", e)
         return
-    # ждём, пока pywebview создаст нативное окно (заголовок 'Мыслик')
+    # ждём, пока появится нативное окно: сначала ищем по своему процессу, в запасе — по заголовку
     hwnd = 0
     for _ in range(120):  # до ~12 c
-        hwnd = win32gui.FindWindow(None, "Мыслик")
+        hwnd = _find_own_window() or win32gui.FindWindow(None, "Мыслик")
         if hwnd:
             break
         time.sleep(0.1)
     if not hwnd:
         print("[icon] window not found")
         return
-    try:
-        big = win32gui.LoadImage(0, icon_path, win32con.IMAGE_ICON, 0, 0,
-                                 win32con.LR_LOADFROMFILE | win32con.LR_DEFAULTSIZE)
-        small = win32gui.LoadImage(0, icon_path, win32con.IMAGE_ICON, 16, 16,
-                                   win32con.LR_LOADFROMFILE)
-        if big:
-            win32gui.SendMessage(hwnd, win32con.WM_SETICON, win32con.ICON_BIG, big)
-        if small:
-            win32gui.SendMessage(hwnd, win32con.WM_SETICON, win32con.ICON_SMALL, small)
-        print("[icon] window icon set, hwnd=", hwnd)
-    except Exception as e:
-        print("[icon] set error:", e)
+
+    def _apply():
+        try:
+            big = win32gui.LoadImage(0, icon_path, win32con.IMAGE_ICON, 0, 0,
+                                     win32con.LR_LOADFROMFILE | win32con.LR_DEFAULTSIZE)
+            small = win32gui.LoadImage(0, icon_path, win32con.IMAGE_ICON, 16, 16,
+                                       win32con.LR_LOADFROMFILE)
+            if big:
+                win32gui.SendMessage(hwnd, win32con.WM_SETICON, win32con.ICON_BIG, big)
+            if small:
+                win32gui.SendMessage(hwnd, win32con.WM_SETICON, win32con.ICON_SMALL, small)
+            return bool(big or small)
+        except Exception as e:
+            print("[icon] set error:", e)
+            return False
+
+    ok = _apply()
+    print("[icon] window icon set, hwnd=", hwnd, "ok=", ok)
+    # WebView2 доинициализируется ПОЗЖЕ создания окна и способен сбросить иконку — повторяем.
+    # Стоит копейки (два вызова за 6 секунд), зато иконка не пропадает из панели задач.
+    for delay in (1.5, 4.0):
+        time.sleep(delay)
+        _apply()
 
 
 # держим ссылки глобально, иначе GC соберёт callback → краш
