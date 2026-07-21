@@ -794,12 +794,23 @@ class Graph{
     const cv=this.bgCanvas, ctx=this.bgCtx; if(!cv||!ctx) return;
     const cw=cv.clientWidth, ch=cv.clientHeight; if(!cw||!ch) return;
     const dpr=Math.min(window.devicePixelRatio||1,2);
+    const light=document.body.classList.contains("light");
+    // КЭШ КАДРА. Звёзды дрейфуют и мерцают с периодом 35-48 СЕКУНД, а _tick зовёт нас до 60 раз
+    // в секунду — при отдалении это 9-14 мс кадра, выброшенных впустую (замерено). Пока камера,
+    // размер и тема не менялись, канвас УЖЕ содержит нужную картинку → просто выходим, ничего не
+    // рисуя. Полную перерисовку делаем не чаще ~5 раз/сек (на глаз неотличимо при таком периоде)
+    // и НЕМЕДЛЕННО при любом изменении камеры/размера/темы — то есть пан и зум остаются точными.
+    const key=[this.tx.toFixed(1),this.ty.toFixed(1),this.zoom.toFixed(4),
+               (this.bgPanX||0).toFixed(1),(this.bgPanY||0).toFixed(1),
+               cw,ch,dpr,light,S.settings.graphBg!==false].join("|");
+    const now=performance.now();
+    if(this._bgKey===key && (now-(this._bgAt||0))<200) return;
+    this._bgKey=key; this._bgAt=now;
     if(cv.width!==Math.round(cw*dpr)||cv.height!==Math.round(ch*dpr)){ cv.width=Math.round(cw*dpr); cv.height=Math.round(ch*dpr); }
     ctx.setTransform(dpr,0,0,dpr,0,0);
     const w=cw, h=ch;
     ctx.clearRect(0,0,w,h);   // базу даёт var(--surf) на #graph-wrap → тема подхватывается сама
     if(S.settings.graphBg===false) return;   // фон «звёздное поле» выключен в настройках
-    const light=document.body.classList.contains("light");
     const dot=light?"0,0,0":"255,255,255";
     const ts=this._bgReduce?0:performance.now()*0.001;
     const z=this.zoom;
@@ -832,7 +843,7 @@ class Graph{
       // жёсткий лимит в 420 звёзд, и он ОБРЫВАЛ отрисовку на верхних рядах — низ фона оставался
       // чёрным (обрезка). Теперь вместо обрыва РАЗРЕЖАЕМ тайл до бюджета: слой рисуется ЦЕЛИКОМ и
       // покрывает весь экран, просто реже. Бюджет ограничивает стоимость кадра.
-      const _CAP=2600, _nt=(Math.ceil(w/tile)+2)*(Math.ceil(h/tile)+2);
+      const _CAP=1400, _nt=(Math.ceil(w/tile)+2)*(Math.ceil(h/tile)+2);
       if(_nt>_CAP) tile*=Math.sqrt(_nt/_CAP);
       // мировой сдвиг слоя от параллакса: копится ТОЛЬКО от пана (bgPan). origin слоя = мировая точка,
       // умноженная на общий зум/сдвиг → при зуме слой масштабируется РОВНО как мир (курсор-точка неподвижна, чисто).
