@@ -3,14 +3,35 @@
    MODALS
    =========================================================== */
 function restoreFocus(o){ if(o&&o.focus&&document.contains(o)){ try{o.focus();}catch(e){} } }
+/* ЗАКРЫТИЕ ОКНА — СОБЫТИЕ, А НЕ ПРОСТО УДАЛЕНИЕ УЗЛА.
+   Раньше окно исчезало тремя разными способами (ov.remove() по кнопке, клик по фону,
+   closeOverlays() по Esc/переходу), и все три рвали DOM молча. Владельцы окон вешали важную
+   работу на побочные эффекты: ридер сохранял текст по blur (которого при удалении узла не
+   бывает), uiConfirm резолвил промис только по кнопке, настройки останавливали опрос по ответу
+   бэкенда. Теперь у оверлея есть список дел «на закрытие»: onOverlayClose(ov, fn). Он
+   выполняется ровно один раз, ДО удаления узла из DOM. */
+function onOverlayClose(ov, fn){ if(!ov) return; (ov._teardown||(ov._teardown=[])).push(fn); }
+function runTeardown(ov){
+  if(!ov || ov._teardownDone) return;
+  ov._teardownDone=true;
+  (ov._teardown||[]).forEach(fn=>{ try{ fn(); }catch(e){ console.error("overlay teardown:",e); } });
+}
+function closeOverlay(ov){ if(!ov) return; const o=ov._opener; runTeardown(ov); if(ov.isConnected) ov.remove(); restoreFocus(o); }
 function overlay(node){
   const ov=el("div","overlay"); ov.appendChild(node);
   ov._opener=document.activeElement;   // вернём фокус сюда при закрытии (a11y)
-  ov.addEventListener("mousedown",e=>{ if(e.target===ov){ const o=ov._opener; ov.remove(); restoreFocus(o); } });
+  ov.addEventListener("mousedown",e=>{ if(e.target===ov) closeOverlay(ov); });
+  // прямой ov.remove() из старого кода тоже обязан отработать teardown
+  const rm=ov.remove.bind(ov);
+  ov.remove=()=>{ runTeardown(ov); rm(); };
   $("#overlay-root").appendChild(ov);
   return ov;
 }
-function closeOverlays(){ const root=$("#overlay-root"); const first=root.firstElementChild; const o=first&&first._opener; root.innerHTML=""; restoreFocus(o); }
+function closeOverlays(){
+  const root=$("#overlay-root"); const first=root.firstElementChild; const o=first&&first._opener;
+  Array.from(root.children).forEach(runTeardown);
+  root.innerHTML=""; restoreFocus(o);
+}
 
 // стилизованное подтверждение вместо нативного confirm() — возвращает Promise<bool>
 function uiConfirm(message, opts){
@@ -27,6 +48,10 @@ function uiConfirm(message, opts){
     m.tabIndex=-1;
     const ov=overlay(m); const op=ov._opener; let done=false;
     const finish=(v)=>{ if(done) return; done=true; if(ov.isConnected) ov.remove(); restoreFocus(op); resolve(v); };
+    // Промис обязан резолвиться при ЛЮБОМ закрытии. Иначе окно, снесённое не кнопкой
+    // (Esc через closeOverlays, палитра Ctrl+K поверх), оставляло await висеть навсегда:
+    // «Импорт заменит данные. Продолжить?» молча не продолжался ничем.
+    onOverlayClose(ov, ()=>finish(false));
     $("#cf-no",m).onclick=()=>finish(false);
     $("#cf-yes",m).onclick=()=>finish(true);
     ov.addEventListener("mousedown",e=>{ if(e.target===ov) finish(false); });          // клик по фону = отмена
@@ -227,7 +252,10 @@ function openAreaManager(){
       S.areas=S.areas.filter(a=>a.id!==id); if(areaFilter===id) areaFilter=null;
       S.links=S.links.filter(l=>l[0]!=="hub_"+id && l[1]!=="hub_"+id);     // убрать висячие связи с хабом области
       if(S.settings&&S.settings.collapsed) delete S.settings.collapsed["area:"+id];
-      persist(); draw(); renderNav();
+      // render(), а не renderNav(): изменились ДАННЫЕ (у элементов слетела область, исчезли
+      // связи с хабом). Из сайдбара область пропадала, а список/граф под модалкой продолжали
+      // показывать её элементы сгруппированными — до следующего случайного перерисовывания.
+      persist(); draw(); render();
     });
   };
   overlay(m); draw();
@@ -252,7 +280,7 @@ function openAreaEditor(area, after){
   $("#ar-save",m).onclick=()=>{
     const name=$("#ar-name",m).value.trim(); if(!name){ $("#ar-name",m).focus(); return; }
     if(isNew){ S.areas.push({id:"a_"+uid(),name,icon,color:aColor}); } else { a.name=name; a.icon=icon; a.color=aColor; }
-    persist(); ov.remove(); renderNav(); if(after) after();
+    persist(); ov.remove(); render(); if(after) after();   // render() сам зовёт renderNav()
   };
   setTimeout(()=>$("#ar-name",m).focus(),30);
 }
@@ -262,7 +290,7 @@ function openAreaEditor(area, after){
    =========================================================== */
 function openNoteReader(it){
   const m=el("div","modal reader-win");   // reader-win: окно можно двигать за заголовок и тянуть за угол
-  const kids=childrenOf(it.id);
+  const kids=childrenOfLive(it.id);       // из корзины детей не показываем: список кликабелен
   const parentChain=noteParentChain(it.id).slice(0,-1); // without self
   m.innerHTML=`
     <h3><i class="ti ${it.kind==="task"?"ti-checklist":"ti-note"}"></i>${esc(it.title)}</h3>
@@ -290,13 +318,20 @@ function openNoteReader(it){
       if(!it.body) nb.textContent="";                  // убрать плашку «пока пусто»
       nb.contentEditable="true"; nb.classList.add("editing"); nb.focus();
     };
-    nb.addEventListener("blur",()=>{
-      if(!nb.isContentEditable) return;
+    /* Запись вынесена из обработчика blur: закрытие по Esc или кликом по фону сносит узел
+       вместе с фокусом, blur при этом не приходит — набранный текст просто исчезал.
+       Теперь commitBody зовётся и по blur, и по закрытию окна (см. onOverlayClose ниже). */
+    const commitBody=()=>{
+      if(!nb.isContentEditable) return false;
       nb.contentEditable="false"; nb.classList.remove("editing");
       const t=nb.innerText.replace(/ /g," ").replace(/\s+$/,"");
-      if(t!==(it.body||"")){ it.body=t; touch(it); persist(); if(graph) graph.build(); }
+      const changed = t!==(it.body||"");
+      if(changed){ it.body=t; touch(it); persist(); if(graph) graph.build(); }
       if(!t) nb.innerHTML=`<span class="reader-empty">Пока пусто — кликни, чтобы написать.</span>`;
-    });
+      return changed;
+    };
+    nb.addEventListener("blur",commitBody);
+    onOverlayClose(ov, ()=>{ if(commitBody()) render(); });
   }
 
   /* Окно двигаем за заголовок (размер тянется за угол — resize в CSS у .reader-win).
@@ -736,7 +771,49 @@ class FlowEditor{
     this.view.edgeStyle=this.ortho?"ortho":"direct";
   }
   _b(id){ return this.f.blocks.find(b=>b.id===id); }
-  save(){ touch(this.it); persist(); }
+  /* ---- СОБСТВЕННАЯ ИСТОРИЯ ПОЛОТНА ----
+     Глобальный Ctrl+Z (core.js) внутри полотна не работает и работать не должен: он подменяет
+     весь S целиком, а открытый редактор держит прямые ссылки на объекты внутри it.flow — после
+     подмены они стали бы призраками. Плюс main.js глушит откат при любом открытом окне. Итог
+     был такой: Delete по выделению стирал блоки и стрелки НАСОВСЕМ, без подтверждения и без
+     возврата. Поэтому у полотна своя история: снимок содержимого схемы (блоки+связи).
+     Камера в снимок не входит намеренно — зум и панорама это не правка, отменять их нечего. */
+  _histInit(){ this._hist=[]; this._redo=[]; this._histLast=this._histSnap(); }
+  // ВНИМАНИЕ: имя _snap в этом классе уже занято округлением координаты к сетке — снимок
+  // истории обязан называться иначе, иначе один метод молча затирает другой.
+  _histSnap(){ return JSON.stringify({blocks:this.f.blocks, edges:this.f.edges}); }
+  _histPush(){
+    if(this._histLast==null) return;          // история ещё не инициализирована (монтирование)
+    const now=this._histSnap();
+    if(now===this._histLast) return;          // ничего не изменилось — не плодим пустые шаги
+    this._hist.push(this._histLast); this._histLast=now;
+    if(this._hist.length>60) this._hist.shift();
+    this._redo.length=0;                      // новое действие обрывает ветку повтора
+  }
+  _histApply(snapshot){
+    const d=JSON.parse(snapshot);
+    this.f.blocks=d.blocks; this.f.edges=d.edges;
+    this._histLast=snapshot;
+    this.selSet.clear(); this.selEdge=null; this.cropping=null; this._cropAnchor=null;
+    this.dragBlock=null; this.resizing=null; this.marquee=null;
+    if(this.connecting) this._endConnect();   // откат посреди протяжки стрелки — убрать «резинку»
+    this._closeFlowPop();
+    this.renderBlocks(); this.drawEdges();
+    touch(this.it); persist();
+  }
+  undo(){
+    if(!this._hist || !this._hist.length){ toast("Отменять нечего",{icon:"ti-arrow-back-up"}); return; }
+    this._redo.push(this._histLast); this._histApply(this._hist.pop());
+    toast("Отменено",{icon:"ti-arrow-back-up"});
+  }
+  redo(){
+    if(!this._redo || !this._redo.length){ toast("Возвращать нечего",{icon:"ti-arrow-forward-up"}); return; }
+    this._hist.push(this._histLast); this._histApply(this._redo.pop());
+    toast("Возвращено",{icon:"ti-arrow-forward-up"});
+  }
+  /* save(quiet) — правка содержимого схемы. quiet=true: изменилась только камера (зум/пан) —
+     в историю такое не пишем и окно отката приложения не открываем. */
+  save(quiet){ if(!quiet) this._histPush(); touch(this.it); persist(quiet?true:undefined); }
   mount(){
     const NS="http://www.w3.org/2000/svg";
     const scr=el("div","flow-screen");
@@ -756,7 +833,8 @@ class FlowEditor{
           <button class="flow-ic" data-z="in" title="Увеличить"><i class="ti ti-zoom-in"></i></button>
           <button class="flow-ic" data-z="fit" title="Показать всё"><i class="ti ti-focus-2"></i></button>
           <span class="flow-sep"></span>
-          <button class="flow-ic wide" data-act="copy" title="Скопировать полотно как текст"><i class="ti ti-clipboard-text"></i>Текст</button>
+          <button class="flow-ic wide" data-act="copy" title="Скопировать схему как текст (для переписки/отчёта)"><i class="ti ti-clipboard-text"></i>Текст</button>
+          <button class="flow-ic" data-act="help" title="Подсказка по управлению"><i class="ti ti-help-circle"></i></button>
         </div>
         <button class="flow-ic flow-close" title="Закрыть (Esc)"><i class="ti ti-x"></i></button>
       </div>
@@ -765,6 +843,9 @@ class FlowEditor{
           <svg class="flow-edges"><defs>
             <marker id="fe-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">
               <path d="M0,0 L10,5 L0,10 Z"></path>
+            </marker>
+            <marker id="fe-arrow-sel" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M0,0 L10,5 L0,10 Z"></path>
             </marker></defs>
             <g class="fe-guides"></g>
             <g class="fe-g"></g>
@@ -772,7 +853,7 @@ class FlowEditor{
           </svg>
         </div>
         <div class="flow-marquee" style="display:none"></div>
-        <div class="flow-hint">блоки — кнопки сверху или ПКМ по пустому · тащи блок — двигать · 2× по блоку — переименовать · тяни ⊕ — стрелка · пробел/средняя — холст · ПКМ по блоку — тип/цвет · Delete</div>
+        <div class="flow-hint">блоки — кнопки сверху или ПКМ по пустому · тащи блок — двигать · 2× по блоку — переименовать · <b>Alt+тащи от блока</b> или ⊕ снизу — стрелка · пробел/средняя кнопка — двигать холст · колесо — зум · ПКМ по блоку — тип/цвет/привязка · Delete — удалить · <b>Ctrl+Z</b> — отменить · 2× по картинке — кадрировать · Esc — снять выделение, затем закрыть</div>
       </div>`;
     $("#overlay-root").appendChild(scr);
     this.screen=scr;
@@ -792,7 +873,15 @@ class FlowEditor{
     finp.addEventListener("change",()=>{
       const files=[...(finp.files||[])]; if(!files.length) return;
       if(this._replaceTarget){ const b=this._b(this._replaceTarget); this._replaceTarget=null;
-        if(b) this._imageFromFile(files[0],0,0,(url,w,h,nw,nh)=>{ b.src=url; b.w=w; b.h=h; b.nw=nw; b.nh=nh; b.crop={cx:0,cy:0,cw:nw,ch:nh}; b.parent=this._frameAt(b.x+b.w/2,b.y+b.h/2,b.id); this.renderBlocks(); this.drawEdges(); this.save(); this._select(b.id); });
+        if(b) this._imageFromFile(files[0],0,0,(url,w,h,nw,nh)=>{
+          /* Держим ШИРИНУ блока, которую человек уже подобрал на холсте, и пересчитываем высоту
+             по пропорции новой картинки. Раньше замена сбрасывала размер к стандартным 360 px —
+             аккуратно собранная схема разъезжалась от одной подмены картинки. */
+          const keepW=b.w||w, ratio=(nh&&nw)?(nh/nw):(h/(w||1));
+          b.src=url; b.nw=nw; b.nh=nh; b.crop={cx:0,cy:0,cw:nw,ch:nh};
+          b.w=Math.round(keepW); b.h=Math.max(this.GRID, Math.round(keepW*ratio));
+          b.parent=this._frameAt(b.x+b.w/2,b.y+b.h/2,b.id);
+          this.renderBlocks(); this.drawEdges(); this.save(); this._select(b.id); });
         finp.value=""; return; }
       const at=this._dropAt||this._viewCenterWorld(); this._dropAt=null;
       files.forEach((f,i)=>this._mediaFromFile(f, at.x+i*18, at.y+i*18)); finp.value="";
@@ -800,6 +889,8 @@ class FlowEditor{
     $$("[data-z]",scr).forEach(btn=>btn.onclick=()=>{ const k=btn.dataset.z; if(k==="fit") this.fit(); else this.zoomBy(k==="in"?1.2:1/1.2); });
     $$("[data-tg]",scr).forEach(btn=>btn.onclick=()=>this._toggle(btn.dataset.tg,btn));
     $('[data-act="copy"]',scr).onclick=()=>this.copyText();
+    $('[data-act="help"]',scr).onclick=(e)=>{ this._hintPinned=!this._hintPinned; e.currentTarget.classList.toggle("on",this._hintPinned);
+      if(this.hintEl) this.hintEl.style.display=(this._hintPinned||this.f.blocks.length<2)?"":"none"; };
     this._wireStage();
     // Esc внутри редактирования текста — снять фокус, не закрывать редактор
     scr.addEventListener("keydown",e=>{
@@ -810,8 +901,23 @@ class FlowEditor{
     // поэтому слушатель на самом scr не ловил Delete (был баг «выделить+Delete не работает»)
     this._onKey=(e)=>{
       if(!this.screen||!this.screen.isConnected){ this._unkey(); return; }   // экран закрыли (в т.ч. Esc/closeOverlays) → снять слушатели
+      if(this._covered()) return;   // поверх полотна открыто другое окно — клавиши принадлежат ему
       const ae=document.activeElement, editing=ae&&this.screen.contains(ae)&&(ae.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName));   // настоящие input/textarea (подпись стрелки, «текст») — тоже текст: не перехватывать клавиши
-      if(this.cropping && !editing && (e.key==="Enter"||e.key==="Escape")){ this._exitCrop(); e.preventDefault(); e.stopPropagation(); return; }   // выйти из кадрирования
+      if(this.cropping && !editing && (e.key==="Enter"||e.key==="Escape")){
+        if(e.key==="Escape") this._cancelCrop(); else this._exitCrop();
+        e.preventDefault(); e.stopPropagation(); return; }
+      /* Escape разбираем САМИ и по шагам. Раньше он уходил в глобальный обработчик main.js,
+         тот звал closeOverlays() — полотно исчезало в обход close(): вид под ним оставался со
+         старым названием схемы, а слушатели клавиатуры снимались только следующим нажатием.
+         И «снять выделение» сделать было нечем: любой Esc = закрыть всё. */
+      if(e.key==="Escape" && !editing){
+        e.preventDefault(); e.stopPropagation();
+        if(this.connecting){ this._endConnect(); return; }              // отменить начатую стрелку
+        if(this.selEdge){ this.selEdge=null; this._paintSel(); this._closeFlowPop(); return; }
+        if(this.selSet.size){ this._clearSel(); this._closeFlowPop(); return; }
+        if($(".flow-pop",this.screen)){ this._closeFlowPop(); return; }
+        this.close(); return;                                            // пустой Esc — закрыть полотно
+      }
       if(e.code==="Space" && !editing){ this._space=true; this.stage.classList.add("panmode"); e.preventDefault(); return; }
       if(editing) return;   // в тексте — всё нативно (Ctrl+C/V, Delete по символам)
       const cmd=e.ctrlKey||e.metaKey;
@@ -820,12 +926,20 @@ class FlowEditor{
       // Ctrl+V не трогаем в keydown — пусть сработает нативное событие paste (ловим картинку ИЛИ блоки в _onPaste)
       else if(cmd && e.code==="KeyD"){ this.copySelection(); this.pasteClip(); e.preventDefault(); }
       else if(cmd && e.code==="KeyA"){ this._selectMany(this.f.blocks.map(b=>b.id),false); e.preventDefault(); }
+      else if(cmd && e.code==="KeyZ"){ e.preventDefault(); e.stopPropagation(); if(e.shiftKey) this.redo(); else this.undo(); }
+      else if(cmd && e.code==="KeyY"){ e.preventDefault(); e.stopPropagation(); this.redo(); }
       else if((e.key==="Enter"||e.key==="F2") && !cmd && this.selSet.size===1){ const b=this._b([...this.selSet][0]); if(b&&b.type!=="image"&&b.type!=="video"){ e.preventDefault(); this._focusTitle(b.id); } }   // Enter/F2 — переименовать выделенный блок
     };
     this._onKeyUp=(e)=>{ if(e.code==="Space"){ this._space=false; this.stage.classList.remove("panmode"); } };
+    /* Alt+Tab с зажатым пробелом: keyup уходит уже другому окну, и полотно навсегда остаётся в
+       режиме панорамы — ЛКМ перестаёт выделять и таскать блоки, будто редактор сломался.
+       Потеря фокуса окном = все клавиши отпущены. */
+    this._onBlur=()=>{ if(this._space){ this._space=false; this.stage.classList.remove("panmode"); } };
+    window.addEventListener("blur",this._onBlur);
     // вставка из буфера: картинка/скрин (Ctrl+V) → блок-картинка; иначе — скопированные блоки полотна
     this._onPaste=(e)=>{
       if(!this.screen||!this.screen.isConnected){ document.removeEventListener("paste",this._onPaste,true); return; }
+      if(this._covered()) return;
       const ae=document.activeElement, editing=ae&&this.screen.contains(ae)&&(ae.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName));
       if(editing) return;   // в тексте блока — нативная вставка текста
       const dt=e.clipboardData; if(!dt) return;
@@ -841,11 +955,37 @@ class FlowEditor{
     document.addEventListener("paste",this._onPaste,true);
     this.applyView();
     // первый запуск пустой схемы — посеять стартовый блок, чтобы холст не пугал пустотой
-    if(!this.f.blocks.length){ const r=this.stage.getBoundingClientRect(); const p=this.worldPt(r.left+r.width/2, r.top+r.height*0.32); const b=this._newBlock("terminal",p.x,p.y); b.text="Старт"; this.save(); }
+    /* Стартовый блок сеем ОДИН раз за жизнь схемы. Раньше условие было «блоков нет» — то есть
+       человек, стерший всё подчистую и вышедший, при следующем открытии снова получал чужой
+       «Старт», и удалить его насовсем было нельзя. Метка живёт в данных схемы. */
+    if(!this.f.blocks.length && !this.f.seeded){
+      const r=this.stage.getBoundingClientRect(); const p=this.worldPt(r.left+r.width/2, r.top+r.height*0.32);
+      const b=this._newBlock("terminal",p.x,p.y); b.text="Старт"; this.f.seeded=true; this.save();
+    } else if(!this.f.seeded){ this.f.seeded=true; }
     this.renderBlocks(); this.drawEdges();
+    this._histInit();   // точка отсчёта — состояние, с которым полотно открыли
   }
-  _unkey(){ document.removeEventListener("keydown",this._onKey,true); document.removeEventListener("keyup",this._onKeyUp,true); document.removeEventListener("paste",this._onPaste,true); }
-  close(){ if(this._eraf) cancelAnimationFrame(this._eraf); this._unkey(); this.screen.remove(); }
+  _unkey(){ document.removeEventListener("keydown",this._onKey,true); document.removeEventListener("keyup",this._onKeyUp,true); document.removeEventListener("paste",this._onPaste,true); if(this._onBlur) window.removeEventListener("blur",this._onBlur); }
+  /* Полотно живёт в общем #overlay-root и слушает клавиши на document — то есть считает
+     клавиатуру своей, даже когда поверх него открыли модалку (правку блока, подтверждение,
+     палитру). Проверка «фокус внутри this.screen» их не отличала: фокус в чужом поле — это
+     «не редактирую», и Delete улетал в удаление ВЫДЕЛЕННЫХ БЛОКОВ схемы. Верхнее окно в
+     стопке — единственный законный владелец ввода. */
+  /* Полотно «накрыто», если поверх него открыто ЛЮБОЕ окно — и чужое (модалка приложения,
+     палитра Ctrl+K в #overlay-root), и своё собственное («Привязать к…», «Схема как текст»),
+     которое монтируется ВНУТРЬ this.screen и потому в стопке #overlay-root не видно.
+     Без второй проверки Delete в поле поиска привязки удалял выделенные блоки схемы. */
+  _ownModal(){ return this.screen ? this.screen.querySelector(".flow-modal-ov") : null; }
+  _covered(){
+    if(this._ownModal()) return true;
+    const root=$("#overlay-root"); const top=root&&root.lastElementChild;
+    return !!(top && top!==this.screen);
+  }
+  close(){
+    if(this._eraf) cancelAnimationFrame(this._eraf);
+    this._unkey(); this.screen.remove();
+    render();   // название схемы/бейджи могли поменяться — вид под полотном обязан это показать
+  }
   _toggle(which,btn){
     if(which==="snap"){ this.snap=!this.snap; this.view.snap=this.snap; if(this.snap){ this._snapAll(); this.renderBlocks(); this.drawEdges(); } }
     else if(which==="ortho"){ this.ortho=!this.ortho; this.view.edgeStyle=this.ortho?"ortho":"direct"; this.drawEdges(); }
@@ -891,13 +1031,28 @@ class FlowEditor{
     const {tx,ty,zoom}=this.view;
     this.world.style.transform=`translate(${tx}px,${ty}px) scale(${zoom})`;
     this.world.style.setProperty("--z", zoom);   // ручки контр-масштабируются на 1/z → постоянный экранный размер при любом зуме
+    this._scaleArrows(zoom);
     this.stage.style.backgroundSize=`${this.GRID*zoom}px ${this.GRID*zoom}px`;
     this.stage.style.backgroundPosition=`${tx}px ${ty}px`;
+  }
+  /* Наконечники стрелок держим постоянного ЭКРАННОГО размера. Сама линия рисуется с
+     vector-effect:non-scaling-stroke, то есть её толщина от зума не зависит, а маркер объявлен
+     в markerUnits="userSpaceOnUse" — он масштабировался вместе с миром: на отдалении стрелки
+     превращались в точки, на приближении раздувались в лопухи. Компенсируем размер маркера
+     обратным множителем 1/zoom. */
+  _scaleArrows(zoom){
+    const s=1/Math.max(0.05, zoom||1);
+    $$("marker[id^='fe-arrow']", this.svg).forEach(mk=>{
+      mk.setAttribute("markerWidth", 10*s); mk.setAttribute("markerHeight", 10*s);
+      mk.setAttribute("refX", 8*s); mk.setAttribute("refY", 5*s);
+      const pth=mk.querySelector("path");
+      if(pth) pth.setAttribute("d", `M0,0 L${10*s},${5*s} L0,${10*s} Z`);
+    });
   }
   zoomBy(f){ const r=this.stage.getBoundingClientRect(); this._zoomAt(r.width/2, r.height/2, f); }
   _zoomAt(mx,my,f){ const nz=Math.max(0.3,Math.min(2.4,this.view.zoom*f));
     this.view.tx=mx-(mx-this.view.tx)*(nz/this.view.zoom); this.view.ty=my-(my-this.view.ty)*(nz/this.view.zoom);
-    this.view.zoom=nz; this.applyView(); persist(); }
+    this.view.zoom=nz; this.applyView(); persist(true); }   // камера — не правка: пишем тихо
   fit(){
     const bs=this.f.blocks; if(!bs.length){ this.view.tx=0;this.view.ty=0;this.view.zoom=1; this.applyView(); return; }
     let minx=Infinity,miny=Infinity,maxx=-Infinity,maxy=-Infinity;
@@ -905,7 +1060,7 @@ class FlowEditor{
     const r=this.stage.getBoundingClientRect(), pad=60;
     const z=Math.max(0.3,Math.min(1.6,Math.min(r.width/(maxx-minx+pad*2), r.height/(maxy-miny+pad*2))));
     this.view.zoom=z; this.view.tx=(r.width-(minx+maxx)*z)/2; this.view.ty=(r.height-(miny+maxy)*z)/2;
-    this.applyView(); persist();
+    this.applyView(); persist(true);
   }
   /* ---- блоки ---- */
   _newBlock(type,x,y){ const t=FLOW_TYPES[type];
@@ -917,9 +1072,18 @@ class FlowEditor{
   addBlockCenter(type){ const r=this.stage.getBoundingClientRect(); const p=this.worldPt(r.left+r.width/2, r.top+r.height/2);
     // лёгкий каскад, чтобы новые блоки не падали точно друг на друга
     const n=this.f.blocks.length; const b=this._newBlock(type, p.x+(n%5)*14, p.y+(n%5)*14);
-    this.renderBlocks(); this.drawEdges(); this.save(); this._select(b.id); this._focusTitle(b.id);
+    this._afterAdd(b);
   }
-  addBlockAt(type,wx,wy){ const b=this._newBlock(type,wx,wy); this.renderBlocks(); this.drawEdges(); this.save(); this._select(b.id); this._focusTitle(b.id); }
+  addBlockAt(type,wx,wy){ const b=this._newBlock(type,wx,wy); this._afterAdd(b); }
+  /* Общий хвост создания блока. Здесь же пересчёт членства в рамках: рамка выводит содержимое
+     из геометрии, но при её создании пересчёта не было — новая рамка, наброшенная поверх
+     готовых блоков, оставалась пустой, и перетаскивание рамки уезжало без них. */
+  _afterAdd(b){
+    if(b.type==="frame") this._recomputeMembership();
+    this.renderBlocks(); this.drawEdges(); this.save();
+    this._select(b.id);
+    if(b.type!=="image" && b.type!=="video") this._focusTitle(b.id);
+  }
   /* ---- картинки (Полотно v2) ---- */
   _viewCenterWorld(){ const r=this.stage.getBoundingClientRect(); return this.worldPt(r.left+r.width/2, r.top+r.height/2); }
   _addMedia(type,src,wx,wy,w,h,nw,nh){
@@ -984,12 +1148,23 @@ class FlowEditor{
     this.renderBlocks(); this.drawEdges(); this.save(); }
   // КАДРИРОВАНИЕ НА МЕСТЕ: картинка ЗАФИКСИРОВАНА (дим-фон), двигаешь/ресайзишь РАМКУ выделения поверх неё
   _enterCrop(b){ if(b.type!=="image"&&b.type!=="video") return; this._closeFlowPop();
+    // снимок на случай отмены: Escape должен ВЕРНУТЬ кадр как было, а не молча применить
+    // то, что человек успел натянуть, — «отмена» и «готово» не могут делать одно и то же
+    this._cropUndo={id:b.id, crop:Object.assign({},b.crop||this._fullCrop(b)), x:b.x, y:b.y, w:b.w, h:b.h};
     const c=b.crop||this._fullCrop(b), Sx=b.w/c.cw, Sy=b.h/c.ch;
     this._cropAnchor={ Sx, Sy, imgX:b.x - c.cx*Sx, imgY:b.y - c.cy*Sy };   // фикс. положение/масштаб картинки на время кадрирования
     this.cropping=b.id; this.renderBlocks(); this.drawEdges();
-    toast("Кадрирование: тащи рамку · углы/края — размер · колесо — зум · Enter — готово",{icon:"ti-crop"}); }
-  _exitCrop(){ if(!this.cropping) return; this.cropping=null; this._cropAnchor=null;
+    toast("Кадрирование: тащи рамку · углы/края — размер · колесо — зум · Enter — готово · Esc — отменить",{icon:"ti-crop",hold:true}); }
+  _exitCrop(){ if(!this.cropping) return; this.cropping=null; this._cropAnchor=null; this._cropUndo=null;
     $$(".fb-cropbg",this.world).forEach(n=>n.remove()); this.renderBlocks(); this.drawEdges(); this.save(); }
+  // Escape в кадрировании — откатить рамку к тому, что было на входе в режим
+  _cancelCrop(){
+    const u=this._cropUndo, b=u&&this._b(u.id);
+    if(b){ b.crop=u.crop; b.x=u.x; b.y=u.y; b.w=u.w; b.h=u.h; }
+    this.cropping=null; this._cropAnchor=null; this._cropUndo=null;
+    $$(".fb-cropbg",this.world).forEach(n=>n.remove()); this.renderBlocks(); this.drawEdges(); this.save();
+    toast("Кадрирование отменено",{icon:"ti-crop-off"});
+  }
   // листенеры кадрирования: картинка зафиксирована (фон .fb-cropbg), двигаем/ресайзим РАМКУ (блок) поверх; crop выводим из положения рамки
   _wireCrop(b,elx){
     const A=this._cropAnchor; if(!A) return;
@@ -1068,7 +1243,11 @@ class FlowEditor{
     // привязка блока к реальной заметке/задаче/схеме (клик открывает её)
     let ref="";
     if(b.type!=="frame" && b.refId){ const r=S.items.find(i=>i.id===b.refId);
-      if(r) ref=`<div class="fb-ref" title="Открыть «${esc(r.title||"")}»"><i class="ti ${r.kind==="flow"?"ti-artboard":r.kind==="note"?"ti-note":"ti-checklist"}"></i><span>${esc(r.title||"(без названия)")}</span></div>`; }
+      /* Привязка может «протухнуть»: элемент ушёл в корзину или стёрт навсегда. Раньше в первом
+         случае блок как ни в чём не бывало открывал удалённую заметку, а во втором плашка молча
+         исчезала — привязка оставалась в данных, и понять, что она была, было нельзя. */
+      if(r && !r.deleted) ref=`<div class="fb-ref" title="Открыть «${esc(r.title||"")}»"><i class="ti ${r.kind==="flow"?"ti-artboard":r.kind==="note"?"ti-note":"ti-checklist"}"></i><span>${esc(r.title||"(без названия)")}</span></div>`;
+      else ref=`<div class="fb-ref lost" title="${r?"Элемент в корзине — нажми, чтобы вернуть":"Элемента больше нет — нажми, чтобы отвязать"}"><i class="ti ti-unlink"></i><span>${r?"в корзине: "+esc(r.title||"(без названия)"):"привязка потеряна"}</span></div>`; }
     return `<div class="fb-grip"><i class="ti ti-grip-horizontal"></i></div>
       <div class="fb-main">${tag}<div class="fb-title" contenteditable="false" spellcheck="false" data-ph="${ph}">${esc(b.text||"")}</div>${note}${ref}</div>
       ${port}<span class="fb-edge n" data-rz="n"></span><span class="fb-edge s" data-rz="s"></span><span class="fb-edge w" data-rz="w"></span><span class="fb-edge e" data-rz="e"></span><div class="fb-resize" title="Размер"></div><button class="fb-x" title="Удалить"><i class="ti ti-x"></i></button>`;
@@ -1083,12 +1262,24 @@ class FlowEditor{
     if(ttl){ ttl.addEventListener("keydown",e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); ttl.blur(); } });   // Enter завершает переименование (как у названия полотна); Shift+Enter — перенос
       ttl.addEventListener("blur",()=>ttl.setAttribute("contenteditable","false")); }   // вышли из правки → снова не-editable, чтобы блок тащился с текста
     const x=$(".fb-x",elx); if(x) x.onclick=(e)=>{ e.stopPropagation(); this.deleteBlock(b.id); };
-    const rf=$(".fb-ref",elx); if(rf) rf.onclick=(e)=>{ e.stopPropagation(); const r=S.items.find(i=>i.id===b.refId); if(r) openItemSmart(r); };
+    const rf=$(".fb-ref",elx); if(rf) rf.onclick=(e)=>{ e.stopPropagation();
+      const r=S.items.find(i=>i.id===b.refId);
+      if(r && !r.deleted){ openItemSmart(r); return; }
+      if(r){ restoreItem(r.id); this.renderBlocks(); this.drawEdges(); toast("Возвращено из корзины",{icon:"ti-restore"}); return; }
+      b.refId=null; this.renderBlocks(); this.drawEdges(); this.save(); toast("Привязка снята",{icon:"ti-unlink"}); };
     const cropBtn=$(".fb-crop",elx); if(cropBtn) cropBtn.onclick=(e)=>{ e.stopPropagation(); this._enterCrop(b); };
     const cropDone=$(".fb-cropdone",elx); if(cropDone) cropDone.onclick=(e)=>{ e.stopPropagation(); this._exitCrop(); };
     if(this.cropping===b.id) this._wireCrop(b,elx);   // режим кадрирования: панорама перетаскиванием + зум колесом
     elx.addEventListener("input",()=>this._autoGrow(b,elx));   // авто-рост высоты под текст (input всплывает из contenteditable)
-    elx.addEventListener("contextmenu",e=>{ e.preventDefault(); e.stopPropagation(); this._blockPop(b,e); });
+    elx.addEventListener("contextmenu",e=>{ e.preventDefault(); e.stopPropagation();
+      /* Рамка — контейнер: её «тело» это пустое место холста, и ПКМ там должен предлагать
+         создать блок ВНУТРИ рамки, а не открывать меню самой рамки. Меню рамки — по её
+         заголовку. Раньше внутри рамки нельзя было создать блок правой кнопкой вообще. */
+      if(b.type==="frame" && !e.target.closest(".fb-main")){ this._emptyPop(e); return; }
+      // ПКМ по невыделенному блоку сначала выделяет его: иначе меню действовало на один блок,
+      // а подсвечены оставались совсем другие — и «Удалить (5)» стирало не то, что видно.
+      if(!this.selSet.has(b.id)) this._select(b.id);
+      this._blockPop(b,e); });
     this.world.appendChild(elx); this.elById[b.id]=elx; if(b.type==="image"||b.type==="video") this._applyImg(b,elx); this._autoGrow(b,elx); return elx;
   }
   // высота под текст: растёт под контент, и УЖИМАЕТСЯ обратно при удалении текста (до дефолтной мин-высоты типа).
@@ -1103,12 +1294,25 @@ class FlowEditor{
   }
   _pos(b,elx){ elx=elx||this.elById[b.id]; if(!elx) return; elx.style.left=b.x+"px"; elx.style.top=b.y+"px"; elx.style.width=b.w+"px"; elx.style.height=b.h+"px"; if(b.type==="image"||b.type==="video") this._applyImg(b,elx); }
   renderBlocks(){
+    /* Позиция воспроизведения видео переживает перерисовку. renderBlocks() сносит и создаёт
+       узлы заново (это происходит на каждое добавление блока, смену цвета, откат), а новый
+       <video> начинается с нуля — ролик прыгал в начало и вставал на паузу посреди просмотра. */
+    const vstate={};
+    $$(".flow-block video",this.world).forEach(v=>{ const host=v.closest(".flow-block");
+      if(host) vstate[host.dataset.id]={t:v.currentTime||0, paused:v.paused, vol:v.volume, muted:v.muted}; });
     $$(".flow-block",this.world).forEach(n=>n.remove()); $$(".fb-cropbg",this.world).forEach(n=>n.remove()); this.elById={};
     // рамки рисуем первыми (ниже), затем остальные — порядок в DOM + z-index в CSS
     const ord=this.f.blocks.slice().sort((a,b)=>(a.type==="frame"?0:1)-(b.type==="frame"?0:1));
     ord.forEach(b=>this._buildBlock(b));
     if(this.cropping && this._cropAnchor){ const cb=this._b(this.cropping); if(cb) this._buildCropBg(cb); }   // зафиксированное (дим) изображение под рамкой кадра
-    if(this.hintEl) this.hintEl.style.display=this.f.blocks.length?"none":"";   // подсказка только на пустом холсте (иначе перекрывает нижние блоки)
+    Object.keys(vstate).forEach(id=>{ const elx=this.elById[id]; const v=elx&&elx.querySelector("video"); if(!v) return;
+      const st0=vstate[id];
+      const apply=()=>{ try{ v.currentTime=st0.t; v.volume=st0.vol; v.muted=st0.muted; if(!st0.paused) v.play().catch(()=>{}); }catch(e){} };
+      if(v.readyState>0) apply(); else v.addEventListener("loadedmetadata",apply,{once:true}); });
+    /* Подсказка по жестам. Условие «блоков нет» не срабатывало никогда: посев «Старта» шёл в
+       том же mount(), и единственное объяснение управления человек не видел ни разу. Теперь она
+       висит, пока схема почти пуста (0–1 блок), и в любой момент вызывается кнопкой «?». */
+    if(this.hintEl) this.hintEl.style.display=(this._hintPinned || this.f.blocks.length<2)?"":"none";
   }
   _buildCropBg(b){ const A=this._cropAnchor; const bg=el("div","fb-cropbg");
     bg.innerHTML = b.type==="video" ? `<video src="${esc(b.src||"")}" muted preload="auto" playsinline></video>` : `<img src="${esc(b.src||"")}" draggable="false" alt="">`;
@@ -1144,6 +1348,9 @@ class FlowEditor{
     nb.forEach(b=>{ b.parent=(b.parent&&map[b.parent])?map[b.parent]:null; });   // связь с рамкой — только если рамку тоже копировали
     const ne=clip.edges.map(e=>({id:"e_"+uid(), from:map[e.from], to:map[e.to], label:e.label||""}));
     this.f.blocks.push(...nb); this.f.edges.push(...ne);
+    // Копия, легшая внутрь рамки, обязана стать её содержимым — иначе рамка уезжает при
+    // перетаскивании, а копия остаётся на месте, хотя визуально лежит внутри.
+    this._recomputeMembership();
     this.renderBlocks(); this.drawEdges(); this.save(); this._selectMany(nb.map(b=>b.id),false);
   }
   /* ---- стрелки ---- */
@@ -1186,7 +1393,11 @@ class FlowEditor{
       const a=this._b(e.from), b=this._b(e.to); if(!a||!b) return;
       const pts=this.ortho?this._orthoPts(a,b,off[e.id]||0):this._directPts(a,b), d=this._ptsToPath(pts), sel=this.selEdge===e.id;
       const hit=document.createElementNS(NS,"path"); hit.setAttribute("class","fe-hit"); hit.dataset.id=e.id; hit.setAttribute("d",d); g.appendChild(hit);
-      const ln=document.createElementNS(NS,"path"); ln.setAttribute("class","fe-line"+(sel?" sel":"")); ln.setAttribute("marker-end","url(#fe-arrow)"); ln.setAttribute("d",d); g.appendChild(ln);
+      // у выбранной стрелки подсвечивается и наконечник, а не только линия — для этого второй маркер
+      const ln=document.createElementNS(NS,"path");
+      ln.setAttribute("class","fe-line"+(sel?" sel":""));
+      ln.setAttribute("marker-end", sel?"url(#fe-arrow-sel)":"url(#fe-arrow)");
+      ln.setAttribute("d",d); g.appendChild(ln);
       if(e.label){ const mx=(pts[0].x+pts[pts.length-1].x)/2, my=(pts[0].y+pts[pts.length-1].y)/2; const t=document.createElementNS(NS,"text");
         t.setAttribute("class","fe-label"); t.setAttribute("x",mx); t.setAttribute("y",my-3); t.setAttribute("text-anchor","middle");
         t.textContent=e.label.length>26?e.label.slice(0,25)+"…":e.label; g.appendChild(t); }
@@ -1223,6 +1434,11 @@ class FlowEditor{
       if(e.target.tagName==="VIDEO"){ const be=e.target.closest(".flow-block"); if(be && !this.selSet.has(be.dataset.id)) this._select(be.dataset.id); return; }   // нативные контролы видео — блок не тащим
       if(e.target.closest('[contenteditable="true"]')){ const be=e.target.closest(".flow-block"); if(be && !this.selSet.has(be.dataset.id)) this._select(be.dataset.id); return; }   // тащить блок можно откуда угодно; текст перехватываем ТОЛЬКО когда уже редактируем (2× клик)
       const be=e.target.closest(".flow-block");
+      /* Alt+протяжка от блока — стрелка. Ровно тот же жест, что в графе (Alt+тащи от ноды →
+         связь), и он же спасает, когда целиться в маленький ⊕ неудобно. Раньше Alt просто
+         игнорировался: человек, привыкший к графу, молча таскал блок вместо связи. */
+      if(be && e.altKey && this._b(be.dataset.id) && this._b(be.dataset.id).type!=="frame"){
+        e.preventDefault(); this._startConnect(be.dataset.id,e); st.setPointerCapture(e.pointerId); return; }
       if(be){ const id=be.dataset.id;
         // Двойной клик → правка текста. Детектим ВРУЧНУЮ: нативный dblclick в WebView2 не приходит
         // после setPointerCapture на первом клике, поэтому на него не полагаемся.
@@ -1249,28 +1465,34 @@ class FlowEditor{
         const sn=this._alignDrag(d.anchor, {x:wp.x-d.ox, y:wp.y-d.oy}), dx=sn.x-d.anchor.x, dy=sn.y-d.anchor.y;
         if(dx||dy){ d.group.forEach(b=>{ b.x+=dx; b.y+=dy; this._pos(b); }); d.moved=true; this._scheduleEdges(); }
         return; }
+      /* РАЗМЕР СЧИТАЕМ СО ЗНАКОМ, а не через Math.abs. С abs блок «зеркалился»: протянув правую
+         ручку левее левого края, человек получал не схлопывание, а рост в обратную сторону —
+         блок прыгал под курсор другой стороной. Теперь заход за противоположный край просто
+         упирается в минимальный размер, и сторона, за которую тянут, остаётся той же. */
       if(this.resizing && this.resizing.img){ const R=this.resizing, b=R.b, wp=this.worldPt(e.clientX,e.clientY), MIN=this.GRID;
+        const rawW = R.rz.indexOf("w")>=0 ? (R.ax-wp.x) : (wp.x-R.ax);
+        const rawH = R.rz.indexOf("n")>=0 ? (R.ay-wp.y) : (wp.y-R.ay);
         if(e.shiftKey){   // Shift (любая ручка) — пропорционально, с ВОЗВРАТОМ к исходному соотношению сторон кадра (cw/ch)
           const c=b.crop||this._fullCrop(b), natAsp=(c.cw||1)/(c.ch||1);
           if(R.corner || R.rz==="w" || R.rz==="e"){   // ширина-ведущая
-            let W=Math.abs(wp.x-R.ax); if(R.corner) W=Math.max(W, Math.abs(wp.y-R.ay)*natAsp);
-            W=Math.max(MIN, this._snap(W)); const H=Math.max(1, Math.round(W/natAsp));
+            let W=rawW; if(R.corner) W=Math.max(W, rawH*natAsp);
+            W=Math.max(MIN, this._snap(Math.max(MIN,W))); const H=Math.max(1, Math.round(W/natAsp));
             b.w=W; b.h=H; b.x=R.rz.indexOf("w")>=0?R.ax-W:R.ax; b.y=R.rz.indexOf("n")>=0?R.ay-H:R.ay;
           } else {   // высота-ведущая (края n/s)
-            const H=Math.max(MIN, this._snap(Math.abs(wp.y-R.ay))), W=Math.max(1, Math.round(H*natAsp));
+            const H=Math.max(MIN, this._snap(Math.max(MIN,rawH))), W=Math.max(1, Math.round(H*natAsp));
             b.h=H; b.w=W; b.y=R.rz.indexOf("n")>=0?R.ay-H:R.ay; b.x=R.rz.indexOf("w")>=0?R.ax-W:R.ax;
           }
         }
-        else if(R.corner){ const dw=Math.abs(wp.x-R.ax), dh=Math.abs(wp.y-R.ay);
-          let W=Math.max(dw, dh*R.asp); W=Math.max(MIN, this._snap(W)); const H=Math.max(1, Math.round(W/R.asp));
+        else if(R.corner){
+          let W=Math.max(rawW, rawH*R.asp); W=Math.max(MIN, this._snap(Math.max(MIN,W))); const H=Math.max(1, Math.round(W/R.asp));
           b.w=W; b.h=H; b.x=R.rz.indexOf("w")>=0?R.ax-W:R.ax; b.y=R.rz.indexOf("n")>=0?R.ay-H:R.ay; }
-        else if(R.rz==="w"||R.rz==="e"){ const W=Math.max(MIN, this._snap(Math.abs(wp.x-R.ax))); b.w=W; b.x=R.rz==="w"?R.ax-W:R.ax; }
-        else { const H=Math.max(MIN, this._snap(Math.abs(wp.y-R.ay))); b.h=H; b.y=R.rz==="n"?R.ay-H:R.ay; }
+        else if(R.rz==="w"||R.rz==="e"){ const W=Math.max(MIN, this._snap(Math.max(MIN,rawW))); b.w=W; b.x=R.rz==="w"?R.ax-W:R.ax; }
+        else { const H=Math.max(MIN, this._snap(Math.max(MIN,rawH))); b.h=H; b.y=R.rz==="n"?R.ay-H:R.ay; }
         this._pos(b); this._scheduleEdges(); return; }
       if(this.resizing && this.resizing.rz){ const R=this.resizing, b=R.b, wp=this.worldPt(e.clientX,e.clientY), MIN=this.GRID*2;   // текст/рамка — тянем за любой край/угол (без пропорции)
         const hasW=R.rz.indexOf("w")>=0, hasE=R.rz.indexOf("e")>=0, hasN=R.rz.indexOf("n")>=0, hasS=R.rz.indexOf("s")>=0;
-        if(hasW||hasE){ const W=Math.max(MIN,this._snap(Math.abs(wp.x-R.ax))); b.w=W; b.x=hasW?R.ax-W:R.ax; }
-        if(hasN||hasS){ const H=Math.max(MIN,this._snap(Math.abs(wp.y-R.ay))); b.h=H; b.y=hasN?R.ay-H:R.ay; b.fixedH=true; }   // ручная высота — авто-рост больше не ужимает
+        if(hasW||hasE){ const raw=hasW?(R.ax-wp.x):(wp.x-R.ax); const W=Math.max(MIN,this._snap(Math.max(MIN,raw))); b.w=W; b.x=hasW?R.ax-W:R.ax; }
+        if(hasN||hasS){ const raw=hasN?(R.ay-wp.y):(wp.y-R.ay); const H=Math.max(MIN,this._snap(Math.max(MIN,raw))); b.h=H; b.y=hasN?R.ay-H:R.ay; b.fixedH=true; }   // ручная высота — авто-рост больше не ужимает
         this._pos(b); this._scheduleEdges(); return; }
       if(this.resizing){ const z=this.view.zoom, b=this.resizing.b;
         b.w=Math.max(this.GRID*2, this._snap(this.resizing.w+(e.clientX-this.resizing.sx)/z));
@@ -1288,16 +1510,35 @@ class FlowEditor{
       if(this.panning){ this.view.tx=this.panning.tx+(e.clientX-this.panning.x); this.view.ty=this.panning.ty+(e.clientY-this.panning.y); this.applyView(); return; }
     };
     st.onpointerup=(e)=>{
-      if(this.dragBlock){ if(this.dragBlock.moved) this._recomputeMembership(); this._showGuides(null,null); this.save(); this.dragBlock=null; return; }
+      if(this.dragBlock){
+        if(this.dragBlock.moved){ this._recomputeMembership(); this._lastTap=null; }   // подвинул блок и снова взялся за него — это НЕ двойной клик, переименование открываться не должно
+        this._showGuides(null,null);
+        if(this.dragBlock.moved) this.save(); else this._histLast=this._histSnap();     // клик без движения не пишем шагом истории
+        this.dragBlock=null; return; }
       if(this.resizing){ this._recomputeMembership(); this.resizing=null; this.save(); return; }
-      if(this.connecting){ const elx=document.elementFromPoint(e.clientX,e.clientY); const over=elx&&elx.closest?elx.closest(".flow-block"):null;
-        if(over) this._addEdge(this.connecting, over.dataset.id); this._endConnect(); return; }
+      if(this.connecting){
+        const elx=document.elementFromPoint(e.clientX,e.clientY);
+        let over=elx&&elx.closest?elx.closest(".flow-block"):null;
+        /* Рамка — контейнер, а не узел схемы: она занимает всю свою площадь, поэтому стрелка,
+           отпущенная на ПУСТОМ месте внутри рамки, цеплялась к самой рамке. Целились в блок,
+           промахнулись — получите связь с коробкой. Рамку как цель принимаем только если
+           курсор попал по её заголовку (там она ведёт себя как обычный блок). */
+        if(over){ const ob=this._b(over.dataset.id);
+          if(ob && ob.type==="frame" && !(elx.closest && elx.closest(".fb-main"))) over=null; }
+        if(over) this._addEdge(this.connecting, over.dataset.id);
+        else toast("Стрелка ведёт в пустоту — доведи до блока",{icon:"ti-arrow-narrow-right"});
+        this._endConnect(); return; }
       if(this.marquee){ this.marquee=null; this.marqueeEl.style.display="none"; return; }
-      if(this.panning){ this.panning=null; persist(); return; }
+      if(this.panning){ this.panning=null; persist(true); return; }   // камера — не правка данных
     };
     // прерванный жест (потеря фокуса окна, системное меню) — сбрасываем всё, чтобы блок не «прилип» к курсору и гайды не залипли
     st.onpointercancel=()=>{ if(this.connecting) this._endConnect();
-      this.dragBlock=null; this.resizing=null; this.marquee=null; if(this.marqueeEl) this.marqueeEl.style.display="none"; this.panning=null; this._showGuides(null,null); };
+      // прерванный жест всё равно менял данные (блок сдвинут, размер изменён, холст уехал) —
+      // без записи эти изменения жили только на экране до следующего действия
+      const менялось=!!(this.dragBlock&&this.dragBlock.moved)||!!this.resizing;
+      const камера=!!this.panning;
+      this.dragBlock=null; this.resizing=null; this.marquee=null; if(this.marqueeEl) this.marqueeEl.style.display="none"; this.panning=null; this._showGuides(null,null);
+      if(менялось){ this._recomputeMembership(); this.save(); } else if(камера) persist(true); };
     st.ondblclick=(e)=>{
       const _ce=e.target.closest('[contenteditable="true"]');
       if(_ce && _ce===document.activeElement) return;   // уже РЕДАКТИРУЕМ этот текст (в фокусе) — не мешаем нативному выделению слова; «залипший» editable без фокуса пропускаем дальше
@@ -1307,14 +1548,30 @@ class FlowEditor{
         this._select(b.id); this._focusTitle(b.id); return; }   // 2× клик по блоку — переименование (фокус + выделение текста)
       // 2× клик по пустому месту — НИЧЕГО не создаём (блоки добавляются кнопками на панели). Раньше плодило лишние ноды.
     };
-    st.onwheel=(e)=>{ e.preventDefault(); const r=st.getBoundingClientRect(); this._zoomAt(e.clientX-r.left, e.clientY-r.top, e.deltaY<0?1.12:1/1.12); };
+    st.onwheel=(e)=>{
+      e.preventDefault();
+      const r=st.getBoundingClientRect();
+      /* Shift/обычная прокрутка сдвигает холст, как в любом редакторе; зум — колесо (привычка
+         из графа) или Ctrl+колесо. Шаг зума считаем ОТ величины прокрутки: у тачпада deltaY
+         бывает по 2-3 пикселя, и фиксированный множитель 1.12 бросал масштаб через всю шкалу
+         за пару движений пальцем. */
+      if(e.shiftKey && !e.ctrlKey){ this.view.tx-=e.deltaY; this.applyView(); persist(true); return; }
+      const step=Math.min(0.25, Math.abs(e.deltaY)/400);          // 0…0.25 за одно событие
+      const f=e.deltaY<0 ? (1+step) : 1/(1+step);
+      this._zoomAt(e.clientX-r.left, e.clientY-r.top, f);
+      this._closeFlowPop();                                        // поповер привязан к точке холста — при зуме он уезжает от своего блока
+    };
     st.oncontextmenu=(e)=>{ if(e.target.closest(".flow-block")||e.target.closest(".flow-pop")) return; e.preventDefault(); this._emptyPop(e); };   // ПКМ по пустому — меню создания блока в точке курсора
     // перетаскивание файлов-картинок на холст (как в Figma)
     st.addEventListener("dragover",(e)=>{ const dt=e.dataTransfer; if(dt && [...(dt.items||[])].some(it=>it.kind==="file")){ e.preventDefault(); dt.dropEffect="copy"; st.classList.add("dropping"); } });
     st.addEventListener("dragleave",(e)=>{ if(e.target===st) st.classList.remove("dropping"); });
     st.addEventListener("drop",(e)=>{ st.classList.remove("dropping");
+      // preventDefault ПЕРВОЙ строкой: раньше он стоял после фильтра, и брошенный на холст
+      // pdf/архив (или картинка, промахнувшаяся мимо .flow-stage) открывался движком вместо
+      // приложения — окно уезжало на файл, несохранённая схема оставалась в нём.
+      e.preventDefault();
       const files=[...((e.dataTransfer&&e.dataTransfer.files)||[])].filter(f=>/^(image|video)\//.test(f.type));
-      if(!files.length) return; e.preventDefault();
+      if(!files.length) return;
       if(this.cropping) this._exitCrop();   // дроп во время кадрирования — выйти из режима, иначе новый блок уедет под затемнение
       const wp=this.worldPt(e.clientX,e.clientY);
       files.forEach((f,i)=>this._mediaFromFile(f, wp.x+i*18, wp.y+i*18));
@@ -1354,14 +1611,41 @@ class FlowEditor{
     const multi=targets.length>1;
     pop.innerHTML=`
       ${multi?`<div class="fp-note">${targets.length} блоков</div>`:""}
+      ${multi?`<div class="fp-row fp-align">
+        <button class="fp-t" data-al="left" title="По левому краю"><i class="ti ti-layout-align-left"></i></button>
+        <button class="fp-t" data-al="cx" title="По центру (вертикальная ось)"><i class="ti ti-layout-align-center"></i></button>
+        <button class="fp-t" data-al="right" title="По правому краю"><i class="ti ti-layout-align-right"></i></button>
+        <button class="fp-t" data-al="top" title="По верхнему краю"><i class="ti ti-layout-align-top"></i></button>
+        <button class="fp-t" data-al="cy" title="По середине (горизонтальная ось)"><i class="ti ti-layout-align-middle"></i></button>
+        <button class="fp-t" data-al="bottom" title="По нижнему краю"><i class="ti ti-layout-align-bottom"></i></button>
+        ${targets.length>2?`<button class="fp-t" data-al="distx" title="Разложить с равными промежутками по горизонтали"><i class="ti ti-arrows-horizontal"></i></button>
+        <button class="fp-t" data-al="disty" title="Разложить с равными промежутками по вертикали"><i class="ti ti-arrows-vertical"></i></button>`:""}
+      </div>`:""}
       <div class="fp-row fp-types">${FLOW_ORDER.map(k=>`<button class="fp-t ${b.type===k?"on":""}" data-t="${k}" title="${FLOW_TYPES[k].name}"><i class="ti ${FLOW_TYPES[k].icon}"></i></button>`).join("")}</div>
       <div class="swatches fp-sw">${swatchRow(b.color)}</div>
       ${(!multi&&b.type!=="frame")?`<div class="fp-row">${b.refId?`<button class="btn" data-fp="refopen"><i class="ti ti-external-link"></i>Открыть</button><button class="btn" data-fp="refdel"><i class="ti ti-unlink"></i>Отвязать</button>`:`<button class="btn" data-fp="reflink"><i class="ti ti-link"></i>Привязать к заметке/задаче</button>`}</div>`:""}
       <div class="fp-row"><button class="btn" data-fp="del"><i class="ti ti-trash"></i>${multi?"Удалить ("+targets.length+")":"Удалить блок"}</button></div>`;
     this.stage.appendChild(pop); this._placePop(pop,e);
     $$(".fp-t",pop).forEach(btn=>btn.onclick=()=>{ const tp=btn.dataset.t;
-      targets.forEach(t=>{ t.type=tp; if(tp==="frame"){ t.w=Math.max(t.w,FLOW_TYPES.frame.w); t.h=Math.max(t.h,FLOW_TYPES.frame.h); } });
-      this._closeFlowPop(); this.renderBlocks(); this.drawEdges(); this.save(); });
+      /* Медиа-блоки исключаем: их типа нет в FLOW_ORDER, и превращение картинки в «процесс»
+         необратимо — вернуть тип image через интерфейс нельзя, а сама картинка (base64 в
+         блоке) после перерисовки уже не отображается. При выделении рамкой десятка блоков
+         пара картинок попадала под смену типа заодно и пропадала молча. */
+      const shaped=targets.filter(t=>t.type!=="image" && t.type!=="video");
+      const skipped=targets.length-shaped.length;
+      shaped.forEach(t=>{
+        const wasFrame=t.type==="frame";
+        t.type=tp;
+        if(tp==="frame"){ t.w=Math.max(t.w,FLOW_TYPES.frame.w); t.h=Math.max(t.h,FLOW_TYPES.frame.h); }
+        // Обратный путь: рамка 320×220, ставшая «Терминалом», оставалась огромной пустой
+        // коробкой — размер по умолчанию для нового типа тут гораздо ближе к ожидаемому.
+        else if(wasFrame){ const d=FLOW_TYPES[tp]; t.w=d.w; t.h=d.h; t.fixedH=false;
+          this.f.blocks.forEach(k=>{ if(k.parent===t.id) k.parent=null; }); }   // бывшие дети — на верхний уровень
+      });
+      if(shaped.length) this._recomputeMembership();
+      this._closeFlowPop(); this.renderBlocks(); this.drawEdges(); this.save();
+      if(skipped) toast("Картинки и видео тип не меняют: пропущено "+skipped,{icon:"ti-photo"}); });
+    $$("[data-al]",pop).forEach(btn=>btn.onclick=()=>{ this._align(targets, btn.dataset.al); this._closeFlowPop(); });
     $$(".fp-sw .swatch",pop).forEach(btn=>btn.onclick=()=>{ const col=PALETTE[+btn.dataset.ci]||null;
       targets.forEach(t=>{ t.color=col; const elx=this.elById[t.id]; if(elx){ elx.classList.toggle("fb-colored",!!col);   // БЕЗ этого класс не появлялся → цвет не был виден до полного ре-рендера
         if(col) elx.style.setProperty("--c",col); else elx.style.removeProperty("--c"); } });
@@ -1370,6 +1654,35 @@ class FlowEditor{
     if(pop.querySelector('[data-fp="refopen"]')) pop.querySelector('[data-fp="refopen"]').onclick=()=>{ this._closeFlowPop(); const r=S.items.find(i=>i.id===b.refId); if(r) openItemSmart(r); };
     if(pop.querySelector('[data-fp="refdel"]')) pop.querySelector('[data-fp="refdel"]').onclick=()=>{ b.refId=null; this._closeFlowPop(); this.renderBlocks(); this.drawEdges(); this.save(); };
     pop.querySelector('[data-fp="del"]').onclick=()=>{ this._closeFlowPop(); if(multi) this.deleteSelection(); else this.deleteBlock(b.id); };
+  }
+  /* ВЫРАВНИВАНИЕ И РАСПРЕДЕЛЕНИЕ. Раньше ровнять блоки можно было только вручную, ловя
+     подсказки-направляющие при перетаскивании: схема из десяти блоков собиралась «на глаз», и
+     любая правка её перекашивала. Это привычный минимум любого редактора схем. */
+  _align(targets, how){
+    const bs=(targets||[]).filter(Boolean); if(bs.length<2) return;
+    const L=Math.min(...bs.map(b=>b.x)), R=Math.max(...bs.map(b=>b.x+b.w));
+    const T=Math.min(...bs.map(b=>b.y)), B=Math.max(...bs.map(b=>b.y+b.h));
+    const CX=(L+R)/2, CY=(T+B)/2;
+    if(how==="left")   bs.forEach(b=>b.x=Math.round(L));
+    else if(how==="right")  bs.forEach(b=>b.x=Math.round(R-b.w));
+    else if(how==="cx")     bs.forEach(b=>b.x=Math.round(CX-b.w/2));
+    else if(how==="top")    bs.forEach(b=>b.y=Math.round(T));
+    else if(how==="bottom") bs.forEach(b=>b.y=Math.round(B-b.h));
+    else if(how==="cy")     bs.forEach(b=>b.y=Math.round(CY-b.h/2));
+    else if(how==="distx" || how==="disty"){
+      // равные ПРОМЕЖУТКИ между блоками (а не равный шаг центров) — так ровно выглядит и при
+      // разной ширине блоков; крайние остаются на месте, двигается только середина
+      const gorizont = how==="distx";
+      const sorted=bs.slice().sort((a,b)=> gorizont ? a.x-b.x : a.y-b.y);
+      const total = gorizont ? (R-L) : (B-T);
+      const sum = sorted.reduce((n,b)=> n + (gorizont?b.w:b.h), 0);
+      const gap = (total-sum)/(sorted.length-1);
+      let cur = gorizont ? L : T;
+      sorted.forEach(b=>{ if(gorizont){ b.x=Math.round(cur); cur+=b.w+gap; } else { b.y=Math.round(cur); cur+=b.h+gap; } });
+    }
+    else return;
+    this._recomputeMembership(); this.renderBlocks(); this.drawEdges(); this.save();
+    toast("Выровнено: "+bs.length,{icon:"ti-layout-align-left"});
   }
   // выбор реального элемента (заметка/задача/схема) для привязки блока — модалка с поиском внутри flow-screen
   _pickItem(cb){
@@ -1382,6 +1695,10 @@ class FlowEditor{
       <div class="modal-foot"><div class="right"><button class="btn ghost" id="pk-cancel">Отмена</button></div></div>`;
     const ov=el("div","flow-modal-ov"); ov.appendChild(m); this.screen.appendChild(ov);
     ov.addEventListener("mousedown",ev=>{ if(ev.target===ov) ov.remove(); });
+    // Esc закрывает саму модалку и НЕ доходит до полотна (раньше первый Esc не делал ничего,
+    // а второй сносил весь редактор вместе с несохранённым выбором)
+    ov.addEventListener("keydown",ev=>{ if(ev.key==="Escape"){ ev.preventDefault(); ev.stopPropagation(); ov.remove(); } });
+    ov.tabIndex=-1; setTimeout(()=>{ const qq=$("#pk-q",m); (qq||ov).focus(); },20);
     const q=$("#pk-q",m), list=$("#pk-list",m);
     const draw=()=>{ const s=q.value.trim().toLowerCase();
       const arr=items.filter(it=>!s||(it.title||"").toLowerCase().includes(s)).slice(0,50);
@@ -1430,6 +1747,8 @@ class FlowEditor{
       </div></div>`;
     // собственный оверлей внутри flow-screen (поверх холста), чтобы не уехать под него по z-index
     const ov=el("div","flow-modal-ov"); ov.appendChild(m); this.screen.appendChild(ov);
+    ov.addEventListener("keydown",ev=>{ if(ev.key==="Escape"){ ev.preventDefault(); ev.stopPropagation(); ov.remove(); } });   // Esc закрывает окно, а не полотно
+    ov.tabIndex=-1; setTimeout(()=>{ const t=$("#fc-txt",m); (t||ov).focus(); },20);
     ov.addEventListener("mousedown",ev=>{ if(ev.target===ov) ov.remove(); });
     const ta=$("#fc-txt",m);
     $("#fc-close",m).onclick=()=>ov.remove();

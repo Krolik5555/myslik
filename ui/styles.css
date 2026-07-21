@@ -736,6 +736,7 @@ button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:va
 /* гайд-линии выравнивания при перетаскивании (магнитная привязка центров) */
 .fe-guide{stroke:var(--acc);stroke-width:1;stroke-dasharray:3 4;opacity:.6;vector-effect:non-scaling-stroke;pointer-events:none;}
 #fe-arrow path{fill:var(--bd3);}
+#fe-arrow-sel path{fill:var(--acc);}   /* выделенная стрелка целиком акцентная: линия + наконечник */
 .fe-label{fill:var(--mut);font-size:11px;font-family:var(--font);paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round;}
 
 .flow-block{position:absolute;background:var(--surf2);border:1px solid var(--bd2);border-radius:10px;color:var(--tx);display:flex;flex-direction:column;z-index:3;box-shadow:0 4px 16px rgba(0,0,0,.32);--c:var(--acc);overflow:visible;cursor:move;}
@@ -758,8 +759,12 @@ button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:va
 .fb-note:empty{opacity:0;}
 .flow-block:hover .fb-note:empty,.fb-note:focus{opacity:1;}
 .fb-note:empty:before{content:attr(data-ph);color:var(--mut2);}
-.fb-port{position:absolute;left:50%;bottom:-11px;transform:translateX(-50%);width:22px;height:22px;border-radius:50%;background:var(--surf3);border:1px solid var(--bd2);color:var(--mut);display:flex;align-items:center;justify-content:center;cursor:crosshair;opacity:0;transition:.12s;z-index:4;}
-.fb-port i{font-size:13px;}
+/* Порт связи ПОВЕРХ ручек ресайза (.fb-edge — z-index:7) и контр-масштабируется, как они.
+   Раньше было z-index:4 при том, что ручка нижнего края накрывает ровно центр низа блока:
+   человек целился в ⊕, попадал в невидимую ручку и вместо стрелки тянул высоту блока.
+   Размер в экранных пикселях (делим на --z): иначе на отдалении ⊕ становился нецелимой точкой. */
+.fb-port{position:absolute;left:50%;bottom:calc(-11px/var(--z,1));transform:translateX(-50%);width:calc(22px/var(--z,1));height:calc(22px/var(--z,1));border-radius:50%;background:var(--surf3);border:1px solid var(--bd2);color:var(--mut);display:flex;align-items:center;justify-content:center;cursor:crosshair;opacity:0;transition:opacity .12s;z-index:9;}
+.fb-port i{font-size:calc(13px/var(--z,1));}
 .flow-block:hover .fb-port{opacity:1;}
 .fb-port:hover{background:var(--acc);color:var(--bg);border-color:var(--acc);box-shadow:0 0 12px var(--glow);}
 .fb-x{position:absolute;top:-9px;right:-9px;width:20px;height:20px;border-radius:50%;background:var(--surf3);border:1px solid var(--bd2);color:var(--mut);display:flex;align-items:center;justify-content:center;opacity:0;transition:.12s;z-index:5;}
@@ -836,6 +841,9 @@ button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:va
 .fp-row{display:flex;gap:7px;}
 .fp-types{justify-content:space-between;}
 .fp-t{flex:1;height:32px;border:0.5px solid var(--bd);border-radius:8px;background:var(--surf);color:var(--mut);display:flex;align-items:center;justify-content:center;}
+/* ряд выравнивания: кнопок много и они узкие — иконка важнее ширины */
+.fp-align{flex-wrap:wrap;padding-bottom:7px;margin-bottom:1px;border-bottom:0.5px solid var(--bd);}
+.fp-align .fp-t{flex:0 0 auto;width:32px;}
 .fp-t i{font-size:16px;}
 .fp-t:hover{color:var(--tx);border-color:var(--bd2);}
 .fp-t.on{background:var(--acc);color:var(--bg);border-color:var(--acc);box-shadow:0 0 10px var(--glow);}
@@ -950,6 +958,9 @@ kbd{display:inline-block;font-family:var(--font);font-size:11px;line-height:1;pa
 .graph-search .gs-close:hover{background:var(--surf3);color:var(--tx);}
 /* привязка блока схемы к элементу + пикер */
 .fb-ref{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--mut);background:var(--surf3);border:0.5px solid var(--bd2);border-radius:6px;padding:2px 7px;margin-top:4px;cursor:pointer;max-width:100%;overflow:hidden;}
+/* привязка к элементу, которого больше нет (или он в корзине): видно, что связь оборвана,
+   но блок при этом не притворяется рабочей ссылкой */
+.fb-ref.lost{color:var(--warn,#e8a14b);border-style:dashed;opacity:.85;}
 .fb-ref:hover{color:var(--tx);border-color:var(--acc);}
 .fb-ref i{font-size:13px;flex:none;}
 .fb-ref span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
