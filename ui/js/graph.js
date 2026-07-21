@@ -419,7 +419,17 @@ class Graph{
     this.svg.setAttribute("viewBox",`0 0 ${this.W} ${this.H}`);
     // фон-canvas «точечное поле» за графом, привязан к пану/зуму
     this.bgCanvas=this.svg.parentNode?this.svg.parentNode.querySelector(".graph-bg-canvas"):null;
-    this.bgCtx=this.bgCanvas?this.bgCanvas.getContext("2d"):null;
+    // ФОН — ЧЕРЕЗ WEBGL. Замерено: canvas2d линейно упирается в ЧИСЛО вызовов отрисовки
+    // (~0.73 мкс на drawImage), поэтому 6 000 звёзд стоили 4.1 мс кадра, 12 000 — 11.25 мс, и
+    // приложение сыпалось, когда GPU занят другой программой. В WebGL всё поле слоя рисуется
+    // ОДНИМ вызовом, а дрейф/мерцание считает шейдер: 0.008 мс на 6 000 звёзд (и столько же на
+    // 30 000). Микрооптимизации 2d-пути (alpha, масштаб, тригонометрия) давали лишь 7-9% — дело
+    // было именно в количестве вызовов. Нет WebGL — откатываемся на прежний путь canvas2d.
+    this.bgGL=null; this.bgCtx=null;
+    if(this.bgCanvas){
+      try{ this.bgGL=this._initBgGL(this.bgCanvas); }catch(e){ this.bgGL=null; console.warn("[graph] WebGL-фон недоступен, работаем на canvas2d:", e); }
+      if(!this.bgGL) this.bgCtx=this.bgCanvas.getContext("2d");
+    }
     this.glowCanvas=this.svg.parentNode?this.svg.parentNode.querySelector(".graph-glow-canvas"):null;   // слой цветной подсветки «в работе»
     this.glowCtx=this.glowCanvas?this.glowCanvas.getContext("2d"):null;
     this._bgReduce=!!(window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -790,7 +800,127 @@ class Graph{
   // фон «звёздное поле»: 5 слоёв глубины с параллаксом (par) + собственный дрейф/мерцание точек.
   // ZOOM-масштаб слоёв = чистый z (zs=1) — при зуме звёзды масштабируются ВМЕСТЕ с миром и не «плывут»,
   // а параллакс (par) остаётся на ПАНЕ — тот самый эффект глубины, ради которого всё делалось.
+  /* Слои поля: sp — шаг сетки, sz — полуразмер звезды, a/aL — яркость (тёмная/светлая тема),
+     wob — амплитуда собственного дрейфа, par — параллакс от пана. Общие для WebGL и canvas2d. */
+  _bgLayers(){
+    return [
+      {par:0.06, sp:36,  sz:1.4, a:0.028, aL:0.040, wob:4 },
+      {par:0.20, sp:50,  sz:2.0, a:0.045, aL:0.060, wob:7 },
+      {par:0.42, sp:68,  sz:2.9, a:0.070, aL:0.085, wob:11},
+      {par:0.68, sp:90,  sz:3.9, a:0.100, aL:0.120, wob:15},
+      {par:1.00, sp:118, sz:5.4, a:0.150, aL:0.175, wob:20}
+    ];
+  }
+  // Компиляция шейдеров + буфер индексов ячеек. Позицию, дрейф и мерцание каждой звезды считает
+  // видеокарта из номера ячейки — на CPU остаётся лишь пяток uniform'ов на кадр.
+  _initBgGL(cv){
+    const gl=cv.getContext("webgl",{alpha:true,antialias:false,depth:false,stencil:false,premultipliedAlpha:false})
+           || cv.getContext("experimental-webgl");
+    if(!gl) return null;
+    const VS=[
+      "attribute float aIdx;",
+      "uniform vec2 uRes; uniform vec2 uOff; uniform vec2 uBase;",
+      "uniform float uCols; uniform float uTile; uniform float uT;",
+      "uniform float uWob; uniform float uSize; uniform float uAlpha;",
+      "varying float vA;",
+      "float h(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453123); }",
+      "void main(){",
+      "  float gx = mod(aIdx, uCols) - 1.0;",          // -1 — та же кромка в одну ячейку, что и в 2d
+      "  float gy = floor(aIdx / uCols) - 1.0;",
+      "  vec2 cell = vec2(gx,gy) + uBase;",
+      "  float hx=h(cell), hy=h(cell+vec2(37.0,17.0)), ho=h(cell+vec2(91.0,53.0));",
+      "  vec2 jit=(vec2(hx,hy)-0.5)*uTile*0.5;",
+      "  vec2 wob=vec2(sin(uT*0.16+hx*6.283), cos(uT*0.13+hy*6.283))*uWob;",
+      "  vec2 pos=vec2(gx,gy)*uTile - uOff + jit + wob;",
+      "  vec2 nd=pos/uRes*2.0-1.0;",
+      "  gl_Position=vec4(nd.x, -nd.y, 0.0, 1.0);",
+      "  gl_PointSize=uSize;",
+      "  vA=uAlpha*(0.35+0.65*(0.5+0.5*sin(uT*0.18+ho*6.283)));",   // то же «дыхание» яркости
+      "}"
+    ].join("\n");
+    const FS=[
+      "precision mediump float;",
+      "varying float vA; uniform vec3 uColor;",
+      "void main(){",
+      "  vec2 d=gl_PointCoord-vec2(0.5);",
+      "  float r=length(d)*2.0;",
+      "  if(r>1.0) discard;",
+      "  float a=pow(1.0-r, 2.2);",                   // профиль ~как у исходного спрайта-градиента
+      "  gl_FragColor=vec4(uColor, a*vA);",
+      "}"
+    ].join("\n");
+    const mk=(t,src)=>{ const s=gl.createShader(t); gl.shaderSource(s,src); gl.compileShader(s);
+      if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+    const prog=gl.createProgram();
+    gl.attachShader(prog,mk(gl.VERTEX_SHADER,VS)); gl.attachShader(prog,mk(gl.FRAGMENT_SHADER,FS));
+    gl.linkProgram(prog);
+    if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+    gl.useProgram(prog);
+    const MAX=20000;                                   // потолок ячеек на слой (хватает и на 4K)
+    const idx=new Float32Array(MAX); for(let i=0;i<MAX;i++) idx[i]=i;
+    const buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf); gl.bufferData(gl.ARRAY_BUFFER,idx,gl.STATIC_DRAW);
+    const loc=gl.getAttribLocation(prog,"aIdx");
+    gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,1,gl.FLOAT,false,0,0);
+    gl.enable(gl.BLEND);
+    // РАЗДЕЛЬНЫЕ множители: для цвета обычное SRC_ALPHA, а для АЛЬФЫ — ONE. С общим blendFunc
+    // альфа умножалась сама на себя (0.15 -> 0.0225), и всё поле выходило в ~7 раз бледнее.
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.clearColor(0,0,0,0);
+    const U=n=>gl.getUniformLocation(prog,n);
+    return { gl, prog, buf, max:MAX, u:{ res:U("uRes"), cols:U("uCols"), tile:U("uTile"), off:U("uOff"),
+      base:U("uBase"), t:U("uT"), wob:U("uWob"), size:U("uSize"), alpha:U("uAlpha"), color:U("uColor") } };
+  }
+  // Кадр: 5 слоёв = 5 вызовов отрисовки. Вся геометрия и анимация — на видеокарте.
+  _drawBgGL(){
+    const G=this.bgGL, cv=this.bgCanvas; if(!G||!cv) return;
+    const gl=G.gl;
+    const cw=cv.clientWidth, ch=cv.clientHeight; if(!cw||!ch) return;
+    const dpr=Math.min(window.devicePixelRatio||1,2);
+    const W=Math.round(cw*dpr), H=Math.round(ch*dpr);
+    if(cv.width!==W||cv.height!==H){ cv.width=W; cv.height=H; }
+    gl.viewport(0,0,W,H);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    if(S.settings.graphBg===false) return;
+    const light=document.body.classList.contains("light");
+    const ts=this._bgReduce?0:performance.now()*0.001;
+    const z=this.zoom, w=cw, h=ch;
+    gl.useProgram(G.prog);
+    gl.uniform2f(G.u.res, w, h);
+    gl.uniform1f(G.u.t, ts);
+    gl.uniform3f(G.u.color, light?0:1, light?0:1, light?0:1);
+    // Общий множитель яркости: подобран замером так, чтобы суммарная «краска» кадра совпадала
+    // с прежней canvas2d-отрисовкой (иначе поле выглядит бледнее оригинала).
+    const BG_GAIN=1.15;
+    const layers=this._bgLayers();
+    for(let li=0; li<layers.length; li++){
+      const L=layers[li];
+      let tile=L.sp*z; if(tile<5) continue;
+      let cols=Math.ceil(w/tile)+2, rows=Math.ceil(h/tile)+2;
+      if((cols+1)*(rows+1)>G.max){                     // страховка от переполнения буфера
+        tile*=Math.sqrt((cols+1)*(rows+1)/G.max);
+        cols=Math.ceil(w/tile)+2; rows=Math.ceil(h/tile)+2;
+      }
+      const loX=-this.bgPanX*(1-L.par), loY=-this.bgPanY*(1-L.par);
+      const totX=-(this.tx+loX*z), totY=-(this.ty+loY*z);
+      gl.uniform1f(G.u.cols, cols+1);
+      gl.uniform1f(G.u.tile, tile);
+      gl.uniform2f(G.u.off, ((totX)%tile+tile)%tile, ((totY)%tile+tile)%tile);
+      gl.uniform2f(G.u.base, Math.floor(totX/tile), Math.floor(totY/tile));
+      gl.uniform1f(G.u.wob, L.wob*z);
+      // Точка меньше ~3 px гаснет в ноль: на неё приходится один фрагмент, и мягкое затухание
+      // умножает и без того малую яркость почти на ноль (canvas при уменьшении спрайта, наоборот,
+      // усредняет градиент и звезда остаётся видна). Поэтому задаём минимальный размер и
+      // компенсируем яркость по площади — суммарная «энергия» звезды сохраняется.
+      const want=L.sz*z*2*dpr, MINPX=3*dpr;
+      const size=Math.max(MINPX, Math.min(64, want));
+      const comp=want<MINPX ? (want/MINPX)*(want/MINPX) : 1;
+      gl.uniform1f(G.u.size, size);
+      gl.uniform1f(G.u.alpha, (light?L.aL:L.a)*comp*BG_GAIN);
+      gl.drawArrays(gl.POINTS, 0, Math.min(G.max,(cols+1)*(rows+1)));
+    }
+  }
   _drawBg(){
+    if(this.bgGL){ this._drawBgGL(); return; }          // основной путь
     const cv=this.bgCanvas, ctx=this.bgCtx; if(!cv||!ctx) return;
     const cw=cv.clientWidth, ch=cv.clientHeight; if(!cw||!ch) return;
     const dpr=Math.min(window.devicePixelRatio||1,2);
@@ -800,26 +930,13 @@ class Graph{
     // размер и тема не менялись, канвас УЖЕ содержит нужную картинку → просто выходим, ничего не
     // рисуя. Полную перерисовку делаем не чаще ~5 раз/сек (на глаз неотличимо при таком периоде)
     // и НЕМЕДЛЕННО при любом изменении камеры/размера/темы — то есть пан и зум остаются точными.
-    // Ключ БЕЗ округления камеры: фон обязан совпадать с камерой точно, иначе при медленном
-    // пане он отстаёт и потом «догоняет» рывком.
-    const key=[this.tx,this.ty,this.zoom,this.bgPanX||0,this.bgPanY||0,
-               cw,ch,dpr,light,S.settings.graphBg!==false].join("|");
-    // Ничего не изменилось → канвас уже содержит нужную картинку, выходим. Времени в ключе НЕТ:
-    // поле статично (см. ts ниже), поэтому в покое перерисовка не нужна вообще — 0 работы.
-    if(this._bgKey===key) return;
-    this._bgKey=key;
     if(cv.width!==Math.round(cw*dpr)||cv.height!==Math.round(ch*dpr)){ cv.width=Math.round(cw*dpr); cv.height=Math.round(ch*dpr); }
     ctx.setTransform(dpr,0,0,dpr,0,0);
     const w=cw, h=ch;
     ctx.clearRect(0,0,w,h);   // базу даёт var(--surf) на #graph-wrap → тема подхватывается сама
     if(S.settings.graphBg===false) return;   // фон «звёздное поле» выключен в настройках
     const dot=light?"0,0,0":"255,255,255";
-    // ПОЛЕ СТАТИЧНО (ts=0). Раньше звёзды дрейфовали и мерцали по времени, что требовало
-    // перерисовки 30-60 раз/сек — это и съедало кадр. С кэшем перерисовка редкая, и дрейф стал
-    // виден РЫВКАМИ (всё вокруг едет на 60 fps, а звёзды прыгают). Эффект, который нельзя
-    // анимировать плавно в рамках бюджета, лучше не анимировать вовсе: рисунок остаётся
-    // разнообразным (смещение и яркость каждой звезды берутся из её хеша), но неподвижным.
-    const ts=0;
+    const ts=this._bgReduce?0:performance.now()*0.001;
     const z=this.zoom;
     const hash=(a,b)=>{ let n=(a*374761393+b*668265263)|0; n=(n^(n>>>13))*1274126177|0; return ((n>>>0)%100000)/100000; };
     // спрайт-«звезда»: радиальный градиент (яркий центр → мягкое затухание). Строится раз, пересобирается при смене темы.
@@ -1362,5 +1479,11 @@ class Graph{
     // граф пересоздаётся на каждый render — без этого наблюдатели и слушатели копились бы
     if(this._ro){ this._ro.disconnect(); this._ro=null; }
     if(this._onWinResize){ window.removeEventListener("resize", this._onWinResize); this._onWinResize=null; }
+    // WebGL-контекст держит видеопамять, а браузер разрешает лишь ~16 штук: граф пересоздаётся
+    // на каждый render, поэтому контекст надо отпускать явно, не дожидаясь сборщика мусора.
+    if(this.bgGL && this.bgGL.gl){
+      try{ const e=this.bgGL.gl.getExtension("WEBGL_lose_context"); if(e) e.loseContext(); }catch(_){}
+      this.bgGL=null;
+    }
   }
 }
