@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Проверялка «Мыслика» — быстрые факты вместо ручной переписки с браузером.
 
+    python tools/dev.py status           состояние: версия, ветка, что не закоммичено
     python tools/dev.py check            быстрый контроль: синтаксис, версии, данные
     python tools/dev.py run              все сценарии из tools/scenarios/
     python tools/dev.py run полотно      один сценарий
@@ -50,6 +51,18 @@ def _read(path):
     return io.open(os.path.join(ROOT, path), encoding="utf-8").read()
 
 
+def _git(*args):
+    """git с явной кодировкой utf-8: в проекте кириллические имена файлов, и системная cp1252
+    роняет разбор вывода. core.quotepath=false — чтобы пути читались, а не выводились кодами."""
+    try:
+        r = subprocess.run(["git", "-c", "core.quotepath=false"] + list(args), cwd=ROOT,
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=20)
+        return (r.stdout or "").strip()
+    except Exception:
+        return ""
+
+
 # ---------------------------------------------------------------- check
 
 def _check_versions():
@@ -69,13 +82,8 @@ def _check_versions():
 def _check_assets_version():
     """?v= в index.html должен подниматься при каждой правке фронта, иначе WebView2 отдаст
     старый код и чиниться будет призрак."""
-    try:
-        changed = subprocess.run(["git", "diff", "--name-only", "HEAD", "--", "ui/js", "ui/styles.css"],
-                                 cwd=ROOT, capture_output=True, text=True, timeout=20).stdout.split()
-        idx_changed = subprocess.run(["git", "diff", "--name-only", "HEAD", "--", "ui/index.html"],
-                                     cwd=ROOT, capture_output=True, text=True, timeout=20).stdout.strip()
-    except Exception as e:
-        return [("?v= проверен", False, "git недоступен: %r" % (e,))]
+    changed = _git("diff", "--name-only", "HEAD", "--", "ui/js", "ui/styles.css").split()
+    idx_changed = _git("diff", "--name-only", "HEAD", "--", "ui/index.html")
     if not changed:
         return [("?v= поднимать не нужно", True, "фронт не менялся с последнего коммита")]
     return [("?v= поднят после правки фронта", bool(idx_changed),
@@ -299,8 +307,31 @@ def _report(title, rows):
     return 1 if bad else 0
 
 
+def cmd_status():
+    """Состояние проекта одной командой — чтобы не выяснять его расспросами в начале работы."""
+    sh = lambda *a: _git(*a[1:])          # a[0] — само слово "git", оно уже внутри _git
+    ver = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', _read("app.py"))
+    asset = re.search(r'\?v=(\d+)', _read("ui/index.html"))
+    ветка = sh("git", "rev-parse", "--abbrev-ref", "HEAD")
+    незапушено = [l for l in sh("git", "log", "--oneline", "origin/%s..HEAD" % ветка).split("\n") if l]
+    грязно = [l for l in sh("git", "status", "--porcelain").split("\n") if l]
+    тег = sh("git", "describe", "--tags", "--abbrev=0")
+    print("версия      : %s   (ассеты ?v=%s)" % (ver and ver.group(1), asset and asset.group(1)))
+    print("ветка       : %s" % ветка)
+    print("последний тег: %s" % (тег or "нет"))
+    print("не запушено : %d коммит(ов)%s" % (len(незапушено),
+          ("\n   " + "\n   ".join(незапушено[:8])) if незапушено else ""))
+    print("не закоммичено: %d файл(ов)%s" % (len(грязно),
+          ("\n   " + "\n   ".join(грязно[:8])) if грязно else ""))
+    сцен = [os.path.splitext(f)[0] for f in sorted(os.listdir(SCEN))] if os.path.isdir(SCEN) else []
+    print("сценарии    : %s" % ", ".join(сцен))
+    return 0
+
+
 def main(argv):
     cmd = (argv[1] if len(argv) > 1 else "check").lower()
+    if cmd == "status":
+        return cmd_status()
     if cmd == "check":
         return cmd_check()
     if cmd == "run":

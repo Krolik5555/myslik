@@ -9,7 +9,8 @@
     powershell -ExecutionPolicy Bypass -File tools\release.ps1 -Version X.Y.Z -Notes "what changed"
     (or -NotesFile path\to\notes.md for a long description)
 
-  It builds the exe (PyInstaller), restores CHITAT.txt, drops test data\,
+  It first runs tools/dev.py (check + scenarios) and refuses to build when something
+  is broken, then builds the exe (PyInstaller), restores CHITAT.txt, drops test data\,
   zips release\Myslik into a zip, commits+tags+pushes and creates the GitHub
   release with the zip attached. The users' data\ folder is never in the archive.
 
@@ -19,7 +20,8 @@ param(
   [Parameter(Mandatory = $true)][string]$Version,
   [string]$Notes = "",
   [string]$NotesFile = "",
-  [switch]$SkipGit
+  [switch]$SkipGit,
+  [switch]$SkipCheck
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -39,6 +41,17 @@ if ($appVer -ne $Version) {
   throw "APP_VERSION in app.py is '$appVer' but release asked for '$Version'. Sync version (app.py / index.html / CHITAT) and retry."
 }
 Write-Host "== version $Version confirmed ==" -ForegroundColor Cyan
+
+# 1b) selfcheck: do not ship what is known to be broken.
+#     tools/dev.py runs the app on demo data and prints a short pass/fail report.
+#     Skip with -SkipCheck when you deliberately release a hotfix you cannot verify here.
+if (-not $SkipCheck) {
+  Write-Host "== selfcheck (tools/dev.py) ==" -ForegroundColor Cyan
+  & $py "tools\dev.py" check
+  if ($LASTEXITCODE -ne 0) { throw "selfcheck failed - fix it or rerun with -SkipCheck" }
+  & $py "tools\dev.py" run
+  if ($LASTEXITCODE -ne 0) { throw "scenarios failed - fix it or rerun with -SkipCheck" }
+}
 
 # 2) build the exe
 Write-Host "== building exe (PyInstaller) ==" -ForegroundColor Cyan

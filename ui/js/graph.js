@@ -1496,7 +1496,12 @@ class Graph{
   pause(){ this._paused=true; this._killPreviewTimer(); if(this.raf){ cancelAnimationFrame(this.raf); this.raf=null; } if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; } }
   resume(){ if(!this._paused) return; this._paused=false; if(!this.raf) this._tick(); }
 
-  destroy(){ this._paused=true; this._killPreviewTimer(); if(this.raf) cancelAnimationFrame(this.raf); if(this._vraf) cancelAnimationFrame(this._vraf);
+  // поля кадров ОБНУЛЯЕМ, а не только отменяем: во всём классе «raf пуст» означает «кадр не
+  // запланирован» (на этом стоит и _schedule, и resume). Оставленный номер уже отменённого
+  // кадра — ложь о состоянии, из-за которой цикл потом можно не запустить.
+  destroy(){ this._paused=true; this._killPreviewTimer();
+    if(this.raf){ cancelAnimationFrame(this.raf); this.raf=null; }
+    if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; }
     // граф пересоздаётся на каждый render — без этого наблюдатели и слушатели копились бы
     if(this._ro){ this._ro.disconnect(); this._ro=null; }
     if(this._onWinResize){ window.removeEventListener("resize", this._onWinResize); this._onWinResize=null; }
