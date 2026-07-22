@@ -919,6 +919,11 @@ class FlowEditor{
         this.close(); return;                                            // пустой Esc — закрыть полотно
       }
       if(e.code==="Space" && !editing){ this._space=true; this.stage.classList.add("panmode"); e.preventDefault(); return; }
+      /* Esc во время правки текста = выйти из текста, и точка. Обрабатываем ЗДЕСЬ, а не
+         полагаемся на слушатель самого экрана: тот срабатывает, только если событие пришло в
+         блок. Стоит фокусу оказаться в другом месте (или событию прийти на document) — и Esc
+         улетал в глобальный обработчик, который закрывал ВСЁ полотно вместе с правкой. */
+      if(e.key==="Escape" && editing){ ae.blur(); e.preventDefault(); e.stopPropagation(); return; }
       if(editing) return;   // в тексте — всё нативно (Ctrl+C/V, Delete по символам)
       const cmd=e.ctrlKey||e.metaKey;
       if(e.key==="Delete"||e.key==="Backspace"){ if(this.selEdge) this.deleteEdge(this.selEdge); else if(this.selSet.size) this.deleteSelection(); e.preventDefault(); }
