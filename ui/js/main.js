@@ -194,29 +194,6 @@ function wireGlobal(){
   // рвал окно немедленно — последнее действие человека просто не доезжало до диска.
   $("#win-close").onclick=async ()=>{ if(!HasPy()) return; try{ await flushSave(); }catch(e){} window.pywebview.api.win_close(); };
   $("#titlebar").addEventListener("dblclick",e=>{ if(e.target.closest(".winbtns")) return; if(HasPy()) window.pywebview.api.win_max(); });   // дабл-клик по титлбару — развернуть/восстановить (привычно)
-
-  /* Перетаскивание окна за титлбар — ЧЕРЕЗ НАТИВНЫЙ move-loop Windows, чтобы работал Aero Snap
-     (тянешь к верху экрана → разворот на весь экран; к боковому краю → половина; из развёрнутого
-     оттягиваешь вниз → восстанавливается). Встроенный pywebview-драг двигал окно вручную
-     (SetWindowPos) — Windows не понимал, что окно перемещают, и зоны привязки не рисовал; поэтому
-     титлбар больше НЕ .pywebview-drag-region, а стартует win_startdrag (ReleaseCapture +
-     WM_NCLBUTTONDOWN HTCAPTION).
-     Порог в 4px обязателен: без него простой клик и ДАБЛ-клик по титлбару запускали бы move-loop,
-     и разворот по двойному клику (обработчик выше) переставал бы срабатывать. */
-  { const tb=$("#titlebar"); let sx=0, sy=0, armed=false, dragging=false;
-    tb.addEventListener("pointerdown",e=>{
-      if(e.button!==0 || e.target.closest(".winbtns")){ armed=false; return; }   // кнопки окна — не драг
-      armed=true; dragging=false; sx=e.clientX; sy=e.clientY;
-    });
-    tb.addEventListener("pointermove",e=>{
-      if(!armed || dragging) return;
-      if(Math.abs(e.clientX-sx)<4 && Math.abs(e.clientY-sy)<4) return;   // ещё не движение — не мешаем клику/даблклику
-      dragging=true; armed=false;
-      if(HasPy()){ try{ window.pywebview.api.win_startdrag(); }catch(_){} }   // нативный цикл перехватит физическую мышь; дальше рисует Windows
-    });
-    const stop=()=>{ armed=false; dragging=false; };
-    tb.addEventListener("pointerup",stop); tb.addEventListener("pointercancel",stop);
-  }
   const kh=$("#kbd-hint"); if(kh) kh.onclick=openShortcuts;
 
   // nav + areas + footer (delegated)
