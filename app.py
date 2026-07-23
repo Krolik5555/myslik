@@ -1101,6 +1101,41 @@ _RESIZE_PROC = None
 _OLD_WNDPROC = None
 
 
+def _enable_native_drag_regions():
+    """Включить нативные draggable-регионы WebView2 → перетаскивание окна за титлбар идёт через
+    систему, а не вручную, и потому РАБОТАЕТ Aero Snap (тянешь к верху → во весь экран, к краю →
+    половина, оттягиваешь из развёрнутого → восстанавливается).
+
+    Механика: у титлбара в CSS уже стоит `-webkit-app-region: drag` (и `no-drag` на кнопках), но
+    WebView2 учитывает это ТОЛЬКО когда включено CoreWebView2.Settings.IsNonClientRegionSupportEnabled.
+    pywebview его не включает, поэтому окно таскал встроенный ручной драг (SetWindowPos) без Snap.
+
+    Свойство выставляем В ТОМ ЖЕ обработчике готовности CoreWebView2 (on_webview_ready), где
+    pywebview выставляет остальные Settings — это UI-поток STA и правильный момент. Выставлять
+    из другого потока НЕЛЬЗЯ: COM-маршалинг на STA-поток, крутящий message loop, вешает процесс
+    намертво (проверено). Патчим метод в памяти, файлы pywebview не трогаем.
+
+    Безопасно: не поддержано рантаймом или патч не лёг — остаётся встроенный pywebview-драг
+    (окно таскается, просто без Snap). Ничего не ломается."""
+    try:
+        from webview.platforms import edgechromium
+    except Exception as e:
+        print("[drag] edgechromium недоступен:", e)
+        return
+    orig = edgechromium.EdgeChrome.on_webview_ready
+    if getattr(orig, "_ncr_patched", False):
+        return
+    def wrapped(self, sender, args):
+        orig(self, sender, args)
+        try:
+            sender.CoreWebView2.Settings.IsNonClientRegionSupportEnabled = True
+            print("[drag] native drag regions enabled (Aero Snap)")
+        except Exception as e:
+            print("[drag] native drag regions unavailable:", e)   # старый рантайм → остаётся обычный драг
+    wrapped._ncr_patched = True
+    edgechromium.EdgeChrome.on_webview_ready = wrapped
+
+
 def _enable_frameless_resize(title="Мыслик", border=8):
     """Безрамочное окно WinForms (FormBorderStyle.None) лишено границы ресайза.
     Подменяем WndProc и на WM_NCHITTEST у краёв отдаём коды зон ресайза —
@@ -1292,6 +1327,11 @@ def main():
         text_select=False,
     )
     _WINDOW = window
+
+    # нативные draggable-регионы → Aero Snap при перетаскивании титлбара (патч ДО start,
+    # чтобы попал в обработчик готовности CoreWebView2). Если рантайм не поддержит — тихо
+    # остаётся обычный драг, окно всё равно таскается.
+    _enable_native_drag_regions()
 
     # иконка окна (панель задач / Alt-Tab) — в фоне, как только окно появится
     win_icon = os.path.join(_UI_BASE, "icon.ico")
