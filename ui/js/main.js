@@ -75,6 +75,11 @@ function applySettings(){ applyTheme();
   const g=(S.settings.glow!=null?S.settings.glow:1), light=S.settings.theme==="light";
   const base=light?0.18:0.30, rgb=light?"0,0,0":"255,255,255";
   document.body.style.setProperty("--glow", `rgba(${rgb},${(base*g).toFixed(3)})`);
+  // Полоса заголовка рисуется ВНЕ браузера (нативно, ради Aero Snap) и про CSS не знает —
+  // сообщаем ей тему явно, иначе она осталась бы чёрной на светлой теме.
+  if(HasPy() && window.pywebview.api.set_titlebar_theme){
+    try{ window.pywebview.api.set_titlebar_theme(!light); }catch(e){}
+  }
 }
 function toggleTheme(){ S.settings.theme = S.settings.theme==="light"?"dark":"light"; applySettings(); persist(); if(view==="notes") render(); }
 // удалить безымянные «висячие» ноды: без названия И (без текста ИЛИ оторванные — нет связей и детей).
@@ -187,13 +192,14 @@ function wireGlobal(){
   // beforeunload синхронен, поэтому шлём запись без ожидания — успевает уйти в мост.
   window.addEventListener("beforeunload",()=>{ if(saveTimer!==null){ clearTimeout(saveTimer); saveTimer=null; try{ Store.save(S); }catch(e){} } });
 
-  // window controls
-  $("#win-min").onclick=()=>HasPy()&&window.pywebview.api.win_min();
-  $("#win-max").onclick=()=>HasPy()&&window.pywebview.api.win_max();
-  // Закрытие обязано дождаться записи: persist() держит правку в дебаунсе 250 мс, а win_close()
-  // рвал окно немедленно — последнее действие человека просто не доезжало до диска.
-  $("#win-close").onclick=async ()=>{ if(!HasPy()) return; try{ await flushSave(); }catch(e){} window.pywebview.api.win_close(); };
-  $("#titlebar").addEventListener("dblclick",e=>{ if(e.target.closest(".winbtns")) return; if(HasPy()) window.pywebview.api.win_max(); });   // дабл-клик по титлбару — развернуть/восстановить (привычно)
+  /* Кнопок окна в разметке больше нет — полоса заголовка нативная (см. app.py).
+     Но закрытие обязано дожать запись: persist() держит правку в дебаунсе 250 мс, а окно
+     рвётся мгновенно, и последнее действие не доезжало до диска. Поэтому нативная кнопка
+     «закрыть» не рвёт окно сама, а зовёт эту функцию — она сохраняет и только потом закрывает. */
+  window.appRequestClose = async ()=>{
+    try{ await flushSave(); }catch(e){}
+    if(HasPy()) window.pywebview.api.win_close();
+  };
   const kh=$("#kbd-hint"); if(kh) kh.onclick=openShortcuts;
 
   // nav + areas + footer (delegated)
@@ -372,36 +378,10 @@ function toast(msg, opt){
   if(opt.onAction){ const b=t.querySelector(".toast-act"); if(b) b.onclick=()=>{ clearTimeout(toastT); hide(); opt.onAction(); }; }
 }
 
-/* ===========================================================
-   РЕСАЙЗ БЕЗРАМОЧНОГО ОКНА (тянуть за края) — только в нативном аппе.
-   WM_NCHITTEST до формы не доходит (перехватывает WebView2), поэтому
-   ловим края сами и зовём win_drag, который двигает край к курсору.
-   =========================================================== */
-function installWindowResize(){
-  if(!HasPy()) return;
-  const EDGES=[
-    ["t","ns-resize","top:0;left:10px;right:10px;height:5px;"],
-    ["b","ns-resize","bottom:0;left:10px;right:10px;height:5px;"],
-    ["l","ew-resize","left:0;top:10px;bottom:10px;width:5px;"],
-    ["r","ew-resize","right:0;top:10px;bottom:10px;width:5px;"],
-    ["tl","nwse-resize","top:0;left:0;width:8px;height:8px;"],
-    ["tr","nesw-resize","top:0;right:0;width:8px;height:8px;"],
-    ["bl","nesw-resize","bottom:0;left:0;width:8px;height:8px;"],
-    ["br","nwse-resize","bottom:0;right:0;width:8px;height:8px;"]
-  ];
-  const root=el("div"); root.id="win-resize-layer";
-  root.innerHTML=EDGES.map(([e,cur,pos])=>`<div class="win-rz" data-edge="${e}" style="cursor:${cur};${pos}"></div>`).join("");
-  document.body.appendChild(root);
-  let edge=null, raf=null, inflight=false;
-  const tick=()=>{ raf=null; if(!edge||inflight) return; inflight=true;   // не больше 1 вызова за кадр; win_drag сам тянется к курсору
-    Promise.resolve(window.pywebview.api.win_drag(edge)).then(()=>{inflight=false;},()=>{inflight=false;}); };
-  $$(".win-rz",root).forEach(h=>{
-    h.addEventListener("pointerdown",e=>{ if(e.button!==0) return; e.preventDefault(); edge=h.dataset.edge; try{h.setPointerCapture(e.pointerId);}catch(_){} });
-    h.addEventListener("pointermove",()=>{ if(edge && !raf) raf=requestAnimationFrame(tick); });
-    h.addEventListener("pointerup",()=>{ edge=null; });
-    h.addEventListener("lostpointercapture",()=>{ edge=null; });
-  });
-}
+/* Свой ресайз краёв УДАЛЁН. Он появился, когда окно не умело менять размер само: слой
+   невидимых полос по краям ловил перетаскивание и двигал границу вызовом в Python. Теперь у
+   окна есть штатное право менять размер (нужное ещё и для Aero Snap), и Windows делает это
+   сама — точнее, с уважением к минимальному размеру и без спора двух механизмов. */
 
 /* ===========================================================
    BOOT
@@ -426,7 +406,8 @@ async function boot(){
   const v=P.get("view"); if(v) S.settings.view=v;   // ?view= работает и в реальном аппе
   undoInit();   // точка отсчёта истории — состояние, с которым приложение открылось
   view=S.settings.view||"today"; applySettings(); wireGlobal(); render();
-  installWindowResize();   // ресайз безрамочного окна тянущим за края (только в нативном аппе)
+  // ресайз краёв делает сама Windows (у окна есть право менять размер — см. _allow_snap
+  // в app.py). Свой слой убран: два механизма спорили, и при уменьшении окно уползало вниз
   setTimeout(()=>{ const c=$("#cap"); if(c && !$("#overlay-root").children.length) c.focus(); }, 120);  // готов печатать мысль сразу
   // напоминание при старте
   setTimeout(()=>{
@@ -559,7 +540,7 @@ async function onBridgeReady(){
   else { await writeNow(); }                          // файла и правда нет — тогда демо законно
   undoInit();
   view=S.settings.view||"today"; applySettings(); render();
-  installWindowResize();                              // в браузерной ветке он не ставился
+  // ресайз краёв — нативный, свой слой не нужен (см. выше)
 }
 window.addEventListener("pywebviewready", onBridgeReady);
 // опрос — страховка от гонки события; дедлайн больше НЕ приговор, см. onBridgeReady

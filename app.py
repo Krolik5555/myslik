@@ -91,7 +91,7 @@ TRACE = os.environ.get("PLANNER_TRACE") == "1"
 
 # ---- авто-обновление с GitHub Releases ----
 # Единый источник версии для сравнения с релизом. Теги релизов: vX.Y.Z (напр. v1.3.0).
-APP_VERSION = "1.5.0.1"
+APP_VERSION = "1.5.1"
 APP_ID = "krolik.planner"   # идентификатор приложения для панели задач (группировка + иконка)
 # owner/repo публичного репозитория (заполнится после gh auth login — owner = твой GitHub-логин)
 GH_REPO_SLUG = "Krolik5555/myslik"
@@ -889,21 +889,33 @@ class Api:
             print(e)
 
     def win_max(self):
-        # спрашиваем РЕАЛЬНОЕ состояние окна (IsZoomed), а не свой флаг — иначе после
-        # Aero Snap / Win+Up кнопка начинала работать наоборот
+        # Спрашиваем РЕАЛЬНОЕ состояние окна (развёрнуто или нет), а не свой флаг — иначе после
+        # Win+Up кнопка начинает работать наоборот.
+        # IsZoomed берём из user32 через ctypes: в pywin32 этой версии функции win32gui.IsZoomed
+        # НЕТ, и прежний вызов молча падал в запасную ветку — вместо обычного разворота окно
+        # уходило в ПОЛНОЭКРАННЫЙ режим (без панели задач), и кнопка вела себя не как везде.
         try:
-            import win32gui
             h = _get_hwnd()
-            if h and win32gui.IsZoomed(h):
+            if h and ctypes.windll.user32.IsZoomed(h):
                 _WINDOW.restore()
             else:
                 _WINDOW.maximize()
         except Exception as e:
-            # старые версии без maximize/restore — переключаем fullscreen
+            # совсем старый pywebview без maximize/restore — переключаем fullscreen
             try:
                 _WINDOW.toggle_fullscreen()
             except Exception:
-                print(e)
+                print("[win] max error:", e)
+
+    def set_titlebar_theme(self, dark):
+        """Тема нативной полосы заголовка. Она рисуется вне браузера и про CSS не знает,
+        поэтому фронт сообщает о смене темы явно (см. applySettings в main.js)."""
+        try:
+            _set_titlebar_theme(dark)
+            return True
+        except Exception as e:
+            print("[titlebar] theme error:", e)
+            return False
 
     def win_close(self):
         try:
@@ -950,17 +962,381 @@ class Api:
         поэтому Windows сам рисует зоны привязки и разворачивает окно. Зовётся из
         JS на pointerdown/старте перетаскивания титлбара (см. main.js)."""
         try:
-            import win32gui
-            import win32con
             h = _get_hwnd()
             if not h:
                 return False
-            win32gui.ReleaseCapture()
-            win32gui.SendMessage(h, win32con.WM_NCLBUTTONDOWN, win32con.HTCAPTION, 0)
-            return True
+            # КРИТИЧНО — ПОТОК. pywebview исполняет методы Api в ОТДЕЛЬНОМ потоке
+            # (util.js_bridge_call → Thread(target=_call), «чтобы не блокировать UI»), а
+            # ReleaseCapture освобождает захват мыши ТОЛЬКО своего потока. Захват держит
+            # UI-поток окна (там же живёт хост WebView2), поэтому вызов из потока моста
+            # мышь не отпускал: move-loop стартовал без неё, и окно не двигалось.
+            # Ровно поэтому у Tauri (тот же WebView2) работает — у них вызов идёт на потоке
+            # окна. Перекладываем на UI-поток формы.
+            form = _get_form()
+            if form is not None:
+                from System import Action
+                form.BeginInvoke(Action(lambda: _native_drag(h)))   # асинхронно: move-loop крутится на UI-потоке
+                return True
+            return _native_drag(h)
         except Exception as e:
             print("[drag] win_startdrag error:", e)
             return False
+
+
+def _get_form():
+    """Форма WinForms нашего окна — через неё можно выполнить код на UI-потоке (BeginInvoke)."""
+    try:
+        from webview.platforms.winforms import BrowserView
+        return BrowserView.instances.get(getattr(_WINDOW, "uid", None))
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# НАТИВНАЯ ПОЛОСА ЗАГОЛОВКА
+#
+# Зачем она вообще. WebView2 накрывает окно ЦЕЛИКОМ (замерено: до формы не доходит ни одного
+# сообщения мыши — ни WM_NCHITTEST, ни WM_MOUSEMOVE). Пока браузер лежит на всей площади,
+# Windows не знает, что окно перетаскивают, и не показывает зоны Aero Snap. Отсюда же
+# невозможность отдать системе HTCAPTION: сообщение просто не приходит.
+#
+# Решение: освободить верхние 40 px от браузера и нарисовать заголовок средствами Windows.
+# Тогда полоса принадлежит НАМ, мышь над ней получает форма, и по нажатию можно запустить
+# штатный move-loop — со Snap, дабл-кликом, системным меню и Win+стрелками бесплатно.
+#
+# Внешний вид повторяет прежний HTML-заголовок один в один (те же цвета, размеры, логотип,
+# кнопки), поэтому рисуем всё сами в Paint, а не собираем из стандартных контролов: у Label и
+# Button своё оформление, шрифты и фокусные рамки, попасть ими в наш стиль невозможно.
+# ---------------------------------------------------------------------------
+
+_TITLEBAR = {"panel": None, "dark": True, "hover": None}
+
+# цвета из ui/styles.css — держать синхронно с :root и .light
+_TB_COLORS = {
+    True:  {"bg": "#000000", "tx": "#f4f4f5", "mut": "#86868c", "hover": "#161618",
+            "line": (255, 255, 255, 33), "warn": "#e0625a"},
+    False: {"bg": "#ffffff", "tx": "#111114", "mut": "#666666", "hover": "#f0f0f0",
+            "line": (0, 0, 0, 31), "warn": "#cc4b43"},
+}
+
+
+def _install_native_titlebar():
+    """Создать полосу заголовка и вставить её НАД браузером.
+
+    Браузер у pywebview стоит Dock=Fill, поэтому панель с Dock=Top просто отбирает себе верх,
+    а браузер получает остаток — без единой правки в pywebview."""
+    form = _get_form()
+    if form is None:
+        print("[titlebar] форма не найдена")
+        return
+    try:
+        from System import Action
+        form.BeginInvoke(Action(lambda: _build_titlebar(form)))   # контролы создаём на UI-потоке
+    except Exception as e:
+        print("[titlebar] install error:", e)
+
+
+def _build_titlebar(form):
+    import System.Windows.Forms as WinForms
+    from System.Drawing import (Color, ColorTranslator, Font, FontStyle, Rectangle,
+                                SolidBrush, Pen, PointF, RectangleF)
+    from System.Drawing.Drawing2D import SmoothingMode, Matrix, GraphicsPath
+    from System.Drawing.Text import TextRenderingHint
+    from System.Reflection import BindingFlags
+
+    scale = getattr(form, "_scale", 1.0) or 1.0
+    H = int(round(40 * scale))          # высота как --tbh в CSS
+    BTN_W, BTN_H = int(round(42 * scale)), int(round(30 * scale))
+    RAD = int(round(7 * scale))
+
+    panel = WinForms.Panel()
+    panel.Dock = WinForms.DockStyle.Top
+    panel.Height = H
+    panel.TabStop = False
+    # двойная буферизация — иначе полоса мигает при перерисовке (свойство защищённое,
+    # у Panel его иначе не включить)
+    try:
+        panel.GetType().GetProperty(
+            "DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic
+        ).SetValue(panel, True, None)
+    except Exception:
+        pass
+
+    state = {"hover": None, "down": None}
+
+    def кнопки():
+        """Прямоугольники трёх кнопок справа налево: закрыть, развернуть, свернуть."""
+        pad = int(round(6 * scale))
+        y = (H - BTN_H) // 2
+        x = panel.Width - pad - BTN_W
+        out = []
+        for name in ("close", "max", "min"):
+            out.append((name, Rectangle(x, y, BTN_W, BTN_H)))
+            x -= BTN_W + int(round(2 * scale))
+        return out
+
+    def on_paint(sender, e):
+        g = e.Graphics
+        g.SmoothingMode = SmoothingMode.AntiAlias
+        g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit
+        c = _TB_COLORS[_TITLEBAR["dark"]]
+        bg = ColorTranslator.FromHtml(c["bg"])
+        tx = ColorTranslator.FromHtml(c["tx"])
+        mut = ColorTranslator.FromHtml(c["mut"])
+        g.Clear(bg)
+
+        # --- логотип-заяц: два уха (повёрнутые эллипсы) + голова, как в SVG (viewBox 32)
+        k = 24.0 * scale / 32.0                      # SVG 32 → 24 логических px
+        ox, oy = int(round(14 * scale)), (H - int(round(24 * scale))) // 2
+        brush_tx = SolidBrush(tx)
+        for cx, cy, rx, ry, ang in ((12.4, 9.6, 2.5, 8.4, -14.0), (19.6, 9.6, 2.5, 8.4, 14.0)):
+            path = GraphicsPath()
+            path.AddEllipse(RectangleF(float((cx - rx) * k), float((cy - ry) * k),
+                                       float(rx * 2 * k), float(ry * 2 * k)))
+            m = Matrix()
+            m.RotateAt(float(ang), PointF(float(cx * k), float(cy * k)))
+            path.Transform(m)
+            m2 = Matrix()
+            m2.Translate(float(ox), float(oy))
+            path.Transform(m2)
+            g.FillPath(brush_tx, path)
+            path.Dispose()
+        g.FillEllipse(brush_tx, float(ox + (16 - 7.9) * k), float(oy + (21.6 - 7.9) * k),
+                      float(7.9 * 2 * k), float(7.9 * 2 * k))
+
+        # --- надпись «МЫСЛИК» вразрядку (letter-spacing .30em в CSS)
+        f = Font("Segoe UI", float(9.0 * scale), FontStyle.Regular)
+        step = float(3.9 * scale)                    # ≈ .30em при этом кегле
+        x = float(ox + 24 * scale + 10 * scale)
+        y = float((H - f.Height) / 2.0)
+        for ch in "МЫСЛИК":
+            g.DrawString(ch, f, brush_tx, x, y)
+            x += g.MeasureString(ch, f).Width - float(2.5 * scale) + step
+        f.Dispose()
+
+        # --- кнопки окна
+        for name, r in кнопки():
+            fg = mut
+            if state["hover"] == name:
+                hb = ColorTranslator.FromHtml(c["warn"] if name == "close" else c["hover"])
+                path = GraphicsPath()
+                d = RAD * 2
+                path.AddArc(r.X, r.Y, d, d, 180, 90)
+                path.AddArc(r.Right - d, r.Y, d, d, 270, 90)
+                path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90)
+                path.AddArc(r.X, r.Bottom - d, d, d, 90, 90)
+                path.CloseFigure()
+                g.FillPath(SolidBrush(hb), path)
+                path.Dispose()
+                fg = Color.White if name == "close" else tx
+            pen = Pen(fg, float(1.3 * scale))
+            cx, cy = r.X + r.Width / 2.0, r.Y + r.Height / 2.0
+            s = 5.0 * scale
+            if name == "min":
+                g.DrawLine(pen, float(cx - s), float(cy), float(cx + s), float(cy))
+            elif name == "max":
+                g.DrawRectangle(pen, float(cx - s), float(cy - s), float(s * 2), float(s * 2))
+            else:
+                g.DrawLine(pen, float(cx - s), float(cy - s), float(cx + s), float(cy + s))
+                g.DrawLine(pen, float(cx + s), float(cy - s), float(cx - s), float(cy + s))
+            pen.Dispose()
+
+        # --- нижняя граница (0.5px в CSS → тонкая линия)
+        lr, lg, lb, la = c["line"]
+        pen = Pen(Color.FromArgb(la, lr, lg, lb), 1.0)
+        g.DrawLine(pen, 0, H - 1, panel.Width, H - 1)
+        pen.Dispose()
+        brush_tx.Dispose()
+
+    def hit(x, y):
+        for name, r in кнопки():
+            if r.Contains(x, y):
+                return name
+        return None
+
+    def on_move(sender, e):
+        h = hit(e.X, e.Y)
+        if h != state["hover"]:
+            state["hover"] = h
+            panel.Invalidate()
+
+    def on_leave(sender, e):
+        if state["hover"]:
+            state["hover"] = None
+            panel.Invalidate()
+
+    def on_down(sender, e):
+        trace("titlebar mousedown", e.X, e.Y, e.Button)
+        if e.Button != WinForms.MouseButtons.Left:
+            return
+        h = hit(e.X, e.Y)
+        if h:
+            state["down"] = h
+            return
+        # ПУСТАЯ ЧАСТЬ ПОЛОСЫ = заголовок окна. Обработчик выполняется на UI-потоке, поэтому
+        # ReleaseCapture отпускает захват СВОЕГО потока и штатный move-loop получает мышь —
+        # ровно то, чего не хватало при вызове через мост из JS (он идёт в другом потоке).
+        state["down"] = None
+        _native_drag(_get_hwnd())
+
+    def on_up(sender, e):
+        h, state["down"] = state["down"], None
+        if not h or hit(e.X, e.Y) != h:
+            return
+        if h == "min":
+            _WINDOW.minimize()
+        elif h == "max":
+            Api().win_max()
+        else:
+            # НЕ рвём окно сразу: сначала фронт дожимает отложенную запись (persist держит
+            # правку 250 мс), иначе последнее действие человека не доедет до диска.
+            # appRequestClose сам вызовет win_close, когда сохранит.
+            # ВАЖНО — В ФОНОВОМ ПОТОКЕ. evaluate_js ждёт ответа браузера, а ответ приходит
+            # в этот же UI-поток: вызов отсюда напрямую подвешивает окно намертво (крестик
+            # переставал закрывать). Поэтому уводим в отдельный поток и сразу отпускаем UI.
+            def _close_later():
+                try:
+                    _WINDOW.evaluate_js("window.appRequestClose && window.appRequestClose()")
+                except Exception:
+                    Api().win_close()
+            threading.Thread(target=_close_later, daemon=True).start()
+
+    def on_dbl(sender, e):
+        if e.Button == WinForms.MouseButtons.Left and not hit(e.X, e.Y):
+            Api().win_max()
+
+    panel.Paint += on_paint
+    panel.MouseMove += on_move
+    panel.MouseLeave += on_leave
+    panel.MouseDown += on_down
+    panel.MouseUp += on_up
+    panel.MouseDoubleClick += on_dbl
+    panel.Resize += (lambda s, e: panel.Invalidate())
+
+    # ВАЖНО: BringToFront() тут вызывать НЕЛЬЗЯ. В WinForms порядок раскладки docked-контролов
+    # обратен z-порядку: кто «ниже», тот занимает место первым. Браузер добавлен раньше и стоит
+    # Dock=Fill; если поднять панель наверх z-порядка, Fill успевает забрать всю площадь, и
+    # браузер накрывает полосу — мышь достаётся ему, а не нам (проверено: под курсором в полосе
+    # оказывалось окно Chrome). Оставляем панель ниже по z-порядку — тогда Top отрезает свои
+    # 40 px, а браузеру достаётся остаток, и они не перекрываются.
+    form.Controls.Add(panel)
+    form.PerformLayout()
+    _TITLEBAR["panel"] = panel
+    print("[titlebar] native titlebar installed, h=", H, "bounds=", panel.Bounds, "visible=", panel.Visible)
+
+
+def _set_titlebar_theme(dark):
+    """Переключить тему полосы. Зовётся из JS при смене темы — иначе полоса осталась бы
+    чёрной на светлой теме (она рисуется вне браузера и про CSS ничего не знает)."""
+    _TITLEBAR["dark"] = bool(dark)
+    # цвет заголовка окна (тонкая полоска сверху) живёт вне браузера — перекрашиваем вместе с темой
+    try:
+        h = _get_hwnd()
+        if h:
+            _hide_window_border(h)
+    except Exception:
+        pass
+    p = _TITLEBAR.get("panel")
+    if p is None:
+        return
+    try:
+        from System import Action
+        p.BeginInvoke(Action(lambda: p.Invalidate()))
+    except Exception:
+        pass
+
+
+def _allow_snap(hwnd):
+    """Разрешить окну участвовать в Aero Snap.
+
+    Windows показывает зоны привязки только окнам, которые МОЖНО развернуть и изменить в
+    размере: нужны стили WS_MAXIMIZEBOX и WS_THICKFRAME. У безрамочной формы (FormBorderStyle.None)
+    их нет — поэтому окно исправно таскалось нативно, но к верху экрана не разворачивалось.
+    Видимой рамки эти стили не добавляют: неклиентскую область мы и так не рисуем."""
+    try:
+        GWL_STYLE = -16
+        WS_MAXIMIZEBOX, WS_THICKFRAME = 0x00010000, 0x00040000
+        # СВОЙ экземпляр user32, а не ctypes.windll.user32: там объекты функций общие на весь
+        # процесс, и _enable_frameless_resize уже перенастроил SetWindowLongPtrW под подмену
+        # оконной процедуры (argtypes с WNDPROC). Чужие настройки ломают наш вызов с числом.
+        u32 = ctypes.WinDLL("user32", use_last_error=True)
+        getl = getattr(u32, "GetWindowLongPtrW", None) or u32.GetWindowLongW
+        setl = getattr(u32, "SetWindowLongPtrW", None) or u32.SetWindowLongW
+        getl.restype = ctypes.c_ssize_t
+        getl.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        setl.restype = ctypes.c_ssize_t
+        setl.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_ssize_t]
+        style = getl(hwnd, GWL_STYLE)
+        need = WS_MAXIMIZEBOX | WS_THICKFRAME
+        # print только ASCII: перенаправленный stdout тут в системной кодировке
+        print("[snap] styles: maximizebox=%s thickframe=%s"
+              % (bool(style & WS_MAXIMIZEBOX), bool(style & WS_THICKFRAME)))
+        if style & need != need:
+            setl(hwnd, GWL_STYLE, style | need)
+            # SetWindowPos с SWP_FRAMECHANGED — чтобы система перечитала стили
+            u32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
+            print("[snap] styles added for Aero Snap")
+        # Повторяем: при первом показе окна атрибут иногда не применяется (окно ещё
+        # достраивается), и рамка видна до первого ресайза — ровно то, что наблюдалось.
+        _hide_window_border(hwnd)
+        def _again():
+            for d in (0.4, 1.2, 3.0):
+                time.sleep(d)
+                _hide_window_border(hwnd)
+        threading.Thread(target=_again, daemon=True).start()
+        return True
+    except Exception as e:
+        print("[snap] error:", e)
+        return False
+
+
+def _hide_window_border(hwnd):
+    """Убрать цветную рамку вокруг окна.
+
+    Windows 11 подсвечивает границу активного окна акцентным цветом системы — на нашем чёрном
+    безрамочном окне это выглядит толстой цветной полосой по периметру. Появилась она вместе со
+    стилем «можно менять размер», который нужен для Aero Snap (без него окно не разворачивается
+    при подтягивании к верху). Убирается не стилями окна, а через диспетчер окон: просим не
+    рисовать границу вовсе. Snap при этом сохраняется."""
+    try:
+        DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR = 34, 35
+        DWMWA_COLOR_NONE = 0xFFFFFFFE
+        dwm = ctypes.WinDLL("dwmapi")
+
+        def attr(code, value):
+            v = ctypes.c_uint(value)
+            return dwm.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), ctypes.c_uint(code),
+                                             ctypes.byref(v), ctypes.sizeof(v))
+
+        # Красим И границу, И заголовок в цвет окна — тогда всё сливается и рамки не видно.
+        # «Не рисовать вовсе» (DWMWA_COLOR_NONE) не подходит: сверху заголовок пропадал, а по
+        # краям система всё равно оставляла тонкую линию — получался перекос, видимый на чёрном.
+        # Формат цвета — 0x00BBGGRR.
+        цвет = 0x00000000 if _TITLEBAR.get("dark", True) else 0x00FFFFFF
+        res = attr(DWMWA_BORDER_COLOR, цвет)
+        attr(DWMWA_CAPTION_COLOR, цвет)
+        if not _TITLEBAR.get("border_logged"):
+            print("[snap] border hidden, hr=", res)   # 0 = получилось
+            _TITLEBAR["border_logged"] = True
+        return res == 0
+    except Exception as e:
+        print("[snap] border error:", e)          # старая Windows — рамка просто останется
+        return False
+
+
+def _native_drag(hwnd):
+    """Запустить штатный move-loop Windows: система сама двигает окно и рисует зоны Aero Snap.
+    ВЫЗЫВАТЬ ТОЛЬКО НА UI-ПОТОКЕ окна (см. win_startdrag) — иначе ReleaseCapture отпускает
+    захват чужого потока и цикл остаётся без мыши."""
+    try:
+        import win32gui
+        import win32con
+        win32gui.ReleaseCapture()
+        win32gui.SendMessage(hwnd, win32con.WM_NCLBUTTONDOWN, win32con.HTCAPTION, 0)
+        return True
+    except Exception as e:
+        print("[drag] native drag error:", e)
+        return False
 
 
 def _selftest(window):
@@ -1126,6 +1502,7 @@ def _enable_frameless_resize(title="Мыслик", border=8):
     try:
         from ctypes import wintypes
         WM_NCHITTEST = 0x0084
+        WM_NCCALCSIZE = 0x0083
         HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT = 10, 11, 12, 13, 14
         HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT = 15, 16, 17
         GWLP_WNDPROC = -4
@@ -1145,6 +1522,14 @@ def _enable_frameless_resize(title="Мыслик", border=8):
 
         def proc(h, msg, wp, lp):
             try:
+                # Убираем СИСТЕМНУЮ РАМКУ, оставляя Aero Snap. Право менять размер
+                # (WS_THICKFRAME), без которого Windows не показывает зоны привязки, приносит
+                # с собой видимую рамку — на тёмном окне она выглядит толстой цветной полосой.
+                # Отвечая 0 на расчёт неклиентской области, говорим: клиентская область — всё
+                # окно, рамки нет. Стили при этом остаются, Snap и ресайз работают.
+                if msg == WM_NCCALCSIZE and wp:
+                    trace("NCCALCSIZE-hit")
+                    return 0
                 if msg == WM_NCHITTEST:
                     x = ctypes.c_short(lp & 0xFFFF).value
                     y = ctypes.c_short((lp >> 16) & 0xFFFF).value
@@ -1298,9 +1683,25 @@ def main():
     if os.path.exists(win_icon):
         threading.Thread(target=_set_taskbar_icon, args=(win_icon,), daemon=True).start()
 
-    # включить ресайз безрамочного окна (тянуть за края) — только в безрамочном режиме
     if frameless:
-        threading.Thread(target=_enable_frameless_resize, daemon=True).start()
+        # нативная полоса заголовка: она же даёт Aero Snap (см. _install_native_titlebar).
+        # Ждём появления формы в фоне, вставку делаем на UI-потоке.
+        def _tb():
+            for _ in range(150):
+                if _get_form() is not None:
+                    _install_native_titlebar()
+                    h = 0
+                    for _ in range(60):        # окно уже есть, но hwnd мог ещё не появиться
+                        h = _get_hwnd()
+                        if h:
+                            break
+                        time.sleep(0.1)
+                    if h:
+                        _allow_snap(h)         # без этих стилей Windows не покажет зоны привязки
+                    return
+                time.sleep(0.1)
+            print("[titlebar] форма так и не появилась")
+        threading.Thread(target=_tb, daemon=True).start()
 
     # tray icon
     if _HAS_TRAY:

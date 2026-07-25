@@ -22,7 +22,8 @@ t.push({имя:"мост с методами считается готовым",
 // запись отложена дебаунсом на 250 мс, а окно рвалось немедленно.
 журнал.length = 0;
 addItem({kind:"task", title:"Мысль перед закрытием"});
-document.querySelector("#win-close").click();
+// кнопки в разметке нет: полоса заголовка нативная, и она зовёт appRequestClose
+await window.appRequestClose();
 await ж(400);
 const порядок = журнал.join(" → ");
 t.push({имя:"запись уходит раньше закрытия окна",

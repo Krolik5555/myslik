@@ -192,7 +192,12 @@ def run_scenarios(names=None, quiet=False):
             while time.time() < deadline:
                 try:
                     ready = window.evaluate_js(
-                        "typeof S!=='undefined' && S.items && S.items.length>0 && !!document.querySelector('#view')")
+                        "typeof S!=='undefined' && S.items && S.items.length>0"
+                        " && !!document.querySelector('#view')"
+                        " && typeof openNoteReader==='function'"      # overlays.js
+                        " && typeof FlowEditor==='function'"          # он же, класс полотна
+                        " && typeof openReportModal==='function'"     # report.js
+                        " && typeof boot==='function'")               # main.js — последний в списке
                 except Exception:
                     ready = False
                 if ready:

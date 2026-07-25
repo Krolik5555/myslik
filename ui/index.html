@@ -8,30 +8,17 @@
 <meta http-equiv="Expires" content="0">
 <title>Мыслик</title>
 <link rel="icon" type="image/png" href="icon.png">
-<link rel="stylesheet" href="vendor/tabler-icons.min.css?v=203">
-<link rel="stylesheet" href="styles.css?v=203">
+<link rel="stylesheet" href="vendor/tabler-icons.min.css?v=205">
+<link rel="stylesheet" href="styles.css?v=205">
 </head>
 <body>
 <div id="app">
 
-  <div id="titlebar" class="pywebview-drag-region">
-    <div class="brand drag">
-      <svg class="logo" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <g fill="currentColor">
-          <ellipse cx="12.4" cy="9.6" rx="2.5" ry="8.4" transform="rotate(-14 12.4 9.6)"/>
-          <ellipse cx="19.6" cy="9.6" rx="2.5" ry="8.4" transform="rotate(14 19.6 9.6)"/>
-          <circle cx="16" cy="21.6" r="7.9"/>
-        </g>
-      </svg>
-      <span class="word">мысл<b>ик</b></span>
-    </div>
-    <div id="tb-spacer" class="drag"></div>
-    <div class="winbtns">
-      <button class="winbtn" id="win-min" title="Свернуть"><i class="ti ti-minus"></i></button>
-      <button class="winbtn" id="win-max" title="Развернуть"><i class="ti ti-square"></i></button>
-      <button class="winbtn close" id="win-close" title="Закрыть"><i class="ti ti-x"></i></button>
-    </div>
-  </div>
+  <!-- Полоса заголовка НЕ здесь: она рисуется нативно (см. _install_native_titlebar в app.py).
+       Причина — Aero Snap: пока браузер накрывает окно целиком, Windows не видит перетаскивания
+       и не показывает зоны привязки. Освободив верхние 40 px, отдаём полосу системе, и драг,
+       Snap, дабл-клик и системное меню работают штатно. В браузере (дев-режим) полосы нет —
+       окном там управляет сам браузер. -->
 
   <div id="topbar">
     <div id="cap-wrap">
@@ -54,7 +41,7 @@
         <button class="foot-btn" id="f-settings" title="Настройки"><i class="ti ti-settings"></i></button>
       </div>
       <div class="side-ver">
-        <span class="sv-t" title="версия">Мыслик 1.5.0.1 <span>beta</span></span>
+        <span class="sv-t" title="версия">Мыслик 1.5.1 <span>beta</span></span>
         <button class="sv-fb" id="f-feedback"><i class="ti ti-message-report"></i>Сообщить о проблеме</button>
       </div>
     </div>
@@ -79,15 +66,15 @@
 <!-- модули загружаются как классические скрипты (общая глобальная область),
      порядок важен: core → model → views → graph → overlays → main.
      ES-модули НЕ используем: реальный аппа грузится по file://, где import блокируется CORS. -->
-<script src="js/core.js?v=203"></script>
-<script src="js/model.js?v=203"></script>
-<script src="js/views.js?v=203"></script>
-<script src="js/graph.js?v=203"></script>
-<script src="js/overlays.js?v=203"></script>
+<script src="js/core.js?v=205"></script>
+<script src="js/model.js?v=205"></script>
+<script src="js/views.js?v=205"></script>
+<script src="js/graph.js?v=205"></script>
+<script src="js/overlays.js?v=205"></script>
 <!-- локальный ИИ (умный захват) — опционально; нет движка/модели → молчит -->
-<script src="js/ai.js?v=203"></script>
+<script src="js/ai.js?v=205"></script>
 <!-- отчёт из выделенного (простой + через ИИ) -->
-<script src="js/report.js?v=203"></script>
-<script src="js/main.js?v=203"></script>
+<script src="js/report.js?v=205"></script>
+<script src="js/main.js?v=205"></script>
 </body>
 </html>

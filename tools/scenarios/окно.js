@@ -1,43 +1,48 @@
-// Кнопки окна и перетаскивание титлбара.
-// Перемещение окна делает встроенный механизм pywebview (класс .pywebview-drag-region,
-// обработка внутри движка) — из JS его не инициировать, поэтому проверяем то, что можно:
-// класс на месте (драг активен), кнопки и дабл-клик работают и не мешают друг другу.
+// Управление окном.
+// Полоса заголовка теперь НАТИВНАЯ (рисуется Windows, см. _install_native_titlebar в app.py) —
+// ради Aero Snap: пока браузер накрывал окно целиком, система не видела перетаскивания.
+// Отсюда и проверки: в разметке титлбара быть не должно, а закрытие обязано идти через
+// appRequestClose, иначе окно рвётся раньше, чем правка доедет до диска.
 const t = [];
 const ж = ms => new Promise(r => setTimeout(r, ms));
 
+t.push({имя:"HTML-титлбара нет (полоса нативная)", ок: !document.querySelector("#titlebar"),
+        факт: document.querySelector("#titlebar") ? "элемент остался" : ""});
+t.push({имя:"кнопок окна в разметке нет", ок: !document.querySelector(".winbtns"), факт:""});
+t.push({имя:"вёрстка не сдвинута", ок: !!document.querySelector("#topbar") && !!document.querySelector("#body"),
+        факт:"topbar и body на месте"});
+
+// закрытие: сначала сохранение, потом win_close — иначе теряется последнее действие
 const журнал = [];
 const прежний = window.pywebview;
-// load обязателен: HasPy() проверяет именно его, а обработчики окна зовут мост только при HasPy()
 window.pywebview = {api: {
-  load:    async () => null,
-  save:    async () => true,
-  win_max: () => { журнал.push("max"); return true; },
-  win_min: () => { журнал.push("min"); return true; },
+  load: async () => null,
+  save: async (s) => { журнал.push("save"); return true; },
+  win_close: () => { журнал.push("win_close"); return true; },
+  set_titlebar_theme: (d) => { журнал.push("тема:" + (d ? "тёмная" : "светлая")); return true; },
 }};
 
-const tb = document.querySelector("#titlebar");
-t.push({имя:"титлбар — область перетаскивания окна (pywebview-drag-region)",
-        ок: tb.classList.contains("pywebview-drag-region"), факт: tb.className});
+t.push({имя:"appRequestClose существует", ок: typeof window.appRequestClose === "function", факт:""});
+if (typeof window.appRequestClose === "function"){
+  addItem({kind:"task", title:"Мысль перед закрытием"});
+  await window.appRequestClose();
+  await ж(120);
+  const п = журнал.join(" → ");
+  t.push({имя:"закрытие сохраняет ДО того, как рвёт окно",
+          ок: /save\s*→\s*win_close/.test(п), факт: п || "ничего не произошло"});
+  const мусор = S.items.find(i => i.title === "Мысль перед закрытием");
+  if (мусор) hardDeleteItem(мусор.id);
+}
 
-// дабл-клик по титлбару → развернуть/восстановить
+// тема: нативная полоса про CSS не знает, ей сообщают отдельно
 журнал.length = 0;
-tb.dispatchEvent(new MouseEvent("dblclick", {clientX:300, clientY:12, bubbles:true, cancelable:true}));
-await ж(20);
-t.push({имя:"дабл-клик по титлбару разворачивает окно", ок: журнал.includes("max"), факт: журнал.join(",") || "ничего"});
-
-// дабл-клик по кнопкам окна НЕ должен разворачивать (иначе кнопка «развернуть» дважды переключает)
+const былаТема = S.settings.theme;
+S.settings.theme = "light"; applySettings(); await ж(40);
+t.push({имя:"светлая тема доходит до нативной полосы", ок: журнал.includes("тема:светлая"), факт: журнал.join(",")});
 журнал.length = 0;
-document.querySelector(".winbtns").dispatchEvent(new MouseEvent("dblclick", {clientX:0, clientY:0, bubbles:true, cancelable:true}));
-await ж(20);
-t.push({имя:"дабл-клик по зоне кнопок не разворачивает окно", ок: !журнал.includes("max"), факт: журнал.join(",") || "ничего"});
-
-// кнопки
-журнал.length = 0;
-document.querySelector("#win-max").click(); await ж(10);
-t.push({имя:"кнопка «Развернуть» работает", ок: журнал.includes("max"), факт: журнал.join(",")});
-журнал.length = 0;
-document.querySelector("#win-min").click(); await ж(10);
-t.push({имя:"кнопка «Свернуть» работает", ок: журнал.includes("min"), факт: журнал.join(",")});
+S.settings.theme = "dark"; applySettings(); await ж(40);
+t.push({имя:"тёмная тема доходит до нативной полосы", ок: журнал.includes("тема:тёмная"), факт: журнал.join(",")});
+S.settings.theme = былаТема; applySettings();
 
 if (прежний === undefined) delete window.pywebview; else window.pywebview = прежний;
 return t;
