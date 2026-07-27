@@ -586,7 +586,7 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .swatch:focus-visible,.areai:focus-visible,.toggle button:focus-visible,.chk:focus-visible,
 .card-act button:focus-visible,.seg button:focus-visible,.icon-grid button:focus-visible,
 .cal-nav button:focus-visible,.area-row button:focus-visible,
-.flow-ic:focus-visible,.pal-it:focus-visible,.fp-t:focus-visible,.toast-act:focus-visible,
+.pal-it:focus-visible,.toast-act:focus-visible,
 .tf-chip:focus-visible,.sugg-chip:focus-visible,.gs-close:focus-visible,.area-card:focus-visible{
   outline:none;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--bd3),0 0 12px var(--glow);}
 
@@ -701,167 +701,10 @@ button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:va
 ::selection{background:var(--bd3);color:var(--tx);}
 
 /* тактильный отклик «нажатия» — лёгкий сдвиг масштаба на :active (как ripple/press на тач-UI) */
-.btn:active,.navi:active,.foot-btn:active,.flow-ic:active,.winbtn:active,
+.btn:active,.navi:active,.foot-btn:active,.winbtn:active,
 .side-h button:active,.card-act button:active,.tf-chip:active,.area-card:active{
   transform:scale(.97);transition:transform .05s ease;}
 
-/* ===========================================================
-   FLOW — редактор блок-схемы (вложенный в узел kind:"flow")
-   =========================================================== */
-.flow-screen{position:fixed;inset:0;z-index:90;background:var(--bg);display:flex;flex-direction:column;animation:ovIn .16s ease-out;}
-.flow-top{height:52px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:0.5px solid var(--bd);background:var(--surf);}
-.flow-ic{height:34px;min-width:34px;padding:0 8px;border:0.5px solid var(--bd2);border-radius:9px;background:var(--surf);color:var(--mut);display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:13px;transition:.12s;}
-.flow-ic i{font-size:17px;}
-.flow-ic:hover{color:var(--tx);border-color:var(--bd3);background:var(--surf2);box-shadow:0 0 12px var(--glow);}
-.flow-ic.wide{font-size:12.5px;color:var(--tx);}
-.flow-back{margin-right:2px;}
-.flow-close{margin-left:4px;}
-.flow-close:hover{background:var(--warn);color:#fff;border-color:var(--warn);box-shadow:none;}
-.flow-titlewrap{display:flex;align-items:center;gap:9px;min-width:0;flex:none;max-width:32vw;}
-.flow-titlewrap>i{font-size:18px;color:var(--mut);flex:none;}
-.flow-name{font-size:15px;font-weight:500;outline:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid transparent;padding:2px 2px 1px;min-width:40px;}
-.flow-name:focus{border-bottom-color:var(--bd3);overflow:visible;}
-.flow-name:empty:before{content:attr(data-ph);color:var(--mut2);}
-.flow-tools{display:flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end;}
-.flow-sep{width:1px;height:24px;background:var(--bd);margin:0 2px;}
-
-.flow-stage{flex:1;position:relative;overflow:hidden;cursor:grab;touch-action:none;background-image:radial-gradient(var(--dot) 1.2px, transparent 1.2px);background-size:24px 24px;}
-.flow-stage:active{cursor:grabbing;}
-.flow-world{position:absolute;left:0;top:0;width:0;height:0;transform-origin:0 0;}
-.flow-edges{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;width:1px;height:1px;z-index:2;}
-.fe-line{fill:none;stroke:var(--bd3);stroke-width:2;vector-effect:non-scaling-stroke;}
-.fe-line.sel{stroke:var(--acc);stroke-width:2.6;}
-.fe-hit{fill:none;stroke:transparent;stroke-width:16;pointer-events:stroke;cursor:pointer;vector-effect:non-scaling-stroke;}
-.fe-temp{fill:none;stroke:var(--acc);stroke-width:2;stroke-dasharray:5 4;opacity:.85;}
-/* гайд-линии выравнивания при перетаскивании (магнитная привязка центров) */
-.fe-guide{stroke:var(--acc);stroke-width:1;stroke-dasharray:3 4;opacity:.6;vector-effect:non-scaling-stroke;pointer-events:none;}
-#fe-arrow path{fill:var(--bd3);}
-#fe-arrow-sel path{fill:var(--acc);}   /* выделенная стрелка целиком акцентная: линия + наконечник */
-.fe-label{fill:var(--mut);font-size:11px;font-family:var(--font);paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round;}
-
-.flow-block{position:absolute;background:var(--surf2);border:1px solid var(--bd2);border-radius:10px;color:var(--tx);display:flex;flex-direction:column;z-index:3;box-shadow:0 4px 16px rgba(0,0,0,.32);--c:var(--acc);overflow:visible;cursor:move;}
-/* цвет блока виден ВСЕГДА (не только при выделении): цветная рамка + лёгкая заливка тоном */
-.flow-block.fb-colored{border-color:var(--c);border-width:1.5px;background:color-mix(in srgb, var(--c) 22%, var(--surf2));}
-.flow-block.fb-colored .fb-tag{color:var(--c);}
-.light .flow-block.fb-colored{background:color-mix(in srgb, var(--c) 16%, var(--surf2));}
-.flow-block.sel{border-color:var(--c);box-shadow:0 0 0 1px var(--c),0 6px 22px rgba(0,0,0,.4),0 0 18px var(--glow);}
-.flow-block.tgt{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc);}
-.fb-grip{height:14px;flex:none;display:flex;align-items:center;justify-content:center;color:var(--mut2);cursor:grab;opacity:0;transition:.12s;}
-.fb-grip i{font-size:13px;}
-.flow-block:hover .fb-grip{opacity:.55;}
-.fb-main{flex:1;min-height:0;padding:1px 11px 9px;display:flex;flex-direction:column;gap:2px;overflow:hidden;}
-.fb-tag{display:flex;align-items:center;gap:4px;font-size:10.5px;color:var(--mut);}
-.fb-tag i{font-size:13px;}
-.fb-title{font-size:13.5px;line-height:1.35;font-weight:500;outline:none;word-break:break-word;overflow-wrap:anywhere;user-select:none;cursor:move;}
-.fb-title[contenteditable="true"]{user-select:text;cursor:text;}   /* только в режиме правки (2× клик) текст можно выделять/редактировать */
-.fb-title:empty:before{content:attr(data-ph);color:var(--mut2);font-weight:400;}
-.fb-note{font-size:11.5px;line-height:1.35;color:var(--mut);outline:none;word-break:break-word;overflow-wrap:anywhere;}
-.fb-note:empty{opacity:0;}
-.flow-block:hover .fb-note:empty,.fb-note:focus{opacity:1;}
-.fb-note:empty:before{content:attr(data-ph);color:var(--mut2);}
-/* Порт связи ПОВЕРХ ручек ресайза (.fb-edge — z-index:7) и контр-масштабируется, как они.
-   Раньше было z-index:4 при том, что ручка нижнего края накрывает ровно центр низа блока:
-   человек целился в ⊕, попадал в невидимую ручку и вместо стрелки тянул высоту блока.
-   Размер в экранных пикселях (делим на --z): иначе на отдалении ⊕ становился нецелимой точкой. */
-.fb-port{position:absolute;left:50%;bottom:calc(-11px/var(--z,1));transform:translateX(-50%);width:calc(22px/var(--z,1));height:calc(22px/var(--z,1));border-radius:50%;background:var(--surf3);border:1px solid var(--bd2);color:var(--mut);display:flex;align-items:center;justify-content:center;cursor:crosshair;opacity:0;transition:opacity .12s;z-index:9;}
-.fb-port i{font-size:calc(13px/var(--z,1));}
-.flow-block:hover .fb-port{opacity:1;}
-.fb-port:hover{background:var(--acc);color:var(--bg);border-color:var(--acc);box-shadow:0 0 12px var(--glow);}
-.fb-x{position:absolute;top:-9px;right:-9px;width:20px;height:20px;border-radius:50%;background:var(--surf3);border:1px solid var(--bd2);color:var(--mut);display:flex;align-items:center;justify-content:center;opacity:0;transition:.12s;z-index:5;}
-.fb-x i{font-size:12px;}
-.flow-block:hover .fb-x{opacity:1;}
-.fb-x:hover{background:var(--warn);color:#fff;border-color:var(--warn);}
-.fb-resize{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;opacity:0;transition:.12s;background:linear-gradient(135deg,transparent 50%,var(--bd3) 50%);border-bottom-right-radius:10px;z-index:4;}
-.flow-block:hover .fb-resize{opacity:.8;}
-
-/* типы блоков */
-.fb-terminal{border-radius:26px;}
-.fb-terminal .fb-main{padding:1px 16px 9px;justify-content:center;}
-.fb-terminal .fb-tag{display:none;}   /* пилюля сама обозначает терминал — иконка типа лишняя */
-.fb-decision{border-color:var(--pri2);--c:var(--pri2);}
-.fb-decision .fb-tag{color:var(--pri2);}
-.fb-comment{background:var(--surf3);border-style:dashed;}
-.fb-comment .fb-title{font-style:italic;font-weight:400;}
-.fb-frame{background:rgba(127,127,140,.05);border:1.5px dashed var(--bd2);border-radius:12px;z-index:1;box-shadow:none;}
-.fb-frame .fb-grip{display:none;}
-.fb-frame .fb-main{flex:none;padding:8px 11px 8px;}
-.fb-frame .fb-title{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--mut);font-weight:600;}
-.fb-frame:hover{border-color:var(--bd3);}
-/* медиа-блок (Полотно): <img>/<video> заполняет рамку по «cover» (без искажений), блок overflow:hidden — кадрирует */
-.fb-image,.fb-video{padding:0;background:var(--surf3);border-color:var(--bd2);overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.4);}
-.fb-image .fb-grip,.fb-video .fb-grip{position:absolute;top:0;left:0;right:0;background:linear-gradient(rgba(0,0,0,.5),transparent);z-index:6;}
-.fb-img,.fb-vid{position:absolute;left:0;top:0;display:block;max-width:none;max-height:none;user-select:none;}
-.fb-img{pointer-events:none;}
-.fb-vid{background:#000;}
-.flow-stage.dropping{outline:2px dashed var(--acc);outline-offset:-10px;background-color:rgba(127,127,140,.06);}
-/* ручки ресайза: углы (пропорция) + края (одна ось). Крупная невидимая зона захвата, маленький видимый маркер */
-.fb-rz,.fb-edge{position:absolute;z-index:7;opacity:0;transition:opacity .12s;}
-.flow-block.fb-image:hover .fb-rz,.flow-block.fb-image.sel .fb-rz,.flow-block.fb-video:hover .fb-rz,.flow-block.fb-video.sel .fb-rz,
-.flow-block.fb-image:hover .fb-edge,.flow-block.fb-image.sel .fb-edge,.flow-block.fb-video:hover .fb-edge,.flow-block.fb-video.sel .fb-edge{opacity:1;}
-.flow-block:hover .fb-edge,.flow-block.sel .fb-edge{opacity:1;}   /* тянуть за любой край — и у текстовых блоков/рамок */
-/* размеры/отступы ручек делим на масштаб холста (--z) → постоянный экранный размер, удобно попадать даже когда отдалился */
-.fb-rz{width:calc(22px/var(--z,1));height:calc(22px/var(--z,1));}
-.fb-rz::before{content:"";position:absolute;width:calc(11px/var(--z,1));height:calc(11px/var(--z,1));border:calc(1.5px/var(--z,1)) solid var(--acc);background:var(--bg);border-radius:calc(3px/var(--z,1));box-shadow:0 0 8px var(--glow);}
-.fb-rz.nw{left:calc(-11px/var(--z,1));top:calc(-11px/var(--z,1));cursor:nwse-resize;} .fb-rz.nw::before{right:0;bottom:0;}
-.fb-rz.ne{right:calc(-11px/var(--z,1));top:calc(-11px/var(--z,1));cursor:nesw-resize;} .fb-rz.ne::before{left:0;bottom:0;}
-.fb-rz.sw{left:calc(-11px/var(--z,1));bottom:calc(-11px/var(--z,1));cursor:nesw-resize;} .fb-rz.sw::before{right:0;top:0;}
-.fb-rz.se{right:calc(-11px/var(--z,1));bottom:calc(-11px/var(--z,1));cursor:nwse-resize;} .fb-rz.se::before{left:0;top:0;}
-.fb-edge::before{content:"";position:absolute;background:var(--acc);opacity:.55;box-shadow:0 0 8px var(--glow);border-radius:2px;}
-.fb-edge.n{top:calc(-7px/var(--z,1));left:calc(16px/var(--z,1));right:calc(16px/var(--z,1));height:calc(14px/var(--z,1));cursor:ns-resize;} .fb-edge.n::before{left:50%;transform:translateX(-50%);top:calc(5px/var(--z,1));width:calc(26px/var(--z,1));height:calc(3px/var(--z,1));}
-.fb-edge.s{bottom:calc(-7px/var(--z,1));left:calc(16px/var(--z,1));right:calc(16px/var(--z,1));height:calc(14px/var(--z,1));cursor:ns-resize;} .fb-edge.s::before{left:50%;transform:translateX(-50%);bottom:calc(5px/var(--z,1));width:calc(26px/var(--z,1));height:calc(3px/var(--z,1));}
-.fb-edge.w{left:calc(-7px/var(--z,1));top:calc(16px/var(--z,1));bottom:calc(16px/var(--z,1));width:calc(14px/var(--z,1));cursor:ew-resize;} .fb-edge.w::before{top:50%;transform:translateY(-50%);left:calc(5px/var(--z,1));height:calc(26px/var(--z,1));width:calc(3px/var(--z,1));}
-.fb-edge.e{right:calc(-7px/var(--z,1));top:calc(16px/var(--z,1));bottom:calc(16px/var(--z,1));width:calc(14px/var(--z,1));cursor:ew-resize;} .fb-edge.e::before{top:50%;transform:translateY(-50%);right:calc(5px/var(--z,1));height:calc(26px/var(--z,1));width:calc(3px/var(--z,1));}
-.fb-crop{position:absolute;left:6px;bottom:6px;width:26px;height:26px;border-radius:7px;background:rgba(0,0,0,.5);border:0.5px solid var(--bd2);color:#fff;display:flex;align-items:center;justify-content:center;opacity:0;transition:.12s;z-index:8;}
-.fb-crop i{font-size:15px;}
-.flow-block.fb-image:hover .fb-crop,.flow-block.fb-video:hover .fb-crop{opacity:1;}
-.fb-crop:hover{background:var(--acc);color:var(--bg);border-color:var(--acc);}
-.fb-image .fb-x,.fb-video .fb-x{top:6px;right:6px;z-index:9;}   /* выше ручек, чтобы угол ne не перехватывал клик по крестику */
-/* кадрирование: дим-фон = зафиксированная картинка, рамка (блок) ездит/ресайзится поверх и обрезает (overflow:hidden) */
-.fb-cropbg{position:absolute;z-index:25;opacity:.4;pointer-events:none;overflow:hidden;border-radius:10px;}
-.fb-cropbg img,.fb-cropbg video{width:100%;height:100%;display:block;}
-.flow-block.fb-cropping{overflow:hidden;z-index:30;cursor:grab;border-color:transparent;}
-.flow-block.fb-cropping:active{cursor:grabbing;}
-.flow-block.fb-cropping .fb-img,.flow-block.fb-cropping .fb-vid{pointer-events:none;}
-.flow-block.fb-cropping .fb-grip,.flow-block.fb-cropping .fb-x{display:none;}
-.fb-cropframe{position:absolute;inset:0;border:1.5px solid #ffd24a;pointer-events:none;z-index:3;box-shadow:0 0 10px rgba(255,210,74,.35);}
-.fb-cropframe::before,.fb-cropframe::after{content:"";position:absolute;pointer-events:none;}
-.fb-cropframe::before{left:33.33%;right:33.33%;top:0;bottom:0;border-left:1px solid rgba(255,255,255,.3);border-right:1px solid rgba(255,255,255,.3);}
-.fb-cropframe::after{top:33.33%;bottom:33.33%;left:0;right:0;border-top:1px solid rgba(255,255,255,.3);border-bottom:1px solid rgba(255,255,255,.3);}
-.fb-cropdone{position:absolute;left:50%;bottom:-40px;transform:translateX(-50%);display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 14px;border-radius:8px;background:var(--acc);color:var(--bg);font-size:12.5px;font-weight:500;box-shadow:0 4px 16px rgba(0,0,0,.5),0 0 16px var(--glow);z-index:9;white-space:nowrap;}
-.fb-cropdone i{font-size:15px;}
-/* в режиме кадрирования те же 8 ручек видны всегда и перекрашены в ЖЁЛТЫЙ (синие = масштаб, жёлтые = обрезка — не спутать) */
-.flow-block.fb-cropping .fb-rz,.flow-block.fb-cropping .fb-edge{opacity:1;}
-.flow-block.fb-cropping .fb-rz::before{border-color:#ffd24a;background:#ffd24a;box-shadow:0 0 8px rgba(255,210,74,.55);}
-.flow-block.fb-cropping .fb-edge::before{background:#ffd24a;opacity:.95;box-shadow:0 0 8px rgba(255,210,74,.5);}
-
-.flow-hint{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);font-size:11.5px;color:var(--mut);background:var(--surf2);border:0.5px solid var(--bd);border-radius:9px;padding:6px 13px;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.35);max-width:92%;text-align:center;}
-
-/* поповер: тип/цвет блока, подпись стрелки */
-.flow-pop{position:absolute;z-index:30;width:232px;background:var(--surf2);border:0.5px solid var(--bd2);border-radius:var(--r-m);box-shadow:0 8px 30px rgba(0,0,0,.5),0 0 20px var(--glow);padding:11px;display:flex;flex-direction:column;gap:9px;}
-.fp-row{display:flex;gap:7px;}
-.fp-types{justify-content:space-between;}
-.fp-t{flex:1;height:32px;border:0.5px solid var(--bd);border-radius:8px;background:var(--surf);color:var(--mut);display:flex;align-items:center;justify-content:center;}
-/* ряд выравнивания: кнопок много и они узкие — иконка важнее ширины */
-.fp-align{flex-wrap:wrap;padding-bottom:7px;margin-bottom:1px;border-bottom:0.5px solid var(--bd);}
-.fp-align .fp-t{flex:0 0 auto;width:32px;}
-.fp-t i{font-size:16px;}
-.fp-t:hover{color:var(--tx);border-color:var(--bd2);}
-.fp-t.on{background:var(--acc);color:var(--bg);border-color:var(--acc);box-shadow:0 0 10px var(--glow);}
-.fp-lab{flex:1;height:32px;background:var(--surf);border:0.5px solid var(--bd2);border-radius:8px;padding:0 10px;font-size:13px;outline:none;}
-.fp-lab:focus{border-color:var(--bd3);}
-.flow-pop .btn{flex:1;justify-content:center;}
-
-/* модалка «копировать как текст» — внутри flow-screen (над холстом) */
-.flow-modal-ov{position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:120;backdrop-filter:blur(2px);animation:ovIn .14s ease-out;}
-.flow-modal-ov textarea{width:100%;background:var(--surf2);border:0.5px solid var(--bd2);border-radius:9px;padding:11px;color:var(--tx);outline:none;resize:none;}
-
-/* flow v2: тумблеры, рамка выделения, режим пана, заголовок мультивыбора */
-.flow-ic.on{color:var(--bg);background:var(--acc);border-color:var(--acc);box-shadow:0 0 12px var(--glow);}
-.flow-ic.on:hover{color:var(--bg);background:var(--acc);}
-.flow-stage.panmode{cursor:grab;}
-.flow-stage.panmode:active{cursor:grabbing;}
-.flow-marquee{position:absolute;z-index:7;border:1px solid var(--acc);background:rgba(120,140,210,.10);border-radius:2px;pointer-events:none;}
-.fp-note{font-size:10.5px;color:var(--mut);text-align:center;letter-spacing:.03em;}
 
 /* настройки */
 .set-sec{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin:16px 0 9px;border-bottom:0.5px solid var(--bd);padding-bottom:6px;}
@@ -956,20 +799,6 @@ kbd{display:inline-block;font-family:var(--font);font-size:11px;line-height:1;pa
 .graph-search .gs-count{font-size:11.5px;color:var(--mut);min-width:30px;text-align:right;font-variant-numeric:tabular-nums;}
 .graph-search .gs-close{width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:14px;flex:none;}
 .graph-search .gs-close:hover{background:var(--surf3);color:var(--tx);}
-/* привязка блока схемы к элементу + пикер */
-.fb-ref{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--mut);background:var(--surf3);border:0.5px solid var(--bd2);border-radius:6px;padding:2px 7px;margin-top:4px;cursor:pointer;max-width:100%;overflow:hidden;}
-/* привязка к элементу, которого больше нет (или он в корзине): видно, что связь оборвана,
-   но блок при этом не притворяется рабочей ссылкой */
-.fb-ref.lost{color:var(--warn,#e8a14b);border-style:dashed;opacity:.85;}
-.fb-ref:hover{color:var(--tx);border-color:var(--acc);}
-.fb-ref i{font-size:13px;flex:none;}
-.fb-ref span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.pk-list{max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;margin-top:4px;}
-.pk-it{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:13px;}
-.pk-it:hover{background:var(--surf2);}
-.pk-it i{font-size:15px;color:var(--mut);flex:none;}
-.pk-ttl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.pk-area{font-size:11px;color:var(--mut);flex:none;}
 
 /* ===== «Сегодня» — домашний дашборд («пульс ритма») ===== */
 .home{display:flex;flex-direction:column;gap:12px;max-width:920px;margin:0 auto;}
@@ -1036,10 +865,10 @@ kbd{display:inline-block;font-family:var(--font);font-size:11px;line-height:1;pa
 .home-foot i{font-size:14px;}
 @media(max-width:720px){ .home-grid.g2{grid-template-columns:1fr;} }
 /* ===========================================================
-   DRAW — доска (Excalidraw), открывается на весь экран
+   DRAW — доска ноды-полотна (Excalidraw), на весь экран
    =========================================================== */
-/* На весь экран — как полотно (.flow-screen), и по той же причине, что и там: рисовать
-   нужно место. Плюс своя, вендорская: Excalidraw переключается на телефонный интерфейс,
+/* На весь экран, как открывался прежний редактор схемы: рисовать нужно место.
+   Плюс причина вендорская: Excalidraw переключается на телефонный интерфейс,
    если ЕГО контейнер уже 730 px или ниже 500 px при ширине меньше 1000. Врезка во вкладке
    давала 937x493 — не хватало семи пикселей, и приезжала мобильная раскладка. На весь экран
    порог недостижим: минимальное окно приложения 920x640. */

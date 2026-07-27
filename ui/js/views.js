@@ -6,7 +6,6 @@ const NAV=[
   ["today","ti-sun","Сегодня"],
   ["tasks","ti-checklist","Задачи"],
   ["notes","ti-affiliate","Заметки"],
-  ["draw","ti-pencil","Доска"],
   ["board","ti-folders","Папки"],
   ["cal","ti-calendar-month","Календарь"],
   ["bin","ti-trash","Корзина"]
@@ -125,13 +124,12 @@ function render(){
   _prevView=view;                                                  // плавный вход карточек только при смене вкладки
   // остановить анимацию графа, если уходим с вкладки «Заметки» (иначе rAF крутится на отсоединённых узлах)
   if(graph && view!=="notes"){ const g=graph; graph=null; g.destroy(); }
-  // Доска живёт слоем поверх приложения (как полотно) — уходя с вкладки, слой обязан уйти.
-  // Проверяем именно слой, а не drawRoot: пока грузится вендор, корня ещё нет, а слой уже есть.
-  if(view!=="draw" && document.getElementById("draw-screen")) drawDestroy();
+  /* Доску ноды НЕ трогаем: она живёт слоем поверх приложения и закрывается своей кнопкой.
+     render() зовут и навигация, и откат, и сохранение области — снос отсюда закрывал бы
+     открытое полотно на ровном месте (так же ведёт себя любой оверлей). */
   if(view==="today") renderToday(v);
   else if(view==="tasks") renderTasks(v);
   else if(view==="notes") renderNotes(v);
-  else if(view==="draw") renderDraw(v);
   else if(view==="board") renderFolders(v);
   else if(view==="cal") renderCal(v);
   else if(view==="bin") renderBin(v);

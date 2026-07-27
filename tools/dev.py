@@ -195,7 +195,7 @@ def run_scenarios(names=None, quiet=False):
                         "typeof S!=='undefined' && S.items && S.items.length>0"
                         " && !!document.querySelector('#view')"
                         " && typeof openNoteReader==='function'"      # overlays.js
-                        " && typeof FlowEditor==='function'"          # он же, класс полотна
+                        " && typeof openBoard==='function'"           # draw.js — доска полотна
                         " && typeof openReportModal==='function'"     # report.js
                         " && typeof boot==='function'")               # main.js — последний в списке
                 except Exception:

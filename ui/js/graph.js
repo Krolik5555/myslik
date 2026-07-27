@@ -344,7 +344,11 @@ class Graph{
     const items=ids.map(id=>{ const it=this.byId[id].ref, n=this.byId[id];
       return {_old:id, kind:it.kind, title:it.title, body:it.body, area:it.area, color:it.color||null, size:it.size||null,
         tags:(it.tags||[]).slice(), status:it.status, done:!!it.done, doneAt:it.doneAt||null, due:it.due||null, repeat:it.repeat||"none", priority:it.priority||0,
-        flow:it.kind==="flow"?JSON.parse(JSON.stringify(it.flow||{})):null, x:n.x, y:n.y }; });
+        flow:it.kind==="flow"?JSON.parse(JSON.stringify(it.flow||{})):null,
+        // доска полотна живёт в S.boards, а не в самой ноде — копируем её отдельно,
+        // иначе дубликат приезжал бы с пустым холстом
+        board:it.kind==="flow"&&S.boards&&S.boards[it.id]?JSON.parse(JSON.stringify(S.boards[it.id])):null,
+        x:n.x, y:n.y }; });
     const links=(S.links||[]).filter(l=>idset.has(l[0])&&idset.has(l[1])).map(l=>[l[0],l[1],+l[2]||1]);
     graphClip={items,links}; toast("Скопировано: "+ids.length,{icon:"ti-copy"});
   }
@@ -358,6 +362,7 @@ class Graph{
       if(it.done){ it.status="done"; it.doneAt=d.doneAt||Date.now(); }
       else if(it.status==="done"){ it.status="todo"; it.doneAt=null; }
       if(d.kind==="flow"&&d.flow){ it.flow=JSON.parse(JSON.stringify(d.flow)); ensureFlow(it); }
+      if(d.kind==="flow"&&d.board){ if(!S.boards) S.boards={}; S.boards[it.id]=JSON.parse(JSON.stringify(d.board)); }
       it.x=(d.x||0)+off; it.y=(d.y||0)+off;
       map[d._old]=it.id; newIds.push(it.id);
     });

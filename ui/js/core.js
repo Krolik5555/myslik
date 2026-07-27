@@ -199,7 +199,9 @@ function defaultState(){
     ],
     items:[],
     links:[],
-    draw:{elements:[], files:{}, appState:{}},   // доска (Excalidraw): своя сцена, живёт в общем файле
+    /* Доски нод-полотен: ключ — id ноды. Лежат ОТДЕЛЬНО от items намеренно: снимок отката
+       (_undoSnap) сериализует items целиком, и рисунки раздували бы историю на каждый шаг. */
+    boards:{},
     tags:[],   // реестр стилизованных тегов: {name, icon?, color?, size?, shape?} — все свойства опциональны
     settings:{ theme:"dark", view:"today", graphDrift:4, graphSpread:1, graphBg:true, glow:1, graphLinkLen:1, graphNodeSize:1, graphDegScale:1, graphDoneScale:0.6, graphDoneLinkLen:0.6, graphLinkBright:1, graphFadedBright:0.5,
       graphDoingGlow:true, graphDoingGlowRadius:110, graphDoingGlowBright:0.3, graphDoingGlowBlur:30 }
@@ -253,15 +255,34 @@ function sanitizeState(s){
   s.items=s.items.filter(it=>it && typeof it==="object" && !Array.isArray(it));
   const okColor=c=>(typeof c==="string"&&/^#[0-9a-fA-F]{3,8}$/.test(c))?c:null;
   s.areas.forEach(a=>{ if(!ICONS.includes(a.icon)) a.icon="ti-folder"; a.color=okColor(a.color); a.name=String(a.name==null?"":a.name); });
-  /* Доска. Чужой или подпорченный json может принести сюда что угодно, а сцена уходит
-     в Excalidraw как есть — мусорный элемент валит рендер всей вкладки. Пропускаем только
+  /* Доски нод. Чужой или подпорченный json может принести сюда что угодно, а сцена уходит
+     в Excalidraw как есть — мусорный элемент валит рендер всей доски. Пропускаем только
      объекты с типом и id, остальное молча отбрасываем. */
-  if(!s.draw || typeof s.draw!=="object" || Array.isArray(s.draw)) s.draw={elements:[], files:{}, appState:{}};
-  if(!Array.isArray(s.draw.elements)) s.draw.elements=[];
-  s.draw.elements=s.draw.elements.filter(e=>e && typeof e==="object" && !Array.isArray(e)
-                                            && typeof e.type==="string" && typeof e.id==="string");
-  if(!s.draw.files || typeof s.draw.files!=="object" || Array.isArray(s.draw.files)) s.draw.files={};
-  if(!s.draw.appState || typeof s.draw.appState!=="object" || Array.isArray(s.draw.appState)) s.draw.appState={};
+  const чистаяДоска=b=>{
+    const d=(b && typeof b==="object" && !Array.isArray(b)) ? b : {};
+    const els=Array.isArray(d.elements)?d.elements:[];
+    return {
+      elements: els.filter(e=>e && typeof e==="object" && !Array.isArray(e)
+                              && typeof e.type==="string" && typeof e.id==="string"),
+      files: (d.files && typeof d.files==="object" && !Array.isArray(d.files)) ? d.files : {},
+      appState: (d.appState && typeof d.appState==="object" && !Array.isArray(d.appState)) ? d.appState : {},
+      fromFlow: d.fromFlow===true
+    };
+  };
+  if(!s.boards || typeof s.boards!=="object" || Array.isArray(s.boards)) s.boards={};
+  Object.keys(s.boards).forEach(k=>{ s.boards[k]=чистаяДоска(s.boards[k]); });
+  /* МИГРАЦИЯ: глобальная вкладка «Доска» снесена — её содержимое переезжает в отдельную ноду.
+     id ноды детерминированный: если санитайзер отработает дважды (старт + приход моста),
+     второй раз просто не найдёт что переносить, а дубль создать не сможет физически. */
+  if(s.draw && typeof s.draw==="object" && Array.isArray(s.draw.elements) && s.draw.elements.length){
+    const ID="flow_общая_доска";
+    if(!s.items.some(it=>it && it.id===ID)){
+      s.items.push({id:ID, kind:"flow", title:"Общая доска", body:"", status:"note",
+                    area:null, tags:[], deleted:false, repeat:"none", created:Date.now()});
+    }
+    s.boards[ID]=чистаяДоска(s.draw);
+    s.draw={elements:[], files:{}, appState:{}};
+  }
   // реестр стилизованных тегов (все свойства опциональны → null если не заданы), дедуп по имени
   if(!Array.isArray(s.tags)) s.tags=[];
   { const seenT=new Set(); s.tags=s.tags.filter(t=>t&&typeof t==="object"&&typeof t.name==="string"&&t.name.trim()&&!seenT.has(t.name)&&seenT.add(t.name)).map(t=>({
@@ -274,7 +295,15 @@ function sanitizeState(s){
     })); }
   const seen=new Set();
   s.items.forEach(it=>{
-    if(typeof it.id!=="string" || !it.id || seen.has(it.id)) it.id=uid();   // дедуп/восстановление id
+    if(typeof it.id!=="string" || !it.id || seen.has(it.id)){
+      /* Смена id (битый json, склейка экспортов) обязана тянуть за собой доску: она лежит
+         в s.boards по СТАРОМУ ключу и иначе осиротела бы, а нода открылась бы пустой. */
+      const старый=it.id;
+      it.id=uid();
+      if(typeof старый==="string" && старый && s.boards[старый] && !s.boards[it.id]){
+        s.boards[it.id]=s.boards[старый]; delete s.boards[старый];
+      }
+    }
     seen.add(it.id);
     it.title=String(it.title==null?"":it.title); it.body=String(it.body==null?"":it.body);
     if(it.icon!==undefined && !ICONS.includes(it.icon)) delete it.icon;     // иконка только из белого списка

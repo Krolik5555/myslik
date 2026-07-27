@@ -96,6 +96,7 @@ function hardDeleteItem(id){
   S.links=S.links.filter(l=>l[0]!==id && l[1]!==id);
   S.items.forEach(i=>{ if(i.parent===id) i.parent=null; });          // снять висячие parent
   if(S.settings&&S.settings.collapsed) delete S.settings.collapsed[id]; // убрать мёртвый ключ свёрнутости
+  if(S.boards) delete S.boards[id];   // доска полотна лежит отдельно от ноды — унести вместе с ней
   persist();
 }
 function restoreItem(id){
