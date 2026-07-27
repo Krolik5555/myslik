@@ -2,7 +2,7 @@
 // Ловит поломку, из-за которой файл молча перестаёт исполняться и его функции исчезают —
 // именно так однажды умер report.js: в строку попал настоящий перевод строки.
 const t = [];
-const файлы = ["core.js","model.js","views.js","graph.js","overlays.js","ai.js","report.js","main.js"];
+const файлы = ["core.js","model.js","views.js","graph.js","overlays.js","draw.js","ai.js","report.js","main.js"];
 for (const f of файлы){
   let src = "";
   try { src = await fetch("js/" + f + "?x=" + Date.now()).then(r=>r.text()); }
@@ -12,7 +12,7 @@ for (const f of файлы){
 }
 // точки входа каждого модуля должны существовать в глобальной области
 const точки = {"core.js":"persist","model.js":"parseCapture","views.js":"render","graph.js":"renderNotes",
-  "overlays.js":"openNoteReader","ai.js":"aiToggle","report.js":"openReportModal","main.js":"boot"};
+  "overlays.js":"openNoteReader","draw.js":"renderDraw","ai.js":"aiToggle","report.js":"openReportModal","main.js":"boot"};
 for (const [f, fn] of Object.entries(точки)){
   t.push({имя:"загружен " + f, ок: typeof window[fn] === "function", факт: fn + ": " + typeof window[fn]});
 }

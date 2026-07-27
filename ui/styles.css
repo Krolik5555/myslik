@@ -1035,6 +1035,40 @@ kbd{display:inline-block;font-family:var(--font);font-size:11px;line-height:1;pa
 .home-foot:hover{color:var(--tx);border-color:var(--bd3);background:var(--surf);}
 .home-foot i{font-size:14px;}
 @media(max-width:720px){ .home-grid.g2{grid-template-columns:1fr;} }
+/* ===========================================================
+   DRAW — доска (Excalidraw), открывается на весь экран
+   =========================================================== */
+/* На весь экран — как полотно (.flow-screen), и по той же причине, что и там: рисовать
+   нужно место. Плюс своя, вендорская: Excalidraw переключается на телефонный интерфейс,
+   если ЕГО контейнер уже 730 px или ниже 500 px при ширине меньше 1000. Врезка во вкладке
+   давала 937x493 — не хватало семи пикселей, и приезжала мобильная раскладка. На весь экран
+   порог недостижим: минимальное окно приложения 920x640. */
+.draw-screen{position:fixed;inset:0;z-index:90;background:var(--bg);display:flex;flex-direction:column;
+  animation:ovIn .16s ease-out;}
+.draw-top{height:52px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;
+  border-bottom:0.5px solid var(--bd);background:var(--surf);}
+.draw-title{display:flex;align-items:center;gap:7px;color:var(--mut);font-size:13.5px;letter-spacing:.02em;}
+.draw-title i{font-size:16px;}
+/* min-height:0 обязателен: без него flex-ребёнок не даёт себя сжать, и холст вылезает за окно */
+#draw-wrap{flex:1;min-height:0;position:relative;}
+#draw-host{position:absolute;inset:0;}
+
+/* Панели вендора подгоняем ТОЛЬКО его же переменными и только внутри своего контейнера:
+   excalidraw.css руками не правится. Шрифт важнее цвета — чужая гарнитура рядом с интерфейсом
+   Мыслика заметна раньше, чем оттенок серого. */
+#draw-host .excalidraw{
+  --ui-font:var(--font);
+  --island-bg-color:var(--surf2);
+  --default-border-color:var(--bd);
+  --dialog-border-color:var(--bd);
+  --sidebar-border-color:var(--bd);
+  --border-radius-lg:var(--r-m);
+  --border-radius-md:var(--r-s);
+  --shadow-island:0 8px 30px rgba(0,0,0,.45);
+}
+/* --color-primary не переопределяем: вендор кладёт на него свои цвета текста кнопок,
+   и подмена акцентом Мыслика (в тёмной теме — чистый белый) даёт нечитаемые диалоги. */
+
 /* ПКМ-меню «Создать» в графе */
 .g-ctx{width:auto!important;min-width:172px;}
 .np-col{display:flex;flex-direction:column;gap:6px;margin-top:9px;}

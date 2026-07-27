@@ -199,6 +199,7 @@ function defaultState(){
     ],
     items:[],
     links:[],
+    draw:{elements:[], files:{}, appState:{}},   // доска (Excalidraw): своя сцена, живёт в общем файле
     tags:[],   // реестр стилизованных тегов: {name, icon?, color?, size?, shape?} — все свойства опциональны
     settings:{ theme:"dark", view:"today", graphDrift:4, graphSpread:1, graphBg:true, glow:1, graphLinkLen:1, graphNodeSize:1, graphDegScale:1, graphDoneScale:0.6, graphDoneLinkLen:0.6, graphLinkBright:1, graphFadedBright:0.5,
       graphDoingGlow:true, graphDoingGlowRadius:110, graphDoingGlowBright:0.3, graphDoingGlowBlur:30 }
@@ -252,6 +253,15 @@ function sanitizeState(s){
   s.items=s.items.filter(it=>it && typeof it==="object" && !Array.isArray(it));
   const okColor=c=>(typeof c==="string"&&/^#[0-9a-fA-F]{3,8}$/.test(c))?c:null;
   s.areas.forEach(a=>{ if(!ICONS.includes(a.icon)) a.icon="ti-folder"; a.color=okColor(a.color); a.name=String(a.name==null?"":a.name); });
+  /* Доска. Чужой или подпорченный json может принести сюда что угодно, а сцена уходит
+     в Excalidraw как есть — мусорный элемент валит рендер всей вкладки. Пропускаем только
+     объекты с типом и id, остальное молча отбрасываем. */
+  if(!s.draw || typeof s.draw!=="object" || Array.isArray(s.draw)) s.draw={elements:[], files:{}, appState:{}};
+  if(!Array.isArray(s.draw.elements)) s.draw.elements=[];
+  s.draw.elements=s.draw.elements.filter(e=>e && typeof e==="object" && !Array.isArray(e)
+                                            && typeof e.type==="string" && typeof e.id==="string");
+  if(!s.draw.files || typeof s.draw.files!=="object" || Array.isArray(s.draw.files)) s.draw.files={};
+  if(!s.draw.appState || typeof s.draw.appState!=="object" || Array.isArray(s.draw.appState)) s.draw.appState={};
   // реестр стилизованных тегов (все свойства опциональны → null если не заданы), дедуп по имени
   if(!Array.isArray(s.tags)) s.tags=[];
   { const seenT=new Set(); s.tags=s.tags.filter(t=>t&&typeof t==="object"&&typeof t.name==="string"&&t.name.trim()&&!seenT.has(t.name)&&seenT.add(t.name)).map(t=>({

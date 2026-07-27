@@ -81,7 +81,11 @@ function applySettings(){ applyTheme();
     try{ window.pywebview.api.set_titlebar_theme(!light); }catch(e){}
   }
 }
-function toggleTheme(){ S.settings.theme = S.settings.theme==="light"?"dark":"light"; applySettings(); persist(); if(view==="notes") render(); }
+function toggleTheme(){ S.settings.theme = S.settings.theme==="light"?"dark":"light"; applySettings(); persist();
+  if(view==="notes") render();
+  // Доска берёт тему пропом при отрисовке корня — сама она о смене не узнает и осталась бы
+  // светлой посреди тёмного приложения. Перерисовываем корень, не пересобирая сцену.
+  if(typeof drawRetheme==="function") drawRetheme(); }
 // удалить безымянные «висячие» ноды: без названия И (без текста ИЛИ оторванные — нет связей и детей).
 // ловит случайно созданные пустые кружки в графе, но НЕ трогает безымянные заметки, у которых есть текст и связи.
 function cleanEmptyNotes(){
@@ -190,13 +194,18 @@ function wireGlobal(){
   document.addEventListener("drop",e=>{ if(e.dataTransfer && (e.dataTransfer.files||[]).length) e.preventDefault(); });
   // Страховка на случай, когда окно закрывают мимо нашей кнопки (Alt+F4, перезагрузка страницы):
   // beforeunload синхронен, поэтому шлём запись без ожидания — успевает уйти в мост.
-  window.addEventListener("beforeunload",()=>{ if(saveTimer!==null){ clearTimeout(saveTimer); saveTimer=null; try{ Store.save(S); }catch(e){} } });
+  window.addEventListener("beforeunload",()=>{
+    // сперва дожать доску: её штрих ждёт своего дебаунса и в S ещё не попал
+    try{ if(typeof drawFlush==="function") drawFlush(); }catch(e){}
+    if(saveTimer!==null){ clearTimeout(saveTimer); saveTimer=null; try{ Store.save(S); }catch(e){} } });
 
   /* Кнопок окна в разметке больше нет — полоса заголовка нативная (см. app.py).
      Но закрытие обязано дожать запись: persist() держит правку в дебаунсе 250 мс, а окно
      рвётся мгновенно, и последнее действие не доезжало до диска. Поэтому нативная кнопка
      «закрыть» не рвёт окно сама, а зовёт эту функцию — она сохраняет и только потом закрывает. */
   window.appRequestClose = async ()=>{
+    // доска пишет в S с дебаунсом 900 мс — без этого последний штрих терялся при закрытии
+    try{ if(typeof drawFlush==="function") drawFlush(); }catch(e){}
     try{ await flushSave(); }catch(e){}
     if(HasPy()) window.pywebview.api.win_close();
   };

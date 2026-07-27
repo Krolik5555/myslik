@@ -264,7 +264,7 @@ def run_scenarios(names=None, quiet=False):
 
 def cmd_map():
     out = []
-    for f in ("core.js", "model.js", "views.js", "graph.js", "overlays.js", "ai.js", "report.js", "main.js"):
+    for f in ("core.js", "model.js", "views.js", "graph.js", "overlays.js", "draw.js", "ai.js", "report.js", "main.js"):
         s = _read("ui/js/" + f)
         top = re.findall(r'^(?:async\s+)?function\s+([A-Za-zА-Яа-я_$][\w$]*)|^class\s+([A-Za-z_$][\w$]*)'
                          r'|^(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=', s, re.M)
