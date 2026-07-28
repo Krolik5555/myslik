@@ -745,17 +745,25 @@ class Graph{
       const pin=document.createElementNS(NS,"circle"); pin.setAttribute("class","g-pin"); pin.setAttribute("r",n.r+8); pin.style.display=n.fixed?"":"none";
       g.appendChild(pin);
       // иконка тега прямо в ноде (глиф шрифта Tabler)
-      let ticon=null;
+      let ticon=null, ticonG=null;
       if(n.tagStyle&&n.tagStyle.icon){ const gl=iconGlyph(n.tagStyle.icon);
-        if(gl){ ticon=document.createElementNS(NS,"text"); ticon.setAttribute("class","g-ticon"); ticon.setAttribute("text-anchor","middle"); ticon.textContent=gl;
-          if(n.color && n.type!=="hub") ticon.style.fill=n.color; g.appendChild(ticon); } }
+        /* Глиф кладём в СВОЮ группу и двигаем её трансформацией, а сам текст стоит в нуле.
+           Если менять x/y самого текста, браузер растеризует глиф заново на каждой позиции —
+           отсюда дрожь при дрейфе и рывки при перетаскивании. Трансформация группы этого не
+           вызывает, поэтому координаты можно оставить дробными и движение остаётся плавным. */
+        if(gl){ ticonG=document.createElementNS(NS,"g"); ticonG.setAttribute("class","g-ticon-wrap");
+          ticon=document.createElementNS(NS,"text"); ticon.setAttribute("class","g-ticon");
+          ticon.setAttribute("text-anchor","middle"); ticon.setAttribute("x",0); ticon.setAttribute("y",0);
+          ticon.textContent=gl;
+          if(n.color && n.type!=="hub") ticon.style.fill=n.color;
+          ticonG.appendChild(ticon); g.appendChild(ticonG); } }
       const t=document.createElementNS(NS,"text"); t.setAttribute("class","g-label"+(n.type==="hub"?" hub":"")); t.setAttribute("text-anchor","middle");
       const _lbl=(n.type!=="hub" && !(n.label||"").trim()) ? "(без названия)" : n.label;   // пустые ноды видимо подписываем, чтобы их можно было опознать и удалить
       t.textContent=_lbl.length>22?_lbl.slice(0,21)+"…":_lbl;
       if(_lbl==="(без названия)") t.classList.add("g-label-empty");
       g.appendChild(t);
       this.nodeG.appendChild(g);
-      return {g, shape, pri, halo, check, pin, t, ticon, hit, shapeKind, n};
+      return {g, shape, pri, halo, check, pin, t, ticon, ticonG, hit, shapeKind, n};
     });
     this._wire();
     this._paintSel();   // вернуть подсветку выделения после перестроения
@@ -1438,11 +1446,9 @@ class Graph{
       if(n.type==="task" && o.check) o.check.setAttribute("d",`M ${x-3.2} ${y+0.3} l 2.2 2.4 l 4.2 -5`);
       if(o.halo){ o.halo.setAttribute("cx",x); o.halo.setAttribute("cy",y); }
       o.pin.setAttribute("cx",x); o.pin.setAttribute("cy",y);
-      /* Глиф тега едет вместе с фигурой (включая дрейф), но координаты ОКРУГЛЯЕМ: SVG-текст
-         ре-растеризуется на каждой дробной позиции и мелко дрожит внутри ноды. Целые пиксели
-         дрожь убирают, а движения не отнимают — в отличие от базовой позиции, на которой
-         значок замирал, пока сама нода покачивалась. */
-      if(o.ticon){ o.ticon.setAttribute("x",Math.round(x)); o.ticon.setAttribute("y",Math.round(y)); o.ticon.setAttribute("font-size",Math.max(8,n.r*1.25)); }
+      // глиф тега двигаем ТРАНСФОРМАЦИЕЙ его группы — текст при этом не растеризуется заново
+      if(o.ticonG){ o.ticonG.setAttribute("transform",`translate(${x.toFixed(2)} ${y.toFixed(2)})`);
+        o.ticon.setAttribute("font-size",Math.max(8,n.r*1.25)); }
       // ПОДПИСЬ — на БАЗОВОЙ позиции n.x/n.y (idle её НЕ двигает): SVG-текст не ре-растеризуется → не «прыгает».
       o.t.setAttribute("x",n.x); o.t.setAttribute("y",n.y+n.r+12);
     });
