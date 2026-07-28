@@ -476,6 +476,7 @@ const areaIcon = id => { const a=areaById(id); return a?a.icon:"ti-circle"; };
 let view = "today";
 // что показано в правой панели: id выбранного элемента (null — панель пустая)
 let asideId = null;
+let asideGroup = null;   // выделено несколько нод — показываем сводку по ним
 let areaFilter = null;
 let calOffset = 0;        // смещение месяца в календаре
 let notesMode = "graph";  // graph | list

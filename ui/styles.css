@@ -410,7 +410,12 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 /* Подсветка/выделение светят ЦВЕТОМ ноды. --nc ставится в build() из итогового цвета
    (свой → тег → область), поэтому унаследованный цвет тоже works. Запасной вариант
    var(--acc) — для нод без цвета: у них --nc не задан, и свечение остаётся белым как раньше. */
-.g-node.sel .nd{stroke:var(--nc,var(--acc));stroke-width:2.6;filter:drop-shadow(0 0 8px var(--nc,var(--acc)));}
+/* Выделение должно быть видно с одного взгляда, в том числе на пёстром графе: толстая
+   обводка акцентом, двойное свечение и подпись в полную яркость. Прежние 2.6 px с мягкой
+   тенью терялись среди цветных нод. */
+.g-node.sel .nd{stroke:var(--acc);stroke-width:4;
+  filter:drop-shadow(0 0 6px var(--acc)) drop-shadow(0 0 18px var(--acc));}
+.g-node.sel text{fill:var(--tx)!important;opacity:1!important;font-weight:600;}
 .g-node:hover .nd{filter:drop-shadow(0 0 7px var(--nc,var(--glow)));}
 .g-label{fill:var(--mut);font-size:10.5px;pointer-events:none;}
 .g-label-empty{font-style:italic;opacity:.7;}
@@ -582,7 +587,11 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .cal-nav{display:flex;gap:6px;align-items:center;}
 .cal-nav button{width:30px;height:30px;border-radius:8px;border:0.5px solid var(--bd2);color:var(--mut);display:flex;align-items:center;justify-content:center;font-size:16px;}
 .cal-nav button:hover{color:var(--tx);background:var(--surf2);}
-.graph-hint{position:absolute;top:12px;right:12px;font-size:11px;color:var(--mut);background:var(--surf2);border:0.5px solid var(--bd);border-radius:8px;padding:6px 10px;z-index:5;max-width:230px;line-height:1.5;}
+.graph-hint{position:absolute;top:12px;right:12px;font-size:11px;color:var(--mut);background:var(--surf2);border:0.5px solid var(--bd);border-radius:8px;padding:6px 26px 6px 10px;z-index:5;max-width:230px;line-height:1.5;}
+.graph-hint.off{display:none;}
+#g-hint-x{position:absolute;top:4px;right:4px;width:18px;height:18px;border-radius:5px;display:flex;
+  align-items:center;justify-content:center;color:var(--mut2);font-size:11px;}
+#g-hint-x:hover{background:var(--surf3);color:var(--tx);}
 /* панель действий над выделением — компактно, в правом нижнем углу, не отвлекает */
 .graph-selbar{position:absolute;right:12px;bottom:12px;display:flex;align-items:center;gap:6px;z-index:8;background:var(--surf2);border:0.5px solid var(--bd);border-radius:999px;padding:3px 4px 3px 10px;box-shadow:0 4px 14px rgba(0,0,0,.35);opacity:.82;transition:opacity .12s;}
 .graph-selbar:hover{opacity:1;}

@@ -39,18 +39,6 @@ t.push({имя:"текст заметки в редактируемом поле
           факт: [...document.querySelectorAll(".navi")].map(b=>b.title).join(", ")});
 
   const былаШирина = шир("side");
-  document.getElementById("side-toggle").click(); await ж(200);
-  {
-    const к = document.getElementById("side-toggle").getBoundingClientRect();
-    t.push({имя:"панель сворачивается до кромки, кнопка возврата видна",
-            ок: s.classList.contains("side-off") && шир("side") >= 12 && шир("side") < 30 && к.width > 0 && к.height > 0,
-            факт: былаШирина + " → " + шир("side") + " px, кнопка " + Math.round(к.width) + "x" + Math.round(к.height)});
-  }
-  t.push({имя:"свёрнутость записана в настройки", ок: S.settings.sideHidden === true, факт:""});
-  document.getElementById("side-toggle").click(); await ж(200);
-  t.push({имя:"панель возвращается", ок: !s.classList.contains("side-off") && шир("side") === былаШирина,
-          факт: "ширина " + шир("side") + " px"});
-
   // разворот подписей: кнопка «показать названия»
   document.getElementById("side-wide").click(); await ж(200);
   t.push({имя:"подписи разворачиваются кнопкой",
@@ -65,6 +53,51 @@ t.push({имя:"текст заметки в редактируемом поле
   const фб = document.querySelector(".foot-btn").getBoundingClientRect();
   t.push({имя:"кнопки экспорта и настроек крупные", ок: фб.height >= 36 && фб.width >= 36,
           факт: Math.round(фб.width) + "x" + Math.round(фб.height)});
+}
+
+// ===== выделение в графе ведёт панель =====
+{
+  view = "notes"; render(); await ж(700);
+  if (graph) {
+    const узлы = graph.nodes.filter(n => n.type !== "hub" && n.ref).slice(0, 3);
+    if (узлы.length >= 2) {
+      // одна выделенная нода — её карточка
+      graph.selNodes = new Set([узлы[0].id]); graph._paintSel(); graph._syncAside(); await ж(250);
+      t.push({имя:"одна выделенная нода открывается в панели",
+              ок: asideId === узлы[0].id && !!document.querySelector("#aside .as-title"),
+              факт: (document.querySelector("#aside .as-title")||{}).textContent || "пусто"});
+
+      // несколько — сводка
+      graph.selNodes = new Set(узлы.map(n => n.id)); graph._paintSel(); graph._syncAside(); await ж(250);
+      t.push({имя:"для нескольких нод панель показывает сводку",
+              ок: ((document.querySelector("#aside .as-title")||{}).textContent||"").indexOf("Выделено") === 0,
+              факт: (document.querySelector("#aside .as-title")||{}).textContent || "пусто"});
+      t.push({имя:"в сводке есть переходы к нодам",
+              ок: document.querySelectorAll("#aside .as-link").length >= 2,
+              факт: "ссылок: " + document.querySelectorAll("#aside .as-link").length});
+
+      // клик по связанной ноде выделяет её в графе
+      graph.selNodes = new Set(); graph._paintSel();
+      asideSelect(узлы[0].id); await ж(200);
+      const ссылка = document.querySelector("#aside .as-link[data-go]");
+      if (ссылка) {
+        const цель = ссылка.dataset.go;
+        ссылка.click(); await ж(400);
+        t.push({имя:"переход по связанной ноде выделяет её в графе",
+                ок: graph.selNodes.has(цель) && asideId === цель,
+                факт: graph.selNodes.has(цель) ? "выделена" : "не выделена"});
+      }
+      graph.selNodes = new Set(); graph._paintSel();
+    }
+  }
+  // подсказка по управлению закрывается и возвращается
+  if (document.getElementById("g-hint-x")) {
+    document.getElementById("g-hint-x").click(); await ж(150);
+    t.push({имя:"подсказка графа закрывается", ок: document.getElementById("g-hint").classList.contains("off")
+            && S.settings.graphHint === false, факт:""});
+    document.getElementById("g-hint-on").click(); await ж(150);
+    t.push({имя:"и возвращается из меню", ок: !document.getElementById("g-hint").classList.contains("off"), факт:""});
+  }
 }
 
 // ===== разделитель: ручка вместо полосы =====

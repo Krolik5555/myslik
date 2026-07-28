@@ -25,10 +25,9 @@ const _phase=s=>{ let h=2166136261>>>0;
 function renderNotes(v){
   recomputeHierarchy();   // иерархия всегда выводится от области (чинит и старые данные)
   head("Заметки", notesMode==="graph"?"Граф связей · тяни узлы · двойной клик = закрепить":"Все заметки карточками",
-    // Telegram переехал сюда со снесённой вкладки Inbox: мысли из бота приземляются в лоток,
-    // а лоток живёт на этом же графе — значит и кнопка должна быть рядом с ним.
-    `<button class="btn ghost" data-telegram="1" title="Забрать новые сообщения боту"><i class="ti ti-brand-telegram"></i>Telegram</button>
-     <div class="toggle" id="notes-toggle">
+    // Кнопки Telegram здесь больше нет: функция пока не прижилась и место занимала зря.
+    // Сам приём сообщений жив — он в настройках и в палитре команд.
+    `<div class="toggle" id="notes-toggle">
        <button data-nm="graph" class="${notesMode==="graph"?"on":""}"><i class="ti ti-affiliate"></i>Граф</button>
        <button data-nm="list" class="${notesMode==="list"?"on":""}"><i class="ti ti-layout-grid"></i>Список</button>
      </div>`);   // кнопки «Заметка»/«Полотно» убраны — создаём через ПКМ по холсту
@@ -45,6 +44,7 @@ function renderNotes(v){
     <div class="graph-more" id="g-more-menu" style="display:none">
       <button class="gm-it" id="g-refit"><i class="ti ti-arrows-shuffle"></i>Перераскладка</button>
       <button class="gm-it" id="g-tags"><i class="ti ti-tags"></i>Теги со стилем</button>
+      <button class="gm-it" id="g-hint-on"><i class="ti ti-help-circle"></i>Показать подсказку</button>
     </div>
     <div class="graph-search" id="g-search-box" style="display:none">
       <i class="ti ti-search"></i><input type="text" placeholder="Найти по названию или #тегу…" spellcheck="false"><span class="gs-count"></span><button class="gs-close" title="Закрыть (Esc)"><i class="ti ti-x"></i></button>
@@ -55,7 +55,8 @@ function renderNotes(v){
       <span><span class="lg-dot task"></span>задача</span>
       <span><span class="lg-dot flow"></span>полотно</span>
     </div>
-    <div class="graph-hint" id="g-hint">Alt+тащи от ноды — связь/заметка · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · колесо — зум · Delete — удалить</div>
+    <!-- подсказку можно закрыть: висеть постоянно ей незачем, а вернуть — из меню «…» -->
+    <div class="graph-hint${S.settings.graphHint===false?" off":""}" id="g-hint"><span>Alt+тащи от ноды — связь/заметка · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · колесо — зум · Delete — удалить</span><button id="g-hint-x" title="Скрыть подсказку"><i class="ti ti-x"></i></button></div>
     <div class="graph-selbar" id="g-selbar" style="display:none">
       <span class="gsb-n"></span>
       <button class="gsb-btn" id="gsb-report" title="Собрать отчёт по выделенному"><i class="ti ti-file-text"></i>Отчёт</button>
@@ -83,6 +84,9 @@ function renderNotes(v){
     else { moreMenu.style.display="flex"; document.addEventListener("pointerdown",onDocMore,true); } };
   $("#g-refit").onclick=()=>{ closeMore(); graph.refit(); };
   $("#g-tags").onclick=()=>{ closeMore(); openTagManager(); };
+  // подсказка по управлению: закрывается крестиком, возвращается отсюда
+  if($("#g-hint-x")) $("#g-hint-x").onclick=()=>{ S.settings.graphHint=false; persist(); $("#g-hint").classList.add("off"); };
+  $("#g-hint-on").onclick=()=>{ closeMore(); S.settings.graphHint=true; persist(); $("#g-hint").classList.remove("off"); };
   wireNotesToggle();
 }
 // каретка-сворачиватель для узла, у которого есть дочерние (в наборе паутины)
@@ -285,6 +289,24 @@ class Graph{
   }
   _paintSel(){ if(this.nodeEls) this.nodeEls.forEach(o=>o.g.classList.toggle("sel",this.selNodes.has(o.n.id))); this._renderSelBar(); }
 
+  /* Правая панель следует за выделением: одна нода — её карточка, несколько — сводка.
+     Зовётся ПОСЛЕ жеста (клик, рамка), а не из _paintSel: тот дёргается на каждом кадре
+     протяжки, и панель перерисовывалась бы десятки раз за секунду. */
+  // Выделить ноду снаружи (клик по связанной ноде в правой панели) и подвести к ней камеру.
+  focusNode(id){
+    const n=this.byId[id];
+    if(!n) return false;
+    this._flyTo(n);
+    return true;
+  }
+
+  _syncAside(){
+    const ids=[...this.selNodes].filter(id=>id.indexOf("hub_")!==0);
+    if(ids.length===1) asideSelect(ids[0]);
+    else if(ids.length>1) asideMany(ids);
+    else asideSelect(null);
+  }
+
   /* Выделить всю область: клик по ней в полосе слева подсвечивает её ноды прямо в паутине.
      Берём и унаследованную область — ветка целиком и есть «область» глазами человека. */
   selectArea(id){
@@ -323,7 +345,7 @@ class Graph{
     const hit=this.nodes.filter(n=>{ const nx=n.x+(n._ix||0), ny=n.y+(n._iy||0); return nx>=w1.x && nx<=w2.x && ny>=w1.y && ny<=w2.y; }).map(n=>n.id);
     this.selNodes=new Set([...m.base,...hit]); this._paintSel();
   }
-  _finishMarquee(){ this.marq=null; if(this._marqEl) this._marqEl.style.display="none"; }
+  _finishMarquee(){ this.marq=null; if(this._marqEl) this._marqEl.style.display="none"; this._syncAside(); }
   /* ---- поиск ноды по названию + перелёт камеры ---- */
   openSearch(){ const box=$("#g-search-box"); if(!box) return; this._searchBox=box; box.style.display="flex";
     const inp=$("input",box), cnt=$(".gs-count",box), cl=$(".gs-close",box); inp.value=""; this._searchMatches=[]; this._searchIdx=0;
@@ -594,6 +616,9 @@ class Graph{
       if(n.type==="hub"){ n.r=(11+Math.min(deg*0.7*dsc,11))*nsz; }
       else { n.r=(6+Math.min(Math.sqrt(deg)*3*dsc,9))*nsz*psz; }
       if(n.type==="task"||n.type==="flow") n.r*=0.86;   // квадрат/ромб визуально крупнее круга той же r → ужимаем, чтобы размер отражал именно связи
+      /* Приоритет виден и в паутине, а не только в списках: невыполненная важная задача
+         крупнее обычной. Готовые не раздуваем — их важность уже в прошлом. */
+      if(n.type==="task" && n.ref && !n.ref.done && n.ref.priority) n.r*=1+Math.min(+n.ref.priority,3)*0.13;
     });
     // завершённые уходят на второй план: сами ноды меньше, а связи ВНУТРИ ветки (оба конца потухли)
     // — короче (тот же множитель длины) и тусклее. Так дерево реально ужимается, а не только точки.
@@ -731,8 +756,10 @@ class Graph{
       if(g){
         const n=this.byId[g.dataset.id];
         if(this.linkFrom){ this._finishLink(n); return; }
-        if(e.altKey && n.type!=="hub"){ this._startConnectDrag(n,e); svg.setPointerCapture(e.pointerId); return; }   // Alt+тащи от ноды — связь / новая связанная заметка
-        if(e.shiftKey){ if(this.selNodes.has(n.id)) this.selNodes.delete(n.id); else this.selNodes.add(n.id); this._paintSel(); return; }   // shift-клик — в выделение
+        // Alt+тащи — связь / новая связанная заметка. От области тоже: бросок на ноду
+        // назначает ей эту область, и тянуть связь оттуда так же естественно, как от ноды.
+        if(e.altKey){ this._startConnectDrag(n,e); svg.setPointerCapture(e.pointerId); return; }
+        if(e.shiftKey){ if(this.selNodes.has(n.id)) this.selNodes.delete(n.id); else this.selNodes.add(n.id); this._paintSel(); this._syncAside(); return; }   // shift-клик — в выделение
         if(!this.selNodes.has(n.id)){ this.selNodes.clear(); this.selNodes.add(n.id); this._paintSel(); }   // обычный клик по ноде — выделить
         // ...и сразу показать её в правой панели: ради этого сплит и заводился —
         // читать ноду, не закрывая граф. Хаб области своей карточки не имеет.

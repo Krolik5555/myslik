@@ -30,7 +30,10 @@ function counts(){
 function applySide(){
   const s=$("#side"), b=$("#side-toggle"), w=$("#side-wide");
   if(!s) return;
-  const скрыта = S.settings.sideHidden === true;
+  // кнопки «задвинуть» больше нет — если флаг остался с прошлых версий, снимаем его,
+  // иначе панель осталась бы скрытой навсегда
+  if(S.settings.sideHidden){ S.settings.sideHidden=false; persist(); }
+  const скрыта = false;
   const широкая = S.settings.sideWide === true;   // с подписями: чтобы читать названия областей
   s.classList.toggle("slim", !широкая);
   s.classList.toggle("side-off", скрыта);
@@ -72,7 +75,17 @@ function renderNav(){
 // смысл сплита в том, чтобы читать и править, не закрывая обзор.
 function asideSelect(id){
   asideId = id || null;
+  asideGroup = null;
   if(asideId && !S.settings.asideOn){ S.settings.asideOn = true; persist(); }
+  renderAside();
+}
+
+// Выделили рамкой несколько нод — показываем сводку, а не пустоту: сколько и чего выбрано,
+// с быстрым переходом к любой из них.
+function asideMany(ids){
+  asideGroup = (ids||[]).slice();
+  asideId = null;
+  if(!S.settings.asideOn){ S.settings.asideOn = true; persist(); }
   renderAside();
 }
 
@@ -108,6 +121,22 @@ function renderAside(){
   if(!a) return;
   asideApplyWidth();
   if(S.settings.asideOn === false) return;
+  // сводка по выделенной группе — вместо карточки одной ноды
+  if(asideGroup && asideGroup.length>1){
+    if(drawRoot && !$("#draw-screen")) drawDestroy();
+    const ноды = asideGroup.map(liveById).filter(Boolean);
+    const счёт = k => ноды.filter(n=>n.kind===k).length;
+    a.innerHTML = `<div class="as-head"><h2 class="as-title">Выделено: ${ноды.length}</h2></div>
+      <div class="as-rows">
+        <div class="as-row"><span class="as-k">Задачи</span><span class="as-ico"><i class="ti ti-checkbox"></i></span><span class="as-v">${счёт("task")}</span></div>
+        <div class="as-row"><span class="as-k">Заметки</span><span class="as-ico"><i class="ti ti-note"></i></span><span class="as-v">${счёт("note")}</span></div>
+        <div class="as-row"><span class="as-k">Полотна</span><span class="as-ico"><i class="ti ti-artboard"></i></span><span class="as-v">${счёт("flow")}</span></div>
+      </div>
+      <div class="as-sec">Ноды</div>
+      <div class="as-links">${ноды.slice(0,30).map(n=>`<button class="as-link" data-go="${esc(n.id)}"><i class="ti ${n.kind==="flow"?"ti-artboard":n.kind==="note"?"ti-note":"ti-checkbox"}"></i><span>${esc(n.title||"без названия")}</span></button>`).join("")}</div>`;
+    a.querySelectorAll("[data-go]").forEach(el=>{ el.onclick=()=>{ asideSelect(el.dataset.go); if(graph) graph.focusNode(el.dataset.go); }; });
+    return;
+  }
   const it = asideId ? liveById(asideId) : null;
   /* Доска в панели пересборку не переживает: перезапись innerHTML оставила бы React-корень
      в отсоединённом DOM. Пока открыта доска той же ноды — панель не трогаем вовсе. */
@@ -173,8 +202,13 @@ function asideCard(it){
        </select>`));
   }
   стр.push(строка("Теги", null,
-    `<span class="as-tags">${(it.tags||[]).map(t=>`<span class="as-chip as-tag">${esc(t)}<button data-untag="${esc(t)}" title="Убрать"><i class="ti ti-x"></i></button></span>`).join("")}
-      <button class="as-chip as-add" data-addtag="1"><i class="ti ti-plus"></i></button></span>`));
+    `<span class="as-tags">${(it.tags||[]).map(t=>{
+        const ст = tagStyle(t);
+        return `<span class="as-chip as-tag" ${ст&&ст.color?`style="color:${ст.color};border-color:${ст.color}"`:""}>
+          ${ст&&ст.icon?`<i class="ti ${esc(ст.icon)}"></i>`:""}${esc(t)}<button data-untag="${esc(t)}" title="Убрать"><i class="ti ti-x"></i></button></span>`;
+      }).join("")}
+      <button class="as-chip as-add" data-addtag="1" title="Добавить тег"><i class="ti ti-plus"></i></button>
+      <button class="as-chip as-add" data-tagmgr="1" title="Теги со стилем: цвет, иконка, размер"><i class="ti ti-settings"></i></button></span>`));
 
   const тело = it.kind==="flow"
     ? (asideBoardFits()
@@ -243,7 +277,10 @@ function wireAside(it){
     render();
     toast("Удалено", {icon:"ti-trash", label:"Вернуть", onAction:()=>{ restoreItem(id); asideSelect(id); render(); }});
   });
-  a.querySelectorAll("[data-go]").forEach(el=>{ el.onclick=()=>asideSelect(el.dataset.go); });
+  // переход по связанной ноде не только меняет карточку, но и выделяет её в паутине
+  a.querySelectorAll("[data-go]").forEach(el=>{
+    el.onclick=()=>{ asideSelect(el.dataset.go); if(graph) graph.focusNode(el.dataset.go); };
+  });
 
   /* После правки НЕ зовём render(): на вкладке «Заметки» он пересобирает граф с нуля и сбрасывает
      камеру — человек правил бы поле и каждый раз терял место, куда смотрел. Обновляем точечно. */
@@ -292,11 +329,21 @@ function wireAside(it){
     el.onclick = ()=>{ it.tags = (it.tags||[]).filter(t=>t!==el.dataset.untag); обновить(); };
   });
   // Ввод тега прямо в строке: модалка ради одного слова — перебор, да и панель для того и есть.
+  b("[data-tagmgr]", ()=>openTagManager());
   b("[data-addtag]", ()=>{
     const кнопка = a.querySelector("[data-addtag]");
     const поле = el("input","as-chip as-taginp");
     поле.placeholder = "тег";
+    /* Подсказываем уже существующие теги: и те, что со стилем, и просто встречавшиеся на
+       других нодах. Без этого один и тот же тег легко завести дважды в разном написании. */
+    const все = new Set((S.tags||[]).map(t=>t.name));
+    S.items.forEach(i=>(i.tags||[]).forEach(t=>все.add(t)));
+    (it.tags||[]).forEach(t=>все.delete(t));
+    const список = el("datalist"); список.id = "as-taglist";
+    список.innerHTML = [...все].sort().map(t=>`<option value="${esc(t)}"></option>`).join("");
+    поле.setAttribute("list","as-taglist");
     кнопка.replaceWith(поле);
+    поле.after(список);
     поле.focus();
     const принять = ()=>{
       const t = поле.value.trim().replace(/^#/,"");

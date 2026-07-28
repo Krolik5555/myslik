@@ -228,7 +228,9 @@ function wireGlobal(){
     }
   });
   $("#add-area").onclick=(e)=>{ e.stopPropagation(); openAreaEditor(null,()=>renderNav()); };
-  $("#manage-area").onclick=(e)=>{ e.stopPropagation(); openAreaManager(); };
+  // кнопки «управление областями» в полосе больше нет — правка и удаление живут в ПКМ по
+  // кружку области в графе; менеджер по-прежнему доступен из палитры команд
+  const ma=$("#manage-area"); if(ma) ma.onclick=(e)=>{ e.stopPropagation(); openAreaManager(); };
   $("#f-export").onclick=doExport; $("#f-import").onclick=doImport; $("#f-timer").onclick=openTimer;
   $("#f-feedback").onclick=openFeedback;
   $("#f-settings").onclick=openSettings;
