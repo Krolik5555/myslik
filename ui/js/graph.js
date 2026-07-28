@@ -1438,10 +1438,11 @@ class Graph{
       if(n.type==="task" && o.check) o.check.setAttribute("d",`M ${x-3.2} ${y+0.3} l 2.2 2.4 l 4.2 -5`);
       if(o.halo){ o.halo.setAttribute("cx",x); o.halo.setAttribute("cy",y); }
       o.pin.setAttribute("cx",x); o.pin.setAttribute("cy",y);
-      /* Глиф тега — тоже SVG-текст, поэтому ставим его на БАЗОВУЮ позицию и целыми числами,
-         как подпись: на дрейфующих дробных координатах он ре-растеризуется каждый кадр и
-         заметно дёргается внутри ноды. */
-      if(o.ticon){ o.ticon.setAttribute("x",Math.round(n.x)); o.ticon.setAttribute("y",Math.round(n.y)); o.ticon.setAttribute("font-size",Math.max(8,n.r*1.25)); }
+      /* Глиф тега едет вместе с фигурой (включая дрейф), но координаты ОКРУГЛЯЕМ: SVG-текст
+         ре-растеризуется на каждой дробной позиции и мелко дрожит внутри ноды. Целые пиксели
+         дрожь убирают, а движения не отнимают — в отличие от базовой позиции, на которой
+         значок замирал, пока сама нода покачивалась. */
+      if(o.ticon){ o.ticon.setAttribute("x",Math.round(x)); o.ticon.setAttribute("y",Math.round(y)); o.ticon.setAttribute("font-size",Math.max(8,n.r*1.25)); }
       // ПОДПИСЬ — на БАЗОВОЙ позиции n.x/n.y (idle её НЕ двигает): SVG-текст не ре-растеризуется → не «прыгает».
       o.t.setAttribute("x",n.x); o.t.setAttribute("y",n.y+n.r+12);
     });
