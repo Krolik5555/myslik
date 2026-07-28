@@ -888,18 +888,54 @@ class Api:
         except Exception as e:
             print(e)
 
+    def _work_rect(self, hwnd):
+        """Рабочая область монитора, на котором лежит окно, — БЕЗ панели задач."""
+        class RECT(ctypes.Structure):
+            _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                        ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_ulong), ("rcMonitor", RECT),
+                        ("rcWork", RECT), ("dwFlags", ctypes.c_ulong)]
+
+        u32 = ctypes.windll.user32
+        mon = u32.MonitorFromWindow(ctypes.c_void_p(hwnd), 2)   # MONITOR_DEFAULTTONEAREST
+        mi = MONITORINFO()
+        mi.cbSize = ctypes.sizeof(MONITORINFO)
+        u32.GetMonitorInfoW(mon, ctypes.byref(mi))
+        w = mi.rcWork
+        return (w.left, w.top, w.right - w.left, w.bottom - w.top)
+
     def win_max(self):
         # Спрашиваем РЕАЛЬНОЕ состояние окна (развёрнуто или нет), а не свой флаг — иначе после
         # Win+Up кнопка начинает работать наоборот.
         # IsZoomed берём из user32 через ctypes: в pywin32 этой версии функции win32gui.IsZoomed
         # НЕТ, и прежний вызов молча падал в запасную ветку — вместо обычного разворота окно
         # уходило в ПОЛНОЭКРАННЫЙ режим (без панели задач), и кнопка вела себя не как везде.
+        """Разворот/восстановление окна.
+
+        Разворачиваем САМИ, по рабочей области монитора. Штатный maximize() тут не годится:
+        форма безрамочная (FormBorderStyle.None), и .NET в этом случае растягивает окно на
+        весь монитор — панель задач оказывается под окном и её не видно.
+        Прежнюю геометрию помним в _MAXBOX, чтобы кнопка возвращала окно на место."""
         try:
             h = _get_hwnd()
-            if h and ctypes.windll.user32.IsZoomed(h):
-                _WINDOW.restore()
+            u32 = ctypes.windll.user32
+            if _MAXBOX.get("rect"):
+                l, t, w, ht = _MAXBOX["rect"]
+                _MAXBOX["rect"] = None
+                u32.SetWindowPos(ctypes.c_void_p(h), 0, l, t, w, ht, 0x0004)   # SWP_NOZORDER
+            elif h and u32.IsZoomed(h):
+                _WINDOW.restore()                       # развернула система (Win+Up) — ей и восстанавливать
             else:
-                _WINDOW.maximize()
+                class RECT(ctypes.Structure):
+                    _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                                ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+                r = RECT()
+                u32.GetWindowRect(ctypes.c_void_p(h), ctypes.byref(r))
+                _MAXBOX["rect"] = (r.left, r.top, r.right - r.left, r.bottom - r.top)
+                l, t, w, ht = self._work_rect(h)
+                u32.SetWindowPos(ctypes.c_void_p(h), 0, l, t, w, ht, 0x0004)
         except Exception as e:
             # совсем старый pywebview без maximize/restore — переключаем fullscreen
             try:
@@ -1010,6 +1046,8 @@ def _get_form():
 # ---------------------------------------------------------------------------
 
 _TITLEBAR = {"panel": None, "dark": True, "hover": None}
+# геометрия окна до разворота: разворачиваем мы сами (см. Api.win_max), значит и восстанавливать нам
+_MAXBOX = {"rect": None}
 
 # цвета из ui/styles.css — держать синхронно с :root и .light
 _TB_COLORS = {
