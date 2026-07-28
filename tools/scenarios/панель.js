@@ -358,6 +358,20 @@ sp.dispatchEvent(соб("pointerup", r.left-120)); await ж(150);
 t.push({имя:"разделитель тянется", ок: шир("aside") > было + 60, факт: было + " → " + шир("aside")});
 t.push({имя:"ширина записана в настройки", ок: Math.abs(S.settings.asideW - шир("aside")) < 3,
         факт:"в настройках " + Math.round(S.settings.asideW)});
+// ширина хранится долей от окна: иначе панель, растянутая в полный экран, в маленьком окне
+// занимала бы его целиком
+{
+  const доля = S.settings.asideFrac;
+  t.push({имя:"ширина панели хранится долей от окна",
+          ок: доля > 0.1 && доля < 0.7 && Math.abs(доля * window.innerWidth - шир("aside")) < 6,
+          факт: "доля " + доля.toFixed(3) + " → " + шир("aside") + " px при окне " + window.innerWidth});
+  // имитируем открытие в маленьком окне: панель должна ужаться пропорционально
+  S.settings.asideFrac = 0.75;   // как будто тянули в полный экран
+  asideApplyWidth();
+  t.push({имя:"панель не съедает окно целиком", ок: шир("aside") <= window.innerWidth - 420,
+          факт: шир("aside") + " px при окне " + window.innerWidth});
+  S.settings.asideFrac = доля; asideApplyWidth();
+}
 
 // панель прячется и это переживает перерисовку
 S.settings.asideOn = false; renderAside(); await ж(100);

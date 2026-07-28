@@ -120,9 +120,15 @@ function asideApplyWidth(){
   const вкл = S.settings.asideOn !== false;
   a.classList.toggle("off", !вкл);
   sp.classList.toggle("off", !вкл);
-  // ширину зажимаем в разумных пределах: панель не должна съесть весь вид и не должна исчезнуть
+  /* Ширину храним ДОЛЕЙ от окна, а не в пикселях: после работы в полный экран панель шириной
+     в 800 px открывалась в маленьком окне и занимала его целиком. Старое значение в пикселях
+     переводим в долю один раз. */
+  if(S.settings.asideFrac==null){
+    S.settings.asideFrac = Math.min(0.6, Math.max(0.2, (+S.settings.asideW || 420) / Math.max(600, window.innerWidth)));
+    persist();
+  }
   const макс = asideMaxW();
-  let w = Math.min(макс, Math.max(300, +S.settings.asideW || 420));
+  let w = Math.min(макс, Math.max(300, Math.round(window.innerWidth * S.settings.asideFrac)));
   const it = asideId ? liveById(asideId) : null;
   if(it && it.kind==="flow" && asideBoardFits()) w = Math.min(макс, Math.max(w, BOARD_MIN));
   a.style.width = w + "px";
@@ -438,9 +444,11 @@ function wireSplitter(){
     sp.classList.add("drag");
     sp.setPointerCapture(e.pointerId);
     const двигать = ev=>{
-      const макс = Math.max(320, window.innerWidth - 420);
-      S.settings.asideW = Math.min(макс, Math.max(300, была + (старт - ev.clientX)));
-      a.style.width = S.settings.asideW + "px";
+      const макс = asideMaxW();
+      const w = Math.min(макс, Math.max(300, была + (старт - ev.clientX)));
+      S.settings.asideW = w;                                  // для совместимости со старыми данными
+      S.settings.asideFrac = w / Math.max(600, window.innerWidth);   // тянем долю, её и запоминаем
+      a.style.width = w + "px";
     };
     const кончить = ()=>{
       sp.classList.remove("drag");

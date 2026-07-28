@@ -694,7 +694,11 @@ class Graph{
     });
 
     this.nodeEls=this.nodes.map(n=>{
-      const g=document.createElementNS(NS,"g"); g.setAttribute("class","g-node "+n.type+(n.done?" done":"")+(n.archived?" faded":"")+(n.doing?" doing":"")); g.dataset.id=n.id;
+      /* Приоритет невыполненной задачи виден не только размером, но и цветом обводки:
+         зелёный — низкий, жёлтый — средний, красный — высокий. Свечение при этом остаётся
+         цветом ноды, поэтому принадлежность к области не теряется. */
+      const пр = (n.type==="task" && n.ref && !n.ref.done && n.ref.priority) ? " pri"+Math.min(+n.ref.priority,3) : "";
+      const g=document.createElementNS(NS,"g"); g.setAttribute("class","g-node "+n.type+(n.done?" done":"")+(n.archived?" faded":"")+(n.doing?" doing":"")+пр); g.dataset.id=n.id;
       if(n.color) g.style.setProperty("--nc", n.color);   // цвет ноды в CSS-переменную (для заливки «в работе» её же тоном и для подсветки)
       let halo=null;
       if(n.type==="hub"){ halo=document.createElementNS(NS,"circle"); halo.setAttribute("class","g-halo"); halo.setAttribute("r",n.r+5); if(n.color)halo.style.stroke=n.color; g.appendChild(halo); }
@@ -714,6 +718,15 @@ class Graph{
         hit=document.createElementNS(NS,"circle"); hit.setAttribute("class","g-nhit");
         hit.setAttribute("r", (far+HIT_PAD).toFixed(1));
         g.appendChild(hit);
+      }
+      /* Кольцо приоритета — ОТДЕЛЬНАЯ фигура чуть большего размера и тонкой линией: цвет
+         самой ноды остаётся за областью, а срочность читается как ободок вокруг.
+         Зелёный — низкий, жёлтый — средний, красный — высокий. */
+      let pri=null;
+      if(пр){
+        pri=this._shapeEl(NS, shapeKind, n.r+4.5);
+        pri.setAttribute("class","g-pri sh-"+shapeKind);
+        g.appendChild(pri);
       }
       const shape = this._shapeEl(NS, shapeKind, n.r);
       shape.classList.add("sh-"+shapeKind);   // ромб поворачивается через CSS (см. .sh-diamond) — атрибут transform конфликтует с масштабом при наведении
@@ -739,7 +752,7 @@ class Graph{
       if(_lbl==="(без названия)") t.classList.add("g-label-empty");
       g.appendChild(t);
       this.nodeG.appendChild(g);
-      return {g, shape, halo, check, pin, t, ticon, hit, shapeKind, n};
+      return {g, shape, pri, halo, check, pin, t, ticon, hit, shapeKind, n};
     });
     this._wire();
     this._paintSel();   // вернуть подсветку выделения после перестроения
@@ -1389,6 +1402,11 @@ class Graph{
       if(sk==="square"||sk==="diamond"){ o.shape.setAttribute("x",x-n.r); o.shape.setAttribute("y",y-n.r); }   // ромб — тот же квадрат, поворот в CSS (.sh-diamond)
       else if(sk==="hexagon"){ o.shape.setAttribute("points", this._hexPts(x,y,n.r)); }
       else { o.shape.setAttribute("cx",x); o.shape.setAttribute("cy",y); }
+      // кольцо приоритета движется вместе с фигурой, только шире на постоянный запас
+      if(o.pri){ const R=n.r+4.5;
+        if(sk==="square"||sk==="diamond"){ o.pri.setAttribute("x",x-R); o.pri.setAttribute("y",y-R); }
+        else if(sk==="hexagon"){ o.pri.setAttribute("points", this._hexPts(x,y,R)); }
+        else { o.pri.setAttribute("cx",x); o.pri.setAttribute("cy",y); } }
       if(o.hit){ o.hit.setAttribute("cx",x); o.hit.setAttribute("cy",y); }   // расширенная область захвата едет с нодой
       if(n.type==="task" && o.check) o.check.setAttribute("d",`M ${x-3.2} ${y+0.3} l 2.2 2.4 l 4.2 -5`);
       if(o.halo){ o.halo.setAttribute("cx",x); o.halo.setAttribute("cy",y); }
