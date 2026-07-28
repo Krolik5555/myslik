@@ -1292,21 +1292,12 @@ def _limit_maximize():
             try:
                 from System.Drawing import Rectangle
                 w = Screen.FromHandle(form.Handle).WorkingArea
-                # У окна есть невидимая рамка (WS_THICKFRAME нужен для Aero Snap), и .NET
-                # прибавляет её к MaximizedBounds: развёрнутое окно вылезает за рабочую область
-                # на восемь пикселей и накрывает край панели задач — а при автоскрытии она из-за
-                # этого вообще перестаёт всплывать. Вычитаем толщину рамки заранее.
-                u32 = ctypes.windll.user32
-                f = u32.GetSystemMetrics(32) + u32.GetSystemMetrics(92)   # SM_CXSIZEFRAME + SM_CXPADDEDBORDER
-                # Урезаем ТОЛЬКО ту сторону, где стоит панель задач: с остальных рамка обязана
-                # уйти за край экрана, иначе развёрнутое окно висит с зазором и из-под него
-                # виден рабочий стол.
-                m = Screen.FromHandle(form.Handle).Bounds
-                x = w.X + (f if w.X > m.X else 0)
-                y = w.Y + (f if w.Y > m.Y else 0)
-                r = w.Right - (f if w.Right < m.Right else 0)
-                b = w.Bottom - (f if w.Bottom < m.Bottom else 0)
-                form.MaximizedBounds = Rectangle(x, y, r - x, b - y)
+                # Один пиксель вычитаем не от вредности: если отдать РОВНО рабочую область,
+                # .NET считает это обычной максимизацией и прибавляет невидимую рамку окна
+                # (WS_THICKFRAME нужен для Aero Snap) — окно вылезает на восемь пикселей за
+                # край и накрывает панель задач. Стоит уменьшить хоть на пиксель, и границы
+                # берутся как есть: по бокам ровно по экрану, снизу — вплотную к панели.
+                form.MaximizedBounds = Rectangle(w.X, w.Y, w.Width, w.Height - 1)
             except Exception as e:
                 print("[max] apply error:", e)
 
