@@ -41,6 +41,258 @@ function renderNav(){
   }).join("");
 }
 
+/* ===== правая панель: выбранный элемент ===== */
+
+// Выбрать элемент в панель. Клик по ноде графа и по карточке ведёт сюда, а не в модалку:
+// смысл сплита в том, чтобы читать и править, не закрывая обзор.
+function asideSelect(id){
+  asideId = id || null;
+  if(asideId && !S.settings.asideOn){ S.settings.asideOn = true; persist(); }
+  renderAside();
+}
+
+/* Ниже этой ширины Excalidraw показывает телефонный интерфейс (его порог — 730 px по
+   контейнеру). Поэтому под доску панель раздвигается сама, а если места в окне нет —
+   доска в панель не встраивается вовсе, вместо неё кнопка «на весь экран». */
+/* 730 — порог самого Excalidraw, плюс внутренние отступы панели и рамка врезки (около 40 px
+   в сумме, плюс запас на полосу прокрутки): считать надо по ХОЛСТУ, а не по ширине панели.
+   С 748 холст выходил 700 px и приезжала мобильная раскладка. */
+const BOARD_MIN = 790;
+
+// Тот же предел, что и в asideApplyWidth: панели нельзя занять последние 420 px — там живёт
+// левая часть. Если и в этом пределе доска не помещается, врезку не показываем вовсе.
+const asideMaxW = ()=> Math.max(320, window.innerWidth - 420);
+function asideBoardFits(){ return asideMaxW() >= BOARD_MIN; }
+
+function asideApplyWidth(){
+  const a=$("#aside"), sp=$("#splitter");
+  if(!a||!sp) return;
+  const вкл = S.settings.asideOn !== false;
+  a.classList.toggle("off", !вкл);
+  sp.classList.toggle("off", !вкл);
+  // ширину зажимаем в разумных пределах: панель не должна съесть весь вид и не должна исчезнуть
+  const макс = asideMaxW();
+  let w = Math.min(макс, Math.max(300, +S.settings.asideW || 420));
+  const it = asideId ? liveById(asideId) : null;
+  if(it && it.kind==="flow" && asideBoardFits()) w = Math.min(макс, Math.max(w, BOARD_MIN));
+  a.style.width = w + "px";
+}
+
+function renderAside(){
+  const a=$("#aside");
+  if(!a) return;
+  asideApplyWidth();
+  if(S.settings.asideOn === false) return;
+  const it = asideId ? liveById(asideId) : null;
+  /* Доска в панели пересборку не переживает: перезапись innerHTML оставила бы React-корень
+     в отсоединённом DOM. Пока открыта доска той же ноды — панель не трогаем вовсе. */
+  if(it && it.kind==="flow" && drawRoot && drawItem && drawItem.id===it.id && a.querySelector("#as-board-host canvas")) return;
+  if(drawRoot && (!it || it.kind!=="flow" || (drawItem && drawItem.id!==it.id)) && !$("#draw-screen")) drawDestroy();
+  if(!it){
+    a.innerHTML = `<div class="aside-empty"><i class="ti ti-click"></i>Выбери ноду — здесь откроется её содержимое</div>`;
+    return;
+  }
+  a.innerHTML = asideCard(it);
+  wireAside(it);
+  const хост = a.querySelector("#as-board-host");
+  if(хост) openBoardIn(it, хост);
+}
+
+/* Карточка элемента в панели. Правится прямо здесь: смысл сплита в том, чтобы менять поля,
+   не открывая окно поверх графа. Окно осталось только для того, чего в панели нет
+   (цвет ноды, привязка папки) — по кнопке-карандашу. */
+function asideCard(it){
+  /* linksOfLive отдаёт СТРОКИ-id, а не элементы, и среди них попадаются хабы областей
+     (hub_*) — из-за этого в списке висели пустые строки «без названия». Разворачиваем
+     в настоящие элементы, хабы выбрасываем: область и так показана отдельной строкой. */
+  const дети = childrenOfLive(it.id);
+  const связи = linksOfLive(it.id).filter(x=>!/^hub_/.test(x)).map(liveById).filter(Boolean);
+  const родитель = it.parent ? liveById(it.parent) : null;
+  const тип = it.kind==="flow" ? "Полотно" : it.kind==="note" ? "Заметка" : "Задача";
+  // строка панели: подпись | слот иконки (может быть пустым) | значение
+  const строка = (имя, икона, значение)=>
+    `<div class="as-row"><span class="as-k">${имя}</span>
+      <span class="as-ico">${икона ? `<i class="ti ${икона[0]}" ${икона[1]?`style="color:${икона[1]}"`:""}></i>` : ""}</span>
+      <span class="as-v">${значение}</span></div>`;
+
+  const стр = [];
+  стр.push(строка("Тип", null, `<span class="as-chip">${тип}</span>`));
+  стр.push(строка("Область", [areaIcon(it.area), areaColor(it.area)],
+    `<select class="as-sel" data-f="area">
+       <option value="">Без области</option>
+       ${S.areas.map(a=>`<option value="${esc(a.id)}" ${it.area===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}
+     </select>${it.areaAuto ? `<span class="as-note" title="Область взята у родительской ноды">наследуется</span>` : ""}`));
+  if(it.kind==="task"){
+    const ст = it.done ? "done" : (it.status==="doing" ? "doing" : "todo");
+    стр.push(строка("Статус", ["ti-circle-dot"],
+      `<select class="as-sel" data-f="status">
+         <option value="todo"  ${ст==="todo" ?"selected":""}>Не начато</option>
+         <option value="doing" ${ст==="doing"?"selected":""}>В работе</option>
+         <option value="done"  ${ст==="done" ?"selected":""}>Готово</option>
+       </select>`));
+    стр.push(строка("Срок", ["ti-calendar"],
+      `<input class="as-inp" type="date" data-f="due" value="${esc(it.due||"")}">
+       ${it.due?`<button class="as-x" data-clear="due" title="Убрать срок"><i class="ti ti-x"></i></button>`:""}`));
+    стр.push(строка("Приоритет", ["ti-flag"],
+      `<select class="as-sel" data-f="priority">
+         ${["—","низкий","средний","высокий"].map((n,p)=>`<option value="${p}" ${(it.priority||0)===p?"selected":""}>${n}</option>`).join("")}
+       </select>`));
+    стр.push(строка("Повтор", ["ti-repeat"],
+      `<select class="as-sel" data-f="repeat">
+         ${Object.entries(REPEAT).map(([k,v])=>`<option value="${k}" ${(it.repeat||"none")===k?"selected":""}>${k==="none"?"не повторяется":v}</option>`).join("")}
+       </select>`));
+  }
+  стр.push(строка("Теги", null,
+    `<span class="as-tags">${(it.tags||[]).map(t=>`<span class="as-chip as-tag">${esc(t)}<button data-untag="${esc(t)}" title="Убрать"><i class="ti ti-x"></i></button></span>`).join("")}
+      <button class="as-chip as-add" data-addtag="1"><i class="ti ti-plus"></i></button></span>`));
+
+  const тело = it.kind==="flow"
+    ? (asideBoardFits()
+        ? `<div class="as-board"><div class="as-board-bar">
+             <span class="as-board-t"><i class="ti ti-artboard"></i>Доска</span>
+             <button class="as-ic" data-full="1" title="На весь экран"><i class="ti ti-maximize"></i></button>
+           </div><div id="as-board-wrap"><div id="as-board-host"></div></div></div>`
+        : `<div class="as-note as-narrow">Панель уже 730 px — Excalidraw показал бы телефонный интерфейс.
+             Расширь панель или открой доску целиком.</div>
+           <button class="btn primary as-open" data-open="1"><i class="ti ti-artboard"></i>Открыть доску</button>`)
+    : `<textarea class="as-area" data-f="body" placeholder="Описание…">${esc(it.body||"")}</textarea>`;
+
+  // дедуп по id: одна и та же нода бывает и ребёнком, и связью — в списке нужна один раз
+  const рядом = [...new Map([родитель, ...дети, ...связи].filter(Boolean).map(n=>[n.id,n])).values()]
+                  .filter(n=>n.id!==it.id);
+  const строкаНоды = n=>{
+    const икона = n.kind==="flow"?"ti-artboard":n.kind==="note"?"ti-note":"ti-checkbox";
+    const роль = n.id===it.parent ? "родитель" : (n.parent===it.id ? "вложена" : "");
+    const имя = (n.title||"").trim();
+    return `<button class="as-link" data-go="${esc(n.id)}"><i class="ti ${икона}"></i>
+      <span${имя?"":' class="as-dim"'}>${esc(имя || (n.kind==="flow"?"полотно без названия":n.kind==="note"?"заметка без названия":"задача без названия"))}</span>
+      ${роль?`<em class="as-role">${роль}</em>`:""}</button>`;
+  };
+  const связанные = рядом.length ? `<div class="as-sec">Связанные ноды<span class="as-cnt">${рядом.length}</span></div>
+    <div class="as-links">${рядом.slice(0,20).map(строкаНоды).join("")}</div>` : "";
+
+  return `<div class="as-head"><h2 class="as-title" contenteditable="plaintext-only" data-ph="без названия">${esc(it.title||"")}</h2>
+      <div class="as-acts">
+        <button class="as-ic" data-edit="1" title="Править"><i class="ti ti-pencil"></i></button>
+        <button class="as-ic" data-close="1" title="Закрыть панель"><i class="ti ti-x"></i></button>
+      </div></div>
+    <div class="as-rows">${стр.join("")}</div>
+    ${тело}
+    ${связанные}`;
+}
+
+function wireAside(it){
+  const a=$("#aside");
+  const b=(sel,fn)=>{ const el=a.querySelector(sel); if(el) el.onclick=fn; };
+  b("[data-close]", ()=>{ S.settings.asideOn=false; persist(); asideApplyWidth(); });
+  b("[data-edit]",  ()=>openItemSmart(it));
+  b("[data-open]",  ()=>openBoard(it));
+  b("[data-full]",  ()=>openBoard(it));   // из врезки — развернуть ту же доску на весь экран
+  a.querySelectorAll("[data-go]").forEach(el=>{ el.onclick=()=>asideSelect(el.dataset.go); });
+
+  /* После правки НЕ зовём render(): на вкладке «Заметки» он пересобирает граф с нуля и сбрасывает
+     камеру — человек правил бы поле и каждый раз терял место, куда смотрел. Обновляем точечно. */
+  const обновить = (панель=true)=>{
+    touch(it); persist();
+    renderNav();                        // счётчики видов и проценты областей
+    if(graph) graph.build();            // подписи, цвета и форма ноды в графе
+    else if(view!=="notes") render();   // на списочных вкладках перерисовать нечего беречь
+    if(панель) renderAside();
+  };
+
+  a.querySelectorAll("[data-f]").forEach(поле=>{
+    const f = поле.dataset.f;
+    if(f==="body" || f==="title") return;   // текстовые — ниже, со своим дебаунсом
+    поле.onchange = ()=>{
+      const v = поле.value;
+      // выбор руками перебивает наследование от родителя (и обратно: «Без области» =
+      // вернуть ноду к наследованию, если она к кому-то привязана)
+      if(f==="area"){ it.area = v || null; if(v) it.areaAuto=false; else delete it.areaAuto; recomputeHierarchy(); }
+      else if(f==="priority") it.priority = +v || 0;
+      else if(f==="repeat") it.repeat = v || "none";
+      else if(f==="due") it.due = v || null;
+      else if(f==="status"){
+        // «Готово» проводим через toggleDone: он ставит дату выполнения и порождает следующий
+        // повтор. Прямое it.done=true всё это потеряло бы.
+        if(v==="done" && !it.done) toggleDone(it);
+        else if(v!=="done" && it.done){ it.done=false; it.status=v; it.doneAt=null; }
+        else it.status = v;
+      }
+      обновить();
+    };
+  });
+
+  b("[data-clear=due]", ()=>{ it.due=null; обновить(); });
+
+  // теги: снять крестиком, добавить плюсом
+  a.querySelectorAll("[data-untag]").forEach(el=>{
+    el.onclick = ()=>{ it.tags = (it.tags||[]).filter(t=>t!==el.dataset.untag); обновить(); };
+  });
+  // Ввод тега прямо в строке: модалка ради одного слова — перебор, да и панель для того и есть.
+  b("[data-addtag]", ()=>{
+    const кнопка = a.querySelector("[data-addtag]");
+    const поле = el("input","as-chip as-taginp");
+    поле.placeholder = "тег";
+    кнопка.replaceWith(поле);
+    поле.focus();
+    const принять = ()=>{
+      const t = поле.value.trim().replace(/^#/,"");
+      поле.onblur = null;
+      if(t){
+        if(!it.tags) it.tags=[];
+        if(!it.tags.includes(t)) it.tags.push(t);
+        обновить();
+      } else renderAside();
+    };
+    поле.onblur = принять;
+    поле.onkeydown = e=>{
+      if(e.key==="Enter"){ e.preventDefault(); принять(); }
+      if(e.key==="Escape"){ e.preventDefault(); поле.onblur=null; renderAside(); }
+    };
+  });
+
+  // Заголовок и текст — с дебаунсом и БЕЗ перерисовки панели: иначе курсор прыгал бы на первый
+  // символ после каждой буквы.
+  let таймер=null;
+  const позже = fn=>{ clearTimeout(таймер); таймер=setTimeout(fn, 400); };
+  const загл = a.querySelector(".as-title");
+  if(загл){
+    загл.oninput = ()=>позже(()=>{ it.title = загл.textContent.trim(); обновить(false); });
+    загл.onkeydown = e=>{ if(e.key==="Enter"){ e.preventDefault(); загл.blur(); } };
+  }
+  const тело = a.querySelector('[data-f="body"]');
+  if(тело) тело.oninput = ()=>позже(()=>{ it.body = тело.value; обновить(false); });
+}
+
+// Разделитель. Тянем мышью, ширину пишем в настройки — но только по отпусканию,
+// иначе каждое движение мыши гнало бы весь файл через мост.
+function wireSplitter(){
+  const sp=$("#splitter");
+  if(!sp || sp.dataset.wired) return;
+  sp.dataset.wired="1";
+  sp.addEventListener("pointerdown", e=>{
+    e.preventDefault();
+    const a=$("#aside"), старт=e.clientX, была=a.getBoundingClientRect().width;
+    sp.classList.add("drag");
+    sp.setPointerCapture(e.pointerId);
+    const двигать = ev=>{
+      const макс = Math.max(320, window.innerWidth - 420);
+      S.settings.asideW = Math.min(макс, Math.max(300, была + (старт - ev.clientX)));
+      a.style.width = S.settings.asideW + "px";
+    };
+    const кончить = ()=>{
+      sp.classList.remove("drag");
+      sp.removeEventListener("pointermove", двигать);
+      sp.removeEventListener("pointerup", кончить);
+      persist();
+      if(graph) graph._onResize();   // граф пересчитывает свой холст под новую ширину
+    };
+    sp.addEventListener("pointermove", двигать);
+    sp.addEventListener("pointerup", кончить);
+  });
+  window.addEventListener("resize", asideApplyWidth);
+}
+
 function head(title, sub, actions){
   $("#main-title").textContent=title;
   $("#main-sub").innerHTML=sub||"";
@@ -133,6 +385,7 @@ function render(){
   else if(view==="board") renderFolders(v);
   else if(view==="cal") renderCal(v);
   else if(view==="bin") renderBin(v);
+  renderAside();                       // правая часть живёт своей жизнью, но перерисовывается вместе
   _viewRestore(_sn);
 }
 

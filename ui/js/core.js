@@ -204,7 +204,8 @@ function defaultState(){
     boards:{},
     tags:[],   // реестр стилизованных тегов: {name, icon?, color?, size?, shape?} — все свойства опциональны
     settings:{ theme:"dark", view:"today", graphDrift:4, graphSpread:1, graphBg:true, glow:1, graphLinkLen:1, graphNodeSize:1, graphDegScale:1, graphDoneScale:0.6, graphDoneLinkLen:0.6, graphLinkBright:1, graphFadedBright:0.5,
-      graphDoingGlow:true, graphDoingGlowRadius:110, graphDoingGlowBright:0.3, graphDoingGlowBlur:30 }
+      graphDoingGlow:true, graphDoingGlowRadius:110, graphDoingGlowBright:0.3, graphDoingGlowBlur:30,
+      asideW:420, asideOn:true }   // правая панель: ширина и показана ли
   };
 }
 
@@ -472,6 +473,8 @@ const areaIcon = id => { const a=areaById(id); return a?a.icon:"ti-circle"; };
 
 /* ---------- view state ---------- */
 let view = "today";
+// что показано в правой панели: id выбранного элемента (null — панель пустая)
+let asideId = null;
 let areaFilter = null;
 let calOffset = 0;        // смещение месяца в календаре
 let notesMode = "graph";  // graph | list

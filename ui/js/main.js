@@ -404,7 +404,7 @@ async function boot(){
     const v=P.get("view"); if(v) S.settings.view=v;
     if(P.has("light")) S.settings.theme="light";
     undoInit();
-    view=S.settings.view||"today"; applySettings(); wireGlobal(); render();
+    view=S.settings.view||"today"; applySettings(); wireGlobal(); wireSplitter(); render();
     console.log("[dev] preview mode: fresh demo, view="+view);
     return;
   }
@@ -414,7 +414,7 @@ async function boot(){
   else { seedDemo(); await writeNow(); }
   const v=P.get("view"); if(v) S.settings.view=v;   // ?view= работает и в реальном аппе
   undoInit();   // точка отсчёта истории — состояние, с которым приложение открылось
-  view=S.settings.view||"today"; applySettings(); wireGlobal(); render();
+  view=S.settings.view||"today"; applySettings(); wireGlobal(); wireSplitter(); render();
   // ресайз краёв делает сама Windows (у окна есть право менять размер — см. _allow_snap
   // в app.py). Свой слой убран: два механизма спорили, и при уменьшении окно уползало вниз
   setTimeout(()=>{ const c=$("#cap"); if(c && !$("#overlay-root").children.length) c.focus(); }, 120);  // готов печатать мысль сразу

@@ -526,7 +526,10 @@ class Graph{
     // manual links first, remember pairs to dedupe auto area-links
     const pairs=new Set();
     S.links.forEach(l=>{ if(this.byId[l[0]]&&this.byId[l[1]]){ this.links.push({a:l[0],b:l[1],L:108,manual:true,lenMul:(+l[2]||1),src:l}); pairs.add(l[0]+"|"+l[1]); pairs.add(l[1]+"|"+l[0]); } });
-    onGraph.forEach(it=>{ const hub="hub_"+it.area; if(it.area && this.byId[hub] && !pairs.has(it.id+"|"+hub)) this.links.push({a:it.id,b:hub,L:78,manual:false}); });
+    /* Нить к хабу области тянем только от нод с СОБСТВЕННОЙ областью. Унаследованная
+       (areaAuto) нить не даёт — иначе вся ветка притягивалась бы к хабу лучами, и вместо
+       дерева получался бы веер из центра. */
+    onGraph.forEach(it=>{ const hub="hub_"+it.area; if(it.area && it.areaAuto!==true && this.byId[hub] && !pairs.has(it.id+"|"+hub)) this.links.push({a:it.id,b:hub,L:78,manual:false}); });
 
     this.adj={}; this.nodes.forEach(n=>this.adj[n.id]=new Set());
     this.links.forEach(l=>{ this.adj[l.a].add(l.b); this.adj[l.b].add(l.a); });
@@ -714,6 +717,9 @@ class Graph{
         if(e.altKey && n.type!=="hub"){ this._startConnectDrag(n,e); svg.setPointerCapture(e.pointerId); return; }   // Alt+тащи от ноды — связь / новая связанная заметка
         if(e.shiftKey){ if(this.selNodes.has(n.id)) this.selNodes.delete(n.id); else this.selNodes.add(n.id); this._paintSel(); return; }   // shift-клик — в выделение
         if(!this.selNodes.has(n.id)){ this.selNodes.clear(); this.selNodes.add(n.id); this._paintSel(); }   // обычный клик по ноде — выделить
+        // ...и сразу показать её в правой панели: ради этого сплит и заводился —
+        // читать ноду, не закрывая граф. Хаб области своей карточки не имеет.
+        if(n.id.indexOf("hub_")!==0) asideSelect(n.id);
         // Смещение захвата: за какую точку ноды взялись. Без него нода при старте
         // перетаскивания прыгала центром под курсор — схватил за край, а она дёрнулась.
         this.drag=n; n._moved=false; this._dragFrom={x:e.clientX,y:e.clientY};
@@ -1122,7 +1128,7 @@ class Graph{
       if(!it) return null;
       const aid=(fh?from:to).slice(4);
       if(it.area===aid) return "Уже в области";
-      it.area=aid;
+      it.area=aid; it.areaAuto=false;   // перенесли руками — наследование от родителя больше не перебивает
       touch(it); persist();
       return "В области: "+areaName(aid);
     }
@@ -1486,7 +1492,8 @@ class Graph{
       }
       else { // auto area-link: detach the non-hub endpoint from its area
         const itemId = l.a.indexOf("hub_")===0 ? l.b : l.a;
-        const it=S.items.find(x=>x.id===itemId); if(it){ it.area=null; touch(it); persist(); }
+        // сняли область руками — нода снова наследует её от родителя, если к кому-то привязана
+        const it=S.items.find(x=>x.id===itemId); if(it){ it.area=null; delete it.areaAuto; touch(it); persist(); recomputeHierarchy(); }
       }
       recomputeHierarchy();   // пересобрать иерархию от области
       this._closePop(); this.build(); toast("Связь убрана");

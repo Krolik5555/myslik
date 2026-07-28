@@ -105,7 +105,95 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .btn.primary{background:var(--acc);color:var(--bg);border-color:var(--acc);}
 .btn.primary:hover{box-shadow:0 0 20px var(--glow);}
 .btn.ghost{background:none;}
-#view{flex:1;overflow-y:auto;padding:6px 22px 26px;}
+/* Рабочая область на две части. min-width:0 на #view обязателен: без него flex-ребёнок
+   не даёт себя сжать, и разделитель упирается в содержимое вместо того, чтобы двигаться. */
+#split{flex:1;min-height:0;display:flex;}
+#view{flex:1;min-width:280px;overflow-y:auto;padding:6px 22px 26px;}
+#splitter{flex:none;width:7px;cursor:col-resize;position:relative;}
+/* сама полоса тонкая, а зона захвата шире — в неё трудно не попасть мышью */
+#splitter:before{content:"";position:absolute;left:3px;top:0;bottom:0;width:1px;background:var(--bd);transition:background .12s;}
+#splitter:hover:before,#splitter.drag:before{background:var(--acc);box-shadow:0 0 10px var(--glow);}
+#aside{flex:none;width:420px;min-width:0;overflow-y:auto;padding:6px 18px 26px;
+  border-left:0.5px solid var(--bd);background:var(--surf);}
+#aside.off,#splitter.off{display:none;}
+/* карточка выбранного элемента */
+.as-head{display:flex;align-items:flex-start;gap:8px;padding:10px 2px 12px;}
+.as-title{flex:1;font-size:19px;font-weight:600;line-height:1.25;letter-spacing:-.01em;}
+.as-acts{display:flex;gap:4px;flex:none;}
+.as-ic{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  color:var(--mut);font-size:15px;transition:.12s;}
+.as-ic:hover{background:var(--surf2);color:var(--tx);}
+.as-rows{display:flex;flex-direction:column;gap:4px;padding-bottom:14px;border-bottom:0.5px solid var(--bd);}
+/* Сетка, а не flex: у части строк перед значением есть иконка, у части нет — на flex значения
+   вставали лесенкой. Три колонки фиксируют и подпись, и слот иконки, и начало значения. */
+.as-row{display:grid;grid-template-columns:88px 18px 1fr;align-items:center;gap:8px;
+  min-height:30px;font-size:13px;}
+.as-k{color:var(--mut);font-size:12px;}
+.as-ico{display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:15px;}
+.as-v{display:flex;align-items:center;gap:6px;color:var(--tx);min-width:0;flex-wrap:wrap;}
+.as-chip{padding:2px 9px;border-radius:7px;background:var(--surf2);border:0.5px solid var(--bd);font-size:12px;}
+.as-tags{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
+.as-note{font-size:10.5px;color:var(--mut2);letter-spacing:.02em;white-space:nowrap;}
+/* правка на месте: поля выглядят как текст, пока их не трогаешь */
+/* Ширина у всех полей одна. Иначе select берёт её по длине текста, и стрелки выпадающих
+   списков встают лесенкой — именно это читается как «плывёт», хотя текст выровнен. */
+.as-sel,.as-inp{width:165px;flex:none;background:transparent;border:0.5px solid transparent;
+  border-radius:7px;color:var(--tx);font:inherit;font-size:13px;padding:3px 6px;transition:.12s;}
+.as-sel:hover,.as-inp:hover{border-color:var(--bd);background:var(--surf2);}
+.as-sel:focus,.as-inp:focus{outline:none;border-color:var(--acc);background:var(--surf2);}
+.as-sel option{background:var(--surf2);color:var(--tx);}
+.as-inp[type=date]{font-variant-numeric:tabular-nums;}
+.as-x{width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;
+  color:var(--mut2);font-size:12px;}
+.as-x:hover{background:var(--surf3);color:var(--tx);}
+.as-tag{display:inline-flex;align-items:center;gap:4px;padding-right:4px;}
+.as-tag button{width:15px;height:15px;border-radius:4px;display:flex;align-items:center;justify-content:center;
+  color:var(--mut2);font-size:11px;}
+.as-tag button:hover{background:var(--surf3);color:var(--warn);}
+.as-add{display:inline-flex;align-items:center;color:var(--mut);cursor:pointer;}
+.as-add:hover{color:var(--tx);border-color:var(--bd3);}
+.as-taginp{width:86px;outline:none;color:var(--tx);}
+.as-title{outline:none;}
+.as-title:focus{border-bottom:0.5px solid var(--acc);}
+.as-title:empty:before{content:attr(data-ph);color:var(--mut2);}
+.as-area{width:100%;margin:14px 0;padding:12px 13px;min-height:120px;resize:vertical;
+  border-radius:var(--r-m);background:var(--surf2);border:0.5px solid var(--bd);color:var(--tx);
+  font:inherit;font-size:13px;line-height:1.55;outline:none;transition:.12s;}
+.as-area:focus{border-color:var(--bd3);box-shadow:0 0 14px var(--glow);}
+.as-body{margin:14px 0;padding:12px 13px;border-radius:var(--r-m);background:var(--surf2);
+  border:0.5px solid var(--bd);font-size:13px;line-height:1.55;white-space:pre-wrap;word-break:break-word;}
+.as-dim{color:var(--mut2);}
+.as-open{margin:14px 0;width:100%;justify-content:center;}
+/* врезка доски в панель: шапка с названием и разворотом + сам холст */
+/* Высота тоже упирается в порог вендора: при высоте меньше 500 и ширине меньше 1000
+   Excalidraw опять уходит в телефонный интерфейс. Врезке нужно ≥500 под сам холст плюс
+   её собственная шапка (43 px с рамкой), отсюда минимум 560: при 540 холст выходил 497 —
+   три пикселя до порога, и вендор снова показывал телефонную раскладку. */
+.as-board{margin:14px 0 4px;display:flex;flex-direction:column;height:calc(100vh - 220px);min-height:560px;
+  border:0.5px solid var(--bd);border-radius:var(--r-l);overflow:hidden;background:var(--surf2);}
+.as-board-bar{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:6px 8px 6px 12px;border-bottom:0.5px solid var(--bd);}
+.as-board-t{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--mut);letter-spacing:.02em;}
+.as-board-t i{font-size:14px;}
+#as-board-wrap{flex:1;min-height:0;position:relative;}
+#as-board-host{position:absolute;inset:0;}
+#as-board-host .excalidraw{--ui-font:var(--font);--island-bg-color:var(--surf2);
+  --default-border-color:var(--bd);--dialog-border-color:var(--bd);--sidebar-border-color:var(--bd);
+  --border-radius-lg:var(--r-m);--border-radius-md:var(--r-s);--shadow-island:0 8px 30px rgba(0,0,0,.45);}
+.as-narrow{display:block;margin:14px 0 8px;line-height:1.5;}
+.as-sec{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin:12px 0 8px;}
+.as-links{display:flex;flex-direction:column;gap:5px;}
+.as-link{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;font-size:12.5px;
+  background:var(--surf2);border:0.5px solid var(--bd);color:var(--tx);text-align:left;transition:.12s;}
+.as-link:hover{border-color:var(--bd3);box-shadow:0 0 12px var(--glow);}
+.as-link i{font-size:15px;color:var(--mut);flex:none;}
+.as-link span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.as-role{flex:none;font-style:normal;font-size:10.5px;color:var(--mut2);letter-spacing:.02em;}
+.as-cnt{margin-left:6px;color:var(--mut2);}
+/* пока ничего не выбрано — подсказка вместо пустоты */
+.aside-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  height:100%;min-height:220px;color:var(--mut2);font-size:12.5px;text-align:center;}
+.aside-empty i{font-size:26px;opacity:.6;}
 
 /* ===== cards ===== */
 .card{background:var(--surf);border:0.5px solid var(--bd);border-radius:var(--r-m);padding:12px 14px;margin-bottom:9px;display:flex;gap:12px;align-items:flex-start;transition:.12s;cursor:pointer;}

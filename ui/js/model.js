@@ -161,8 +161,10 @@ function recomputeHierarchy(){
   const noteIds=new Set(notes.map(n=>n.id));
   const adj={};
   const addEdge=(x,y)=>{ (adj[x]||(adj[x]=new Set())).add(y); (adj[y]||(adj[y]=new Set())).add(x); };
-  // ребро заметка↔область (членство)
-  notes.forEach(n=>{ if(n.area) addEdge(n.id, "A:"+n.area); });
+  /* Ребро заметка↔область строим только по ЯВНО заданной области. Унаследованная (areaAuto)
+     ребра не даёт: иначе нода, получившая область от родителя, тут же стала бы прямым
+     потомком самой области, и дерево схлопнулось бы в один уровень. */
+  notes.forEach(n=>{ if(n.area && n.areaAuto!==true) addEdge(n.id, "A:"+n.area); });
   // ручные связи между узлами паутины (заметки/задачи) и хабами-областями
   (S.links||[]).forEach(l=>{
     let a=l[0], b=l[1]; if(typeof a!=="string"||typeof b!=="string") return;
@@ -177,12 +179,29 @@ function recomputeHierarchy(){
   for(let i=0;i<q.length;i++){ const cur=q[i]; const ns=adj[cur]; if(!ns) continue;
     ns.forEach(nb=>{ if(dist[nb]===undefined){ dist[nb]=dist[cur]+1; pred[nb]=cur; q.push(nb); } });
   }
+  /* Область наследуется вниз по ветке: нода, привязанная к «Работе», сама в «Работе», и её
+     дети тоже. Считаем корень пути от области — первый шаг BFS уже знает, откуда пришёл.
+     Своя, руками выбранная область (areaAuto!==true) не перебивается никогда. */
+  const корень={};
+  q.forEach(узел=>{
+    if(узел.indexOf("A:")===0){ корень[узел]=узел.slice(2); return; }
+    const p=pred[узел];
+    корень[узел] = p ? (p.indexOf("A:")===0 ? p.slice(2) : корень[p]) : null;
+  });
+
   let changed=false;
   notes.forEach(n=>{
     const p=pred[n.id];
     // предшественник-область → верхний уровень (parent=null); предшественник-заметка → она родитель
     const np=(p && p.indexOf("A:")!==0) ? p : null;
     if((n.parent||null)!==(np||null)){ n.parent=np; changed=true; }
+    // область: трогаем только унаследованную или пустую
+    if(!n.area || n.areaAuto===true){
+      const нов = корень[n.id] || null;
+      if((n.area||null)!==нов){ n.area=нов; changed=true; }
+      const авто = !!нов;
+      if(!!n.areaAuto!==авто){ if(авто) n.areaAuto=true; else delete n.areaAuto; changed=true; }
+    }
   });
   if(changed) persist();
 }

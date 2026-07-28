@@ -420,14 +420,61 @@ function drawSeedFromFlow(it){
   return true;
 }
 
-// Открыть доску ноды-полотна. Единственная точка входа: зовётся из openFlowEditor.
+/* Монтаж доски в произвольный контейнер. Общая часть двух режимов: полноэкранного слоя
+   и врезки в правую панель. Возвращает промис — вызвавшему бывает нужно знать, поднялось ли. */
+function drawInto(it, host){
+  drawItem = it;
+  /* Щит от глобальных хоткеев Мыслика: у Excalidraw свои буквы под инструменты, а у нас на
+     тех же буквах создание задач и заметок. Особенно опасен Ctrl+Z — глобальный откат
+     подменяет весь S, а доска ведёт свою историю сама.
+     ВАЖНО: слушатель на ВСПЛЫТИИ и на обёртке, а не на самом хосте в capture-фазе. React 18
+     делегирует события на корневой контейнер, поэтому перехват «сверху вниз» глушил бы
+     клавиши самого Excalidraw: инструменты, Delete, стрелки. */
+  const wrap = host.parentElement || host;
+  if(!wrap.dataset.drawShield){
+    wrap.dataset.drawShield = "1";
+    wrap.addEventListener("keydown", e=>{ e.stopPropagation(); });
+    wrap.addEventListener("keydown", e=>{
+      if((e.ctrlKey||e.metaKey) && e.code==="KeyK"){
+        e.preventDefault(); e.stopPropagation();
+        if($("#overlay-root").children.length === 0) openPalette();
+      }
+    }, true);
+  }
+  return drawLoadLib().then(ok=>{
+    if(drawItem !== it || !host.isConnected) return false;   // успели закрыть или переключиться
+    if(!ok || !window.ExcalidrawLib){
+      host.innerHTML = emptyBox("ti-pencil-off", "Доска не загрузилась: нет файлов в <b>ui/vendor/excalidraw/</b>.");
+      return false;
+    }
+    // перенос старой схемы — только после шрифтов, иначе подписи не влезут в блоки
+    const дальше = boardOf(it.id) ? Promise.resolve(false)
+                                  : drawFontsReady().then(()=>drawSeedFromFlow(it));
+    return дальше.then(перенесли=>{
+      if(drawItem !== it || !host.isConnected) return false;
+      drawMount(host);
+      drawFixHints(host);
+      if(перенесли) toast("Старая схема перенесена на доску", {icon:"ti-arrow-move-right"});
+      return true;
+    });
+  });
+}
+
+// Доска ноды прямо в правой панели. Ширину гарантирует asideApplyWidth: уже 730 px
+// Excalidraw показывает телефонный интерфейс.
+function openBoardIn(it, host){
+  if(drawRoot && drawItem && drawItem.id===it.id && host.querySelector("canvas")) return Promise.resolve(true);
+  drawDestroy();
+  return drawInto(it, host);
+}
+
+// Открыть доску ноды-полотна на весь экран. Зовётся из openFlowEditor и кнопкой разворота.
 function openBoard(it){
   if(!it) return;
   if($("#draw-screen")){
     if(drawItem && drawItem.id === it.id) return;   // уже открыта эта же доска
     drawDestroy();                                   // между досками — только полный ремонтаж
-  }
-  drawItem = it;
+  } else if(drawRoot) drawDestroy();                 // доска висела во врезке панели — снять
   const слой = el("div", "draw-screen");
   слой.id = "draw-screen";
   слой.innerHTML = `
@@ -439,37 +486,5 @@ function openBoard(it){
   $("#overlay-root").appendChild(слой);
   $("#draw-name").textContent = it.title || "Полотно";
   $("#draw-back").onclick = drawClose;
-
-  const wrap = $("#draw-wrap");
-  /* Щит от глобальных хоткеев Мыслика: у Excalidraw свои буквы под инструменты, а у нас на
-     тех же буквах создание задач и заметок. Особенно опасен Ctrl+Z — глобальный откат
-     подменяет весь S, а доска ведёт свою историю сама.
-     ВАЖНО: слушатель стоит на ВСПЛЫТИИ и на обёртке, а не на самом хосте в capture-фазе.
-     React 18 делегирует события на корневой контейнер (#draw-host), поэтому перехват
-     «сверху вниз» глушил бы клавиши самого Excalidraw: инструменты, Delete, стрелки. */
-  wrap.addEventListener("keydown", e=>{ e.stopPropagation(); });
-  wrap.addEventListener("keydown", e=>{
-    if((e.ctrlKey||e.metaKey) && e.code==="KeyK"){
-      e.preventDefault(); e.stopPropagation();
-      if($("#overlay-root").children.length === 1) openPalette();
-    }
-  }, true);
-
-  const host = $("#draw-host");
-  drawLoadLib().then(ok=>{
-    if(!$("#draw-screen") || drawItem !== it) return;   // успели закрыть или переключиться
-    if(!ok || !window.ExcalidrawLib){
-      host.innerHTML = emptyBox("ti-pencil-off", "Доска не загрузилась: нет файлов в <b>ui/vendor/excalidraw/</b>.");
-      return;
-    }
-    // перенос старой схемы — только после шрифтов, иначе подписи не влезут в блоки
-    const дальше = boardOf(it.id) ? Promise.resolve(false)
-                                  : drawFontsReady().then(()=>drawSeedFromFlow(it));
-    дальше.then(перенесли=>{
-      if(!$("#draw-screen") || drawItem !== it) return;
-      drawMount(host);
-      drawFixHints(host);
-      if(перенесли) toast("Старая схема перенесена на доску", {icon:"ti-arrow-move-right"});
-    });
-  });
+  drawInto(it, $("#draw-host"));
 }
