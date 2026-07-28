@@ -443,7 +443,9 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
    и выделенная нода теряла принадлежность к области. Заметность даёт геометрия. */
 .g-node.sel .nd{stroke:var(--nc,var(--acc));stroke-width:4;
   filter:drop-shadow(0 0 6px var(--nc,var(--acc))) drop-shadow(0 0 18px var(--nc,var(--acc)));}
-.g-node.sel text{fill:var(--tx)!important;opacity:1!important;font-weight:600;}
+/* Только ПОДПИСЬ, не любой текст: под правило попадал и глиф тега внутри ноды — он белел
+   и жирнел, теряя цвет ноды. */
+.g-node.sel .g-label{fill:var(--tx)!important;opacity:1!important;font-weight:600;}
 .g-node:hover .nd{filter:drop-shadow(0 0 7px var(--nc,var(--glow)));}
 .g-label{fill:var(--mut);font-size:10.5px;pointer-events:none;}
 .g-label-empty{font-style:italic;opacity:.7;}
