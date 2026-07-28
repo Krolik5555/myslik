@@ -428,12 +428,14 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .g-node:hover .g-pri{transform:scale(1.18);}
 /* Светится своим цветом — мягко, чтобы читалась и на тёмном фоне; чем выше срочность,
    тем заметнее ореол. */
-.g-node.pri1 .g-pri{stroke:var(--pri1);filter:drop-shadow(0 0 3px var(--pri1));}
-.g-node.pri2 .g-pri{stroke:var(--pri2);filter:drop-shadow(0 0 4px var(--pri2));}
-.g-node.pri3 .g-pri{stroke:var(--pri3);filter:drop-shadow(0 0 5.5px var(--pri3));}
-.g-node:hover.pri1 .g-pri{filter:drop-shadow(0 0 6px var(--pri1));}
-.g-node:hover.pri2 .g-pri{filter:drop-shadow(0 0 7px var(--pri2));}
-.g-node:hover.pri3 .g-pri{filter:drop-shadow(0 0 9px var(--pri3));}
+/* Свечение в два слоя: ближняя тень даёт плотность самой линии, дальняя — заметный ореол.
+   Одним слоем при такой тонкой линии (1.2 px) ореол почти не читался. */
+.g-node.pri1 .g-pri{stroke:var(--pri1);filter:drop-shadow(0 0 3px var(--pri1)) drop-shadow(0 0 9px var(--pri1));}
+.g-node.pri2 .g-pri{stroke:var(--pri2);filter:drop-shadow(0 0 3.5px var(--pri2)) drop-shadow(0 0 11px var(--pri2));}
+.g-node.pri3 .g-pri{stroke:var(--pri3);filter:drop-shadow(0 0 4px var(--pri3)) drop-shadow(0 0 14px var(--pri3));}
+.g-node:hover.pri1 .g-pri{filter:drop-shadow(0 0 4px var(--pri1)) drop-shadow(0 0 14px var(--pri1));}
+.g-node:hover.pri2 .g-pri{filter:drop-shadow(0 0 5px var(--pri2)) drop-shadow(0 0 17px var(--pri2));}
+.g-node:hover.pri3 .g-pri{filter:drop-shadow(0 0 6px var(--pri3)) drop-shadow(0 0 20px var(--pri3));}
 /* у выполненных и архивных срочности уже нет */
 .g-node.faded .g-pri,.g-node.done .g-pri{display:none;}
 
