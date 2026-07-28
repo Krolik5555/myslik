@@ -1,4 +1,4 @@
-// Правая панель и разделитель: рабочая область делится на две части, справа — выбранный элемент.
+﻿// Правая панель и разделитель: рабочая область делится на две части, справа — выбранный элемент.
 const t = [];
 const ж = ms => new Promise(r => setTimeout(r, ms));
 
@@ -18,6 +18,32 @@ t.push({имя:"выбранный элемент виден в панели",
 t.push({имя:"текст заметки в редактируемом поле",
         ок: (document.querySelector('#aside [data-f="body"]')||{}).value === "Текст заметки",
         факт: (document.querySelector('#aside [data-f="body"]')||{}).value || "поля нет"});
+
+// ===== левая полоса иконок =====
+{
+  const s = document.getElementById("side");
+  t.push({имя:"левая панель — полоса иконок", ок: s.classList.contains("slim") && шир("side") <= 70,
+          факт: "ширина " + шир("side") + " px"});
+  t.push({имя:"подписи видов скрыты, но есть в подсказке",
+          ок: getComputedStyle(document.querySelector(".navi span:not(.badge)")).display === "none"
+              && !!document.querySelector(".navi").title,
+          факт: "подсказка: " + document.querySelector(".navi").title});
+  t.push({имя:"счётчик виден точкой", ок: !!document.querySelector(".navi .badge"),
+          факт: "бейджей: " + document.querySelectorAll(".navi .badge").length});
+
+  const былаШирина = шир("side");
+  document.getElementById("side-toggle").click(); await ж(200);
+  {
+    const к = document.getElementById("side-toggle").getBoundingClientRect();
+    t.push({имя:"панель сворачивается до кромки, кнопка возврата видна",
+            ок: s.classList.contains("side-off") && шир("side") >= 12 && шир("side") < 30 && к.width > 0 && к.height > 0,
+            факт: былаШирина + " → " + шир("side") + " px, кнопка " + Math.round(к.width) + "x" + Math.round(к.height)});
+  }
+  t.push({имя:"свёрнутость записана в настройки", ок: S.settings.sideHidden === true, факт:""});
+  document.getElementById("side-toggle").click(); await ж(200);
+  t.push({имя:"панель возвращается", ок: !s.classList.contains("side-off") && шир("side") === былаШирина,
+          факт: "ширина " + шир("side") + " px"});
+}
 
 // ===== правка прямо в панели =====
 const зад = addItem({kind:"task", title:"Задача для панели", area:null, priority:0});
@@ -88,8 +114,30 @@ asideSelect(зад.id); await ж(150);
           факт: "правых краёв: " + [...new Set(правые)].join(", ")});
 }
 
+// ===== действия внизу карточки =====
+{
+  asideSelect(зад.id); await ж(150);
+  t.push({имя:"ряд действий на месте", ок: document.querySelectorAll("#aside .as-act").length === 3,
+          факт: "кнопок: " + document.querySelectorAll("#aside .as-act").length});
+
+  const былоНод = S.items.filter(i => !i.deleted).length;
+  document.querySelector("#aside [data-dup]").click(); await ж(300);
+  const дубль = S.items.find(i => (i.title||"").indexOf("— копия") >= 0 && !i.deleted);
+  t.push({имя:"дубликат создаётся и открывается в панели",
+          ок: !!дубль && asideId === дубль.id && S.items.filter(i => !i.deleted).length === былоНод + 1,
+          факт: дубль ? дубль.title : "не создан"});
+  if (дубль) hardDeleteItem(дубль.id);
+
+  asideSelect(зад.id); await ж(150);
+  document.querySelector("#aside [data-del]").click(); await ж(300);
+  t.push({имя:"удаление из панели мягкое и панель очищается",
+          ок: зад.deleted === true && !!document.querySelector(".aside-empty"),
+          факт: "deleted: " + зад.deleted});
+  restoreItem(зад.id);
+}
+
 hardDeleteItem(зад.id);
-S.items.filter(i => i.title === "Задача для панели").forEach(i => hardDeleteItem(i.id));
+S.items.filter(i => (i.title||"").indexOf("Задача для панели") === 0).forEach(i => hardDeleteItem(i.id));
 
 // ===== наследование области по ветке =====
 {

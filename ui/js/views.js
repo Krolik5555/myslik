@@ -1,4 +1,4 @@
-"use strict";
+﻿"use strict";
 /* ===========================================================
    RENDER
    =========================================================== */
@@ -24,20 +24,39 @@ function counts(){
   return {unsorted, today:todayN, bin:binN};
 }
 
+/* Левая панель — всегда полоса иконок; кнопка внизу сворачивает её до кромки и обратно.
+   Полного режима с подписями нет намеренно: место дороже, а подписи даёт всплывающая
+   подсказка. Состояние живёт в настройках, поэтому переживает перезапуск. */
+function applySide(){
+  const s=$("#side"), b=$("#side-toggle");
+  if(!s) return;
+  const скрыта = S.settings.sideHidden === true;
+  s.classList.add("slim");
+  s.classList.toggle("side-off", скрыта);
+  if(b){
+    b.title = скрыта ? "Показать панель" : "Свернуть панель";
+    b.innerHTML = `<i class="ti ti-chevron-${скрыта?"right":"left"}"></i>`;
+    b.onclick = ()=>{ S.settings.sideHidden = !скрыта; persist(); applySide(); if(graph) graph._onResize(); };
+  }
+}
+
 function renderNav(){
   const c=counts();
+  applySide();
   $("#nav").innerHTML = NAV.map(n=>{
     const badge = (n[0]==="notes"&&c.unsorted)?`<span class="badge">${c.unsorted}</span>`
                 : (n[0]==="today"&&c.today)?`<span class="badge">${c.today}</span>`
                 : (n[0]==="bin"&&c.bin)?`<span class="badge">${c.bin}</span>`:"";
-    return `<button class="navi ${view===n[0]?"on":""}" data-v="${n[0]}"><i class="ti ${n[1]}"></i>${n[2]}${badge}</button>`;
+    // подпись дублируем в title: в свёрнутой полосе виден только значок
+    return `<button class="navi ${view===n[0]?"on":""}" data-v="${n[0]}" title="${esc(n[2])}"><i class="ti ${n[1]}"></i><span>${n[2]}</span>${badge}</button>`;
   }).join("");
   $("#areas").innerHTML = S.areas.map(a=>{
     const tasks=S.items.filter(it=>it.kind==="task"&&it.area===a.id&&!it.deleted);
     const n=tasks.filter(it=>!it.done&&it.status!=="note").length;
     const pct=tasks.length?Math.round(tasks.filter(it=>it.done).length/tasks.length*100):null;
     const col=a.color?`style="color:${a.color}"`:"";
-    return `<button class="areai ${areaFilter===a.id?"on":""}" data-area="${a.id}"><i class="ti ${a.icon}" ${col}></i>${esc(a.name)}<span class="cnt">${n||""}${pct!=null?" ("+pct+"%)":""}</span></button>`;
+    const подпись = a.name + (n?` · ${n} задач`:"") + (pct!=null?` · ${pct}%`:"");
+    return `<button class="areai ${areaFilter===a.id?"on":""}" data-area="${a.id}" title="${esc(подпись)}"><i class="ti ${a.icon}" ${col}></i><span class="nm">${esc(a.name)}</span><span class="cnt">${n||""}${pct!=null?" ("+pct+"%)":""}</span></button>`;
   }).join("");
 }
 
@@ -171,6 +190,13 @@ function asideCard(it){
   const связанные = рядом.length ? `<div class="as-sec">Связанные ноды<span class="as-cnt">${рядом.length}</span></div>
     <div class="as-links">${рядом.slice(0,20).map(строкаНоды).join("")}</div>` : "";
 
+  // ряд действий внизу — то, что не влезает в поля: правка, дубль, удаление
+  const действия = `<div class="as-foot">
+      <button class="as-act" data-edit="1" title="Открыть в окне (цвет, папка)"><i class="ti ti-pencil"></i></button>
+      <button class="as-act" data-dup="1" title="Дублировать"><i class="ti ti-copy"></i></button>
+      <button class="as-act as-del" data-del="1" title="Удалить"><i class="ti ti-trash"></i></button>
+    </div>`;
+
   return `<div class="as-head"><h2 class="as-title" contenteditable="plaintext-only" data-ph="без названия">${esc(it.title||"")}</h2>
       <div class="as-acts">
         <button class="as-ic" data-edit="1" title="Править"><i class="ti ti-pencil"></i></button>
@@ -178,7 +204,8 @@ function asideCard(it){
       </div></div>
     <div class="as-rows">${стр.join("")}</div>
     ${тело}
-    ${связанные}`;
+    ${связанные}
+    ${действия}`;
 }
 
 function wireAside(it){
@@ -188,6 +215,23 @@ function wireAside(it){
   b("[data-edit]",  ()=>openItemSmart(it));
   b("[data-open]",  ()=>openBoard(it));
   b("[data-full]",  ()=>openBoard(it));   // из врезки — развернуть ту же доску на весь экран
+  b("[data-dup]", ()=>{
+    const копия = addItem({kind:it.kind, title:(it.title||"")+" — копия", body:it.body||"", area:it.area,
+      tags:(it.tags||[]).slice(), status:it.status, due:it.due||null, repeat:it.repeat||"none",
+      priority:it.priority||0, color:it.color||null});
+    if(it.areaAuto===false) копия.areaAuto=false;
+    // доска полотна лежит отдельно от ноды — копируем её тем же движением
+    if(it.kind==="flow" && S.boards && S.boards[it.id]) S.boards[копия.id]=JSON.parse(JSON.stringify(S.boards[it.id]));
+    persist(); asideSelect(копия.id); if(graph) graph.build();
+    toast("Дубликат создан", {icon:"ti-copy"});
+  });
+  b("[data-del]", ()=>{
+    const id = it.id;
+    deleteItem(id);
+    asideId = null;
+    render();
+    toast("Удалено", {icon:"ti-trash", label:"Вернуть", onAction:()=>{ restoreItem(id); asideSelect(id); render(); }});
+  });
   a.querySelectorAll("[data-go]").forEach(el=>{ el.onclick=()=>asideSelect(el.dataset.go); });
 
   /* После правки НЕ зовём render(): на вкладке «Заметки» он пересобирает граф с нуля и сбрасывает

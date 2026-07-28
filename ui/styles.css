@@ -1,4 +1,4 @@
-:root{
+﻿:root{
   --bg:#000; --surf:#0c0c0e; --surf2:#161618; --surf3:#1f1f22;
   --bd:rgba(255,255,255,.13); --bd2:rgba(255,255,255,.26); --bd3:rgba(255,255,255,.40);
   --tx:#f4f4f5; --mut:#86868c; --mut2:#5b5b61;
@@ -53,7 +53,9 @@ select option{background:var(--surf2);color:var(--tx);}
 
 /* ===== top bar (capture) ===== */
 #topbar{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:0.5px solid var(--bd);}
-#cap-wrap{position:relative;flex:1;}
+/* Строку захвата не растягиваем на всю ширину: на широком мониторе поле в два метра
+   выглядит пустым, а курсор всё равно у центра. Ограничиваем и центрируем. */
+#cap-wrap{position:relative;flex:1;max-width:960px;margin:0 auto;}
 #cap-wrap .ti-feather{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--mut);font-size:17px;pointer-events:none;}
 #cap{width:100%;height:40px;padding:0 14px 0 38px;background:var(--surf2);border:0.5px solid var(--bd);border-radius:10px;font-size:14px;outline:none;transition:.15s;}
 #cap:focus{border-color:var(--bd3);box-shadow:0 0 0 3px var(--surf3),0 0 16px var(--glow);}
@@ -65,6 +67,31 @@ select option{background:var(--surf2);color:var(--tx);}
 #app{display:flex;flex-direction:column;height:100vh;}
 #body{display:flex;flex:1;min-height:0;}
 #side{width:188px;flex:none;border-right:0.5px solid var(--bd);display:flex;flex-direction:column;padding:12px 10px;gap:3px;overflow-y:auto;}
+
+/* ===== узкая полоса слева =====
+   Панель по умолчанию свёрнута в полосу иконок: рабочего места мало, а список видов
+   человек и так знает наизусть. Подписи показываем всплывающей подсказкой (title) —
+   выезжающая панель ловила бы курсор при работе с графом у левого края. */
+#side.slim{width:56px;padding:12px 6px;align-items:center;overflow:visible;}
+#side.slim .navi,#side.slim .areai{justify-content:center;gap:0;padding:9px 0;width:40px;}
+#side.slim .navi span:not(.badge),#side.slim .areai .nm,#side.slim .areai .cnt{display:none;}
+#side.slim .navi i,#side.slim .areai i{font-size:18px;}
+/* счётчик не влезает рядом с иконкой — вешаем точкой в угол */
+#side.slim .navi .badge{position:absolute;top:2px;right:2px;margin:0;min-width:0;width:15px;height:15px;
+  padding:0;display:flex;align-items:center;justify-content:center;font-size:9.5px;border-radius:20px;}
+#side.slim .navi{position:relative;}
+#side.slim .side-h{margin:14px 0 6px;justify-content:center;}
+#side.slim .side-h-txt{display:none;}
+#side.slim .side-foot{flex-direction:column;gap:4px;width:100%;align-items:center;}
+#side.slim .side-ver{display:none;}
+/* Свёрнута совсем: остаётся кромка с кнопкой возврата. min-width обязателен — без него
+   flex сжимает пустую колонку в ноль, и вернуть панель становится нечем. */
+#side.side-off{width:20px;min-width:20px;padding:8px 0;align-items:center;overflow:visible;}
+#side.side-off > *:not(.side-toggle){display:none;}
+.side-toggle{flex:none;width:28px;height:24px;margin-top:auto;border-radius:7px;display:flex;
+  align-items:center;justify-content:center;color:var(--mut2);font-size:14px;transition:.12s;}
+.side-toggle:hover{background:var(--surf2);color:var(--tx);}
+#side.side-off .side-toggle{margin:auto 0;width:20px;height:44px;}
 .navi{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:9px;font-size:13.5px;color:var(--mut);width:100%;text-align:left;transition:.12s;}
 .navi:hover{background:var(--surf2);color:var(--tx);}
 .navi.on{background:var(--acc);color:var(--bg);box-shadow:0 0 18px var(--glow);}
@@ -96,7 +123,7 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 /* ===== main ===== */
 #main{flex:1;min-width:0;display:flex;flex-direction:column;}
 #main-head{display:flex;align-items:center;justify-content:space-between;padding:16px 22px 8px;}
-#main-title{font-size:19px;font-weight:500;letter-spacing:.01em;}
+#main-title{font-size:23px;font-weight:600;letter-spacing:-.01em;}
 #main-sub{font-size:12.5px;color:var(--mut);}
 .head-actions{display:flex;gap:8px;}
 .btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border:0.5px solid var(--bd2);border-radius:9px;font-size:13px;color:var(--tx);transition:.12s;background:var(--surf);white-space:nowrap;flex:0 0 auto;}
@@ -113,8 +140,10 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 /* сама полоса тонкая, а зона захвата шире — в неё трудно не попасть мышью */
 #splitter:before{content:"";position:absolute;left:3px;top:0;bottom:0;width:1px;background:var(--bd);transition:background .12s;}
 #splitter:hover:before,#splitter.drag:before{background:var(--acc);box-shadow:0 0 10px var(--glow);}
-#aside{flex:none;width:420px;min-width:0;overflow-y:auto;padding:6px 18px 26px;
-  border-left:0.5px solid var(--bd);background:var(--surf);}
+/* Правая часть — отдельная карточка, как холст графа слева: тогда две половины читаются
+   как две панели приложения, а не как одно полотно, разрезанное линией. */
+#aside{flex:none;width:420px;min-width:0;overflow-y:auto;margin:0 18px 20px 0;padding:8px 16px 18px;
+  border:0.5px solid var(--bd);border-radius:var(--r-l);background:var(--surf);}
 #aside.off,#splitter.off{display:none;}
 /* карточка выбранного элемента */
 .as-head{display:flex;align-items:flex-start;gap:8px;padding:10px 2px 12px;}
@@ -189,6 +218,13 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .as-link i{font-size:15px;color:var(--mut);flex:none;}
 .as-link span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .as-role{flex:none;font-style:normal;font-size:10.5px;color:var(--mut2);letter-spacing:.02em;}
+/* ряд действий внизу карточки */
+.as-foot{display:flex;gap:6px;justify-content:flex-end;margin-top:18px;padding-top:12px;
+  border-top:0.5px solid var(--bd);}
+.as-act{width:34px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+  color:var(--mut);font-size:16px;border:0.5px solid transparent;transition:.12s;}
+.as-act:hover{background:var(--surf2);color:var(--tx);border-color:var(--bd);}
+.as-del:hover{color:var(--warn);border-color:var(--warn);}
 .as-cnt{margin-left:6px;color:var(--mut2);}
 /* пока ничего не выбрано — подсказка вместо пустоты */
 .aside-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;

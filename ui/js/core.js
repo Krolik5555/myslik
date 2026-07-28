@@ -205,7 +205,8 @@ function defaultState(){
     tags:[],   // реестр стилизованных тегов: {name, icon?, color?, size?, shape?} — все свойства опциональны
     settings:{ theme:"dark", view:"today", graphDrift:4, graphSpread:1, graphBg:true, glow:1, graphLinkLen:1, graphNodeSize:1, graphDegScale:1, graphDoneScale:0.6, graphDoneLinkLen:0.6, graphLinkBright:1, graphFadedBright:0.5,
       graphDoingGlow:true, graphDoingGlowRadius:110, graphDoingGlowBright:0.3, graphDoingGlowBlur:30,
-      asideW:420, asideOn:true }   // правая панель: ширина и показана ли
+      asideW:420, asideOn:true,    // правая панель: ширина и показана ли
+      sideHidden:false }           // левая полоса: свёрнута ли до кромки
   };
 }
 
