@@ -90,7 +90,12 @@ select option{background:var(--surf2);color:var(--tx);}
    flex сжимает пустую колонку в ноль, и вернуть панель становится нечем. */
 #side.side-off{width:20px;min-width:20px;padding:8px 0;align-items:center;overflow:visible;}
 #side.side-off > *:not(.side-toggles){display:none;}
-.side-toggles{flex:none;margin-top:auto;display:flex;gap:4px;justify-content:center;padding-top:8px;}
+/* Кнопка не должна прыгать при смене ширины панели: держим её у ЛЕВОГО края и вверху —
+   тогда после сворачивания она остаётся ровно там же, где была. */
+.side-toggles{flex:none;display:flex;gap:4px;align-self:flex-start;margin:0 0 6px 0;}
+/* у свёрнутой панели отступ меньше на 4 px — компенсируем, иначе кнопка при переключении
+   сдвигается и глаз каждый раз её ищет */
+#side.slim .side-toggles{margin-left:4px;}
 .side-toggle{width:32px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;
   color:var(--mut2);font-size:16px;transition:.12s;}
 .side-toggle:hover{background:var(--surf2);color:var(--tx);}

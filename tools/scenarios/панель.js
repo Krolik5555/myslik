@@ -49,6 +49,17 @@ t.push({имя:"текст заметки в редактируемом поле
   t.push({имя:"и сворачиваются обратно", ок: s.classList.contains("slim") && шир("side") === былаШирина,
           факт: "ширина " + шир("side") + " px"});
 
+  // кнопка разворота не должна прыгать при смене ширины панели
+  {
+    const до = document.getElementById("side-wide").getBoundingClientRect();
+    document.getElementById("side-wide").click(); await ж(200);
+    const после = document.getElementById("side-wide").getBoundingClientRect();
+    t.push({имя:"кнопка разворота остаётся на месте",
+            ок: Math.abs(до.left - после.left) <= 2 && Math.abs(до.top - после.top) <= 2,
+            факт: `${Math.round(до.left)},${Math.round(до.top)} → ${Math.round(после.left)},${Math.round(после.top)}`});
+    document.getElementById("side-wide").click(); await ж(200);
+  }
+
   // нижние кнопки должны быть попадаемыми
   const фб = document.querySelector(".foot-btn").getBoundingClientRect();
   t.push({имя:"кнопки экспорта и настроек крупные", ок: фб.height >= 36 && фб.width >= 36,
@@ -75,6 +86,26 @@ t.push({имя:"текст заметки в редактируемом поле
       t.push({имя:"в сводке есть переходы к нодам",
               ок: document.querySelectorAll("#aside .as-link").length >= 2,
               факт: "ссылок: " + document.querySelectorAll("#aside .as-link").length});
+
+      // групповые правки из сводки: тип у всех разом
+      {
+        const свои = узлы.map(n => n.ref).filter(Boolean);
+        graph.selNodes = new Set(свои.map(n => n.id)); graph._paintSel(); graph._syncAside(); await ж(250);
+        const поле = document.querySelector('#aside [data-all="kind"]');
+        if (поле) {
+          поле.value = "note"; поле.dispatchEvent(new Event("change", {bubbles:true}));
+          await ж(400);
+          t.push({имя:"тип меняется у всех выделенных сразу",
+                  ок: свои.every(n => n.kind === "note"),
+                  факт: свои.map(n => n.kind).join(", ")});
+          const поле2 = document.querySelector('#aside [data-all="kind"]');
+          поле2.value = "task"; поле2.dispatchEvent(new Event("change", {bubbles:true}));
+          await ж(400);
+          t.push({имя:"и обратно в задачи", ок: свои.every(n => n.kind === "task" && n.status !== "note"),
+                  факт: свои.map(n => n.kind).join(", ")});
+        }
+        graph.selNodes = new Set(); graph._paintSel();
+      }
 
       // клик по связанной ноде выделяет её в графе
       graph.selNodes = new Set(); graph._paintSel();

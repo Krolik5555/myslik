@@ -3,6 +3,17 @@
 // добавляло ещё один вечный цикл отрисовки поверх существующего, и граф считал физику
 // в несколько потоков сразу.
 const t = [];
+// Alt+протяжка на пустое место спрашивает тип новой ноды (раньше молча рождалась заметка)
+const _спросТипа = () => {
+  const g = graph; if (!g) return null;
+  const было = S.items.length;
+  g._askKind({clientX: 300, clientY: 300}, k => g._quickAdd(k, 100, 100, null));
+  const меню = document.querySelector("#node-pop");
+  const кнопок = меню ? меню.querySelectorAll("[data-k]").length : 0;
+  if (меню) { const b = меню.querySelector('[data-k="task"]'); if (b) b.click(); }
+  return {кнопок, создано: S.items.length - было,
+          тип: S.items.length > было ? S.items[S.items.length-1].kind : null};
+};
 const ж = ms => new Promise(r => setTimeout(r, ms));
 
 view = "notes"; render(); await ж(300);
@@ -63,6 +74,18 @@ t.push({имя:"уход с вкладки уничтожает граф", ок:
 view = "notes"; render(); await ж(250);
 t.push({имя:"возврат на вкладку пересобирает граф", ок: !!graph && graph.nodes.length > 0,
         факт: graph ? graph.nodes.length + " узлов" : "нет"});
+
+// Alt+протяжка на пустое место: сначала спрашивает тип, потом создаёт
+{
+  const р = _спросТипа();
+  await ж(200);
+  if (р) {
+    t.push({имя:"Alt-протяжка предлагает выбрать тип", ок: р.кнопок === 3, факт: "вариантов: " + р.кнопок});
+    t.push({имя:"создаётся выбранный тип, а не всегда заметка", ок: р.создано === 1 && р.тип === "task",
+            факт: "создано " + р.создано + ", тип " + р.тип});
+    S.items.filter(i => i.kind === "task" && !i.title && i.x === 100).forEach(i => hardDeleteItem(i.id));
+  }
+}
 
 hardDeleteItem(мысль.id); render();
 return t;

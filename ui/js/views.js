@@ -80,6 +80,18 @@ function asideSelect(id){
   renderAside();
 }
 
+/* Смена типа ноды. Нарисованное и написанное не трогаем: доска полотна лежит в S.boards,
+   текст — в body, и при возврате прежнего типа всё оказывается на месте. Правим только поля,
+   которые у нового типа обязаны быть согласованы. Одна функция на одиночную и групповую смену. */
+function applyKind(it, kind){
+  if(!it || it.kind===kind) return false;
+  it.kind = kind;
+  if(kind==="task"){ if(it.status==="note") it.status = it.done ? "done" : "todo"; }
+  else { it.status="note"; it.done=false; it.doneAt=null; it.due=null; it.repeat="none"; it.priority=0; }
+  touch(it);
+  return true;
+}
+
 // Выделили рамкой несколько нод — показываем сводку, а не пустоту: сколько и чего выбрано,
 // с быстрым переходом к любой из них.
 function asideMany(ids){
@@ -132,9 +144,56 @@ function renderAside(){
         <div class="as-row"><span class="as-k">Заметки</span><span class="as-ico"><i class="ti ti-note"></i></span><span class="as-v">${счёт("note")}</span></div>
         <div class="as-row"><span class="as-k">Полотна</span><span class="as-ico"><i class="ti ti-artboard"></i></span><span class="as-v">${счёт("flow")}</span></div>
       </div>
+      <div class="as-sec">Изменить всё сразу</div>
+      <div class="as-rows">
+        <div class="as-row"><span class="as-k">Тип</span><span class="as-ico"></span><span class="as-v">
+          <select class="as-sel" data-all="kind">
+            <option value="">— оставить —</option>
+            <option value="task">Задача</option>
+            <option value="note">Заметка</option>
+            <option value="flow">Полотно</option>
+          </select></span></div>
+        <div class="as-row"><span class="as-k">Область</span><span class="as-ico"></span><span class="as-v">
+          <select class="as-sel" data-all="area">
+            <option value="">— оставить —</option>
+            <option value="__none__">Без области</option>
+            ${S.areas.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("")}
+          </select></span></div>
+      </div>
       <div class="as-sec">Ноды</div>
-      <div class="as-links">${ноды.slice(0,30).map(n=>`<button class="as-link" data-go="${esc(n.id)}"><i class="ti ${n.kind==="flow"?"ti-artboard":n.kind==="note"?"ti-note":"ti-checkbox"}"></i><span>${esc(n.title||"без названия")}</span></button>`).join("")}</div>`;
+      <div class="as-links">${ноды.slice(0,30).map(n=>`<button class="as-link" data-go="${esc(n.id)}"><i class="ti ${n.kind==="flow"?"ti-artboard":n.kind==="note"?"ti-note":"ti-checkbox"}"></i><span>${esc(n.title||"без названия")}</span></button>`).join("")}</div>
+      <div class="as-foot"><button class="as-act as-del" data-delall="1" title="Удалить выделенные"><i class="ti ti-trash"></i></button></div>`;
     a.querySelectorAll("[data-go]").forEach(el=>{ el.onclick=()=>{ asideSelect(el.dataset.go); if(graph) graph.focusNode(el.dataset.go); }; });
+
+    // групповые правки: меняем у всех разом и сразу перерисовываем паутину
+    a.querySelectorAll("[data-all]").forEach(поле=>{
+      поле.onchange = ()=>{
+        const v = поле.value; if(!v) return;
+        let тронуто = 0;
+        if(поле.dataset.all==="kind") ноды.forEach(n=>{ if(applyKind(n, v)) тронуто++; });
+        else{
+          const area = v==="__none__" ? null : v;
+          ноды.forEach(n=>{ n.area=area; if(area) n.areaAuto=false; else delete n.areaAuto; touch(n); тронуто++; });
+          recomputeHierarchy();
+        }
+        persist(); renderNav(); if(graph) graph.build();
+        renderAside();
+        toast("Изменено нод: "+тронуто, {icon:"ti-checks"});
+      };
+    });
+    const удалить = a.querySelector("[data-delall]");
+    if(удалить) удалить.onclick = async ()=>{
+      const ок = await uiConfirm(`Удалить выделенные ноды (${ноды.length})?`,
+        {danger:true, title:"Удаление", okLabel:"Удалить"});
+      if(!ок) return;
+      const ids = ноды.map(n=>n.id);
+      ids.forEach(id=>deleteItem(id));
+      asideGroup = null; asideId = null;
+      if(graph){ graph.selNodes.clear(); graph._paintSel(); graph.build(); }
+      render();
+      toast("Удалено: "+ids.length, {icon:"ti-trash", label:"Вернуть",
+        onAction:()=>{ ids.forEach(id=>restoreItem(id)); render(); }});
+    };
     return;
   }
   const it = asideId ? liveById(asideId) : null;
@@ -300,14 +359,7 @@ function wireAside(it){
       // выбор руками перебивает наследование от родителя (и обратно: «Без области» =
       // вернуть ноду к наследованию, если она к кому-то привязана)
       if(f==="area"){ it.area = v || null; if(v) it.areaAuto=false; else delete it.areaAuto; recomputeHierarchy(); }
-      else if(f==="kind"){
-        /* Смена типа. Нарисованное и написанное не трогаем: доска полотна лежит в S.boards,
-           текст — в body, и при возврате прежнего типа всё оказывается на месте. Правим только
-           поля, которые у нового типа обязаны быть согласованы. */
-        it.kind = v;
-        if(v==="task"){ if(it.status==="note") it.status = it.done ? "done" : "todo"; }
-        else { it.status="note"; it.done=false; it.doneAt=null; it.due=null; it.repeat="none"; it.priority=0; }
-      }
+      else if(f==="kind") applyKind(it, v);
       else if(f==="priority") it.priority = +v || 0;
       else if(f==="repeat") it.repeat = v || "none";
       else if(f==="due") it.due = v || null;

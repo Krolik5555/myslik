@@ -292,6 +292,30 @@ class Graph{
   /* Правая панель следует за выделением: одна нода — её карточка, несколько — сводка.
      Зовётся ПОСЛЕ жеста (клик, рамка), а не из _paintSel: тот дёргается на каждом кадре
      протяжки, и панель перерисовывалась бы десятки раз за секунду. */
+  /* Маленькое меню «что создать» в точке отпускания. Живёт до выбора или клика мимо;
+     Escape тоже закрывает — иначе оно висело бы поверх графа. */
+  _askKind(e, then){
+    this._closePop();
+    const wrap=$("#graph-wrap"); if(!wrap) return then("note");
+    const rc=wrap.getBoundingClientRect();
+    const pop=el("div","g-ctx"); pop.id="node-pop";
+    pop.innerHTML=`<div class="np-ttl"><i class="ti ti-plus"></i> Связать с новой</div>
+      <div class="np-col">
+        <button class="btn" data-k="note"><i class="ti ti-note"></i>Заметка</button>
+        <button class="btn" data-k="task"><i class="ti ti-checklist"></i>Задача</button>
+        <button class="btn" data-k="flow"><i class="ti ti-artboard"></i>Полотно</button>
+      </div>`;
+    wrap.appendChild(pop);
+    const pw=pop.offsetWidth||180, ph=pop.offsetHeight||150;
+    pop.style.left=Math.min(Math.max(6,e.clientX-rc.left+6), rc.width-pw-6)+"px";
+    pop.style.top =Math.min(Math.max(6,e.clientY-rc.top+6),  rc.height-ph-6)+"px";
+    const закрыть=()=>{ this._closePop(); document.removeEventListener("pointerdown",мимо,true); document.removeEventListener("keydown",клавиша,true); };
+    const мимо=ev=>{ if(!ev.target.closest("#node-pop")) закрыть(); };
+    const клавиша=ev=>{ if(ev.key==="Escape"){ ev.preventDefault(); закрыть(); } };
+    setTimeout(()=>{ document.addEventListener("pointerdown",мимо,true); document.addEventListener("keydown",клавиша,true); },0);
+    $$("[data-k]",pop).forEach(b=>b.onclick=()=>{ const k=b.dataset.k; закрыть(); then(k); });
+  }
+
   // Выделить ноду снаружи (клик по связанной ноде в правой панели) и подвести к ней камеру.
   focusNode(id){
     const n=this.byId[id];
@@ -814,7 +838,9 @@ class Graph{
           // нарисованным мимо экрана. Найти её потом можно было только через «Одинокие ноды».
           const rc=svg.getBoundingClientRect();
           const inside = e.clientX>=rc.left && e.clientX<=rc.right && e.clientY>=rc.top && e.clientY<=rc.bottom;
-          if(inside){ const p=this._pt(e); this._quickAdd("note",p.x,p.y,from); }
+          // Тип спрашиваем, а не додумываем: раньше всегда рождалась заметка, и задачу или
+          // полотно приходилось переделывать вручную сразу после создания.
+          if(inside){ const p=this._pt(e); this._askKind(e, k=>this._quickAdd(k,p.x,p.y,from)); }
         }
         return; }
       if(this.marq){ this._finishMarquee(); return; }
