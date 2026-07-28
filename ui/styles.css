@@ -377,7 +377,11 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 /* Фон «Точечное поле»: один canvas-слой за графом; точки рисует Graph._drawBg()
    каждый кадр, привязка к настоящему пану/зуму (this.tx/ty/zoom). Бесшовно (мировой
    индекс тайла → нет рывков при зуме), тема-зависимо, prefers-reduced-motion в JS. */
-#graph-wrap{position:relative;border:0.5px solid var(--bd);border-radius:var(--r-l);overflow:hidden;
+/* Высоту графа НЕ считаем формулой: раньше стояло calc(100vh - 210px), и левая половина
+   заканчивалась выше правой, которая тянется до низа. Отдаём остаток колонки флексом —
+   тогда обе половины кончаются на одной линии при любом размере окна. */
+#view:has(#graph-wrap){display:flex;flex-direction:column;overflow:hidden;padding-top:0;padding-bottom:20px;}
+#graph-wrap{flex:1;min-height:320px;position:relative;border:0.5px solid var(--bd);border-radius:var(--r-l);overflow:hidden;
   background:var(--surf);}
 .graph-bg-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;display:block;}
 .graph-glow-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;display:block;}   /* цветная подсветка «в работе» — между фоном и нодами */

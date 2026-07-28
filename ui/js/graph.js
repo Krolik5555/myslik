@@ -32,7 +32,7 @@ function renderNotes(v){
        <button data-nm="list" class="${notesMode==="list"?"on":""}"><i class="ti ti-layout-grid"></i>Список</button>
      </div>`);   // кнопки «Заметка»/«Полотно» убраны — создаём через ПКМ по холсту
   if(notesMode==="list"){ if(graph){ const g=graph; graph=null; g.destroy(); } return renderNotesList(v); }
-  v.innerHTML=`<div id="graph-wrap" style="height:calc(100vh - 210px);min-height:420px;">
+  v.innerHTML=`<div id="graph-wrap">
     <canvas class="graph-bg-canvas"></canvas>
     <canvas class="graph-glow-canvas"></canvas>
     <svg id="graph" preserveAspectRatio="xMidYMid meet"></svg>

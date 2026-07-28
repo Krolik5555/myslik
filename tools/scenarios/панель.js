@@ -131,6 +131,15 @@ t.push({имя:"текст заметки в редактируемом поле
   }
 }
 
+// левая и правая половины должны кончаться на одной линии
+{
+  view = "notes"; render(); await ж(700);
+  const л = document.getElementById("graph-wrap").getBoundingClientRect();
+  const п = document.getElementById("aside").getBoundingClientRect();
+  t.push({имя:"половины одинаковой высоты", ок: Math.abs(л.bottom - п.bottom) <= 2 && Math.abs(л.top - п.top) <= 2,
+          факт: `граф ${Math.round(л.top)}–${Math.round(л.bottom)}, панель ${Math.round(п.top)}–${Math.round(п.bottom)}`});
+}
+
 // ===== разделитель: ручка вместо полосы =====
 {
   const sp = document.getElementById("splitter");
