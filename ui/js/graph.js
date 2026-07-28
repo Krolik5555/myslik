@@ -722,10 +722,13 @@ class Graph{
       /* Кольцо приоритета — ОТДЕЛЬНАЯ фигура чуть большего размера и тонкой линией: цвет
          самой ноды остаётся за областью, а срочность читается как ободок вокруг.
          Зелёный — низкий, жёлтый — средний, красный — высокий. */
+      /* ШАПОЧКА приоритета — метка над нодой, повторяющая верхнюю часть её контура. Полное
+         кольцо спорило с формой, точка читалась как посторонний объект, а шапочка выглядит
+         частью самой ноды и растёт вместе с ней при наведении (см. .g-pri в styles.css). */
       let pri=null;
       if(пр){
-        pri=this._shapeEl(NS, shapeKind, n.r+4.5);
-        pri.setAttribute("class","g-pri sh-"+shapeKind);
+        pri=document.createElementNS(NS,"path");
+        pri.setAttribute("class","g-pri");
         g.appendChild(pri);
       }
       const shape = this._shapeEl(NS, shapeKind, n.r);
@@ -773,6 +776,31 @@ class Graph{
   _hexagon(NS,r){ const p=document.createElementNS(NS,"polygon"); p.setAttribute("class","nd"); return p; }   // точки ставятся в _tick
   _shapeEl(NS,kind,r){ return kind==="square"?this._rect(NS,r) : kind==="diamond"?this._rrect(NS,r) : kind==="hexagon"?this._hexagon(NS,r) : this._circle(NS,r); }
   _hexPts(x,y,r){ let s=""; for(let i=0;i<6;i++){ const a=Math.PI/180*(60*i-90); s+=(x+r*Math.cos(a)).toFixed(1)+","+(y+r*Math.sin(a)).toFixed(1)+" "; } return s.trim(); }
+
+  /* Путь ШАПОЧКИ — повтор верхней части контура ноды: у квадрата прямая черта над гранью,
+     у шестиугольника два верхних ребра, у ромба его верхний угол, у круга дуга. Дуга
+     окружности поверх квадрата смотрелась чужой: шапочка должна читаться как та же обводка. */
+  _priPath(sk,x,y,r){
+    const f=v=>v.toFixed(1);
+    const зазор=5.5;                 // отступ метки от контура ноды
+    const R=r+зазор;
+    /* У квадрата метка — отдельная черта над гранью: по ширине вровень с ней (чуть уже),
+       а не по описанной окружности, иначе линия торчала бы за края. */
+    if(sk==="square"){ const w=r*0.92, t=y-r-зазор;
+      return `M ${f(x-w)} ${f(t)} L ${f(x+w)} ${f(t)}`; }
+    if(sk==="diamond"){
+      // ромб — повёрнутый квадрат: верхняя вершина и по куску каждой из сходящихся граней
+      const D=R*1.41, t=0.55;
+      return `M ${f(x-D*t)} ${f(y-D*(1-t))} L ${f(x)} ${f(y-D)} L ${f(x+D*t)} ${f(y-D*(1-t))}`;
+    }
+    if(sk==="hexagon"){
+      const p=deg=>{ const a=Math.PI/180*deg; return [x+R*Math.cos(a), y+R*Math.sin(a)]; };
+      const A=p(-150), B=p(-90), C=p(-30);
+      return `M ${f(A[0])} ${f(A[1])} L ${f(B[0])} ${f(B[1])} L ${f(C[0])} ${f(C[1])}`;
+    }
+    const a1=-Math.PI*0.8, a2=-Math.PI*0.2;
+    return `M ${f(x+R*Math.cos(a1))} ${f(y+R*Math.sin(a1))} A ${f(R)} ${f(R)} 0 0 1 ${f(x+R*Math.cos(a2))} ${f(y+R*Math.sin(a2))}`;
+  }
 
   _pt(e){
     // точное преобразование экранных координат в координаты графа через матрицу самого SVG
@@ -1402,11 +1430,10 @@ class Graph{
       if(sk==="square"||sk==="diamond"){ o.shape.setAttribute("x",x-n.r); o.shape.setAttribute("y",y-n.r); }   // ромб — тот же квадрат, поворот в CSS (.sh-diamond)
       else if(sk==="hexagon"){ o.shape.setAttribute("points", this._hexPts(x,y,n.r)); }
       else { o.shape.setAttribute("cx",x); o.shape.setAttribute("cy",y); }
-      // кольцо приоритета движется вместе с фигурой, только шире на постоянный запас
-      if(o.pri){ const R=n.r+4.5;
-        if(sk==="square"||sk==="diamond"){ o.pri.setAttribute("x",x-R); o.pri.setAttribute("y",y-R); }
-        else if(sk==="hexagon"){ o.pri.setAttribute("points", this._hexPts(x,y,R)); }
-        else { o.pri.setAttribute("cx",x); o.pri.setAttribute("cy",y); } }
+      if(o.pri){
+        o.pri.setAttribute("d", this._priPath(sk, x, y, n.r));
+        o.pri.style.transformOrigin = x.toFixed(1)+"px "+y.toFixed(1)+"px";   // растём вместе с нодой, от её центра
+      }
       if(o.hit){ o.hit.setAttribute("cx",x); o.hit.setAttribute("cy",y); }   // расширенная область захвата едет с нодой
       if(n.type==="task" && o.check) o.check.setAttribute("d",`M ${x-3.2} ${y+0.3} l 2.2 2.4 l 4.2 -5`);
       if(o.halo){ o.halo.setAttribute("cx",x); o.halo.setAttribute("cy",y); }

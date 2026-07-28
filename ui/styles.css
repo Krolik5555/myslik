@@ -418,12 +418,24 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 /* Выделение должно быть видно с одного взгляда, в том числе на пёстром графе: толстая
    обводка акцентом, двойное свечение и подпись в полную яркость. Прежние 2.6 px с мягкой
    тенью терялись среди цветных нод. */
-/* Кольцо приоритета: отдельный контур чуть шире ноды и тоньше её обводки. Цвет самой ноды
-   остаётся за областью, срочность читается ободком. Готовые задачи кольца не получают. */
-.g-pri{fill:none;stroke-width:1.1;opacity:.85;pointer-events:none;}
-.g-node.pri1 .g-pri{stroke:var(--pri1);}
-.g-node.pri2 .g-pri{stroke:var(--pri2);}
-.g-node.pri3 .g-pri{stroke:var(--pri3);filter:drop-shadow(0 0 4px var(--pri3));}
+/* ШАПОЧКА — метка приоритета над нодой: повторяет верхнюю часть её контура и растёт вместе
+   с ней при наведении (статичная метка выбивалась из поведения ноды). */
+/* transform-box:view-box + точка отсчёта в центре ноды (её ставит _tick инлайном): у метки
+   свой bounding box — только верхняя дуга, и масштабирование «от её центра» разъезжалось
+   с нодой, оставляя торчащие уши по бокам. */
+.g-pri{fill:none;stroke-width:1.2;stroke-linecap:round;pointer-events:none;
+  transition:filter .15s, transform .14s ease;transform-box:view-box;}
+.g-node:hover .g-pri{transform:scale(1.18);}
+/* Светится своим цветом — мягко, чтобы читалась и на тёмном фоне; чем выше срочность,
+   тем заметнее ореол. */
+.g-node.pri1 .g-pri{stroke:var(--pri1);filter:drop-shadow(0 0 3px var(--pri1));}
+.g-node.pri2 .g-pri{stroke:var(--pri2);filter:drop-shadow(0 0 4px var(--pri2));}
+.g-node.pri3 .g-pri{stroke:var(--pri3);filter:drop-shadow(0 0 5.5px var(--pri3));}
+.g-node:hover.pri1 .g-pri{filter:drop-shadow(0 0 6px var(--pri1));}
+.g-node:hover.pri2 .g-pri{filter:drop-shadow(0 0 7px var(--pri2));}
+.g-node:hover.pri3 .g-pri{filter:drop-shadow(0 0 9px var(--pri3));}
+/* у выполненных и архивных срочности уже нет */
+.g-node.faded .g-pri,.g-node.done .g-pri{display:none;}
 
 /* Подсвечиваем СВОИМ цветом ноды, а не акцентом: акцент в тёмной теме — чистый белый,
    и выделенная нода теряла принадлежность к области. Заметность даёт геометрия. */
