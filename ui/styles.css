@@ -413,8 +413,10 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 /* Выделение должно быть видно с одного взгляда, в том числе на пёстром графе: толстая
    обводка акцентом, двойное свечение и подпись в полную яркость. Прежние 2.6 px с мягкой
    тенью терялись среди цветных нод. */
-.g-node.sel .nd{stroke:var(--acc);stroke-width:4;
-  filter:drop-shadow(0 0 6px var(--acc)) drop-shadow(0 0 18px var(--acc));}
+/* Подсвечиваем СВОИМ цветом ноды, а не акцентом: акцент в тёмной теме — чистый белый,
+   и выделенная нода теряла принадлежность к области. Заметность даёт геометрия. */
+.g-node.sel .nd{stroke:var(--nc,var(--acc));stroke-width:4;
+  filter:drop-shadow(0 0 6px var(--nc,var(--acc))) drop-shadow(0 0 18px var(--nc,var(--acc)));}
 .g-node.sel text{fill:var(--tx)!important;opacity:1!important;font-weight:600;}
 .g-node:hover .nd{filter:drop-shadow(0 0 7px var(--nc,var(--glow)));}
 .g-label{fill:var(--mut);font-size:10.5px;pointer-events:none;}
