@@ -214,7 +214,18 @@ function wireGlobal(){
   // nav + areas + footer (delegated)
   $("#side").addEventListener("click",e=>{
     const nav=e.target.closest("[data-v]"); if(nav){ areaFilter=null; tagFilter=null; view=nav.dataset.v; render(); return; }
-    const ar=e.target.closest("[data-area]"); if(ar){ const id=ar.dataset.area; areaFilter=(areaFilter===id?null:id); view="tasks"; render(); return; }
+    /* Клик по области в полосе слева ВЫДЕЛЯЕТ её ноды в графе, а не уводит в «Задачи»:
+       область — это часть паутины, и смотреть на неё логично там же. Повторный клик снимает. */
+    const ar=e.target.closest("[data-area]");
+    if(ar){
+      const id=ar.dataset.area;
+      const тот=(areaFilter===id);
+      areaFilter = тот ? null : id;
+      if(view!=="notes"){ view="notes"; render(); }
+      else renderNav();
+      if(graph) graph.selectArea(тот ? null : id);
+      return;
+    }
   });
   $("#add-area").onclick=(e)=>{ e.stopPropagation(); openAreaEditor(null,()=>renderNav()); };
   $("#manage-area").onclick=(e)=>{ e.stopPropagation(); openAreaManager(); };
@@ -304,7 +315,8 @@ function wireGlobal(){
     }
     if(e.code==="KeyN"){ e.preventDefault(); openItemEditor(null); }
     else if(e.code==="Slash"){ e.preventDefault(); $("#cap").focus(); }
-    else if(/^Digit[1-9]$/.test(e.code)){ const i=+e.code.slice(5)-1; if(NAV[i]){ areaFilter=null; tagFilter=null; view=NAV[i][0]; render(); } }
+    // цифры водят по ВСЕМ видам, включая убранные из полосы слева
+    else if(/^Digit[1-9]$/.test(e.code)){ const i=+e.code.slice(5)-1; if(VIEWS_ALL[i]){ areaFilter=null; tagFilter=null; view=VIEWS_ALL[i]; render(); } }
   });
   installSectionReorder();
   // в фоне приложение не должно жечь CPU: пауза анимации графа при потере фокуса/сворачивании.

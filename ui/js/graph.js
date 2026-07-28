@@ -284,6 +284,17 @@ class Graph{
     return true;
   }
   _paintSel(){ if(this.nodeEls) this.nodeEls.forEach(o=>o.g.classList.toggle("sel",this.selNodes.has(o.n.id))); this._renderSelBar(); }
+
+  /* Выделить всю область: клик по ней в полосе слева подсвечивает её ноды прямо в паутине.
+     Берём и унаследованную область — ветка целиком и есть «область» глазами человека. */
+  selectArea(id){
+    this.selNodes.clear();
+    if(id){
+      this.nodes.forEach(n=>{ if(n.ref && n.ref.area===id) this.selNodes.add(n.id); });
+      const hub="hub_"+id; if(this.byId[hub]) this.selNodes.add(hub);
+    }
+    this._paintSel();
+  }
   // панель действий над выделением (кнопка «Отчёт»); показывается когда выбран ≥1 реальный элемент
   _renderSelBar(){
     const wrap=this.svg.parentNode; if(!wrap) return;
@@ -398,13 +409,19 @@ class Graph{
         <button class="btn" data-mk="note"><i class="ti ti-note"></i>Заметка</button>
         <button class="btn" data-mk="task"><i class="ti ti-checklist"></i>Задача</button>
         <button class="btn" data-mk="flow"><i class="ti ti-artboard"></i>Полотно</button>
+        <button class="btn" data-mk="area"><i class="ti ti-circle-dot"></i>Область</button>
       </div>`;
     wrap.appendChild(pop);
     const pw=pop.offsetWidth||180, ph=pop.offsetHeight||170;
     let px=e.clientX-rc.left+6, py=e.clientY-rc.top+6;
     px=Math.max(8,Math.min(px,rc.width-pw-8)); py=Math.max(8,Math.min(py,rc.height-ph-8));
     pop.style.left=px+"px"; pop.style.top=py+"px";
-    $$("[data-mk]",pop).forEach(b=>b.onclick=()=>{ const k=b.dataset.mk; this._closePop(); this._quickAdd(k,wp.x,wp.y,null); });
+    $$("[data-mk]",pop).forEach(b=>b.onclick=()=>{
+      const k=b.dataset.mk; this._closePop();
+      // область — не нода паутины, а её хаб: заводим через тот же редактор, что и в полосе слева
+      if(k==="area"){ openAreaEditor(null, ()=>{ renderNav(); this.build(); }); return; }
+      this._quickAdd(k,wp.x,wp.y,null);
+    });
   }
   _inlineRename(id){
     const n=this.byId[id]; if(!n) return; const wrap=$("#graph-wrap"); if(!wrap) return;
@@ -787,15 +804,16 @@ class Graph{
           // Раньше это было одно число: чтобы двойной клик не промахивался, превью ждало
           // все 350 мс и ощущалось вязким. Теперь превью успевает показаться, а если второй
           // клик всё же пришёл — _openNode его закроет (он зовёт _closePop) и откроет ридер.
+          /* Всплывающей карточки по клику больше нет: содержимое ноды показывает правая
+             панель, а поповер поверх графа перекрывал соседей и требовал лишнего закрытия.
+             Одиночный клик только выделяет (выделение уже сделано выше), двойной — открывает
+             ноду целиком: ридер заметки или доску полотна. */
           const now=Date.now();
           if(this._lcId===n.id && (now-this._lcT)<350){
             this._lcId=null; this._lcT=0;
-            clearTimeout(this._pvT); this._pvT=null;
             this._openNode(n);
           } else {
             this._lcId=n.id; this._lcT=now;
-            clearTimeout(this._pvT);
-            this._pvT=setTimeout(()=>{ this._pvT=null; this._openPreview(n); }, 170);
           }
         }
         this.drag=null;
@@ -1373,14 +1391,35 @@ class Graph{
           <button class="btn" data-pop="tasks"><i class="ti ti-checklist"></i>Задачи</button>
           <button class="btn" data-pop="link"><i class="ti ti-plus"></i>Связать</button>
         </div>
-        <div class="np-row">
+        <div class="np-row" style="margin-bottom:6px;">
           <button class="btn" data-pop="pin"><i class="ti ${n.fixed?"ti-pin-filled":"ti-pin"}"></i>${n.fixed?"Открепить":"Закрепить"}</button>
+          <button class="btn" data-pop="arename"><i class="ti ti-pencil"></i>Изменить</button>
+        </div>
+        <div class="np-row">
+          <button class="btn danger" data-pop="adel"><i class="ti ti-trash"></i>Удалить область</button>
         </div>`;
       $("#graph-wrap").appendChild(pop);
       this._posPop(pop,n);
       $$(".np-sw .swatch",pop).forEach(b=>b.onclick=()=>this._paintColor(n, PALETTE[+b.dataset.ci]||null));
       pop.querySelector('[data-pop="tasks"]').onclick=()=>{ this._closePop(); areaFilter=a.id; view="tasks"; render(); };
       pop.querySelector('[data-pop="link"]').onclick=()=>{ this.startLink(n.id); };
+      // область правится и удаляется прямо здесь — лезть за этим в полосу слева не нужно
+      pop.querySelector('[data-pop="arename"]').onclick=()=>{
+        this._closePop(); openAreaEditor(a, ()=>{ renderNav(); this.build(); });
+      };
+      pop.querySelector('[data-pop="adel"]').onclick=async ()=>{
+        this._closePop();
+        const занято=S.items.filter(i=>i.area===a.id && !i.deleted).length;
+        const ок=await uiConfirm(занято
+          ? `Удалить область «${a.name}»? Ноды (${занято}) останутся, но потеряют область.`
+          : `Удалить область «${a.name}»?`, {danger:true, title:"Удаление области", okLabel:"Удалить"});
+        if(!ок) return;
+        S.items.forEach(i=>{ if(i.area===a.id){ i.area=null; delete i.areaAuto; } });
+        S.areas=S.areas.filter(x=>x.id!==a.id);
+        if(areaFilter===a.id) areaFilter=null;
+        recomputeHierarchy(); persist(); renderNav(); this.build();
+        toast("Область удалена",{icon:"ti-trash"});
+      };
       pop.querySelector('[data-pop="pin"]').onclick=()=>{
         /* Узел берём из ЖИВОГО реестра по id, а не из замыкания: build() пересоздаёт объекты
            узлов (любая правка ноды, новая связь, авто-раскладка), и открытый поп-ап держит

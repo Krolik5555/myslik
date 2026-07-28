@@ -28,8 +28,15 @@ t.push({имя:"текст заметки в редактируемом поле
           ок: getComputedStyle(document.querySelector(".navi span:not(.badge)")).display === "none"
               && !!document.querySelector(".navi").title,
           факт: "подсказка: " + document.querySelector(".navi").title});
-  t.push({имя:"счётчик виден точкой", ок: !!document.querySelector(".navi .badge"),
-          факт: "бейджей: " + document.querySelectorAll(".navi .badge").length});
+  // счётчик показывается точкой в углу значка — проверяем на корзине, чтобы не зависеть от данных
+  const мусор = addItem({kind:"note", title:"Для корзины"});
+  deleteItem(мусор.id); renderNav(); await ж(120);
+  t.push({имя:"счётчик виден точкой на значке", ок: !!document.querySelector('.navi[data-v="bin"] .badge'),
+          факт: "бейдж корзины: " + ((document.querySelector('.navi[data-v="bin"] .badge')||{}).textContent || "нет")});
+  hardDeleteItem(мусор.id); renderNav();
+
+  t.push({имя:"в полосе только «Заметки» и «Корзина»", ок: document.querySelectorAll(".navi").length === 2,
+          факт: [...document.querySelectorAll(".navi")].map(b=>b.title).join(", ")});
 
   const былаШирина = шир("side");
   document.getElementById("side-toggle").click(); await ж(200);
@@ -43,6 +50,29 @@ t.push({имя:"текст заметки в редактируемом поле
   document.getElementById("side-toggle").click(); await ж(200);
   t.push({имя:"панель возвращается", ок: !s.classList.contains("side-off") && шир("side") === былаШирина,
           факт: "ширина " + шир("side") + " px"});
+
+  // разворот подписей: кнопка «показать названия»
+  document.getElementById("side-wide").click(); await ж(200);
+  t.push({имя:"подписи разворачиваются кнопкой",
+          ок: !s.classList.contains("slim") && шир("side") > 120
+              && getComputedStyle(document.querySelector(".areai .nm")).display !== "none",
+          факт: "ширина " + шир("side") + " px"});
+  document.getElementById("side-wide").click(); await ж(200);
+  t.push({имя:"и сворачиваются обратно", ок: s.classList.contains("slim") && шир("side") === былаШирина,
+          факт: "ширина " + шир("side") + " px"});
+
+  // нижние кнопки должны быть попадаемыми
+  const фб = document.querySelector(".foot-btn").getBoundingClientRect();
+  t.push({имя:"кнопки экспорта и настроек крупные", ок: фб.height >= 36 && фб.width >= 36,
+          факт: Math.round(фб.width) + "x" + Math.round(фб.height)});
+}
+
+// ===== разделитель: ручка вместо полосы =====
+{
+  const sp = document.getElementById("splitter");
+  const линия = getComputedStyle(sp, ":before");
+  t.push({имя:"у разделителя есть ручка", ок: parseFloat(линия.height) >= 30 && parseFloat(линия.width) <= 8,
+          факт: "ручка " + линия.width + " x " + линия.height});
 }
 
 // ===== правка прямо в панели =====
@@ -112,6 +142,20 @@ asideSelect(зад.id); await ж(150);
   const правые = [...document.querySelectorAll("#aside .as-sel, #aside .as-inp")].map(v => Math.round(v.getBoundingClientRect().right));
   t.push({имя:"поля одной ширины (стрелки в столбик)", ок: new Set(правые).size === 1,
           факт: "правых краёв: " + [...new Set(правые)].join(", ")});
+}
+
+// ===== смена типа ноды прямо в панели =====
+{
+  asideSelect(зад.id); await ж(150);
+  сменить("kind", "note"); await ж(200);
+  t.push({имя:"тип меняется из панели", ок: зад.kind === "note" && зад.status === "note",
+          факт: "kind: " + зад.kind + ", status: " + зад.status});
+  asideSelect(зад.id); await ж(150);
+  t.push({имя:"у заметки нет полей задачи", ок: !document.querySelector('#aside [data-f="due"]'),
+          факт: "полей: " + [...document.querySelectorAll("#aside [data-f]")].map(e=>e.dataset.f).join(",")});
+  сменить("kind", "task"); await ж(200);
+  t.push({имя:"обратно в задачу — поля вернулись", ок: зад.kind === "task" && зад.status !== "note",
+          факт: "kind: " + зад.kind + ", status: " + зад.status});
 }
 
 // ===== действия внизу карточки =====

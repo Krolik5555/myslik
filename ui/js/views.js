@@ -2,14 +2,14 @@
 /* ===========================================================
    RENDER
    =========================================================== */
+/* В полосе слева пока только «Заметки» и «Корзина»: остальные виды ждут переработки и
+   до неё из меню убраны. Сами виды живы — открываются из палитры (Ctrl+K) и цифрами. */
 const NAV=[
-  ["today","ti-sun","Сегодня"],
-  ["tasks","ti-checklist","Задачи"],
   ["notes","ti-affiliate","Заметки"],
-  ["board","ti-folders","Папки"],
-  ["cal","ti-calendar-month","Календарь"],
   ["bin","ti-trash","Корзина"]
 ];
+// виды, которых нет в полосе, но которые по-прежнему рисуются
+const VIEWS_ALL=["today","tasks","notes","board","cal","bin"];
 
 // Неразобранное = мысль, которую ещё не поставили на холст (нет координат). Считаем ради
 // бейджа на «Заметках»: лоток живёт внутри графа, и, не заходя туда, про накопившееся
@@ -28,13 +28,19 @@ function counts(){
    Полного режима с подписями нет намеренно: место дороже, а подписи даёт всплывающая
    подсказка. Состояние живёт в настройках, поэтому переживает перезапуск. */
 function applySide(){
-  const s=$("#side"), b=$("#side-toggle");
+  const s=$("#side"), b=$("#side-toggle"), w=$("#side-wide");
   if(!s) return;
   const скрыта = S.settings.sideHidden === true;
-  s.classList.add("slim");
+  const широкая = S.settings.sideWide === true;   // с подписями: чтобы читать названия областей
+  s.classList.toggle("slim", !широкая);
   s.classList.toggle("side-off", скрыта);
+  if(w){
+    w.title = широкая ? "Свернуть до значков" : "Показать названия";
+    w.innerHTML = `<i class="ti ti-${широкая?"layout-sidebar-left-collapse":"layout-sidebar-left-expand"}"></i>`;
+    w.onclick = ()=>{ S.settings.sideWide = !широкая; persist(); applySide(); if(graph) graph._onResize(); };
+  }
   if(b){
-    b.title = скрыта ? "Показать панель" : "Свернуть панель";
+    b.title = скрыта ? "Показать панель" : "Скрыть панель";
     b.innerHTML = `<i class="ti ti-chevron-${скрыта?"right":"left"}"></i>`;
     b.onclick = ()=>{ S.settings.sideHidden = !скрыта; persist(); applySide(); if(graph) graph._onResize(); };
   }
@@ -135,7 +141,12 @@ function asideCard(it){
       <span class="as-v">${значение}</span></div>`;
 
   const стр = [];
-  стр.push(строка("Тип", null, `<span class="as-chip">${тип}</span>`));
+  стр.push(строка("Тип", null,
+    `<select class="as-sel" data-f="kind">
+       <option value="task" ${it.kind==="task"?"selected":""}>Задача</option>
+       <option value="note" ${it.kind==="note"?"selected":""}>Заметка</option>
+       <option value="flow" ${it.kind==="flow"?"selected":""}>Полотно</option>
+     </select>`));
   стр.push(строка("Область", [areaIcon(it.area), areaColor(it.area)],
     `<select class="as-sel" data-f="area">
        <option value="">Без области</option>
@@ -252,6 +263,14 @@ function wireAside(it){
       // выбор руками перебивает наследование от родителя (и обратно: «Без области» =
       // вернуть ноду к наследованию, если она к кому-то привязана)
       if(f==="area"){ it.area = v || null; if(v) it.areaAuto=false; else delete it.areaAuto; recomputeHierarchy(); }
+      else if(f==="kind"){
+        /* Смена типа. Нарисованное и написанное не трогаем: доска полотна лежит в S.boards,
+           текст — в body, и при возврате прежнего типа всё оказывается на месте. Правим только
+           поля, которые у нового типа обязаны быть согласованы. */
+        it.kind = v;
+        if(v==="task"){ if(it.status==="note") it.status = it.done ? "done" : "todo"; }
+        else { it.status="note"; it.done=false; it.doneAt=null; it.due=null; it.repeat="none"; it.priority=0; }
+      }
       else if(f==="priority") it.priority = +v || 0;
       else if(f==="repeat") it.repeat = v || "none";
       else if(f==="due") it.due = v || null;
@@ -410,7 +429,9 @@ function _viewRestore(sn){
   }
 }
 function render(){
-  if(!NAV.some(n=>n[0]===view)) view="today";   // устаревший/удалённый вид (напр. бывшая «board») → на главную
+  // сверяем со ВСЕМИ видами, а не с полосой: «Задачи» и «Календарь» из меню убраны,
+  // но открываются палитрой и цифрами — сбрасывать их на «Заметки» нельзя
+  if(!VIEWS_ALL.includes(view)) view="notes";
   const _sn=_viewSnapshot();
   renderNav();
   const v=$("#view");
