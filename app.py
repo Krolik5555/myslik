@@ -914,28 +914,17 @@ class Api:
         # уходило в ПОЛНОЭКРАННЫЙ режим (без панели задач), и кнопка вела себя не как везде.
         """Разворот/восстановление окна.
 
-        Разворачиваем САМИ, по рабочей области монитора. Штатный maximize() тут не годится:
-        форма безрамочная (FormBorderStyle.None), и .NET в этом случае растягивает окно на
-        весь монитор — панель задач оказывается под окном и её не видно.
-        Прежнюю геометрию помним в _MAXBOX, чтобы кнопка возвращала окно на место."""
+        Разворот штатный, а от накрывания панели задач защищает _limit_maximize (MaximizedBounds
+        на форме): своей рукой это лечилось бы только для этой кнопки, а разворачивают окно ещё
+        и снапом к верхней кромке, и Win+Up — там команду даёт система.
+        Границу пересчитываем перед каждым разворотом: окно могло переехать на другой монитор."""
         try:
             h = _get_hwnd()
-            u32 = ctypes.windll.user32
-            if _MAXBOX.get("rect"):
-                l, t, w, ht = _MAXBOX["rect"]
-                _MAXBOX["rect"] = None
-                u32.SetWindowPos(ctypes.c_void_p(h), 0, l, t, w, ht, 0x0004)   # SWP_NOZORDER
-            elif h and u32.IsZoomed(h):
-                _WINDOW.restore()                       # развернула система (Win+Up) — ей и восстанавливать
+            if h and ctypes.windll.user32.IsZoomed(h):
+                _WINDOW.restore()
             else:
-                class RECT(ctypes.Structure):
-                    _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
-                                ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
-                r = RECT()
-                u32.GetWindowRect(ctypes.c_void_p(h), ctypes.byref(r))
-                _MAXBOX["rect"] = (r.left, r.top, r.right - r.left, r.bottom - r.top)
-                l, t, w, ht = self._work_rect(h)
-                u32.SetWindowPos(ctypes.c_void_p(h), 0, l, t, w, ht, 0x0004)
+                _limit_maximize()
+                _WINDOW.maximize()
         except Exception as e:
             # совсем старый pywebview без maximize/restore — переключаем fullscreen
             try:
@@ -1282,6 +1271,50 @@ def _set_titlebar_theme(dark):
         p.BeginInvoke(Action(lambda: p.Invalidate()))
     except Exception:
         pass
+
+
+def _limit_maximize():
+    """Не давать развёрнутому окну накрывать панель задач.
+
+    У безрамочной формы (FormBorderStyle.None) .NET разворачивает окно на ВЕСЬ монитор, а не на
+    рабочую область — так ведёт себя и наша кнопка, и системный снап к верхней кромке, и Win+Up.
+    Своей кнопкой это лечится вручную, снапом — нет: разворачивает система. Поэтому ограничение
+    ставим на саму форму, штатным свойством MaximizedBounds: оно действует на ЛЮБОЙ разворот.
+    Пересчитываем при каждом вызове — окно могло переехать на другой монитор."""
+    form = _get_form()
+    if form is None:
+        return False
+    try:
+        from System import Action
+        from System.Windows.Forms import Screen
+
+        def _apply():
+            try:
+                from System.Drawing import Rectangle
+                w = Screen.FromHandle(form.Handle).WorkingArea
+                # У окна есть невидимая рамка (WS_THICKFRAME нужен для Aero Snap), и .NET
+                # прибавляет её к MaximizedBounds: развёрнутое окно вылезает за рабочую область
+                # на восемь пикселей и накрывает край панели задач — а при автоскрытии она из-за
+                # этого вообще перестаёт всплывать. Вычитаем толщину рамки заранее.
+                u32 = ctypes.windll.user32
+                f = u32.GetSystemMetrics(32) + u32.GetSystemMetrics(92)   # SM_CXSIZEFRAME + SM_CXPADDEDBORDER
+                # Урезаем ТОЛЬКО ту сторону, где стоит панель задач: с остальных рамка обязана
+                # уйти за край экрана, иначе развёрнутое окно висит с зазором и из-под него
+                # виден рабочий стол.
+                m = Screen.FromHandle(form.Handle).Bounds
+                x = w.X + (f if w.X > m.X else 0)
+                y = w.Y + (f if w.Y > m.Y else 0)
+                r = w.Right - (f if w.Right < m.Right else 0)
+                b = w.Bottom - (f if w.Bottom < m.Bottom else 0)
+                form.MaximizedBounds = Rectangle(x, y, r - x, b - y)
+            except Exception as e:
+                print("[max] apply error:", e)
+
+        form.BeginInvoke(Action(_apply))
+        return True
+    except Exception as e:
+        print("[max] limit error:", e)
+        return False
 
 
 def _allow_snap(hwnd):
@@ -1736,6 +1769,7 @@ def main():
                         time.sleep(0.1)
                     if h:
                         _allow_snap(h)         # без этих стилей Windows не покажет зоны привязки
+                        _limit_maximize()      # чтобы снап к верху не накрыл панель задач
                     return
                 time.sleep(0.1)
             print("[titlebar] форма так и не появилась")
