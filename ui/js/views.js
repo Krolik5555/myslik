@@ -432,7 +432,10 @@ function wireAside(it){
     const копия = addItem({kind:it.kind, title:(it.title||"")+" — копия", body:it.body||"", area:it.area,
       tags:(it.tags||[]).slice(), status:it.status, due:it.due||null, repeat:it.repeat||"none",
       priority:it.priority||0, color:it.color||null});
+    // флаг наследования переносим как есть: своя область остаётся своей, унаследованная —
+    // унаследованной, иначе дубликат сам прицепится к хабу области отдельным лучом
     if(it.areaAuto===false) копия.areaAuto=false;
+    else if(it.areaAuto===true) копия.areaAuto=true;
     // доска полотна лежит отдельно от ноды — копируем её тем же движением
     if(it.kind==="flow" && S.boards && S.boards[it.id]) S.boards[копия.id]=JSON.parse(JSON.stringify(S.boards[it.id]));
     persist(); asideSelect(копия.id); if(graph) graph.build();

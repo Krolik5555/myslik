@@ -423,7 +423,11 @@ class Graph{
     const ids=[...this.selNodes].filter(id=>this.byId[id]&&this.byId[id].ref); if(!ids.length) return;
     const idset=new Set(ids);
     const items=ids.map(id=>{ const it=this.byId[id].ref, n=this.byId[id];
-      return {_old:id, kind:it.kind, title:it.title, body:it.body, area:it.area, color:it.color||null, size:it.size||null,
+      /* areaAuto копируем ВМЕСТЕ с областью. Без него вставленная нода получала область как
+         СВОЮ, хотя в оригинале она унаследована от родителя, — и тут же прицеплялась к хабу
+         области отдельным лучом (см. build: нить к хабу тянется только от нод со своей областью). */
+      return {_old:id, kind:it.kind, title:it.title, body:it.body, area:it.area, areaAuto:it.areaAuto===true,
+        color:it.color||null, size:it.size||null,
         tags:(it.tags||[]).slice(), status:it.status, done:!!it.done, doneAt:it.doneAt||null, due:it.due||null, repeat:it.repeat||"none", priority:it.priority||0,
         flow:it.kind==="flow"?JSON.parse(JSON.stringify(it.flow||{})):null,
         // доска полотна живёт в S.boards, а не в самой ноде — копируем её отдельно,
@@ -438,6 +442,8 @@ class Graph{
     graphClip.items.forEach(d=>{
       const it=addItem({kind:d.kind,title:d.title,body:d.body,area:d.area,color:d.color,tags:(d.tags||[]).slice(),status:d.status,due:d.due,repeat:d.repeat,priority:d.priority});
       if(d.size) it.size=d.size;
+      // область была унаследована — пусть такой и остаётся, иначе копия сама прицепится к хабу
+      if(d.areaAuto===true) it.areaAuto=true;
       // согласуем done/status/doneAt (иначе вставленная выполненная задача = status:done но done:false)
       it.done=!!d.done;
       if(it.done){ it.status="done"; it.doneAt=d.doneAt||Date.now(); }

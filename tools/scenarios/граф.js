@@ -262,6 +262,44 @@ t.push({имя:"возврат на вкладку пересобирает гр
   recomputeHierarchy(); graph.build();
 }
 
+/* ===== копия ноды не прицепляется к области сама =====
+   Флаг «область унаследована» (areaAuto) при копировании терялся, и вставленная нода получала
+   область как СВОЮ — а значит и отдельный луч к хабу, которого у оригинала не было. */
+{
+  const обл = S.areas[0] && S.areas[0].id;
+  if (обл) {
+    const Р = addItem({kind:"task", title:"копР"}); Р.x = 9000; Р.y = 9000; Р.area = обл; Р.areaAuto = false;
+    const Д = addItem({kind:"task", title:"копД"}); Д.x = 9120; Д.y = 9080;
+    S.links.push([Р.id, Д.id, 1]);
+    recomputeHierarchy(); graph.build();
+    const лучей = () => graph.links.filter(l => !l.manual).length;
+
+    // копируем ТОЛЬКО ребёнка, который область наследует
+    const было = лучей();
+    graph.selNodes = new Set([Д.id]);
+    graph.copySelection(); graph.pasteClip();
+    recomputeHierarchy();
+    const копия = S.items.filter(i => !i.deleted && i.title === "копД" && i.id !== Д.id)[0];
+    t.push({имя:"копия унаследованной ноды не липнет к области",
+            ок: !!копия && копия.areaAuto !== false && лучей() === было,
+            факт:"лучей к хабу было " + было + ", стало " + лучей()});
+
+    // копия ветки целиком: у копии родителя область СВОЯ, у копии ребёнка — унаследованная
+    const было2 = лучей();
+    graph.selNodes = new Set([Р.id, Д.id]);
+    graph.copySelection(); graph.pasteClip();
+    recomputeHierarchy();
+    const копР = S.items.filter(i => !i.deleted && i.title === "копР" && i.id !== Р.id)[0];
+    const копД = S.items.filter(i => !i.deleted && i.title === "копД" && i.id !== Д.id && i.id !== (копия||{}).id)[0];
+    t.push({имя:"копия ветки сохраняет, кому область своя, а кому наследуется",
+            ок: !!копР && копР.areaAuto !== true && !!копД && копД.areaAuto === true && лучей() === было2 + 1,
+            факт:"лучей " + было2 + " -> " + лучей()});
+
+    S.items.filter(i => !i.deleted && /^коп[РД]$/.test(i.title || "")).forEach(i => hardDeleteItem(i.id));
+    recomputeHierarchy(); graph.build();
+  }
+}
+
 // ===== связи стараются не пересекаться =====
 {
   const пл = (p,q,r) => (q.x-p.x)*(r.y-p.y) - (q.y-p.y)*(r.x-p.x);
