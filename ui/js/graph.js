@@ -296,7 +296,12 @@ class Graph{
     if(!this._paused){ if(this.raf){ cancelAnimationFrame(this.raf); this.raf=null; } this._tick(true); }   // перерисовать сразу: в покое кадр мог бы быть пропущен
     return true;
   }
-  _paintSel(){ if(this.nodeEls) this.nodeEls.forEach(o=>o.g.classList.toggle("sel",this.selNodes.has(o.n.id))); this._renderSelBar(); }
+  _paintSel(){
+    if(this.nodeEls) this.nodeEls.forEach(o=>o.g.classList.toggle("sel",this.selNodes.has(o.n.id)));
+    // порог, за которым свечение выделения снимается (см. #graph.many-sel в стилях)
+    if(this.svg) this.svg.classList.toggle("many-sel", this.selNodes.size>25);
+    this._renderSelBar();
+  }
 
   /* Правая панель следует за выделением: одна нода — её карточка, несколько — сводка.
      Зовётся ПОСЛЕ жеста (клик, рамка), а не из _paintSel: тот дёргается на каждом кадре

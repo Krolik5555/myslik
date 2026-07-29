@@ -582,9 +582,11 @@ function wireSplitter(){
 }
 
 function head(title, sub, actions){
-  $("#main-title").textContent=title;
-  $("#main-sub").innerHTML=sub||"";
-  $("#head-actions").innerHTML=actions||"";
+  // подпись вида убрана из разметки (место в верхней полосе дороже), но вызовы head() её
+  // по-прежнему передают — молча игнорируем, чтобы не переписывать все виды
+  const t=$("#main-title"); if(t) t.textContent=title;
+  const s=$("#main-sub");   if(s) s.innerHTML=sub||"";
+  const a=$("#head-actions"); if(a) a.innerHTML=actions||"";
 }
 
 function taskCard(it, opts){

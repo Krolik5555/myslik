@@ -1274,6 +1274,53 @@ def _set_titlebar_theme(dark):
         pass
 
 
+_MAX_SCREEN = None      # рабочая область, под которую сейчас настроен MaximizedBounds
+
+
+def _watch_screen_changes():
+    """Держать границы разворота в согласии с ТЕКУЩИМ монитором.
+
+    Раньше MaximizedBounds считался один раз при запуске, и дальше окно разворачивалось по
+    той рабочей области, которая была на старте. Стоило перетащить окно с 2K на FHD (или
+    повернуть монитор, или сменить разрешение) — снап к верхней кромке разворачивал окно по
+    ЧУЖИМ размерам: оно вылезало за экран или не добирало до края. Выглядело как костыль,
+    потому что и было им: цифры устаревали, а пересчитать их было некому.
+
+    Пересчитываем на переезд окна и на смену параметров экрана. Работа дешёвая (одно обращение
+    к Screen), но лишний раз не делаем: сверяемся с запомненной областью."""
+    form = _get_form()
+    if form is None:
+        return False
+    try:
+        from System import EventHandler
+        from System.Windows.Forms import Screen
+
+        def _sync(*_):
+            try:
+                f = _get_form()
+                if f is None:
+                    return
+                w = Screen.FromHandle(f.Handle).WorkingArea
+                if _MAX_SCREEN != (w.X, w.Y, w.Width, w.Height):
+                    _limit_maximize()
+            except Exception as e:
+                print("[max] sync error:", e)
+
+        # переезд окна (в том числе на другой монитор) и изменение его размеров
+        form.LocationChanged += EventHandler(_sync)
+        form.SizeChanged += EventHandler(_sync)
+        try:
+            # смена разрешения, поворот экрана, подключение монитора
+            from Microsoft.Win32 import SystemEvents
+            SystemEvents.DisplaySettingsChanged += EventHandler(_sync)
+        except Exception as e:
+            print("[max] display events unavailable:", e)
+        return True
+    except Exception as e:
+        print("[max] watch error:", e)
+        return False
+
+
 def _limit_maximize():
     """Не давать развёрнутому окну накрывать панель задач.
 
@@ -1293,6 +1340,8 @@ def _limit_maximize():
             try:
                 from System.Drawing import Rectangle
                 w = Screen.FromHandle(form.Handle).WorkingArea
+                global _MAX_SCREEN
+                _MAX_SCREEN = (w.X, w.Y, w.Width, w.Height)
                 # Ровно рабочую область отдавать нельзя: .NET считает это обычной максимизацией
                 # и сам прибавляет невидимую рамку окна (WS_THICKFRAME нужен для Aero Snap) —
                 # окно вылезает на восемь пикселей и накрывает панель задач. Уменьшили на пиксель
@@ -1765,6 +1814,7 @@ def main():
                     if h:
                         _allow_snap(h)         # без этих стилей Windows не покажет зоны привязки
                         _limit_maximize()      # чтобы снап к верху не накрыл панель задач
+                        _watch_screen_changes()  # и чтобы границы не устарели после переезда на другой монитор
                     return
                 time.sleep(0.1)
             print("[titlebar] форма так и не появилась")

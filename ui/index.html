@@ -8,8 +8,8 @@
 <meta http-equiv="Expires" content="0">
 <title>Мыслик</title>
 <link rel="icon" type="image/png" href="icon.png">
-<link rel="stylesheet" href="vendor/tabler-icons.min.css?v=282">
-<link rel="stylesheet" href="styles.css?v=282">
+<link rel="stylesheet" href="vendor/tabler-icons.min.css?v=285">
+<link rel="stylesheet" href="styles.css?v=285">
 </head>
 <body>
 <div id="app">
@@ -20,12 +20,20 @@
        Snap, дабл-клик и системное меню работают штатно. В браузере (дев-режим) полосы нет —
        окном там управляет сам браузер. -->
 
+  <!-- Заголовок вида и его кнопки живут ЗДЕСЬ, а не отдельной полосой под захватом: та полоса
+       съедала под полсотни пикселей высоты у графа и доски, ради которых окно и открывают. -->
   <div id="topbar">
+    <!-- подписи вида тут нет: она объясняла жесты графа и в верхней полосе только отнимала
+         место у строки захвата. Управление и так подсказывает плашка внизу самого графа -->
+    <div id="view-head">
+      <div id="main-title">Сегодня</div>
+    </div>
     <div id="cap-wrap">
       <i class="ti ti-feather"></i>
       <input id="cap" type="text" placeholder="Сбрось мысль и Enter…   #область/#тег  завтра/пн/25.06  !приоритет  *заметка">
       <div id="cap-preview"></div>
     </div>
+    <div class="head-actions" id="head-actions"></div>
     <div class="kbd" id="kbd-hint" title="Все горячие клавиши и жесты"><b>Ctrl</b>+<b>K</b> поиск</div>
   </div>
 
@@ -53,13 +61,6 @@
     </div>
 
     <div id="main">
-      <div id="main-head">
-        <div>
-          <div id="main-title">Сегодня</div>
-          <div id="main-sub"></div>
-        </div>
-        <div class="head-actions" id="head-actions"></div>
-      </div>
       <!-- рабочая область делится на две части: слева текущий вид, справа выбранный элемент.
            Разделитель тянется мышью, ширина правой части запоминается в настройках. -->
       <div id="split">
@@ -78,17 +79,17 @@
 <!-- модули загружаются как классические скрипты (общая глобальная область),
      порядок важен: core → model → views → graph → overlays → main.
      ES-модули НЕ используем: реальный аппа грузится по file://, где import блокируется CORS. -->
-<script src="js/core.js?v=282"></script>
-<script src="js/model.js?v=282"></script>
-<script src="js/views.js?v=282"></script>
-<script src="js/graph.js?v=282"></script>
-<script src="js/overlays.js?v=282"></script>
+<script src="js/core.js?v=285"></script>
+<script src="js/model.js?v=285"></script>
+<script src="js/views.js?v=285"></script>
+<script src="js/graph.js?v=285"></script>
+<script src="js/overlays.js?v=285"></script>
 <!-- доска (Excalidraw); сам вендор подгружается лениво, при первом заходе на вкладку -->
-<script src="js/draw.js?v=282"></script>
+<script src="js/draw.js?v=285"></script>
 <!-- локальный ИИ (умный захват) — опционально; нет движка/модели → молчит -->
-<script src="js/ai.js?v=282"></script>
+<script src="js/ai.js?v=285"></script>
 <!-- отчёт из выделенного (простой + через ИИ) -->
-<script src="js/report.js?v=282"></script>
-<script src="js/main.js?v=282"></script>
+<script src="js/report.js?v=285"></script>
+<script src="js/main.js?v=285"></script>
 </body>
 </html>

@@ -300,6 +300,33 @@ t.push({имя:"возврат на вкладку пересобирает гр
   }
 }
 
+/* ===== много выделенных — свечение снимается =====
+   У выделенной ноды ДВА drop-shadow, а ноды дрейфуют: браузер пересчитывает размытия каждый
+   кадр, и на большом выделении граф ощутимо подлагивал. Заметность даёт геометрия — обводка. */
+{
+  const свои = [];
+  for (let i = 0; i < 32; i++) { const n = addItem({kind:"task", title:"выдел"+i});
+    n.x = 12000 + (i%8)*70; n.y = 12000 + Math.floor(i/8)*70; свои.push(n); }
+  recomputeHierarchy(); graph.build();
+  const тени = () => { const nd = document.querySelector("#graph .g-node.sel .nd");
+    return nd ? (getComputedStyle(nd).filter.match(/drop-shadow/g) || []).length : -1; };
+  const ids = свои.map(n => n.id).filter(id => graph.byId[id]);
+  if (ids.length >= 30) {
+    graph.selNodes = new Set(ids.slice(0, 5)); graph._paintSel();
+    const мало = тени();
+    graph.selNodes = new Set(ids.slice(0, 30)); graph._paintSel();
+    const много = тени();
+    t.push({имя:"свечение выделения гаснет на большом выделении", ок: мало === 2 && много === 0,
+            факт:"теней при 5 выделенных " + мало + ", при 30 — " + много});
+  } else {
+    t.push({имя:"свечение выделения гаснет на большом выделении", ок:false,
+            факт:"ноды не попали в граф: " + ids.length});
+  }
+  graph.selNodes = new Set(); graph._paintSel();
+  свои.forEach(n => hardDeleteItem(n.id));
+  recomputeHierarchy(); graph.build();
+}
+
 /* ===== камера переживает перезапуск =====
    graphCam живёт только в памяти вкладки, поэтому после перезапуска приложения граф открывался
    в стороне от нод. Пишем камеру в настройки (с задержкой — _applyTransform зовётся на каждый
