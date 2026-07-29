@@ -248,17 +248,31 @@ t.push({имя:"возврат на вкладку пересобирает гр
       for (let i = 0; i <= 60; i++) { const p = эл.getPointAtLength(L*i/60); m = Math.min(m, Math.hypot(p.x-px, p.y-py)); }
       return m; };
 
+    /* Прогиб инерционный (см. _easeBends), поэтому и появляется, и тает не мгновенно —
+       прокручиваем кадры, а заодно меряем, нет ли рывков. */
+    const прокрутить = n => { const шаги = [];
+      for (let i = 0; i < n; i++) { graph._recalcBends(); graph._tick(true);
+        шаги.push(св._bendC ? св._bendC.oy : 0); }
+      let макс = 0;
+      for (let i = 1; i < шаги.length; i++) макс = Math.max(макс, Math.abs(шаги[i] - шаги[i-1]));
+      return макс; };
+
     у(П.id).x = -3000; у(П.id).y = -2994;              // почти на линии
-    graph.alpha = 0; graph._recalcBends(); graph._tick(true);
+    graph.alpha = 0;
+    const рывокПоявления = прокрутить(60);
     const зазор = у(П.id).r + 16;
     t.push({имя:"связь обходит лежащую на ней ноду",
             ок: доКривой(у(П.id).x, у(П.id).y) >= зазор && /Q/.test(эл.getAttribute("d")),
             факт:"до кривой " + доКривой(у(П.id).x, у(П.id).y).toFixed(1) + " при зазоре " + зазор.toFixed(1)});
+    t.push({имя:"прогиб нарастает без рывков", ок: рывокПоявления < 6,
+            факт:"макс. шаг " + рывокПоявления.toFixed(2) + " px за кадр"});
 
     у(П.id).y = -2940;                                  // помеха ушла
-    graph._recalcBends(); graph._tick(true);
+    const рывокУхода = прокрутить(80);
     t.push({имя:"без помехи связь снова прямая",
-            ок: /L/.test(эл.getAttribute("d")) && !св._bend, факт: эл.getAttribute("d")});
+            ок: /L/.test(эл.getAttribute("d")) && !св._bendC, факт: эл.getAttribute("d")});
+    t.push({имя:"прогиб тает без рывков", ок: рывокУхода < 6,
+            факт:"макс. шаг " + рывокУхода.toFixed(2) + " px за кадр"});
     graph.nodes.forEach(n => n.fixed = false);
   }
   [A, B, П].forEach(n => hardDeleteItem(n.id));

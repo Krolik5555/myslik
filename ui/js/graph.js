@@ -1278,9 +1278,9 @@ class Graph{
     const N=this.nodes, PAD=16, MAXH=70;
     for(let li=0; li<this.links.length; li++){
       const l=this.links[li], a=this.byId[l.a], b=this.byId[l.b];
-      if(!a||!b){ l._bend=null; continue; }
+      if(!a||!b){ l._bendT=null; continue; }
       const ex=b.x-a.x, ey=b.y-a.y, L2=ex*ex+ey*ey;
-      if(L2<1){ l._bend=null; continue; }
+      if(L2<1){ l._bendT=null; continue; }
       const minx=Math.min(a.x,b.x), maxx=Math.max(a.x,b.x), miny=Math.min(a.y,b.y), maxy=Math.max(a.y,b.y);
       let худший=null;
       for(let ni=0; ni<N.length; ni++){
@@ -1294,21 +1294,43 @@ class Graph{
         const d=Math.sqrt(d2), глуб=need-d;
         if(!худший || глуб>худший.глуб) худший={t, d, dx, dy, глуб};
       }
-      if(!худший){ l._bend=null; continue; }
-      // уводим линию ПРОЧЬ от ноды; легла ровно на линию — уводим по нормали, сторона не важна
+      if(!худший){ l._bendT=null; continue; }
+      // уводим линию ПРОЧЬ от ноды; легла ровно на линию — уводим по нормали
       let ux, uy;
       if(худший.d>0.01){ ux=-худший.dx/худший.d; uy=-худший.dy/худший.d; }
       else { const L=Math.sqrt(L2); ux=-ey/L; uy=ex/L; }
-      l._bend={t:худший.t, ux, uy, h:Math.min(MAXH, худший.глуб+4)};
+      const h=Math.min(MAXH, худший.глуб+4);
+      /* СТОРОНУ ОБХОДА НЕ ПЕРЕКИДЫВАЕМ. Когда нода лежит почти ровно на линии, направление
+         считается от крошечного вектора, и от дрейфа в пару пикселей знак прыгал — дуга
+         перебрасывалась через линию туда-сюда. Пока прогиб жив, держим прежнюю сторону. */
+      const пред=l._bendT;
+      if(пред && (пред.ox*ux + пред.oy*uy) < 0){ ux=-ux; uy=-uy; }
+      l._bendT={t:худший.t, ox:ux*h, oy:uy*h};
+    }
+  }
+  /* Прогиб ПЕРЕТЕКАЕТ к цели, а не прыгает на неё. Цель меняется скачками по своей природе:
+     помеха сменилась на соседнюю, пересчёт идёт не каждый кадр, нода вышла из зазора. Без
+     инерции каждый такой скачок был бы виден как рывок линии. */
+  _easeBends(){
+    const K=0.14;
+    for(let i=0;i<this.links.length;i++){
+      const l=this.links[i], цель=l._bendT;
+      let c=l._bendC;
+      if(!цель && !c) continue;
+      if(!c) c={t:цель.t, ox:0, oy:0};
+      const tt=цель?цель.t:c.t, ox=цель?цель.ox:0, oy=цель?цель.oy:0;
+      c.t+=(tt-c.t)*K; c.ox+=(ox-c.ox)*K; c.oy+=(oy-c.oy)*K;
+      // цель ушла и остаток схлопнулся — снимаем прогиб совсем, чтобы путь снова стал прямым
+      l._bendC=(!цель && Math.abs(c.ox)<0.3 && Math.abs(c.oy)<0.3) ? null : c;
     }
   }
   _linkPath(ax,ay,bx,by,l){
-    const bd=l&&l._bend;
+    const bd=l&&l._bendC;
     if(!bd) return `M ${ax.toFixed(1)} ${ay.toFixed(1)} L ${bx.toFixed(1)} ${by.toFixed(1)}`;
-    /* Контрольная точка квадратичной кривой отводится на ДВОЙНУЮ высоту: сама кривая проходит
+    /* Контрольная точка квадратичной кривой отводится на ДВОЙНОЕ смещение: сама кривая проходит
        примерно посередине между прямой и этой точкой. */
     const px=ax+(bx-ax)*bd.t, py=ay+(by-ay)*bd.t;
-    const cx=px+bd.ux*bd.h*2, cy=py+bd.uy*bd.h*2;
+    const cx=px+bd.ox*2, cy=py+bd.oy*2;
     return `M ${ax.toFixed(1)} ${ay.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${bx.toFixed(1)} ${by.toFixed(1)}`;
   }
   startLink(id){ this.linkFrom=id; this.svg.classList.add("linking"); $("#g-hint").innerHTML="Режим связи: кликни по второму узлу. Esc — отмена."; this._closePop(); }
@@ -1595,6 +1617,7 @@ class Graph{
        это покрывает). Пока раскладка живая — чаще, в покое — реже. */
     this._bendTick=(this._bendTick||0)+1;
     if(this._bendTick % (this.alpha>0 ? 4 : 30) === 0) this._recalcBends();
+    this._easeBends();   // к цели идём плавно — каждый кадр, независимо от частоты пересчёта
     this.linkEls.forEach((e,i)=>{ const l=this.links[i], a=this.byId[l.a], b=this.byId[l.b];
       const ax=RX(a),ay=RY(a),bx=RX(b),by=RY(b), d=this._linkPath(ax,ay,bx,by,l);
       e.setAttribute("d",d);
