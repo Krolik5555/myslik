@@ -808,6 +808,7 @@ class Graph{
     // а осевшая раскладка сохраняется (см. _moved) → следующее открытие статично, без повторного «взрыва».
     const freshN=this.nodes.filter(n=>n._fresh).length, placedN=this.nodes.length-freshN;
     this.alpha = placedN>0 ? (freshN>0 ? 0.12 : 0) : (this.nodes.length>1 ? 0.4 : 0);
+    this._recalcBends();  // сразу знаем, каким связям гнуться: иначе первый кадр рисует их прямыми
     this._renderTray();   // лоток всегда в такт с холстом: нода ушла на холст — исчезла из лотка
     this._tick(true);     // ОБЯЗАТЕЛЬНО рисуем: фигуры выше созданы без координат, пропуск кадра оставил бы граф пустым
   }
@@ -1266,8 +1267,50 @@ class Graph{
       e.classList.toggle("hl", !!id && on);
     });
   }
-  // путь связи — прямая линия (дуги отвергнуты: читались как жёсткие арки, а не «мягкие»)
-  _linkPath(ax,ay,bx,by){ return `M ${ax.toFixed(1)} ${ay.toFixed(1)} L ${bx.toFixed(1)} ${by.toFixed(1)}`; }
+  /* МЯГКАЯ СВЯЗЬ. По умолчанию линия прямая — постоянные дуги отвергнуты, они читаются как
+     жёсткие арки. Но если на линии лежит ЧУЖАЯ нода, связь прогибается ровно в этом месте и
+     обходит её, а на остальной длине остаётся прямой. Это подстраховка к физике: та разводит
+     узлы, только пока не остыла, и на плотном дереве часть случаев ей не по силам (узел зажат
+     между своими связями). Прогиб же виден сразу и не двигает ни одной ноды.
+     Глубина прогиба равна тому, насколько нода залезла в зазор: чуть задела — почти прямая,
+     легла серединой — заметная дуга. Поэтому линия не «щёлкает» между двумя состояниями. */
+  _recalcBends(){
+    const N=this.nodes, PAD=16, MAXH=70;
+    for(let li=0; li<this.links.length; li++){
+      const l=this.links[li], a=this.byId[l.a], b=this.byId[l.b];
+      if(!a||!b){ l._bend=null; continue; }
+      const ex=b.x-a.x, ey=b.y-a.y, L2=ex*ex+ey*ey;
+      if(L2<1){ l._bend=null; continue; }
+      const minx=Math.min(a.x,b.x), maxx=Math.max(a.x,b.x), miny=Math.min(a.y,b.y), maxy=Math.max(a.y,b.y);
+      let худший=null;
+      for(let ni=0; ni<N.length; ni++){
+        const n=N[ni]; if(n===a||n===b) continue;
+        const need=n.r+PAD;
+        if(n.x<minx-need || n.x>maxx+need || n.y<miny-need || n.y>maxy+need) continue;
+        let t=((n.x-a.x)*ex+(n.y-a.y)*ey)/L2;
+        if(t<=0.02 || t>=0.98) continue;                       // у самых концов не гнём: там нода — сосед
+        const dx=n.x-(a.x+ex*t), dy=n.y-(a.y+ey*t), d2=dx*dx+dy*dy;
+        if(d2>=need*need) continue;
+        const d=Math.sqrt(d2), глуб=need-d;
+        if(!худший || глуб>худший.глуб) худший={t, d, dx, dy, глуб};
+      }
+      if(!худший){ l._bend=null; continue; }
+      // уводим линию ПРОЧЬ от ноды; легла ровно на линию — уводим по нормали, сторона не важна
+      let ux, uy;
+      if(худший.d>0.01){ ux=-худший.dx/худший.d; uy=-худший.dy/худший.d; }
+      else { const L=Math.sqrt(L2); ux=-ey/L; uy=ex/L; }
+      l._bend={t:худший.t, ux, uy, h:Math.min(MAXH, худший.глуб+4)};
+    }
+  }
+  _linkPath(ax,ay,bx,by,l){
+    const bd=l&&l._bend;
+    if(!bd) return `M ${ax.toFixed(1)} ${ay.toFixed(1)} L ${bx.toFixed(1)} ${by.toFixed(1)}`;
+    /* Контрольная точка квадратичной кривой отводится на ДВОЙНУЮ высоту: сама кривая проходит
+       примерно посередине между прямой и этой точкой. */
+    const px=ax+(bx-ax)*bd.t, py=ay+(by-ay)*bd.t;
+    const cx=px+bd.ux*bd.h*2, cy=py+bd.uy*bd.h*2;
+    return `M ${ax.toFixed(1)} ${ay.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${bx.toFixed(1)} ${by.toFixed(1)}`;
+  }
   startLink(id){ this.linkFrom=id; this.svg.classList.add("linking"); $("#g-hint").innerHTML="Режим связи: кликни по второму узлу. Esc — отмена."; this._closePop(); }
   cancelLink(){ this.linkFrom=null; this.svg.classList.remove("linking"); this.tempLine.style.display="none"; if($("#g-hint"))$("#g-hint").innerHTML="Alt+тащи от ноды — связь/заметка · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · Delete — удалить"; }
   // Связать два узла. Связывать можно с чем угодно (заметка/задача/область), но не сам с собой
@@ -1547,8 +1590,13 @@ class Graph{
     });
     // связи — по позиции+idle (линии не «мерцают» от сдвига)
     const RX=n=>n.x+(n._ix||0), RY=n=>n.y+(n._iy||0);
+    /* Помехи на линиях пересчитываем не каждый кадр: O(связи × ноды) в отрисовке — дорого,
+       а картина меняется медленно (дрейф ходит в пределах четырёх пикселей, запас прогиба
+       это покрывает). Пока раскладка живая — чаще, в покое — реже. */
+    this._bendTick=(this._bendTick||0)+1;
+    if(this._bendTick % (this.alpha>0 ? 4 : 30) === 0) this._recalcBends();
     this.linkEls.forEach((e,i)=>{ const l=this.links[i], a=this.byId[l.a], b=this.byId[l.b];
-      const ax=RX(a),ay=RY(a),bx=RX(b),by=RY(b), d=this._linkPath(ax,ay,bx,by);
+      const ax=RX(a),ay=RY(a),bx=RX(b),by=RY(b), d=this._linkPath(ax,ay,bx,by,l);
       e.setAttribute("d",d);
       const h=this.hitEls[i]; if(h) h.setAttribute("d",d);
       if(l._grad){ l._grad.setAttribute("x1",ax); l._grad.setAttribute("y1",ay); l._grad.setAttribute("x2",bx); l._grad.setAttribute("y2",by); }   // градиент — по концам (userSpaceOnUse)

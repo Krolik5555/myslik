@@ -228,6 +228,43 @@ t.push({имя:"возврат на вкладку пересобирает гр
   recomputeHierarchy(); graph.build();
 }
 
+/* ===== мягкая связь: линия обходит ноду, которая на ней лежит =====
+   Физика разводит узлы, только пока не остыла, и на плотном дереве часть случаев ей не по силам.
+   Прогиб — подстраховка: он виден сразу, ни одной ноды не двигает и тает по мере ухода помехи. */
+{
+  const A = addItem({kind:"task", title:"дугаA"}); A.x = -3300; A.y = -3000;
+  const B = addItem({kind:"task", title:"дугаB"}); B.x = -2700; B.y = -3000;
+  const П = addItem({kind:"task", title:"дугаПомеха"}); П.x = -3000; П.y = -2994;
+  S.links.push([A.id, B.id, 1]);
+  recomputeHierarchy(); graph.build();
+
+  const у = id => graph.byId[id];
+  if (у(A.id) && у(B.id) && у(П.id)) {
+    graph.nodes.forEach(n => n.fixed = true);          // проверяем ОТРИСОВКУ, не физику
+    у(A.id).x = -3300; у(A.id).y = -3000; у(B.id).x = -2700; у(B.id).y = -3000;
+    const св = graph.links.find(l => (l.a === A.id && l.b === B.id) || (l.a === B.id && l.b === A.id));
+    const эл = graph.linkEls[graph.links.indexOf(св)];
+    const доКривой = (px, py) => { const L = эл.getTotalLength(); let m = 1e9;
+      for (let i = 0; i <= 60; i++) { const p = эл.getPointAtLength(L*i/60); m = Math.min(m, Math.hypot(p.x-px, p.y-py)); }
+      return m; };
+
+    у(П.id).x = -3000; у(П.id).y = -2994;              // почти на линии
+    graph.alpha = 0; graph._recalcBends(); graph._tick(true);
+    const зазор = у(П.id).r + 16;
+    t.push({имя:"связь обходит лежащую на ней ноду",
+            ок: доКривой(у(П.id).x, у(П.id).y) >= зазор && /Q/.test(эл.getAttribute("d")),
+            факт:"до кривой " + доКривой(у(П.id).x, у(П.id).y).toFixed(1) + " при зазоре " + зазор.toFixed(1)});
+
+    у(П.id).y = -2940;                                  // помеха ушла
+    graph._recalcBends(); graph._tick(true);
+    t.push({имя:"без помехи связь снова прямая",
+            ок: /L/.test(эл.getAttribute("d")) && !св._bend, факт: эл.getAttribute("d")});
+    graph.nodes.forEach(n => n.fixed = false);
+  }
+  [A, B, П].forEach(n => hardDeleteItem(n.id));
+  recomputeHierarchy(); graph.build();
+}
+
 // ===== поиск: связи гаснут вместе с нодами и возвращают свою яркость =====
 {
   const цель = S.items.filter(i => !i.deleted && i.kind !== "flow")[0];
