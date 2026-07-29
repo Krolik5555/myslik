@@ -1357,33 +1357,38 @@ def _install_maxinfo_fix(hwnd):
                 return False
 
         def _proc(h, msg, wp, lp):
-            if msg == WM_GETMINMAXINFO:
-                try:
-                    mon = user32.MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST)
-                    mi = _MONITORINFO()
-                    mi.cbSize = ctypes.sizeof(_MONITORINFO)
-                    if mon and user32.GetMonitorInfoW(ctypes.c_void_p(mon), ctypes.byref(mi)):
-                        work, full = mi.rcWork, mi.rcMonitor
-                        w = work.right - work.left
-                        hgt = work.bottom - work.top
-                        if _autohide():
-                            hgt -= 1        # оставляем панели щель, чтобы она могла всплыть
-                        info = ctypes.cast(lp, ctypes.POINTER(_MINMAXINFO)).contents
-                        # позиция задаётся ОТНОСИТЕЛЬНО монитора, а не рабочего стола
-                        info.ptMaxPosition.x = work.left - full.left
-                        info.ptMaxPosition.y = work.top - full.top
-                        info.ptMaxSize.x = w
-                        info.ptMaxSize.y = hgt
-                        info.ptMaxTrackSize.x = w
-                        info.ptMaxTrackSize.y = hgt
-                        if not _MAXFIX["logged"]:
-                            _MAXFIX["logged"] = True
-                            print("[maxinfo] work=%dx%d at %d,%d autohide=%s"
-                                  % (w, hgt, work.left, work.top, _autohide()))
-                        return 0
-                except Exception as e:
-                    print("[maxinfo] error:", e)
-            return user32.CallWindowProcW(_MAXFIX["old"], h, msg, wp, lp)
+            if msg != WM_GETMINMAXINFO:
+                return user32.CallWindowProcW(_MAXFIX["old"], h, msg, wp, lp)
+            # Сначала ШТАТНАЯ обработка: система и .NET заполняют структуру своими значениями
+            # (в том числе пределы ручного ресайза и данные для предпросмотра зон привязки).
+            # Только после этого правим ровно то, что относится к развороту. Обратный порядок
+            # (перезаписать и не отдать сообщение дальше) ломал предпросмотр снапинга.
+            res = user32.CallWindowProcW(_MAXFIX["old"], h, msg, wp, lp)
+            try:
+                mon = user32.MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST)
+                mi = _MONITORINFO()
+                mi.cbSize = ctypes.sizeof(_MONITORINFO)
+                if mon and user32.GetMonitorInfoW(ctypes.c_void_p(mon), ctypes.byref(mi)):
+                    work, full = mi.rcWork, mi.rcMonitor
+                    w = work.right - work.left
+                    hgt = work.bottom - work.top
+                    if _autohide():
+                        hgt -= 1            # оставляем панели щель, чтобы она могла всплыть
+                    info = ctypes.cast(lp, ctypes.POINTER(_MINMAXINFO)).contents
+                    # позиция задаётся ОТНОСИТЕЛЬНО монитора, а не рабочего стола
+                    info.ptMaxPosition.x = work.left - full.left
+                    info.ptMaxPosition.y = work.top - full.top
+                    info.ptMaxSize.x = w
+                    info.ptMaxSize.y = hgt
+                    # ptMaxTrackSize НЕ трогаем: им ограничен любой ручной ресайз и предпросмотр
+                    # зон привязки, а нам нужно поправить только сам разворот
+                    if not _MAXFIX["logged"]:
+                        _MAXFIX["logged"] = True
+                        print("[maxinfo] work=%dx%d at %d,%d autohide=%s"
+                              % (w, hgt, work.left, work.top, _autohide()))
+            except Exception as e:
+                print("[maxinfo] error:", e)
+            return res
 
         proc = WNDPROC(_proc)
         if x64:
