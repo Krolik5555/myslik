@@ -57,9 +57,9 @@ function renderNotes(v){
     </div>
     <!-- подсказку можно закрыть: висеть постоянно ей незачем, а вернуть — из меню «…» -->
     <div class="graph-hint${S.settings.graphHint===false?" off":""}" id="g-hint"><span>Alt+тащи от ноды — связь/заметка · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · колесо — зум · Delete — удалить</span><button id="g-hint-x" title="Скрыть подсказку"><i class="ti ti-x"></i></button></div>
+    <!-- только счётчик: кнопка «Отчёт» уехала в правую панель, где отчёт и собирается -->
     <div class="graph-selbar" id="g-selbar" style="display:none">
       <span class="gsb-n"></span>
-      <button class="gsb-btn" id="gsb-report" title="Собрать отчёт по выделенному"><i class="ti ti-file-text"></i>Отчёт</button>
     </div>
     <div class="graph-tray" id="g-tray" style="display:none">
       <button class="gt-tab" id="gt-tab" title="Неразобранные мысли"><i class="ti ti-inbox"></i><span class="gt-n"></span></button>
@@ -341,7 +341,7 @@ class Graph{
     }
     this._paintSel();
   }
-  // панель действий над выделением (кнопка «Отчёт»); показывается когда выбран ≥1 реальный элемент
+  // счётчик выделенного над графом; собрать отчёт — кнопкой в правой панели, там же он и живёт
   _renderSelBar(){
     const wrap=this.svg.parentNode; if(!wrap) return;
     const bar=wrap.querySelector("#g-selbar"); if(!bar) return;
@@ -349,12 +349,9 @@ class Graph{
     if(!ids.length){ bar.style.display="none"; return; }
     bar.style.display="";
     const nEl=bar.querySelector(".gsb-n"); if(nEl) nEl.textContent="Выделено: "+ids.length;
-    const rep=bar.querySelector("#gsb-report");
-    if(rep && !rep._wired){ rep._wired=true; rep.onclick=()=>{
-      const items=[...this.selNodes].map(id=>this.byId[id]&&this.byId[id].ref).filter(Boolean);
-      if(typeof openReportModal==="function") openReportModal(items);
-    }; }
   }
+  // ноды выделения — для кнопки «Отчёт» в правой панели
+  selectedItems(){ return [...this.selNodes].map(id=>this.byId[id]&&this.byId[id].ref).filter(Boolean); }
   _startMarquee(e){ const wrap=this.svg.parentNode; let el=wrap.querySelector(".graph-marquee");
     if(!el){ el=document.createElement("div"); el.className="graph-marquee"; wrap.appendChild(el); }
     this._marqEl=el; const rc=wrap.getBoundingClientRect();
@@ -380,20 +377,47 @@ class Graph{
       else if(e.key==="Escape"){ e.preventDefault(); this.closeSearch(); } };
     setTimeout(()=>inp.focus(),20);
   }
+  /* Ищем по названию, тегам, описанию и привязанной папке: «где я про это писал» чаще
+     вспоминается словом из текста, чем точным заголовком. Хаб области сюда не попадает —
+     у него нет ref. Совпавшие не просто «не погашены», а подсвечены (класс hit): на большой
+     паутине гашение остальных теряется, а искомое надо видеть с одного взгляда. */
   search(q){ q=(q||"").trim().toLowerCase().replace(/^#/,"");
     if(!q){ this._searchMatches=[]; this._clearSearchDim(); return 0; }
-    const matches=this.nodes.filter(n=>(n.label||"").toLowerCase().includes(q) || (n.ref && (n.ref.tags||[]).some(t=>String(t).toLowerCase().includes(q))));   // по названию ИЛИ тегу
+    const подходит=n=>{
+      if((n.label||"").toLowerCase().includes(q)) return true;
+      const it=n.ref; if(!it) return false;
+      if((it.tags||[]).some(t=>String(t).toLowerCase().includes(q))) return true;
+      if((it.body||"").toLowerCase().includes(q)) return true;
+      if((it.folder||"").toLowerCase().includes(q)) return true;
+      return false;
+    };
+    const matches=this.nodes.filter(подходит);
     this._searchMatches=matches; this._searchIdx=0;
     const ids=new Set(matches.map(n=>n.id));
-    this.nodeEls.forEach(o=>o.g.classList.toggle("dim", matches.length>0 && !ids.has(o.n.id)));   // гасим несовпадающие
-    this.linkEls.forEach(e=>e.classList.toggle("dim", matches.length>0));
+    this.nodeEls.forEach(o=>{
+      o.g.classList.toggle("dim", matches.length>0 && !ids.has(o.n.id));   // гасим несовпадающие
+      o.g.classList.toggle("hit", ids.has(o.n.id));                        // и подсвечиваем найденное
+    });
+    // связь между двумя найденными остаётся видимой — иначе кластер совпадений рассыпается на точки
+    this.linkEls.forEach((e,i)=>{
+      const l=this.links[i], оба=l && ids.has(l.a) && ids.has(l.b);
+      e.classList.toggle("dim", matches.length>0 && !оба);
+      const base=+(e._baseOp!=null?e._baseOp:1) || 1;
+      e.style.opacity = matches.length>0 ? (оба ? base : base*0.12) : base;
+    });
     if(matches.length) this._flyTo(matches[0]);
     return matches.length;
   }
   searchNext(){ const m=this._searchMatches; if(!m||!m.length) return; this._searchIdx=(this._searchIdx+1)%m.length; this._flyTo(m[this._searchIdx]); }
   _flyTo(n){ this.selNodes=new Set([n.id]); this._paintSel();
     const z=Math.max(this.zoom,0.9); this._tweenView(z, this.W/2-n.x*z, this.H/2-n.y*z); }
-  _clearSearchDim(){ if(this.nodeEls) this.nodeEls.forEach(o=>o.g.classList.remove("dim")); if(this.linkEls) this.linkEls.forEach(e=>e.classList.remove("dim")); }
+  _clearSearchDim(){
+    this._searchMatches=[];   // поиска больше нет — подсветка при наведении снова работает (см. _hover)
+    if(this.nodeEls) this.nodeEls.forEach(o=>{ o.g.classList.remove("dim"); o.g.classList.remove("hit"); });
+    // возвращаем ИМЕННО базовую яркость из настроек, а не «1»: иначе поиск незаметно делал бы
+    // все связи ярче, чем человек выставил ползунком
+    if(this.linkEls) this.linkEls.forEach(e=>{ e.classList.remove("dim"); if(e._baseOp!=null) e.style.opacity=e._baseOp; });
+  }
   closeSearch(){ if(this._searchBox) this._searchBox.style.display="none"; this._clearSearchDim(); }
   copySelection(){
     const ids=[...this.selNodes].filter(id=>this.byId[id]&&this.byId[id].ref); if(!ids.length) return;
@@ -476,7 +500,12 @@ class Graph{
     wrap.appendChild(inp);
     const m=this.root.getScreenCTM(); if(m){ const pt=this.svg.createSVGPoint(); pt.x=n.x; pt.y=n.y; const sp=pt.matrixTransform(m); const rc=wrap.getBoundingClientRect(); inp.style.left=(sp.x-rc.left)+"px"; inp.style.top=(sp.y-rc.top)+"px"; }
     const commit=(save)=>{ if(inp._done) return; inp._done=true; const v=inp.value.trim();
-      if(save){ if(n.ref){ n.ref.title=v||"Новая заметка"; touch(n.ref); persist(); } }
+      if(save){ if(n.ref){ n.ref.title=v||"Новая заметка"; touch(n.ref); persist();
+        /* Умный захват жил только на верхней строке, а нода с графа проходила мимо него.
+           По настройке разбираем и её — сырьё то же самое, введённое название. Пустое имя
+           не отдаём: разбирать «Новая заметка» бессмысленно, модель придумает чушь. */
+        if(v && S.settings.aiGraphSuggest===true && typeof aiRefineCapture==="function") aiRefineCapture(n.ref, v);
+      } }
       else if(n.ref && !(n.ref.title||"").trim()){ hardDeleteItem(n.ref.id); recomputeHierarchy(); }   // Escape по только что созданной пустой → убрать ноду-сироту (и связь)
       inp.remove(); this.build(); };
     inp.onkeydown=(ev)=>{ ev.stopPropagation(); if(ev.key==="Enter"){ ev.preventDefault(); commit(true); } else if(ev.key==="Escape"){ ev.preventDefault(); commit(false); } };
@@ -690,6 +719,10 @@ class Graph{
       if(!l.faded){ const lb=(S.settings.graphLinkBright!=null?S.settings.graphLinkBright:1);   // яркость обычных связей
         e.style.strokeWidth=(l.manual?1.8:1.3); e.style.opacity=Math.min(1,(l.manual?1:0.8)*lb); }
       else { e.style.opacity=(S.settings.graphFadedBright!=null?S.settings.graphFadedBright:0.5); }   // яркость потухших связей
+      /* Яркость связи задана ИНЛАЙНОМ (она из настроек), а инлайн сильнее любого класса —
+         поэтому .g-link.dim при поиске ничего не гасил, и линии оставались яркими поверх
+         приглушённых нод. Запоминаем базу: поиск гасит от неё и ею же возвращает. */
+      e._baseOp = e.style.opacity;
       this.linkG.appendChild(e); this.linkEls.push(e);
     });
 
@@ -1219,6 +1252,10 @@ class Graph{
   // наведение на ноду (Obsidian-стиль): узел+соседи+связи между ними ПОДСВЕЧИВАЮТСЯ (.hl),
   // всё остальное гаснет (.dim). Плавно (transition в CSS). id=null — снять.
   _hover(id){
+    /* Пока идёт поиск, гашением распоряжается ОН. Иначе достаточно было повести мышью по графу:
+       курсор вне ноды даёт id=null, а тогда toggle("dim", false) снимал класс со ВСЕХ нод —
+       и половина паутины снова загоралась поверх результатов поиска. */
+    if(this._searchMatches && this._searchMatches.length) return;
     this.nodeEls.forEach(o=>{ const nid=o.n.id; const focus=!!id&&nid===id, nbr=!!id&&this.adj[id].has(nid);
       o.g.classList.toggle("dim", !!id && !focus && !nbr);
       o.g.classList.toggle("hl", focus||nbr);
@@ -1379,6 +1416,9 @@ class Graph{
     this.alpha*=0.985; if(this.alpha<0.004)this.alpha=0;
     if(this.alpha>0.06) this._moved=true;   // была заметная активность → после остывания сохраним раскладку
     if(this.alpha>0){   // физика раскладки O(N²) — только пока не остыло (при alpha=0 все силы = 0, движения нет → пропускаем весь цикл)
+    let mx=0, my=0;
+    for(let i=0;i<N.length;i++){ mx+=N[i].x; my+=N[i].y; }
+    if(N.length){ mx/=N.length; my/=N.length; } else { mx=cx; my=cy; }
     for(let i=0;i<N.length;i++){ const a=N[i];
       const adjA=this.adj[a.id];
       for(let j=i+1;j<N.length;j++){ const b=N[j];
@@ -1389,14 +1429,93 @@ class Graph{
         const f=(rep/d2)*this.alpha, fx=dx/d*f, fy=dy/d*f;
         a.vx+=fx; a.vy+=fy; b.vx-=fx; b.vy-=fy;
       }
-      // слабее тянем к центру, чтобы несвязанные кластеры могли разойтись
-      a.vx+=(cx-a.x)*0.0016*this.alpha; a.vy+=(cy-a.y)*0.0016*this.alpha;
+      /* Стягиваем к ЦЕНТРУ МАСС графа, а не к центру вьюпорта (W/2,H/2), как было раньше.
+         Точка вьюпорта неподвижна, а разросшееся дерево живёт где угодно — и стоило схватить
+         ноду (драг поднимает alpha с нуля), как ВСЕ ноды разом получали импульс в её сторону:
+         граф целиком уезжал «куда-то к центру». К центру масс сумма этих сил равна нулю, так
+         что граф только поджимается сам к себе и с места не трогается. */
+      a.vx+=(mx-a.x)*0.0016*this.alpha; a.vy+=(my-a.y)*0.0016*this.alpha;
     }
     this.links.forEach(l=>{ const a=this.byId[l.a], b=this.byId[l.b];
-      const restLen=l.L*(S.settings.graphLinkLen!=null?S.settings.graphLinkLen:1)*(l.lenMul||1)*(l.doneMul||1);   // глобальная × индивидуальная × сжатие завершённой ветки
+      /* Длина связи растёт с НАСЕЛЁННОСТЬЮ концов. Раньше она была одинаковой для всех, и
+         узел с десятью детьми получал столько же места, сколько лист: его дети толпились
+         вплотную к соседним веткам, лезли на чужие линии и плодили перекрестья. Чем больше
+         степень концов — тем дальше они разъезжаются, освобождая место своим детям. Считаем от
+         √(deg−1): у листа множитель ровно 1 (ничего не меняется), у хаба — плавный рост.
+         Потолок 2.8, иначе крупные ветки улетали бы за экран. Настройка graphLinkLen остаётся
+         сверху множителем, ползунок по-прежнему главный. */
+      const dA=(this.adj[l.a]?this.adj[l.a].size:1), dB=(this.adj[l.b]?this.adj[l.b].size:1);
+      const простор=Math.min(2.8, 1+0.16*(Math.sqrt(Math.max(0,dA-1))+Math.sqrt(Math.max(0,dB-1))));
+      const restLen=l.L*(S.settings.graphLinkLen!=null?S.settings.graphLinkLen:1)*(l.lenMul||1)*(l.doneMul||1)*простор;   // глобальная × индивидуальная × сжатие завершённой ветки × простор по степени
       let dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy)||1, f=(d-restLen)*0.02*this.alpha, fx=dx/d*f, fy=dy/d*f;
       a.vx+=fx; a.vy+=fy; b.vx-=fx; b.vy-=fy;
     });
+    /* НОДЫ ОТТАЛКИВАЮТСЯ ОТ СВЯЗЕЙ. Раньше силы знали только про пары нод, поэтому на выросшем
+       дереве узлы спокойно ложились ПОВЕРХ чужих линий: связь шла сквозь ноду, и глазом было
+       не понять, что с чем соединено. Считаем расстояние до отрезка (связи прямые, см.
+       _linkPath) и мягко разводим: ноду прочь от линии, концы связи — в обратную сторону
+       с весом по месту касания, чтобы линия «прогибалась» естественно, а не дёргала узел.
+       Инцидентные ноды пропускаем — они и есть концы. Дешёвый отсев по рамке ставит стоимость
+       рядом с уже имеющимся O(N²), а не поверх него. */
+    const EPAD=18;                       // зазор от края ноды до линии (замер: при 13 подпись ноды всё ещё задевала линию)
+    for(let li=0; li<this.links.length; li++){
+      const l=this.links[li], a=this.byId[l.a], b=this.byId[l.b];
+      if(!a || !b) continue;
+      const ex=b.x-a.x, ey=b.y-a.y, eL2=ex*ex+ey*ey; if(eL2<1) continue;
+      const minx=Math.min(a.x,b.x), maxx=Math.max(a.x,b.x), miny=Math.min(a.y,b.y), maxy=Math.max(a.y,b.y);
+      for(let ni=0; ni<N.length; ni++){
+        const n=N[ni]; if(n===a || n===b) continue;
+        const need=n.r+EPAD;
+        if(n.x<minx-need || n.x>maxx+need || n.y<miny-need || n.y>maxy+need) continue;   // мимо рамки связи
+        let t=((n.x-a.x)*ex+(n.y-a.y)*ey)/eL2; if(t<0)t=0; else if(t>1)t=1;
+        let dx=n.x-(a.x+ex*t), dy=n.y-(a.y+ey*t), d2=dx*dx+dy*dy;
+        if(d2>need*need) continue;
+        let d=Math.sqrt(d2);
+        if(d<0.01){ dx=-ey; dy=ex; d=Math.sqrt(eL2); }        // нода ровно на линии — толкаем по нормали
+        /* У самой границы зазора сила НЕ падает в ноль (0.35 остаётся): при чисто линейном
+           затухании лист застревал в миллиметре от чужой линии — отталкивание там уже почти
+           нулевое, а пружина к родителю тянет с прежней силой. За зазором сила и так не
+           считается вовсе (выход по d>need выше), так что дрожания на границе это не даёт. */
+        const ux=dx/d, uy=dy/d, f=(0.35+0.65*(need-d)/need)*1.1*this.alpha;
+        n.vx+=ux*f;      n.vy+=uy*f;
+        a.vx-=ux*f*(1-t)*0.5; a.vy-=uy*f*(1-t)*0.5;
+        b.vx-=ux*f*t*0.5;     b.vy-=uy*f*t*0.5;
+      }
+    }
+    /* СВЯЗИ СТАРАЮТСЯ НЕ ПЕРЕСЕКАТЬСЯ. Отрезки пересеклись — значит концы одной связи лежат
+       по РАЗНЫЕ стороны от другой. Кратчайший путь убрать перекрестье: взять тот конец, что
+       ближе к чужой линии, и перевести его на сторону своего напарника. Толкаем именно ближний
+       (ему идти меньше всего) и слабо, чтобы раскладка расплеталась постепенно, а не выворачивала
+       дерево рывком. Пары с общим узлом пропускаем: там пересечение — это сам узел.
+       O(E²) с отсевом по рамкам: на сотне связей это тысячи дешёвых сравнений, рядом с уже
+       имеющимся O(N²) по нодам. */
+    const площ=(p,q,r)=>(q.x-p.x)*(r.y-p.y)-(q.y-p.y)*(r.x-p.x);   // знак = с какой стороны от pq лежит r
+    const развести=(p,q,sp,sq,e1,e2)=>{
+      let nx=-(e2.y-e1.y), ny=e2.x-e1.x;                            // нормаль чужой связи
+      const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl;
+      const кого = Math.abs(sp)<=Math.abs(sq) ? p : q;              // ближний к чужой линии — ему идти меньше
+      const куда = Math.abs(sp)<=Math.abs(sq) ? Math.sign(sq) : Math.sign(sp);
+      /* Коэффициент подобран замером, а не на глаз: при 0.35 крест не расплетался вовсе —
+         alpha остывает за пару сотен кадров, и импульс оказывался на порядок меньше
+         отталкивания нод (7000/d²), которое держит узлы на местах. */
+      const f=1.8*this.alpha;
+      кого.vx += nx*куда*f; кого.vy += ny*куда*f;
+    };
+    const LN=this.links.length;
+    for(let i=0;i<LN;i++){
+      const a=this.byId[this.links[i].a], b=this.byId[this.links[i].b]; if(!a||!b) continue;
+      const ax1=Math.min(a.x,b.x), ax2=Math.max(a.x,b.x), ay1=Math.min(a.y,b.y), ay2=Math.max(a.y,b.y);
+      for(let j=i+1;j<LN;j++){
+        const c=this.byId[this.links[j].a], d=this.byId[this.links[j].b]; if(!c||!d) continue;
+        if(a===c||a===d||b===c||b===d) continue;                    // общий узел — не перекрестье
+        if(ax2<Math.min(c.x,d.x) || ax1>Math.max(c.x,d.x)) continue;
+        if(ay2<Math.min(c.y,d.y) || ay1>Math.max(c.y,d.y)) continue;
+        const s1=площ(c,d,a), s2=площ(c,d,b), s3=площ(a,b,c), s4=площ(a,b,d);
+        if(!((s1>0)!==(s2>0) && (s3>0)!==(s4>0))) continue;          // отрезки не пересеклись
+        развести(a,b,s1,s2,c,d);
+        развести(c,d,s3,s4,a,b);
+      }
+    }
     // parent-child hierarchy spring — stronger pull
     N.forEach(n=>{
       if(n.ref && n.ref.parent && this.byId[n.ref.parent]){

@@ -58,10 +58,15 @@ let текст = "";
 try { текст = buildReportText(выбор) || ""; } catch(e){ текст = "ошибка: " + e.message; }
 t.push({имя:"отчёт собирается", ок: текст.length > 20 && !текст.startsWith("ошибка"),
         факт: текст.slice(0, 60).replace(/\n/g, " ⏎ ")});
-try { openReportModal(выбор); await ж(120);
-      t.push({имя:"окно отчёта открывается", ок: !!document.querySelector("#rep-out"), факт:""});
-      closeOverlays(); }
-catch(e){ t.push({имя:"окно отчёта открывается", ок:false, факт:e.message}); }
+// отчёт живёт в ПРАВОЙ ПАНЕЛИ, окна у него больше нет: окно накрывало граф, ради которого он и нужен
+try { repOpen(выбор); await ж(120);
+      t.push({имя:"отчёт открывается в правой панели",
+              ок: !!document.querySelector("#aside #rep-out") && !document.querySelector(".report-modal"),
+              факт: document.querySelector("#aside #rep-out") ? "панель" : "не нашли #rep-out в #aside"});
+      const крестик = document.querySelector("#aside #rep-close");
+      if(крестик){ крестик.click(); await ж(80); }
+      t.push({имя:"отчёт убирается из панели", ок: !document.querySelector("#aside #rep-out"), факт:""}); }
+catch(e){ t.push({имя:"отчёт открывается в правой панели", ок:false, факт:e.message}); }
 
 console.error = прежний;
 t.push({имя:"консоль чистая", ок: ошибки.length === 0, факт: ошибки.slice(0, 2).join(" | ")});

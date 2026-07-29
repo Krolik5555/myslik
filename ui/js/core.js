@@ -188,6 +188,20 @@ function openItemFolder(it){
   if(!HasPy()){ toast("Открытие папки доступно только в приложении",{icon:"ti-folder"}); return; }
   Promise.resolve(window.pywebview.api.open_path(it.folder)).then(ok=>{ if(!ok) toast("Папка не найдена на ПК",{icon:"ti-alert-triangle"}); }, ()=>toast("Не удалось открыть папку"));
 }
+/* Путь папки для передачи ДРУГОМУ человеку: у общей папки Dropbox совпадает только часть
+   от её корня, а локальное начало у каждого своё (тут E:\_Dropbox\, у коллеги — иное место).
+   Поэтому всё до корня Dropbox отрезается, и путь начинается с «<Команда> Dropbox\…».
+   Корень ищется как ПОСЛЕДНИЙ сегмент, ОКАНЧИВАЮЩИЙСЯ на «Dropbox»: у корня имя всегда
+   такое («Dropbox» или «Moviestudio Dropbox»), а вложенная папка вроде «Dropbox links»
+   под правило не попадает и путь не обрежет. Путь мимо Dropbox отдаётся целиком:
+   резать в нём нечего, общего начала у людей нет. */
+function shortFolder(p){
+  if(!p || typeof p!=="string") return "";
+  const parts=p.split(/[\\/]+/).filter(Boolean);
+  let root=-1;
+  parts.forEach((s,i)=>{ if(/dropbox$/i.test(s.trim())) root=i; });
+  return root<0 ? p : parts.slice(root).join("\\");
+}
 
 function defaultState(){
   return {

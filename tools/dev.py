@@ -196,7 +196,7 @@ def run_scenarios(names=None, quiet=False):
                         " && !!document.querySelector('#view')"
                         " && typeof openNoteReader==='function'"      # overlays.js
                         " && typeof openBoard==='function'"           # draw.js — доска полотна
-                        " && typeof openReportModal==='function'"     # report.js
+                        " && typeof repOpen==='function'"             # report.js — отчёт в правой панели
                         " && typeof boot==='function'")               # main.js — последний в списке
                 except Exception:
                     ready = False

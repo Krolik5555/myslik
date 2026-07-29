@@ -76,6 +76,8 @@ function renderNav(){
 function asideSelect(id){
   asideId = id || null;
   asideGroup = null;
+  // выделение сменилось — собранный отчёт был про ДРУГИЕ ноды, держать его в панели нельзя
+  if(typeof repReset==="function") repReset();
   if(asideId && !S.settings.asideOn){ S.settings.asideOn = true; persist(); }
   renderAside();
 }
@@ -92,11 +94,61 @@ function applyKind(it, kind){
   return true;
 }
 
+/* Поле описания подгоняется под текст. Иначе длинную заметку приходилось читать через щёлочку
+   в 120 px и тянуть уголок руками — поверх живого графа это и тяжело, и дёргано.
+   Высоту сначала сбрасываем: без этого scrollHeight помнит прежнюю, и поле только росло бы.
+   Потолок — из max-height в CSS, дальше textarea прокручивается сама. */
+function asideAutoGrow(ta){
+  if(!ta) return;
+  ta.style.height="auto";
+  const потолок=Math.round(window.innerHeight*0.55);
+  ta.style.height=Math.min(ta.scrollHeight+2, потолок)+"px";
+}
+
+/* Путь папки для панели: показываем ХВОСТ, а не начало. Начало у всех путей одинаковое
+   («Moviestudio Dropbox\3D\Current projects\…»), а что за папка — говорят последние сегменты
+   («…\Astra\renders\final»). Обрезаем в коде, а не многоточием CSS: тот режет с конца, то есть
+   ровно самое нужное. Полный путь остаётся подсказкой. */
+function asidePathShort(p, n){
+  const s = (typeof shortFolder==="function") ? shortFolder(p) : (p||"");
+  const parts = s.split(/[\\/]+/).filter(Boolean);
+  const хвост = n || 3;
+  return parts.length>хвост ? "…\\"+parts.slice(-хвост).join("\\") : s;
+}
+
+/* Список нод ДЕРЕВОМ: у КРОЛИКА ноды всегда живут иерархией (персонаж → рендер/анимация/свет),
+   и плоский перечень терял главное — кто чей. Корнем считаем ноду, чьего родителя в наборе нет:
+   иначе ветка повисла бы без начала. `seen` защищает от циклов parent, `limit` — от простыни. */
+function asideTreeRows(nodes, limit){
+  const set=new Set(nodes.map(n=>n.id));
+  const kids={}; const roots=[];
+  nodes.forEach(n=>{ if(n.parent && set.has(n.parent)) (kids[n.parent]=kids[n.parent]||[]).push(n); else roots.push(n); });
+  const rows=[], seen=new Set();
+  const walk=(n, lvl)=>{
+    if(seen.has(n.id) || rows.length>=(limit||999)) return;
+    seen.add(n.id); rows.push({n, lvl});
+    (kids[n.id]||[]).forEach(k=>walk(k, lvl+1));
+  };
+  roots.forEach(r=>walk(r,0));
+  return rows;
+}
+
+// строка ноды в панели: отступ по уровню + роль. Уровень уезжает в CSS-переменную --lvl.
+function asideNodeRow(n, lvl, role){
+  const икона = n.kind==="flow"?"ti-artboard":n.kind==="note"?"ti-note":"ti-checkbox";
+  const имя = (n.title||"").trim();
+  const пусто = n.kind==="flow"?"полотно без названия":n.kind==="note"?"заметка без названия":"задача без названия";
+  return `<button class="as-link${lvl?" as-sub":""}" style="--lvl:${lvl||0}" data-go="${esc(n.id)}"><i class="ti ${икона}"></i>
+    <span${имя?"":' class="as-dim"'}>${esc(имя||пусто)}</span>
+    ${role?`<em class="as-role">${role}</em>`:""}</button>`;
+}
+
 // Выделили рамкой несколько нод — показываем сводку, а не пустоту: сколько и чего выбрано,
 // с быстрым переходом к любой из них.
 function asideMany(ids){
   asideGroup = (ids||[]).slice();
   asideId = null;
+  if(typeof repReset==="function") repReset();   // см. asideSelect
   if(!S.settings.asideOn){ S.settings.asideOn = true; persist(); }
   renderAside();
 }
@@ -167,8 +219,13 @@ function renderAside(){
           </select></span></div>
       </div>
       <div class="as-sec">Ноды</div>
-      <div class="as-links">${ноды.slice(0,30).map(n=>`<button class="as-link" data-go="${esc(n.id)}"><i class="ti ${n.kind==="flow"?"ti-artboard":n.kind==="note"?"ti-note":"ti-checkbox"}"></i><span>${esc(n.title||"без названия")}</span></button>`).join("")}</div>
-      <div class="as-foot"><button class="as-act as-del" data-delall="1" title="Удалить выделенные"><i class="ti ti-trash"></i></button></div>`;
+      <div class="as-links">${asideTreeRows(ноды, 30).map(r=>asideNodeRow(r.n, r.lvl, "")).join("")}</div>
+      ${(typeof repActive==="function" && repActive()) ? "" :
+        `<button class="as-wide" data-report="1"><i class="ti ti-file-text"></i>Собрать отчёт</button>`}
+      ${(typeof repPanelHtml==="function") ? repPanelHtml() : ""}`;
+    const кнОтчёт = a.querySelector("[data-report]");
+    if(кнОтчёт) кнОтчёт.onclick = ()=>{ if(typeof repOpen==="function") repOpen(ноды); };
+    if(typeof repPanelWire==="function") repPanelWire(a);
     a.querySelectorAll("[data-go]").forEach(el=>{ el.onclick=()=>{ asideSelect(el.dataset.go); if(graph) graph.focusNode(el.dataset.go); }; });
 
     // групповые правки: меняем у всех разом и сразу перерисовываем паутину
@@ -187,19 +244,8 @@ function renderAside(){
         toast("Изменено нод: "+тронуто, {icon:"ti-checks"});
       };
     });
-    const удалить = a.querySelector("[data-delall]");
-    if(удалить) удалить.onclick = async ()=>{
-      const ок = await uiConfirm(`Удалить выделенные ноды (${ноды.length})?`,
-        {danger:true, title:"Удаление", okLabel:"Удалить"});
-      if(!ок) return;
-      const ids = ноды.map(n=>n.id);
-      ids.forEach(id=>deleteItem(id));
-      asideGroup = null; asideId = null;
-      if(graph){ graph.selNodes.clear(); graph._paintSel(); graph.build(); }
-      render();
-      toast("Удалено: "+ids.length, {icon:"ti-trash", label:"Вернуть",
-        onAction:()=>{ ids.forEach(id=>restoreItem(id)); render(); }});
-    };
+    // Кнопки «удалить выделенные» тут нет намеренно: она висела одна в пустом ряду, а удаление
+    // группы и так делает Delete на графе (Graph.deleteSelected) — с тем же откатом по тосту.
     return;
   }
   const it = asideId ? liveById(asideId) : null;
@@ -208,11 +254,18 @@ function renderAside(){
   if(it && it.kind==="flow" && drawRoot && drawItem && drawItem.id===it.id && a.querySelector("#as-board-host canvas")) return;
   if(drawRoot && (!it || it.kind!=="flow" || (drawItem && drawItem.id!==it.id)) && !$("#draw-screen")) drawDestroy();
   if(!it){
-    a.innerHTML = `<div class="aside-empty"><i class="ti ti-click"></i>Выбери ноду — здесь откроется её содержимое</div>`;
+    /* Отчёт показываем и здесь: его собирают по выделению в графе, а выделение рамкой
+       карточку не открывает — без этой ветки кнопка «Отчёт» срабатывала бы в пустоту. */
+    const отчёт = (typeof repPanelHtml==="function") ? repPanelHtml() : "";
+    a.innerHTML = отчёт
+      ? отчёт
+      : `<div class="aside-empty"><i class="ti ti-click"></i>Выбери ноду — здесь откроется её содержимое</div>`;
+    if(отчёт && typeof repPanelWire==="function") repPanelWire(a);
     return;
   }
-  a.innerHTML = asideCard(it);
+  a.innerHTML = asideCard(it) + ((typeof repPanelHtml==="function") ? repPanelHtml() : "");
   wireAside(it);
+  if(typeof repPanelWire==="function") repPanelWire(a);
   const хост = a.querySelector("#as-board-host");
   if(хост) openBoardIn(it, хост);
 }
@@ -266,6 +319,20 @@ function asideCard(it){
          ${Object.entries(REPEAT).map(([k,v])=>`<option value="${k}" ${(it.repeat||"none")===k?"selected":""}>${k==="none"?"не повторяется":v}</option>`).join("")}
        </select>`));
   }
+  /* Папка ноды — здесь, а не только в окне правки: путь нужен по ходу работы (открыть рендеры,
+     скопировать для смежника), а ради этого открывать окно поверх графа — лишний шаг.
+     Показываем УКОРОЧЕННЫЙ путь (см. shortFolder): полный не влезает в панель и всё равно
+     начинается с локального «E:\_Dropbox\», который никому, кроме этого ПК, не нужен. */
+  /* Сам путь — КНОПКА «открыть»: открывают папку по десять раз на дню, и гнать курсор к мелкой
+     иконке у правого края панели ради самого частого действия — лишняя работа. Иконки рядом
+     остаются для редких: скопировать, сменить, отвязать. */
+  стр.push(строка("Папка", ["ti-folder"], it.folder
+    ? `<button class="as-path" data-folder="open" title="Открыть в проводнике:\n${esc(it.folder)}">${esc(asidePathShort(it.folder))}</button>
+       <button class="as-x" data-folder="copy" title="Скопировать путь для передачи (без локального начала)"><i class="ti ti-copy"></i></button>
+       <button class="as-x" data-folder="pick" title="Сменить папку"><i class="ti ti-folder-cog"></i></button>
+       <button class="as-x" data-folder="clear" title="Отвязать папку"><i class="ti ti-x"></i></button>`
+    : `<button class="as-link as-thin" data-folder="pick"><i class="ti ti-folder-search"></i><span>Привязать папку</span></button>`));
+
   стр.push(строка("Теги", null,
     `<span class="as-tags">${(it.tags||[]).map(t=>{
         const ст = tagStyle(t);
@@ -286,29 +353,42 @@ function asideCard(it){
            <button class="btn primary as-open" data-open="1"><i class="ti ti-artboard"></i>Открыть доску</button>`)
     : `<textarea class="as-area" data-f="body" placeholder="Описание…">${esc(it.body||"")}</textarea>`;
 
-  // дедуп по id: одна и та же нода бывает и ребёнком, и связью — в списке нужна один раз
-  const рядом = [...new Map([родитель, ...дети, ...связи].filter(Boolean).map(n=>[n.id,n])).values()]
-                  .filter(n=>n.id!==it.id);
-  const строкаНоды = n=>{
-    const икона = n.kind==="flow"?"ti-artboard":n.kind==="note"?"ti-note":"ti-checkbox";
-    const роль = n.id===it.parent ? "родитель" : (n.parent===it.id ? "вложена" : "");
-    const имя = (n.title||"").trim();
-    return `<button class="as-link" data-go="${esc(n.id)}"><i class="ti ${икона}"></i>
-      <span${имя?"":' class="as-dim"'}>${esc(имя || (n.kind==="flow"?"полотно без названия":n.kind==="note"?"заметка без названия":"задача без названия"))}</span>
-      ${роль?`<em class="as-role">${роль}</em>`:""}</button>`;
-  };
-  const связанные = рядом.length ? `<div class="as-sec">Связанные ноды<span class="as-cnt">${рядом.length}</span></div>
-    <div class="as-links">${рядом.slice(0,20).map(строкаНоды).join("")}</div>` : "";
+  /* Связанные ноды показываем ИЕРАРХИЕЙ, а не свалкой: родитель сверху, под ним сама нода
+     (приглушённо, как «ты здесь»), под ней — вложенные. Плоский список не давал понять, где
+     нода стоит в дереве, — а у КРОЛИКА дерево и есть основная структура. Боковые связи
+     (не родитель и не ребёнок) идут отдельным блоком: иерархии в них нет, и мешать их
+     с деревом значило бы соврать про вложенность.
+     Дедуп по id: одна и та же нода бывает и ребёнком, и связью — в списке нужна один раз. */
+  const детиLive = дети.filter(n=>n.id!==it.id);
+  const вДереве = new Set([родитель, ...детиLive].filter(Boolean).map(n=>n.id));
+  const боковые = [...new Map(связи.filter(n=>n && n.id!==it.id && !вДереве.has(n.id)).map(n=>[n.id,n])).values()];
+  const рядом = вДереве.size + боковые.length;
 
-  // ряд действий внизу — то, что не влезает в поля: правка, дубль, удаление
+  const ветка = [];
+  if(родитель) ветка.push(asideNodeRow(родитель, 0, "родитель"));
+  const свой = родитель ? 1 : 0;
+  ветка.push(`<div class="as-link as-self" style="--lvl:${свой}"><i class="ti ${it.kind==="flow"?"ti-artboard":it.kind==="note"?"ti-note":"ti-checkbox"}"></i>
+    <span>${esc((it.title||"").trim()||"эта нода")}</span><em class="as-role">эта</em></div>`);
+  детиLive.slice(0,20).forEach(n=>ветка.push(asideNodeRow(n, свой+1, "вложена")));
+
+  const связанные = рядом ? `<div class="as-sec">Связанные ноды<span class="as-cnt">${рядом}</span></div>
+    <div class="as-links">${ветка.join("")}</div>
+    ${боковые.length?`<div class="as-sec as-sec2">Связаны без вложенности</div>
+      <div class="as-links">${боковые.slice(0,20).map(n=>asideNodeRow(n,0,"")).join("")}</div>`:""}` : "";
+
+  /* Ряд действий внизу — то, что не влезает в поля: дубль и удаление.
+     Карандаша тут больше нет: он дублировал кнопку в шапке И НЕ РАБОТАЛ — обработчики
+     вешаются через querySelector, то есть на ПЕРВЫЙ [data-edit], а он в шапке. */
   const действия = `<div class="as-foot">
-      <button class="as-act" data-edit="1" title="Открыть в окне (цвет, папка)"><i class="ti ti-pencil"></i></button>
+      <button class="as-act" data-report="1" title="Собрать отчёт по этой ноде"><i class="ti ti-file-text"></i></button>
       <button class="as-act" data-dup="1" title="Дублировать"><i class="ti ti-copy"></i></button>
       <button class="as-act as-del" data-del="1" title="Удалить"><i class="ti ti-trash"></i></button>
     </div>`;
 
   return `<div class="as-head"><h2 class="as-title" contenteditable="plaintext-only" data-ph="без названия">${esc(it.title||"")}</h2>
       <div class="as-acts">
+        ${(typeof aiEnabled==="function" && aiEnabled())
+          ? `<button class="as-ic" data-airefine="1" title="ИИ: причесать заголовок и поля — как при вводе мысли в строку захвата"><i class="ti ti-sparkles"></i></button>` : ""}
         <button class="as-ic" data-edit="1" title="Править"><i class="ti ti-pencil"></i></button>
         <button class="as-ic" data-close="1" title="Закрыть панель"><i class="ti ti-x"></i></button>
       </div></div>
@@ -323,6 +403,29 @@ function wireAside(it){
   const b=(sel,fn)=>{ const el=a.querySelector(sel); if(el) el.onclick=fn; };
   b("[data-close]", ()=>{ S.settings.asideOn=false; persist(); asideApplyWidth(); });
   b("[data-edit]",  ()=>openItemSmart(it));
+  /* Тот же самый разбор, что и при вводе мысли в строку захвата, только запущенный руками:
+     нода уже создана, поэтому «сырьём» отдаём её название плюс описание. Без этой кнопки
+     причесать можно было только то, что вводилось через верхнюю строку. */
+  b("[data-airefine]", ()=>{
+    const raw=((it.title||"").trim()+"\n"+(it.body||"").trim()).trim();
+    if(!raw){ toast("Сначала впиши мысль — ИИ нечего читать",{icon:"ti-sparkles"}); return; }
+    if(typeof aiRefineCapture==="function") aiRefineCapture(it, raw);
+  });
+  b("[data-report]", ()=>{ if(typeof repOpen==="function") repOpen([it]); });
+  // папка ноды: выбор и открытие идут через core.js (там же тосты и запись), убрать — тут
+  a.querySelectorAll("[data-folder]").forEach(кн=>кн.onclick=async()=>{
+    const что=кн.dataset.folder;
+    if(что==="pick") pickItemFolder(it, ()=>renderAside());
+    else if(что==="open") openItemFolder(it);
+    else if(что==="copy"){
+      // копируем ИМЕННО укороченный путь: его отдают другому человеку, а локальное начало
+      // (E:\_Dropbox\…) у него своё — см. shortFolder в core.js
+      const путь=(typeof shortFolder==="function")?shortFolder(it.folder):it.folder;
+      const ок=(typeof _repCopy==="function") ? await _repCopy(путь) : false;
+      toast(ок?"Путь скопирован":"Не удалось скопировать",{icon:ок?"ti-copy":"ti-alert-triangle"});
+    }
+    else { it.folder=undefined; touch(it); persist(); renderAside(); toast("Папка отвязана",{icon:"ti-folder-off"}); }
+  });
   b("[data-open]",  ()=>openBoard(it));
   b("[data-full]",  ()=>openBoard(it));   // из врезки — развернуть ту же доску на весь экран
   b("[data-dup]", ()=>{
@@ -429,7 +532,10 @@ function wireAside(it){
     загл.onkeydown = e=>{ if(e.key==="Enter"){ e.preventDefault(); загл.blur(); } };
   }
   const тело = a.querySelector('[data-f="body"]');
-  if(тело) тело.oninput = ()=>позже(()=>{ it.body = тело.value; обновить(false); });
+  if(тело){
+    asideAutoGrow(тело);                                   // открыли ноду — сразу видно весь текст
+    тело.oninput = ()=>{ asideAutoGrow(тело); позже(()=>{ it.body = тело.value; обновить(false); }); };
+  }
 }
 
 // Разделитель. Тянем мышью, ширину пишем в настройки — но только по отпусканию,

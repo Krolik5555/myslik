@@ -462,7 +462,19 @@ function drawInto(it, host){
 
 // Доска ноды прямо в правой панели. Ширину гарантирует asideApplyWidth: уже 730 px
 // Excalidraw показывает телефонный интерфейс.
+/* Колесо над врезанной доской НЕ должно прокручивать правую панель. Excalidraw сам ловит wheel
+   (пан и зум холста), но нативную прокрутку ближайшего скроллящегося предка это не отменяет —
+   и панель уезжала под курсором: шапка карточки с названием, типом и тегами скачком исчезала,
+   стоило поводить по холсту. Гасим в фазе ВСПЛЫТИЯ: вендор свою обработку к этому моменту уже
+   сделал, отнимать у него событие нельзя (см. правило про щит клавиш в CLAUDE.md). */
+function drawLockPanelScroll(wrap){
+  if(!wrap || wrap._scrollLocked) return;
+  wrap._scrollLocked = true;
+  wrap.addEventListener("wheel", e=>{ e.preventDefault(); }, {passive:false});
+}
+
 function openBoardIn(it, host){
+  drawLockPanelScroll(host && host.parentElement);
   if(drawRoot && drawItem && drawItem.id===it.id && host.querySelector("canvas")) return Promise.resolve(true);
   drawDestroy();
   return drawInto(it, host);

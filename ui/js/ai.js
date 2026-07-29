@@ -151,6 +151,7 @@ async function aiPaintSettings(panel){
   const provider = st.provider || "off";
   const api = st.api || {};
   const autoOn = S.settings.aiAutoApply===true;
+  const graphOn = S.settings.aiGraphSuggest===true;
   // список: Выключен → все API-провайдеры (из бэкенда) → Локально
   const provs = [AI_PROV_OFF,
     ...Object.keys(api).map(id=>({id, title:(api[id].title||id)+" · API", note:api[id].note||""})),
@@ -183,6 +184,12 @@ async function aiPaintSettings(panel){
         <div class="seg" id="set-ai-auto">
           <button data-v="1" class="${autoOn?"on":""}">Да</button>
           <button data-v="0" class="${autoOn?"":"on"}">Нет (показывать карточку)</button>
+        </div></div>
+      <div class="set-hint">Умный захват работает от верхней строки. Ноду, созданную прямо на графе (правой кнопкой или Alt-связью), он до сих пор не трогал — включи, и после ввода названия он разберёт её так же.</div>
+      <div class="field"><label>Разбирать и ноды, созданные на графе</label>
+        <div class="seg" id="set-ai-graph">
+          <button data-v="1" class="${graphOn?"on":""}">Да</button>
+          <button data-v="0" class="${graphOn?"":"on"}">Нет</button>
         </div></div>`;
   }
 
@@ -198,6 +205,8 @@ async function aiPaintSettings(panel){
   });
   // авто-применение
   panel.querySelectorAll("#set-ai-auto button").forEach(b=>b.onclick=()=>{ S.settings.aiAutoApply=b.dataset.v==="1"; persist(); panel.querySelectorAll("#set-ai-auto button").forEach(x=>x.classList.toggle("on",x===b)); });
+  // разбор нод, созданных на графе (см. _inlineRename в graph.js)
+  panel.querySelectorAll("#set-ai-graph button").forEach(b=>b.onclick=()=>{ S.settings.aiGraphSuggest=b.dataset.v==="1"; persist(); panel.querySelectorAll("#set-ai-graph button").forEach(x=>x.classList.toggle("on",x===b)); });
 
   if(api[provider]) aiWireApiSection(panel, provider, api[provider]);
   else if(provider==="local") aiWireLocalSection(panel, st);

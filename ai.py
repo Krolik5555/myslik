@@ -145,11 +145,34 @@ _REPORT_INSTRUCT = (
     "и НЕ превращай баги/заметки в задачи-фиксы — даже в баг-репорте перечисляй ТОЛЬКО сами "
     "наблюдения как они есть. Раздел задач возможен ТОЛЬКО если во вводе РЕАЛЬНО есть пункты-задачи "
     "(маркер ✓/►/○), и тогда бери их статус КАК ЕСТЬ, не придумывай. Иерархию (вложенность) сохраняй.\n"
+    "ПУТИ К ПАПКАМ (строки «Папка: …») переноси СИМВОЛ В СИМВОЛ и на своей строке: не переводи, "
+    "не сокращай, не дописывай диск и не чини «опечатки» в названиях. По такому пути смежник "
+    "ищет файлы, и изменённый хоть на знак путь не откроется.\n"
     "ГОЛОС: это отчёт САМОГО пользователя — пиши безлично, о ФАКТАХ. НЕ «пользователь сделал/"
     "столкнулся/нашёл».\n"
     "ФОРМАТ: чистый текст. Маркер пунктов — «•», вложенных — «–», иерархию показывай отступами "
     "(2 пробела на уровень). НЕ используй символы markdown: никаких *, +, -, #, ** — они мусорят. "
     "Без вступления и воды."
+)
+
+
+_LIST_INSTRUCT = (
+    "Ты составляешь СПИСОК ПАПОК из заметок и задач пользователя планировщика «Мыслик» — "
+    "его отдают смежнику, чтобы тот забрал файлы. Во вводе у каждого пункта маркер («•» — "
+    "заметка, «✓/►/○» — задача), ОТСТУПЫ = иерархия (пункт с бо́льшим отступом подчинён "
+    "тому, что выше с меньшим), а у части пунктов есть строка «Папка: <путь>».\n"
+    "ЧТО ДЕЛАТЬ: возьми из ввода ТОЛЬКО пункты, подходящие под запрос пользователя, и выдай их "
+    "по одной строке в виде:\n"
+    "Владелец — путь\n"
+    "ВЛАДЕЛЕЦ — это ближайший РОДИТЕЛЬ пункта по отступам (обычно имя персонажа или шота). "
+    "Если родителя нет, владелец — название самого пункта. Если название пункта уточняет суть "
+    "(«Рендер», «Анимация»), допиши его через запятую: «Astra, рендер — путь».\n"
+    "ПУТЬ КОПИРУЙ СИМВОЛ В СИМВОЛ из строки «Папка:». НЕ переводи, НЕ сокращай, НЕ дописывай "
+    "букву диска, НЕ меняй слэши и НЕ исправляй «опечатки» в названиях папок: по этому пути "
+    "человек ищет файлы, и путь, изменённый хоть на знак, не откроется.\n"
+    "ПУНКТЫ БЕЗ строки «Папка:» НЕ включай и путь им НЕ придумывай. Если под запрос не подошёл "
+    "ни один пункт — ответь одной строкой: «Подходящих папок нет».\n"
+    "ФОРМАТ: только строки списка, БЕЗ вступления, выводов, нумерации и markdown (никаких *, -, #)."
 )
 
 
@@ -648,9 +671,12 @@ def _capture_api(provider, text):
 
 
 # ---------- отчёт по выделенному (свободный текст, не JSON) ----------
-def report(text, purpose=""):
-    """Структурированный текст выделенного → прозаический отчёт. purpose — необязательная
-    цель/адресат («баг-репорт разработчику» и т.п.). Диспетчер по провайдеру."""
+def report(text, purpose="", mode="prose"):
+    """Структурированный текст выделенного → отчёт. purpose — необязательная цель/адресат
+    («баг-репорт разработчику» и т.п.). mode: "prose" — связный текст, "list" — список папок
+    «владелец — путь» по запросу (там purpose работает уже не как оформление, а как ОТБОР).
+    Температура для списка низкая: он не сочиняется, а переписывается из ввода. Диспетчер
+    по провайдеру."""
     text = (text or "").strip()
     if not text:
         return {"ok": False, "error": "empty"}
@@ -658,13 +684,19 @@ def report(text, purpose=""):
     if provider == "off":
         return {"ok": False, "error": "off"}
     purpose = (purpose or "").strip()
-    user = ("Цель отчёта (учти при оформлении, но данные НЕ выдумывай): " + purpose + "\n\n" + text) if purpose else text
+    if mode == "list":
+        instruct, temp = _LIST_INSTRUCT, 0.1
+        user = ("Запрос (какие папки нужны): " + purpose + "\n\n" + text) if purpose else text
+    else:
+        instruct, temp = _REPORT_INSTRUCT, 0.4
+        user = ("Цель отчёта (учти при оформлении, но данные НЕ выдумывай): " + purpose + "\n\n" + text) if purpose else text
     if provider in _API_PROVIDERS:
-        return _report_api(provider, user)
-    return _report_local(user)
+        return _report_api(provider, user, instruct, temp)
+    return _report_local(user, instruct, temp)
 
 
-def _report_local(text):
+def _report_local(text, instruct=None, temp=0.4):
+    instruct = instruct or _REPORT_INSTRUCT
     llm = _get_llm()
     if llm is None:
         return {"ok": False, "error": "unavailable", "detail": _LOAD_ERR}
@@ -673,7 +705,7 @@ def _report_local(text):
     # писала отчёт «ни о чём», а человек не понимал, почему из десяти заметок вышла ерунда.
     max_tokens = _MAX_REPORT_TOKENS
     try:
-        n_in = len(llm.tokenize((_REPORT_INSTRUCT + "\n" + text).encode("utf-8")))
+        n_in = len(llm.tokenize((instruct + "\n" + text).encode("utf-8")))
         free = _N_CTX - n_in - 48            # запас на служебные токены шаблона чата
         if free < 160:
             return {"ok": False, "error": "too_long",
@@ -690,9 +722,9 @@ def _report_local(text):
                 except Exception:
                     pass
                 resp = llm.create_chat_completion(
-                    messages=[{"role": "system", "content": _REPORT_INSTRUCT},
+                    messages=[{"role": "system", "content": instruct},
                               {"role": "user", "content": text}],
-                    temperature=0.4, max_tokens=max_tokens)
+                    temperature=temp, max_tokens=max_tokens)
             finally:
                 _set_priority(False)
         _ch = (resp.get("choices") or [{}])[0]
@@ -703,7 +735,8 @@ def _report_local(text):
     return {"ok": True, "text": out.strip(), "truncated": truncated}
 
 
-def _report_api(provider, text):
+def _report_api(provider, text, instruct=None, temp=0.4):
+    instruct = instruct or _REPORT_INSTRUCT
     import urllib.request
     import urllib.error
     cfg = _load_config()
@@ -720,9 +753,9 @@ def _report_api(provider, text):
     model = (cfg.get(provider + "_model") or "").strip() or p["default_model"]
     payload = json.dumps({
         "model": model,
-        "messages": [{"role": "system", "content": _REPORT_INSTRUCT},
+        "messages": [{"role": "system", "content": instruct},
                      {"role": "user", "content": text}],
-        "temperature": 0.4,
+        "temperature": temp,
         "max_tokens": _MAX_REPORT_TOKENS,
     }, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(

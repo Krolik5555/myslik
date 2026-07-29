@@ -295,8 +295,24 @@ function wireGlobal(){
     // Палитра НЕ лезет поверх открытого окна: closeOverlays() внутри её команд снёс бы модалку
     // молча — например «Импорт заменит данные?» исчезал бы, не ответив ни да, ни нет.
     if((e.ctrlKey||e.metaKey) && e.code==="KeyK"){ e.preventDefault(); if(!$("#overlay-root").children.length) openPalette(); return; }
+    /* Ctrl+F — поиск нод в паутине (название, теги, описание, папка). Ставим ВЫШЕ стража полей
+       ввода: искать хочется и когда курсор стоит в строке захвата, а нативного поиска страницы
+       в WebView2 всё равно нет. Поиск живёт в графе, поэтому с других вкладок туда переходим —
+       и открываем ПОСЛЕ отрисовки, иначе поля ввода ещё нет. */
+    if((e.ctrlKey||e.metaKey) && e.code==="KeyF"){
+      e.preventDefault();
+      if($("#overlay-root").children.length) return;      // поверх открытого окна не лезем
+      if(view!=="notes"){ areaFilter=null; view="notes"; render(); setTimeout(()=>{ if(graph) graph.openSearch(); }, 60); }
+      else if(graph) graph.openSearch();
+      return;
+    }
     if(e.key==="Escape"){ if(graph&&graph.linkFrom){graph.cancelLink();return;} closeOverlays(); return; }
-    if(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+    /* Страж полей ввода. isContentEditable — не придирка: заголовок ноды в правой панели
+       правится прямо в <h2 contenteditable>, тега INPUT там нет, и набор текста уходил в
+       глобальные горячие клавиши. Буква «т» (клавиша N) открывала редактор новой заметки,
+       цифры перекидывали на другую вкладку, Delete сносил выделенные ноды. */
+    const ае=document.activeElement;
+    if(ае && (/INPUT|TEXTAREA|SELECT/.test(ае.tagName) || ае.isContentEditable)) return;
     if($("#overlay-root").children.length) return;
     // Ctrl+Z / Ctrl+Shift+Z — только ЗДЕСЬ, ниже двух стражей выше по функции: в полях ввода
     // работает нативный откат текста, а при открытом редакторе откат запрещён вовсе. Это не
@@ -315,8 +331,10 @@ function wireGlobal(){
       if(e.code==="KeyC" && graph.selNodes.size){ e.preventDefault(); graph.copySelection(); return; }
       if(e.code==="KeyV"){ e.preventDefault(); graph.pasteClip(); return; }
     }
-    if(e.code==="KeyN"){ e.preventDefault(); openItemEditor(null); }
-    else if(e.code==="Slash"){ e.preventDefault(); $("#cap").focus(); }
+    /* Клавиши «N» (новая нода) больше НЕТ: одиночная буква без модификатора слишком легко
+       срабатывает мимо поля ввода, а создавать ноды и так есть чем — строка захвата, ПКМ по
+       холсту, Alt-протяжка. Страж contentEditable выше это уже закрыл, но сама клавиша не нужна. */
+    if(e.code==="Slash"){ e.preventDefault(); $("#cap").focus(); }
     // цифры водят по ВСЕМ видам, включая убранные из полосы слева
     else if(/^Digit[1-9]$/.test(e.code)){ const i=+e.code.slice(5)-1; if(VIEWS_ALL[i]){ areaFilter=null; tagFilter=null; view=VIEWS_ALL[i]; render(); } }
   });

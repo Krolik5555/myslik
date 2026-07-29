@@ -200,9 +200,13 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .as-title{outline:none;}
 .as-title:focus{border-bottom:0.5px solid var(--acc);}
 .as-title:empty:before{content:attr(data-ph);color:var(--mut2);}
-.as-area{width:100%;margin:14px 0;padding:12px 13px;min-height:120px;resize:vertical;
-  border-radius:var(--r-m);background:var(--surf2);border:0.5px solid var(--bd);color:var(--tx);
-  font:inherit;font-size:13px;line-height:1.55;outline:none;transition:.12s;}
+/* Описание РАСТЁТ ПОД ТЕКСТ (высоту ставит asideAutoGrow), поэтому длинную заметку видно
+   целиком без ручного растягивания — тянуть уголок в панели поверх живого графа было тяжело
+   и дёргано. Выше 55vh не растём: дальше своя прокрутка, иначе поле выдавит кнопки за экран.
+   transition по высоте тут НЕ ставим — она меняется на каждый набранный символ. */
+.as-area{width:100%;margin:14px 0;padding:12px 13px;min-height:120px;max-height:55vh;resize:vertical;
+  overflow-y:auto;border-radius:var(--r-m);background:var(--surf2);border:0.5px solid var(--bd);color:var(--tx);
+  font:inherit;font-size:13px;line-height:1.55;outline:none;transition:border-color .12s, box-shadow .12s;}
 .as-area:focus{border-color:var(--bd3);box-shadow:0 0 14px var(--glow);}
 .as-body{margin:14px 0;padding:12px 13px;border-radius:var(--r-m);background:var(--surf2);
   border:0.5px solid var(--bd);font-size:13px;line-height:1.55;white-space:pre-wrap;word-break:break-word;}
@@ -233,6 +237,20 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .as-link i{font-size:15px;color:var(--mut);flex:none;}
 .as-link span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .as-role{flex:none;font-style:normal;font-size:10.5px;color:var(--mut2);letter-spacing:.02em;}
+/* Путь — кнопка «открыть папку»: самое частое действие, поэтому цель большая, во всю строку */
+.as-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--mut);font-size:12px;text-align:left;background:none;border:0;padding:2px 0;transition:.12s;}
+.as-path:hover{color:var(--acc);text-decoration:underline;text-underline-offset:2px;}
+.as-link.as-thin{padding:5px 9px;font-size:12px;background:none;}
+/* Вложенность списка нод. Отступ задаёт --lvl (см. asideTreeRows), вертикальная черта слева
+   показывает ветку: одним отступом уровни читаются хуже, чем отступом плюс линией. */
+.as-link{margin-left:calc(var(--lvl,0) * 16px);position:relative;}
+.as-link.as-sub::before{content:"";position:absolute;left:-9px;top:50%;width:7px;height:0.5px;background:var(--bd3);}
+.as-link.as-sub::after{content:"";position:absolute;left:-9px;top:-5px;bottom:50%;width:0.5px;background:var(--bd3);}
+/* «ты здесь» — не кнопка: никуда не ведёт, поэтому без фона и без наведения */
+.as-self{background:none;border-style:dashed;color:var(--mut);cursor:default;}
+.as-self:hover{border-color:var(--bd);box-shadow:none;}
+.as-sec2{color:var(--mut2);}
 /* ряд действий внизу карточки */
 .as-foot{display:flex;gap:6px;justify-content:flex-end;margin-top:18px;padding-top:12px;
   border-top:0.5px solid var(--bd);}
@@ -464,6 +482,19 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .g-node.faded .nd{fill:var(--surf);stroke:var(--mut);stroke-width:1.4;}
 .g-node.faded.done .nd{fill:var(--mut);}
 .g-node.faded .g-label{fill:var(--mut);}
+/* НАЙДЕННОЕ ПОИСКОМ (Ctrl+F). Блок стоит ЗДЕСЬ, ниже правил .done и .faded, а не рядом с .dim:
+   специфичность у них одинаковая, и выше по файлу подсветка проигрывала бы — найденная
+   завершённая задача оставалась бы залитой и тусклой, ровно как её не искали. Гашения
+   остальных мало: на паутине в сотню нод глаз всё равно ищет, куда смотреть. */
+.g-node.hit{opacity:1;}
+.g-node.hit .nd{stroke:var(--acc);stroke-width:2.6;filter:drop-shadow(0 0 4px var(--acc)) drop-shadow(0 0 12px var(--glow));}
+.g-node.hit .g-label{fill:var(--tx);font-weight:600;opacity:1;}
+/* Завершённая (и архивная) задача ЗАЛИТА акцентом — белый контур по белой заливке не виден.
+   Поэтому кольцо тёмное, цветом фона, а заметность даёт наружное свечение плюс увеличение. */
+.g-node.hit.done .nd,.g-node.hit.faded .nd{fill:var(--acc);stroke:var(--bg);stroke-width:3;
+  filter:drop-shadow(0 0 5px var(--acc)) drop-shadow(0 0 15px var(--glow));transform:scale(1.16);}
+.g-node.hit.done .nd.sh-diamond,.g-node.hit.faded .nd.sh-diamond{transform:rotate(45deg) scale(1.16);}
+.g-node.hit .g-ticon{opacity:1;}
 .g-node.faded .g-ticon{opacity:.5;}
 .g-node.doing .nd{fill:color-mix(in srgb, var(--nc, var(--acc)) 15%, var(--surf));}   /* «в работе» — еле заметный НЕПРОЗРАЧНЫЙ тон цвета самой ноды (не сквозной, не бьёт глаза) */
 /* шапка меню ноды: название + булавка иконкой. Булавка — переключатель состояния,
@@ -634,9 +665,15 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .gsb-btn:hover{filter:brightness(.92);}
 .gsb-btn .ti{font-size:13px;}
 /* окно отчёта */
-.report-modal{width:600px;max-width:94vw;}
-.report-body{margin:10px 0;max-height:52vh;overflow:auto;background:var(--surf3);border:1px solid var(--bd);border-radius:var(--r-s);}
-.report-body pre{margin:0;padding:12px 14px;white-space:pre-wrap;word-break:break-word;font-family:var(--font);font-size:13px;line-height:1.55;color:var(--tx);}
+/* Отчёт в правой панели (окна у него больше нет — оно накрывало граф, ради которого отчёт
+   и собирают). Текст берёт высоту по содержимому, но не растёт бесконечно: длинный список
+   папок иначе уводил бы кнопки «Копировать/Сохранить» за нижний край панели. */
+.rep-panel{display:flex;flex-direction:column;gap:8px;margin-top:8px;}
+.rep-out{margin:0;max-height:46vh;overflow:auto;background:var(--surf3);border:1px solid var(--bd);
+  border-radius:var(--r-s);padding:12px 14px;white-space:pre-wrap;word-break:break-word;
+  font-family:var(--font);font-size:13px;line-height:1.55;color:var(--tx);}
+.rep-acts{display:flex;gap:8px;align-items:center;}
+.rep-acts #rep-close{margin-left:auto;}
 
 /* node popover */
 #node-pop{position:absolute;z-index:20;width:288px;background:var(--surf2);border:0.5px solid var(--bd2);border-radius:var(--r-m);box-shadow:0 8px 30px rgba(0,0,0,.5),0 0 20px var(--glow);padding:12px;}
@@ -717,6 +754,32 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .modal-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:8px;}
 .modal-foot .right{display:flex;gap:9px;margin-left:auto;}
 /* строка отчёта: «Цель» + поле + кнопка «Собрать через ИИ» на одной линии */
+.rep-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+/* Тумблеры отчёта — ОТДЕЛЬНЫМ блоком, а не в строке выбора режима: там они читались как ещё
+   два режима, хотя это настройки содержимого. Форма именно тумблера, чтобы «включено/выключено»
+   было видно без чтения подписи. */
+/* Широкая кнопка внизу панели («Собрать отчёт»). Над графом её больше нет: отчёт открывается
+   в панели, и кнопка должна стоять там же, где появится результат. */
+.as-wide{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;margin-top:16px;
+  padding:10px 12px;border-radius:10px;font-size:13px;color:var(--tx);
+  background:var(--surf2);border:0.5px solid var(--bd2);transition:.12s;}
+.as-wide:hover{border-color:var(--acc);box-shadow:0 0 14px var(--glow);}
+.as-wide i{font-size:16px;color:var(--mut);}
+.as-wide:hover i{color:var(--tx);}
+.rep-opts{display:flex;flex-direction:column;gap:2px;}
+/* Тумблер СЛЕВА от подписи: при выравнивании по краям панели он уезжал к правому краю, за
+   полметра от своего текста, и строки читались как две разные вещи. */
+.sw-row{display:flex;align-items:center;justify-content:flex-start;gap:10px;width:100%;
+  padding:7px 2px;background:none;border:0;color:var(--tx);font-size:12.5px;text-align:left;transition:.12s;}
+.sw-row:hover .sw{border-color:var(--bd3);}
+.sw-t{color:var(--mut);}
+.sw-row:hover .sw-t{color:var(--tx);}
+.sw{flex:none;width:34px;height:19px;border-radius:999px;background:var(--surf3);
+  border:0.5px solid var(--bd2);position:relative;transition:.15s;}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;
+  background:var(--mut);transition:.15s;}
+.sw.on{background:var(--acc);border-color:var(--acc);box-shadow:0 0 10px var(--glow);}
+.sw.on::after{left:17px;background:var(--bg);}
 .rep-ai-ctl{display:flex;align-items:center;gap:8px;margin:8px 0;}
 .rep-ai-ctl label{font-size:12px;color:var(--mut);flex:0 0 auto;}
 .rep-ai-ctl input{flex:1;min-width:0;background:var(--surf3);border:1px solid var(--bd);border-radius:var(--r-s);color:var(--tx);padding:7px 10px;font-family:var(--font);}

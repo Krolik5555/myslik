@@ -643,13 +643,14 @@ class Api:
             print("[ai] capture error:", e)
             return {"ok": False, "error": "exception", "detail": repr(e)}
 
-    def ai_report(self, text, purpose=""):
-        """Прозаический отчёт по выделенным заметкам/задачам (свободный текст).
-        purpose — необязательная цель/адресат отчёта."""
+    def ai_report(self, text, purpose="", mode="prose"):
+        """Отчёт по выделенным заметкам/задачам (свободный текст).
+        purpose — необязательная цель/адресат отчёта; mode — "prose" (связный текст)
+        или "list" (список папок «владелец — путь», purpose работает как запрос-отбор)."""
         if not ai_mod:
             return {"ok": False, "error": "no_module"}
         try:
-            return ai_mod.report(text or "", purpose or "")
+            return ai_mod.report(text or "", purpose or "", mode or "prose")
         except Exception as e:
             print("[ai] report error:", e)
             return {"ok": False, "error": "exception", "detail": repr(e)}

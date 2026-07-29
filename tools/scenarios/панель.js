@@ -234,8 +234,13 @@ asideSelect(зад.id); await ж(150);
 // ===== действия внизу карточки =====
 {
   asideSelect(зад.id); await ж(150);
+  /* Три: отчёт, дубль, удаление. Карандаш отсюда убран — он дублировал кнопку в шапке и НЕ работал
+     (обработчики вешаются через querySelector, то есть на первый [data-edit], а он в шапке).
+     Отчёт добавлен вместо кнопки над графом: он открывается в панели, там же и запускается. */
   t.push({имя:"ряд действий на месте", ок: document.querySelectorAll("#aside .as-act").length === 3,
-          факт: "кнопок: " + document.querySelectorAll("#aside .as-act").length});
+          факт: "кнопок: " + [...document.querySelectorAll("#aside .as-act")].map(b=>b.title).join(", ")});
+  t.push({имя:"отчёт запускается из панели",
+          ок: !!document.querySelector('#aside .as-act[data-report]'), факт:""});
 
   const былоНод = S.items.filter(i => !i.deleted).length;
   document.querySelector("#aside [data-dup]").click(); await ж(300);
@@ -300,7 +305,11 @@ S.items.filter(i => (i.title||"").indexOf("Задача для панели") ==
           факт: "строк: " + строки.length});
   t.push({имя:"безымянная нода подписана типом", ок: строки.some(s => s.indexOf("полотно без названия") >= 0),
           факт: строки.join(" | ")});
-  t.push({имя:"нода не ссылается сама на себя", ок: !строки.some(s => s === "Центр связей"), факт:""});
+  /* Сама нода в списке ЕСТЬ — строкой «эта», чтобы было видно её место в иерархии, но она
+     не кнопка: переходить на самого себя некуда. Проверяем именно это. */
+  const ссылки = [...document.querySelectorAll("#aside .as-link[data-go] span")].map(s => s.textContent.trim());
+  t.push({имя:"на саму себя ссылки нет", ок: !ссылки.some(s => s === "Центр связей"), факт: ссылки.join(" | ")});
+  t.push({имя:"своё место в дереве показано", ок: !!document.querySelector("#aside .as-self"), факт:""});
   [центр, сосед, безымянный].forEach(n => hardDeleteItem(n.id));
 }
 

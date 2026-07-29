@@ -12,7 +12,7 @@ for (const f of файлы){
 }
 // точки входа каждого модуля должны существовать в глобальной области
 const точки = {"core.js":"persist","model.js":"parseCapture","views.js":"render","graph.js":"renderNotes",
-  "overlays.js":"openNoteReader","draw.js":"openBoard","ai.js":"aiToggle","report.js":"openReportModal","main.js":"boot"};
+  "overlays.js":"openNoteReader","draw.js":"openBoard","ai.js":"aiToggle","report.js":"repOpen","main.js":"boot"};
 for (const [f, fn] of Object.entries(точки)){
   t.push({имя:"загружен " + f, ок: typeof window[fn] === "function", факт: fn + ": " + typeof window[fn]});
 }
