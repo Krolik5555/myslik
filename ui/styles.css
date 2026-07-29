@@ -168,6 +168,8 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
   color:var(--mut);font-size:15px;transition:.12s;}
 .as-ic:hover{background:var(--surf2);color:var(--tx);}
 .as-rows{display:flex;flex-direction:column;gap:4px;padding-bottom:14px;border-bottom:0.5px solid var(--bd);}
+/* у полотна строка всего одна — незачем держать под ней отступ и черту на пол-экрана */
+.as-rows.compact{padding-bottom:6px;border-bottom:0;}
 /* Сетка, а не flex: у части строк перед значением есть иконка, у части нет — на flex значения
    вставали лесенкой. Три колонки фиксируют и подпись, и слот иконки, и начало значения. */
 .as-row{display:grid;grid-template-columns:88px 18px 1fr;align-items:center;gap:8px;
@@ -217,7 +219,10 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
    Excalidraw опять уходит в телефонный интерфейс. Врезке нужно ≥500 под сам холст плюс
    её собственная шапка (43 px с рамкой), отсюда минимум 560: при 540 холст выходил 497 —
    три пикселя до порога, и вендор снова показывал телефонную раскладку. */
-.as-board{margin:14px 0 4px;display:flex;flex-direction:column;height:calc(100vh - 220px);min-height:560px;
+/* Полей у полотна всего два (название и тип), поэтому доска забирает почти всю высоту панели.
+   Было «100vh − 220» под пять строк полей; строк не осталось — вычитаем только шапку окна,
+   заголовок карточки и ряд действий. */
+.as-board{margin:10px 0 4px;display:flex;flex-direction:column;height:calc(100vh - 168px);min-height:560px;
   border:0.5px solid var(--bd);border-radius:var(--r-l);overflow:hidden;background:var(--surf2);}
 .as-board-bar{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;
   padding:6px 8px 6px 12px;border-bottom:0.5px solid var(--bd);}

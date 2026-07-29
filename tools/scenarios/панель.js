@@ -305,6 +305,20 @@ S.items.filter(i => (i.title||"").indexOf("Задача для панели") ==
           факт: "строк: " + строки.length});
   t.push({имя:"безымянная нода подписана типом", ок: строки.some(s => s.indexOf("полотно без названия") >= 0),
           факт: строки.join(" | ")});
+  /* У ПОЛОТНА в панели только название и тип: область, папка и теги ему не нужны, а каждая
+     строка отъедала высоту у самой доски, ради которой панель и открывают. */
+  {
+    const пол = addItem({kind:"flow", title:"полотноПанель"}); пол.x = 400; пол.y = 400;
+    recomputeHierarchy(); if (graph) graph.build();
+    asideSelect(пол.id); await ж(150);
+    const поля = [...document.querySelectorAll("#aside .as-row .as-k")].map(s => s.textContent.trim());
+    t.push({имя:"у полотна в панели только тип", ок: поля.length === 1 && поля[0] === "Тип",
+            факт: "поля: " + поля.join(", ")});
+    t.push({имя:"строки полотна идут компактно", ок: !!document.querySelector("#aside .as-rows.compact"), факт:""});
+    hardDeleteItem(пол.id); recomputeHierarchy(); if (graph) graph.build();
+    asideSelect(центр.id); await ж(150);      // вернуть панель на ноду, которую проверяют ниже
+  }
+
   /* Сама нода в списке ЕСТЬ — строкой «эта», чтобы было видно её место в иерархии, но она
      не кнопка: переходить на самого себя некуда. Проверяем именно это. */
   const ссылки = [...document.querySelectorAll("#aside .as-link[data-go] span")].map(s => s.textContent.trim());

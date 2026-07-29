@@ -294,7 +294,11 @@ function asideCard(it){
        <option value="note" ${it.kind==="note"?"selected":""}>Заметка</option>
        <option value="flow" ${it.kind==="flow"?"selected":""}>Полотно</option>
      </select>`));
-  стр.push(строка("Область", [areaIcon(it.area), areaColor(it.area)],
+  /* У ПОЛОТНА в панели только название и тип. Область, папка и теги ему не нужны — полотно
+     это холст, а не карточка задачи, — а каждая лишняя строка отъедала высоту у самой доски,
+     ради которой панель и открывают. Поля никуда не делись: они доступны в окне правки. */
+  const холст = it.kind==="flow";
+  if(!холст) стр.push(строка("Область", [areaIcon(it.area), areaColor(it.area)],
     `<select class="as-sel" data-f="area">
        <option value="">Без области</option>
        ${S.areas.map(a=>`<option value="${esc(a.id)}" ${it.area===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}
@@ -326,14 +330,14 @@ function asideCard(it){
   /* Сам путь — КНОПКА «открыть»: открывают папку по десять раз на дню, и гнать курсор к мелкой
      иконке у правого края панели ради самого частого действия — лишняя работа. Иконки рядом
      остаются для редких: скопировать, сменить, отвязать. */
-  стр.push(строка("Папка", ["ti-folder"], it.folder
+  if(!холст) стр.push(строка("Папка", ["ti-folder"], it.folder
     ? `<button class="as-path" data-folder="open" title="Открыть в проводнике:\n${esc(it.folder)}">${esc(asidePathShort(it.folder))}</button>
        <button class="as-x" data-folder="copy" title="Скопировать путь для передачи (без локального начала)"><i class="ti ti-copy"></i></button>
        <button class="as-x" data-folder="pick" title="Сменить папку"><i class="ti ti-folder-cog"></i></button>
        <button class="as-x" data-folder="clear" title="Отвязать папку"><i class="ti ti-x"></i></button>`
     : `<button class="as-link as-thin" data-folder="pick"><i class="ti ti-folder-search"></i><span>Привязать папку</span></button>`));
 
-  стр.push(строка("Теги", null,
+  if(!холст) стр.push(строка("Теги", null,
     `<span class="as-tags">${(it.tags||[]).map(t=>{
         const ст = tagStyle(t);
         return `<span class="as-chip as-tag" ${ст&&ст.color?`style="color:${ст.color};border-color:${ст.color}"`:""}>
@@ -392,7 +396,7 @@ function asideCard(it){
         <button class="as-ic" data-edit="1" title="Править"><i class="ti ti-pencil"></i></button>
         <button class="as-ic" data-close="1" title="Закрыть панель"><i class="ti ti-x"></i></button>
       </div></div>
-    <div class="as-rows">${стр.join("")}</div>
+    <div class="as-rows${холст?" compact":""}">${стр.join("")}</div>
     ${тело}
     ${связанные}
     ${действия}`;
