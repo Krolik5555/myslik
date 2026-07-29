@@ -173,6 +173,60 @@ t.push({имя:"возврат на вкладку пересобирает гр
   recomputeHierarchy(); graph.build();
 }
 
+/* ===== крупный узел не дёргается под курсором, но вне драга ездит свободно =====
+   Водишь нодой вдоль луча хаба — обратные силы приходят на его конец и складываются, и хаб
+   мечется. Предел шага для тяжёлых узлов включается ТОЛЬКО на время перетаскивания: постоянное
+   ограничение мешало хабу доехать до равновесия, пока физика не остыла. */
+{
+  const создать = () => {
+    const ц = addItem({kind:"task", title:"хабЦентр"}); ц.x = 8000; ц.y = 8000;
+    const ветки = [];
+    for (let i = 0; i < 10; i++) { const в = addItem({kind:"task", title:"хабВ"+i});
+      const a = i/10*Math.PI*2; в.x = 8000 + Math.cos(a)*260; в.y = 8000 + Math.sin(a)*260;
+      S.links.push([ц.id, в.id, 1]); ветки.push(в); }
+    const Ж = addItem({kind:"task", title:"хабЖертва"}); Ж.x = 8000; Ж.y = 7850;
+    recomputeHierarchy(); graph.build();
+    const у = id => graph.byId[id];
+    ветки.forEach(в => { if (у(в.id)) у(в.id).fixed = true; });
+    return {ц: у(ц.id), Ж: у(Ж.id), ветки: ветки.map(в => у(в.id)), все: [ц, ...ветки, Ж]};
+  };
+
+  const с1 = создать();
+  if (с1.ц && с1.Ж && с1.ветки[2]) {
+    const {ц, Ж} = с1, в = с1.ветки[2];
+    graph.drag = Ж;
+    const ряд = [];
+    for (let i = 0; i < 300; i++) {
+      const u = 0.35 + 0.3*Math.sin(i*0.5);
+      Ж.x = ц.x + (в.x-ц.x)*u + 3; Ж.y = ц.y + (в.y-ц.y)*u + 3; Ж.vx = 0; Ж.vy = 0;
+      graph.alpha = Math.max(graph.alpha, 0.4);
+      graph._tick(true);
+      ряд.push({x: ц.x, y: ц.y});
+    }
+    graph.drag = null;
+    let максШаг = 0;
+    for (let i = 1; i < ряд.length; i++) максШаг = Math.max(максШаг, Math.hypot(ряд[i].x-ряд[i-1].x, ряд[i].y-ряд[i-1].y));
+    t.push({имя:"крупный узел не дёргается под курсором", ок: максШаг < 3.5,
+            факт:"макс. шаг " + максШаг.toFixed(2) + " px за кадр"});
+  }
+  с1.все.forEach(n => hardDeleteItem(n.id));
+
+  const с2 = создать();
+  if (с2.ц) {
+    const g = с2.ц;
+    g.x += 800; g.y += 700; g.vx = 0; g.vy = 0;
+    graph.alpha = 1;
+    for (let i = 0; i < 1500; i++) { graph._tick(true); if (graph.alpha === 0) break; }
+    let x = 0, y = 0, n = 0;
+    graph.nodes.forEach(v => { if (v !== g && с2.ветки.indexOf(v) >= 0) { x += v.x; y += v.y; n++; } });
+    const до = n ? Math.hypot(g.x - x/n, g.y - y/n) : 999;
+    t.push({имя:"вне драга тяжёлый узел доезжает до равновесия", ок: до < 60,
+            факт:"остановился в " + до.toFixed(0) + " px от центра своих веток"});
+  }
+  с2.все.forEach(n => hardDeleteItem(n.id));
+  recomputeHierarchy(); graph.build();
+}
+
 // ===== связи стараются не пересекаться =====
 {
   const пл = (p,q,r) => (q.x-p.x)*(r.y-p.y) - (q.y-p.y)*(r.x-p.x);
