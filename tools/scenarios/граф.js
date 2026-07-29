@@ -224,6 +224,41 @@ t.push({имя:"возврат на вкладку пересобирает гр
             факт:"остановился в " + до.toFixed(0) + " px от центра своих веток"});
   }
   с2.все.forEach(n => hardDeleteItem(n.id));
+
+  /* Главный случай: тащат СОСЕДНЮЮ ноду и давят ею на связь, которая крепится к крупному узлу.
+     Толчки приходят на дальний конец каждый кадр, и хаб мелко трясётся — шаг маленький, но
+     направление меняется десятки раз. Гасится вязкостью, которая включается только при драге. */
+  const с3 = создать();
+  if (с3.ц && с3.Ж && с3.ветки[1]) {
+    const {ц, Ж} = с3, в = с3.ветки[1];
+    const Р = addItem({kind:"task", title:"хабРодительСоседа"}); Р.x = 8300; Р.y = 7750;
+    S.links.push([Р.id, Ж.ref.id, 1]);          // у соседа появляется своя связь
+    recomputeHierarchy(); graph.build();
+    const у = id => graph.byId[id];
+    const ц2 = у(ц.ref.id), Ж2 = у(Ж.ref.id), в2 = у(в.ref.id);
+    if (ц2 && Ж2 && в2) {
+      с3.ветки.forEach(x => { const n = у(x.ref.id); if (n) n.fixed = true; });
+      if (у(Р.id)) у(Р.id).fixed = true;
+      graph.drag = Ж2;
+      const ряд = [];
+      for (let i = 0; i < 300; i++) {
+        const u = 0.4 + 0.25*Math.sin(i*0.45);
+        Ж2.x = ц2.x + (в2.x-ц2.x)*u + 4; Ж2.y = ц2.y + (в2.y-ц2.y)*u + 4; Ж2.vx = 0; Ж2.vy = 0;
+        graph.alpha = Math.max(graph.alpha, 0.4);
+        graph._tick(true);
+        ряд.push({x: ц2.x, y: ц2.y});
+      }
+      graph.drag = null;
+      let макс = 0;
+      for (let i = 1; i < ряд.length; i++) макс = Math.max(макс, Math.hypot(ряд[i].x-ряд[i-1].x, ряд[i].y-ряд[i-1].y));
+      // до вязкости тот же прогон давал 7.4 px за кадр — порог ловит возврат к дрожи
+      t.push({имя:"давят соседней нодой — хаб почти не шевелится", ок: макс < 2.5,
+              факт:"макс. шаг " + макс.toFixed(2) + " px за кадр"});
+      graph.nodes.forEach(n => n.fixed = false);
+    }
+    hardDeleteItem(Р.id);
+  }
+  с3.все.forEach(n => hardDeleteItem(n.id));
   recomputeHierarchy(); graph.build();
 }
 
