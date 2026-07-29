@@ -924,7 +924,9 @@ class Api:
             if h and ctypes.windll.user32.IsZoomed(h):
                 _WINDOW.restore()
             else:
-                _limit_maximize()
+                # при живом перехвате WM_GETMINMAXINFO размеры посчитает он сам, в момент разворота
+                if _MAXFIX["proc"] is None:
+                    _limit_maximize()
                 _WINDOW.maximize()
         except Exception as e:
             # совсем старый pywebview без maximize/restore — переключаем fullscreen
@@ -1272,6 +1274,137 @@ def _set_titlebar_theme(dark):
         p.BeginInvoke(Action(lambda: p.Invalidate()))
     except Exception:
         pass
+
+
+_MAXFIX = {"proc": None, "old": None, "hwnd": None, "logged": False}
+
+
+def _install_maxinfo_fix(hwnd):
+    """Отвечать на WM_GETMINMAXINFO — тем самым сообщением, которым Windows спрашивает у окна
+    «какого размера и в какой позиции тебя разворачивать».
+
+    ЗАЧЕМ ЭТО ВМЕСТО MaximizedBounds. То свойство — заранее записанный ответ на тот же вопрос,
+    и записывать его приходится ЗАРАНЕЕ, угадывая монитор. Угадать нельзя: окно переезжает между
+    экранами, монитор поворачивают, меняют разрешение. Считали один раз при запуске — разворот
+    на другом мониторе шёл по чужим числам; пробовали пересчитывать на переезд — окно вовсе
+    пропадало, потому что свойство меняли ровно тогда, когда система уже начинала разворот.
+    Здесь угадывать не нужно: ответ считается в момент вопроса и для того монитора, где окно
+    сейчас, поэтому поворот и разные DPI получаются сами собой.
+
+    ПРО ПОЛОСКУ ВНИЗУ. Прежняя формула вычитала пиксель из рабочей области — иначе .NET
+    прибавлял невидимую рамку и окно накрывало панель задач. У кого панель видна, пиксель
+    прятался под ней; у кого автоскрытая — оставался щелью на экране. Здесь рамку никто не
+    прибавляет, поэтому отдаём рабочую область КАК ЕСТЬ. Пиксель нужен ровно в одном случае —
+    когда панель автоскрытая: без него всплывающая панель не может вылезти поверх окна.
+    """
+    global _MAXFIX
+    if _MAXFIX["proc"] is not None:
+        return True
+    if os.environ.get("PLANNER_NO_MAXFIX"):
+        return False
+    try:
+        # СВОИ экземпляры библиотек, а не общий ctypes.windll: тот мог быть перенастроен под
+        # другие вызовы, и правка типов здесь аукнулась бы соседям (см. историю _allow_snap)
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+
+        class _POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+        class _RECT(ctypes.Structure):
+            _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                        ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+        class _MINMAXINFO(ctypes.Structure):
+            _fields_ = [("ptReserved", _POINT), ("ptMaxSize", _POINT), ("ptMaxPosition", _POINT),
+                        ("ptMinTrackSize", _POINT), ("ptMaxTrackSize", _POINT)]
+
+        class _MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_ulong), ("rcMonitor", _RECT),
+                        ("rcWork", _RECT), ("dwFlags", ctypes.c_ulong)]
+
+        class _APPBARDATA(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_ulong), ("hWnd", ctypes.c_void_p),
+                        ("uCallbackMessage", ctypes.c_uint), ("uEdge", ctypes.c_uint),
+                        ("rc", _RECT), ("lParam", ctypes.c_longlong)]
+
+        WM_GETMINMAXINFO = 0x0024
+        MONITOR_DEFAULTTONEAREST = 2
+        ABM_GETSTATE = 0x00000004
+        ABS_AUTOHIDE = 0x0000001
+        GWLP_WNDPROC = -4
+
+        x64 = ctypes.sizeof(ctypes.c_void_p) == 8
+        LRESULT = ctypes.c_longlong if x64 else ctypes.c_long
+        WNDPROC = ctypes.WINFUNCTYPE(LRESULT, ctypes.c_void_p, ctypes.c_uint,
+                                     ctypes.c_void_p, ctypes.c_void_p)
+
+        user32.CallWindowProcW.restype = LRESULT
+        user32.CallWindowProcW.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint,
+                                           ctypes.c_void_p, ctypes.c_void_p]
+        user32.MonitorFromWindow.restype = ctypes.c_void_p
+        user32.MonitorFromWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        user32.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.POINTER(_MONITORINFO)]
+
+        def _autohide():
+            """Панель задач в режиме автоскрытия? Тогда развёрнутому окну нельзя занимать
+            рабочую область целиком: панели будет некуда всплывать."""
+            try:
+                d = _APPBARDATA()
+                d.cbSize = ctypes.sizeof(_APPBARDATA)
+                return bool(shell32.SHAppBarMessage(ABM_GETSTATE, ctypes.byref(d)) & ABS_AUTOHIDE)
+            except Exception:
+                return False
+
+        def _proc(h, msg, wp, lp):
+            if msg == WM_GETMINMAXINFO:
+                try:
+                    mon = user32.MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST)
+                    mi = _MONITORINFO()
+                    mi.cbSize = ctypes.sizeof(_MONITORINFO)
+                    if mon and user32.GetMonitorInfoW(ctypes.c_void_p(mon), ctypes.byref(mi)):
+                        work, full = mi.rcWork, mi.rcMonitor
+                        w = work.right - work.left
+                        hgt = work.bottom - work.top
+                        if _autohide():
+                            hgt -= 1        # оставляем панели щель, чтобы она могла всплыть
+                        info = ctypes.cast(lp, ctypes.POINTER(_MINMAXINFO)).contents
+                        # позиция задаётся ОТНОСИТЕЛЬНО монитора, а не рабочего стола
+                        info.ptMaxPosition.x = work.left - full.left
+                        info.ptMaxPosition.y = work.top - full.top
+                        info.ptMaxSize.x = w
+                        info.ptMaxSize.y = hgt
+                        info.ptMaxTrackSize.x = w
+                        info.ptMaxTrackSize.y = hgt
+                        if not _MAXFIX["logged"]:
+                            _MAXFIX["logged"] = True
+                            print("[maxinfo] work=%dx%d at %d,%d autohide=%s"
+                                  % (w, hgt, work.left, work.top, _autohide()))
+                        return 0
+                except Exception as e:
+                    print("[maxinfo] error:", e)
+            return user32.CallWindowProcW(_MAXFIX["old"], h, msg, wp, lp)
+
+        proc = WNDPROC(_proc)
+        if x64:
+            user32.SetWindowLongPtrW.restype = ctypes.c_void_p
+            user32.SetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int, WNDPROC]
+            old = user32.SetWindowLongPtrW(ctypes.c_void_p(hwnd), GWLP_WNDPROC, proc)
+        else:
+            user32.SetWindowLongW.restype = ctypes.c_void_p
+            user32.SetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int, WNDPROC]
+            old = user32.SetWindowLongW(ctypes.c_void_p(hwnd), GWLP_WNDPROC, proc)
+        if not old:
+            print("[maxinfo] не удалось подменить оконную процедуру")
+            return False
+        # ссылки держим ГЛОБАЛЬНО: соберёт сборщик мусора — приложение упадёт на первом же
+        # сообщении, потому что система будет звать освобождённый код
+        _MAXFIX["proc"], _MAXFIX["old"], _MAXFIX["hwnd"] = proc, old, hwnd
+        print("[maxinfo] installed")
+        return True
+    except Exception as e:
+        print("[maxinfo] install error:", e)
+        return False
 
 
 def _limit_maximize():
@@ -1764,7 +1897,9 @@ def main():
                         time.sleep(0.1)
                     if h:
                         _allow_snap(h)         # без этих стилей Windows не покажет зоны привязки
-                        _limit_maximize()      # чтобы снап к верху не накрыл панель задач
+                        # размеры разворота отдаём на вопрос системы; не вышло — старый путь
+                        if not _install_maxinfo_fix(h):
+                            _limit_maximize()  # чтобы снап к верху не накрыл панель задач
                     return
                 time.sleep(0.1)
             print("[titlebar] форма так и не появилась")
