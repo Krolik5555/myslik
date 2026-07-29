@@ -292,6 +292,45 @@ t.push({имя:"возврат на вкладку пересобирает гр
   recomputeHierarchy(); graph.build();
 }
 
+/* ===== свечение «в работе» вырезается по ФОРМЕ связи, включая прогиб =====
+   Свечение стирается из-под линий, чтобы те не просвечивали. Пока вырез шёл по прямой, а связь
+   гнулась, на светящейся ноде оставалась тёмная полоса по хорде: свечение стёрто, а линии там нет. */
+{
+  const A = addItem({kind:"task", title:"свечА", status:"doing"}); A.x = 260; A.y = 280;
+  const B = addItem({kind:"task", title:"свечБ"}); B.x = 420; B.y = 280;   // коротко: связь внутри радиуса свечения
+  const П = addItem({kind:"task", title:"свечП"}); П.x = 340; П.y = 284;
+  S.links.push([A.id, B.id, 1]);
+  recomputeHierarchy(); graph.build();
+
+  const у = id => graph.byId[id];
+  if (у(A.id) && у(B.id) && graph.glowCtx) {
+    graph.nodes.forEach(n => n.fixed = true);
+    у(A.id).x = 260; у(A.id).y = 280; у(B.id).x = 420; у(B.id).y = 280; у(П.id).x = 340; у(П.id).y = 284;
+    graph.alpha = 0; graph.tx = 0; graph.ty = 0; graph.zoom = 1;
+    for (let i = 0; i < 80; i++) graph._tick(true);
+    graph._drawGlow();
+
+    const cv = graph.glowCanvas, ctx = graph.glowCtx, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const альфа = (wx, wy) => { const x = Math.round(wx*dpr), y = Math.round(wy*dpr);
+      if (x < 0 || y < 0 || x >= cv.width || y >= cv.height) return -1;
+      return ctx.getImageData(x, y, 1, 1).data[3]; };
+    const св = graph.links.find(l => (l.a === A.id && l.b === B.id) || (l.a === B.id && l.b === A.id));
+    const bd = св && св._bendC;
+    if (bd) {
+      const px = 260 + 160*bd.t, cx = px + bd.ox*2, cy = 280 + bd.oy*2;
+      const вершина = {x: (260 + 2*cx + 420)/4, y: (280 + 2*cy + 280)/4};
+      t.push({имя:"свечение вырезано ПОД дугой, а не под хордой",
+              ок: альфа(вершина.x, вершина.y) === 0 && альфа(вершина.x, 280) > 0,
+              факт:"на дуге " + альфа(вершина.x, вершина.y) + ", на хорде " + альфа(вершина.x, 280)});
+    } else {
+      t.push({имя:"свечение вырезано ПОД дугой, а не под хордой", ок:false, факт:"связь не прогнулась"});
+    }
+    graph.nodes.forEach(n => n.fixed = false);
+  }
+  [A, B, П].forEach(n => hardDeleteItem(n.id));
+  recomputeHierarchy(); graph.build();
+}
+
 // ===== поиск: связи гаснут вместе с нодами и возвращают свою яркость =====
 {
   const цель = S.items.filter(i => !i.deleted && i.kind !== "flow")[0];

@@ -1205,7 +1205,15 @@ class Graph{
     ctx.save(); ctx.globalCompositeOperation="destination-out"; ctx.strokeStyle="#000"; ctx.lineWidth=2.5; ctx.lineCap="round"; ctx.beginPath();
     this.links.forEach(l=>{ const a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) return;
       const ax=(a.x+(a._ix||0))*z+tx, ay=(a.y+(a._iy||0))*z+ty, bx=(b.x+(b._ix||0))*z+tx, by=(b.y+(b._iy||0))*z+ty;
-      ctx.moveTo(ax,ay); ctx.lineTo(bx,by);
+      ctx.moveTo(ax,ay);
+      /* Вырез повторяет ФОРМУ связи, включая прогиб (см. _linkPath). Пока он всегда шёл по
+         прямой, а связь гнулась, вырез оставался на хорде: свечение там стёрто, а линии нет —
+         и по светящейся ноде тянулась тёмная полоса. Смещение прогиба живёт в мировых
+         координатах, поэтому на экране его надо умножить на зум. */
+      const bd=l._bendC;
+      if(bd){ const px=ax+(bx-ax)*bd.t, py=ay+(by-ay)*bd.t;
+        ctx.quadraticCurveTo(px+bd.ox*2*z, py+bd.oy*2*z, bx, by); }
+      else ctx.lineTo(bx,by);
     });
     ctx.stroke(); ctx.restore();
   }
