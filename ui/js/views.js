@@ -287,13 +287,14 @@ function asideCard(it){
       <span class="as-ico">${икона ? `<i class="ti ${икона[0]}" ${икона[1]?`style="color:${икона[1]}"`:""}></i>` : ""}</span>
       <span class="as-v">${значение}</span></div>`;
 
-  const стр = [];
-  стр.push(строка("Тип", null,
-    `<select class="as-sel" data-f="kind">
+  const выборТипа = `<select class="as-sel" data-f="kind">
        <option value="task" ${it.kind==="task"?"selected":""}>Задача</option>
        <option value="note" ${it.kind==="note"?"selected":""}>Заметка</option>
        <option value="flow" ${it.kind==="flow"?"selected":""}>Полотно</option>
-     </select>`));
+     </select>`;
+  const стр = [];
+  // у полотна тип уезжает в шапку, к названию: строк не остаётся вовсе, и доска берёт их высоту
+  if(it.kind!=="flow") стр.push(строка("Тип", null, выборТипа));
   /* У ПОЛОТНА в панели только название и тип. Область, папка и теги ему не нужны — полотно
      это холст, а не карточка задачи, — а каждая лишняя строка отъедала высоту у самой доски,
      ради которой панель и открывают. Поля никуда не делись: они доступны в окне правки. */
@@ -390,13 +391,14 @@ function asideCard(it){
     </div>`;
 
   return `<div class="as-head"><h2 class="as-title" contenteditable="plaintext-only" data-ph="без названия">${esc(it.title||"")}</h2>
+      ${холст?`<span class="as-kind">${выборТипа}</span>`:""}
       <div class="as-acts">
         ${(typeof aiEnabled==="function" && aiEnabled())
           ? `<button class="as-ic" data-airefine="1" title="ИИ: причесать заголовок и поля — как при вводе мысли в строку захвата"><i class="ti ti-sparkles"></i></button>` : ""}
         <button class="as-ic" data-edit="1" title="Править"><i class="ti ti-pencil"></i></button>
         <button class="as-ic" data-close="1" title="Закрыть панель"><i class="ti ti-x"></i></button>
       </div></div>
-    <div class="as-rows${холст?" compact":""}">${стр.join("")}</div>
+    ${стр.length?`<div class="as-rows${холст?" compact":""}">${стр.join("")}</div>`:""}
     ${тело}
     ${связанные}
     ${действия}`;
@@ -406,7 +408,10 @@ function wireAside(it){
   const a=$("#aside");
   const b=(sel,fn)=>{ const el=a.querySelector(sel); if(el) el.onclick=fn; };
   b("[data-close]", ()=>{ S.settings.asideOn=false; persist(); asideApplyWidth(); });
-  b("[data-edit]",  ()=>openItemSmart(it));
+  /* У ПОЛОТНА карандаш открывает окно ПРАВКИ, а не доску на весь экран. Раньше он звал
+     openItemSmart, и для полотна это был разворот доски — а поля (область, папка, теги) из
+     панели убраны и жить им больше негде. Развернуть доску есть чем: кнопка в её шапке. */
+  b("[data-edit]",  ()=> it.kind==="flow" ? openItemEditor(it) : openItemSmart(it));
   /* Тот же самый разбор, что и при вводе мысли в строку захвата, только запущенный руками:
      нода уже создана, поэтому «сырьём» отдаём её название плюс описание. Без этой кнопки
      причесать можно было только то, что вводилось через верхнюю строку. */

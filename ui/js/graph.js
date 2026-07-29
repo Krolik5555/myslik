@@ -249,6 +249,15 @@ class Graph{
     this._lcId=null; this._lcT=0;
     this.alpha=1; this.drag=null; this.linkFrom=null; this.sel=null;
     this.zoom=1; this.tx=0; this.ty=0; this.panning=null;
+    /* Камера с прошлого запуска. graphCam живёт только в памяти вкладки, поэтому после
+       перезапуска приложения вид открывался в стороне от графа. Числа проверяем: битая
+       настройка не должна утащить вьюпорт в пустоту. */
+    const кам=S.settings && S.settings.graphCam;
+    if(кам && isFinite(кам.tx) && isFinite(кам.ty) && isFinite(кам.zoom) && кам.zoom>0.05 && кам.zoom<4){
+      if(!graphCam) graphCam={tx:+кам.tx, ty:+кам.ty, zoom:+кам.zoom};
+      // ставим и на сам граф: build() тоже её поднимет, но до первого build камера уже верная
+      this.tx=graphCam.tx; this.ty=graphCam.ty; this.zoom=graphCam.zoom;
+    }
     this.bgPanX=0; this.bgPanY=0;   // мировой сдвиг фон-параллакса: копится ТОЛЬКО от пана (не от зума/фита) → зум читается чисто
     this.raf=null;
     this.selNodes=new Set(); this.marq=null;   // выделение нод (клик/shift-клик/рамка) + удаление по Delete
@@ -989,6 +998,14 @@ class Graph{
   }
   _applyTransform(){
     graphCam={tx:this.tx,ty:this.ty,zoom:this.zoom};   // запоминаем камеру для следующего пересоздания графа
+    /* И НА ДИСК тоже — иначе после перезапуска граф открывался «где-то в ебенях»: камера жила
+       только в памяти вкладки. Пишем с задержкой: _applyTransform зовётся на каждый кадр пана
+       и зума, а persist гонит весь файл через мост. */
+    if(this._camSave) clearTimeout(this._camSave);
+    this._camSave=setTimeout(()=>{ this._camSave=null;
+      S.settings.graphCam={tx:this.tx, ty:this.ty, zoom:this.zoom};
+      persist();
+    }, 700);
     this.root.setAttribute("transform",`translate(${this.tx},${this.ty}) scale(${this.zoom})`);
     // подписи гаснут при отдалении (как в Obsidian): крупные/«популярные» узлы держат подпись дольше
     const z=this.zoom;

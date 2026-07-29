@@ -134,8 +134,12 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 
 /* ===== main ===== */
 #main{flex:1;min-width:0;display:flex;flex-direction:column;}
-#main-head{display:flex;align-items:center;justify-content:space-between;padding:16px 22px 8px;}
-#main-title{font-size:23px;font-weight:600;letter-spacing:-.01em;}
+/* Шапка вида прижата вверх и сжата: заголовок и подпись стоят В ОДНУ строку, а не столбиком.
+   Раньше она занимала 60+ px над рабочей областью — на графе и доске это чистая потеря высоты. */
+#main-head{display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:6px 22px 4px;}
+#main-head>div:first-child{display:flex;align-items:baseline;gap:12px;min-width:0;}
+#main-sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#main-title{font-size:19px;font-weight:600;letter-spacing:-.01em;flex:none;}
 #main-sub{font-size:12.5px;color:var(--mut);}
 .head-actions{display:flex;gap:8px;}
 .btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border:0.5px solid var(--bd2);border-radius:9px;font-size:13px;color:var(--tx);transition:.12s;background:var(--surf);white-space:nowrap;flex:0 0 auto;}
@@ -219,10 +223,12 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
    Excalidraw опять уходит в телефонный интерфейс. Врезке нужно ≥500 под сам холст плюс
    её собственная шапка (43 px с рамкой), отсюда минимум 560: при 540 холст выходил 497 —
    три пикселя до порога, и вендор снова показывал телефонную раскладку. */
-/* Полей у полотна всего два (название и тип), поэтому доска забирает почти всю высоту панели.
-   Было «100vh − 220» под пять строк полей; строк не осталось — вычитаем только шапку окна,
-   заголовок карточки и ряд действий. */
-.as-board{margin:10px 0 4px;display:flex;flex-direction:column;height:calc(100vh - 168px);min-height:560px;
+/* У полотна не осталось НИ ОДНОЙ строки полей — тип уехал в шапку, к названию. Поэтому доска
+   забирает всю высоту панели: вычитаем только шапку окна, заголовок карточки и ряд действий.
+   Было «100vh − 220» под пять строк полей. */
+.as-kind{flex:none;}
+.as-kind .as-sel{min-width:104px;font-size:12.5px;padding:3px 6px;}
+.as-board{margin:8px 0 4px;display:flex;flex-direction:column;height:calc(100vh - 134px);min-height:560px;
   border:0.5px solid var(--bd);border-radius:var(--r-l);overflow:hidden;background:var(--surf2);}
 .as-board-bar{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;
   padding:6px 8px 6px 12px;border-bottom:0.5px solid var(--bd);}

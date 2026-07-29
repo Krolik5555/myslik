@@ -300,6 +300,28 @@ t.push({имя:"возврат на вкладку пересобирает гр
   }
 }
 
+/* ===== камера переживает перезапуск =====
+   graphCam живёт только в памяти вкладки, поэтому после перезапуска приложения граф открывался
+   в стороне от нод. Пишем камеру в настройки (с задержкой — _applyTransform зовётся на каждый
+   кадр пана) и поднимаем её при создании графа. */
+{
+  const было = {tx: graph.tx, ty: graph.ty, zoom: graph.zoom};
+  graph.tx = -1234; graph.ty = 567; graph.zoom = 0.75; graph._applyTransform();
+  await ж(900);                                   // ждём отложенную запись
+  const вНастройках = S.settings.graphCam;
+  t.push({имя:"камера графа пишется в настройки",
+          ок: !!вНастройках && Math.abs(вНастройках.tx + 1234) < 1 && Math.abs(вНастройках.zoom - 0.75) < 0.01,
+          факт: JSON.stringify(вНастройках)});
+
+  graphCam = null;                                // как после перезапуска: память вкладки пуста
+  const свежий = new Graph(document.querySelector("#graph"));
+  t.push({имя:"камера поднимается при создании графа",
+          ок: Math.abs(свежий.tx + 1234) < 1 && Math.abs(свежий.ty - 567) < 1 && Math.abs(свежий.zoom - 0.75) < 0.01,
+          факт: "tx " + Math.round(свежий.tx) + ", ty " + Math.round(свежий.ty) + ", zoom " + свежий.zoom.toFixed(2)});
+
+  graph.tx = было.tx; graph.ty = было.ty; graph.zoom = было.zoom; graph._applyTransform();
+}
+
 // ===== связи стараются не пересекаться =====
 {
   const пл = (p,q,r) => (q.x-p.x)*(r.y-p.y) - (q.y-p.y)*(r.x-p.x);

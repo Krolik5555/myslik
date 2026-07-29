@@ -312,9 +312,18 @@ S.items.filter(i => (i.title||"").indexOf("Задача для панели") ==
     recomputeHierarchy(); if (graph) graph.build();
     asideSelect(пол.id); await ж(150);
     const поля = [...document.querySelectorAll("#aside .as-row .as-k")].map(s => s.textContent.trim());
-    t.push({имя:"у полотна в панели только тип", ок: поля.length === 1 && поля[0] === "Тип",
-            факт: "поля: " + поля.join(", ")});
-    t.push({имя:"строки полотна идут компактно", ок: !!document.querySelector("#aside .as-rows.compact"), факт:""});
+    t.push({имя:"у полотна нет строк полей вовсе", ок: поля.length === 0,
+            факт: "поля: " + (поля.join(", ") || "нет")});
+    t.push({имя:"тип полотна переехал в шапку, к названию",
+            ок: !!document.querySelector("#aside .as-head .as-kind select[data-f=kind]"), факт:""});
+    // карандаш у полотна открывает ПРАВКУ, а не разворот доски: полей в панели больше нет
+    const кар = document.querySelector("#aside .as-head [data-edit]");
+    if (кар) { кар.click(); await ж(200);
+      const окно = document.querySelector("#overlay-root .modal h3");
+      t.push({имя:"карандаш полотна открывает окно правки",
+              ок: !!окно && !document.querySelector("#draw-screen"),
+              факт: окно ? окно.textContent.trim() : "окно не открылось"});
+      closeOverlays(); await ж(120); }
     hardDeleteItem(пол.id); recomputeHierarchy(); if (graph) graph.build();
     asideSelect(центр.id); await ж(150);      // вернуть панель на ноду, которую проверяют ниже
   }
