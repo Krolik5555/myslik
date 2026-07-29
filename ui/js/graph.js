@@ -1274,22 +1274,29 @@ class Graph{
      между своими связями). Прогиб же виден сразу и не двигает ни одной ноды.
      Глубина прогиба равна тому, насколько нода залезла в зазор: чуть задела — почти прямая,
      легла серединой — заметная дуга. Поэтому линия не «щёлкает» между двумя состояниями. */
-  _recalcBends(){
+  /* Считаем по ТЕМ ЖЕ координатам, по которым рисуем, — то есть с дрейфом (RX/RY), а не по
+     базовым. Иначе дуга строится для одного положения, а линия рисуется для другого: при
+     замере расстояние от неподвижной ноды до линии гуляло на 10 px только из-за дрейфа, и в
+     тесном месте это читалось как дрожание. Дрейфуют и нода-помеха, и оба конца связи —
+     ошибки складываются, поэтому учитывать надо всех троих. */
+  _recalcBends(RX, RY){
+    const rx=RX||(n=>n.x+(n._ix||0)), ry=RY||(n=>n.y+(n._iy||0));
     const N=this.nodes, PAD=16, MAXH=70;
     for(let li=0; li<this.links.length; li++){
       const l=this.links[li], a=this.byId[l.a], b=this.byId[l.b];
       if(!a||!b){ l._bendT=null; continue; }
-      const ex=b.x-a.x, ey=b.y-a.y, L2=ex*ex+ey*ey;
+      const ax=rx(a), ay=ry(a), bx=rx(b), by=ry(b);
+      const ex=bx-ax, ey=by-ay, L2=ex*ex+ey*ey;
       if(L2<1){ l._bendT=null; continue; }
-      const minx=Math.min(a.x,b.x), maxx=Math.max(a.x,b.x), miny=Math.min(a.y,b.y), maxy=Math.max(a.y,b.y);
+      const minx=Math.min(ax,bx), maxx=Math.max(ax,bx), miny=Math.min(ay,by), maxy=Math.max(ay,by);
       let худший=null;
       for(let ni=0; ni<N.length; ni++){
         const n=N[ni]; if(n===a||n===b) continue;
-        const need=n.r+PAD;
-        if(n.x<minx-need || n.x>maxx+need || n.y<miny-need || n.y>maxy+need) continue;
-        let t=((n.x-a.x)*ex+(n.y-a.y)*ey)/L2;
+        const nx=rx(n), ny=ry(n), need=n.r+PAD;
+        if(nx<minx-need || nx>maxx+need || ny<miny-need || ny>maxy+need) continue;
+        let t=((nx-ax)*ex+(ny-ay)*ey)/L2;
         if(t<=0.02 || t>=0.98) continue;                       // у самых концов не гнём: там нода — сосед
-        const dx=n.x-(a.x+ex*t), dy=n.y-(a.y+ey*t), d2=dx*dx+dy*dy;
+        const dx=nx-(ax+ex*t), dy=ny-(ay+ey*t), d2=dx*dx+dy*dy;
         if(d2>=need*need) continue;
         const d=Math.sqrt(d2), глуб=need-d;
         if(!худший || глуб>худший.глуб) худший={t, d, dx, dy, глуб};
@@ -1612,12 +1619,12 @@ class Graph{
     });
     // связи — по позиции+idle (линии не «мерцают» от сдвига)
     const RX=n=>n.x+(n._ix||0), RY=n=>n.y+(n._iy||0);
-    /* Помехи на линиях пересчитываем не каждый кадр: O(связи × ноды) в отрисовке — дорого,
-       а картина меняется медленно (дрейф ходит в пределах четырёх пикселей, запас прогиба
-       это покрывает). Пока раскладка живая — чаще, в покое — реже. */
-    this._bendTick=(this._bendTick||0)+1;
-    if(this._bendTick % (this.alpha>0 ? 4 : 30) === 0) this._recalcBends();
-    this._easeBends();   // к цели идём плавно — каждый кадр, независимо от частоты пересчёта
+    /* Помехи считаем КАЖДЫЙ кадр и по дрейфующим координатам — тем же, по которым рисуем.
+       Через кадр было дешевле (0.14 мс против 0.3 на сотне нод), но дуга отставала от линии:
+       строилась для одного положения, рисовалась для другого, и в тесном месте это выглядело
+       как дрожание. Точность тут важнее сэкономленной трети миллисекунды. */
+    this._recalcBends(RX, RY);
+    this._easeBends();   // к цели всё равно идём плавно: помеха может смениться на соседнюю
     this.linkEls.forEach((e,i)=>{ const l=this.links[i], a=this.byId[l.a], b=this.byId[l.b];
       const ax=RX(a),ay=RY(a),bx=RX(b),by=RY(b), d=this._linkPath(ax,ay,bx,by,l);
       e.setAttribute("d",d);
