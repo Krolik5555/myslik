@@ -555,6 +555,12 @@ class Graph{
     const cx=this.W/2, cy=this.H/2;
     // сохраняем текущие позиции узлов, чтобы при перестроении (смена цвета/связи) граф не «прыгал»
     const prev=this.byId||{};
+    /* Прогибы связей тоже переживают перестроение. Массив связей пересоздаётся целиком, и вместе
+       с ним терялось накопленное состояние дуг: любое build() (смена статуса задачи, цвета,
+       новая связь) распрямляло все линии и заставляло их отрастать заново — это читалось как
+       рывок. Переносим по паре концов; сменился порядок концов — просто начнём с нуля. */
+    const прежниеДуги={};
+    (this.links||[]).forEach(l=>{ if(l._bendC) прежниеДуги[l.a+"|"+l.b]=l._bendC; });
     this.nodes=[]; this.links=[]; this.byId={};
     // area hubs (можно закреплять и таскать, позиция/пин хранятся на самой области)
     S.areas.forEach((a,i)=>{
@@ -622,6 +628,9 @@ class Graph{
        (areaAuto) нить не даёт — иначе вся ветка притягивалась бы к хабу лучами, и вместо
        дерева получался бы веер из центра. */
     onGraph.forEach(it=>{ const hub="hub_"+it.area; if(it.area && it.areaAuto!==true && this.byId[hub] && !pairs.has(it.id+"|"+hub)) this.links.push({a:it.id,b:hub,L:78,manual:false}); });
+
+    // вернуть накопленные прогибы: связь та же — пусть дуга продолжается, а не отрастает заново
+    this.links.forEach(l=>{ const с=прежниеДуги[l.a+"|"+l.b]; if(с) l._bendC=с; });
 
     this.adj={}; this.nodes.forEach(n=>this.adj[n.id]=new Set());
     this.links.forEach(l=>{ this.adj[l.a].add(l.b); this.adj[l.b].add(l.a); });
