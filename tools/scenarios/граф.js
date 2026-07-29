@@ -120,6 +120,59 @@ t.push({имя:"возврат на вкладку пересобирает гр
   }
 }
 
+/* ===== наезд связью на ноду во время перетаскивания =====
+   Человек тащит ноду так, что её связь ложится на чужую. Раньше узел метался: физика его
+   выталкивает, рука давит снова. Отталкивание при этом отключать нельзя — иначе ноды просто
+   лежали бы на линиях, — поэтому во время драга оно мягче, а после отпускания работает в полную. */
+{
+  const A = addItem({kind:"task", title:"наездА"}); A.x = 5200; A.y = 5000;
+  const B = addItem({kind:"task", title:"наездБ"}); B.x = 5600; B.y = 5000;
+  const Р = addItem({kind:"task", title:"наездРодитель"}); Р.x = 5400; Р.y = 5220;
+  const Ж = addItem({kind:"task", title:"наездЖертва"}); Ж.x = 5400; Ж.y = 5130;
+  S.links.push([A.id, B.id, 1], [Р.id, Ж.id, 1]);
+  recomputeHierarchy(); graph.build();
+
+  const у = id => graph.byId[id];
+  if (у(A.id) && у(B.id) && у(Ж.id)) {
+    const а = у(A.id), б = у(B.id), ж = у(Ж.id);
+    а.fixed = true; у(Р.id).fixed = true;
+    а.x = 5200; а.y = 5000; б.x = 5600; б.y = 5000; у(Р.id).x = 5400; у(Р.id).y = 5220; ж.x = 5400; ж.y = 5130;
+    const св = graph.links.find(l => (l.a === A.id && l.b === B.id) || (l.a === B.id && l.b === A.id));
+    const дист = () => { const ex = б.x-а.x, ey = б.y-а.y, L2 = ex*ex+ey*ey || 1;
+      let к = ((ж.x-а.x)*ex + (ж.y-а.y)*ey) / L2; к = Math.max(0, Math.min(1, к));
+      return Math.hypot(ж.x-(а.x+ex*к), ж.y-(а.y+ey*к)); };
+
+    // рука водит ноду туда-сюда около жертвы
+    graph.drag = б;
+    const прогибы = [], игреки = [];
+    for (let i = 0; i < 240; i++) {
+      б.y = 5000 + 120 + Math.sin(i*0.35)*28; б.vx = 0; б.vy = 0;
+      graph.alpha = Math.max(graph.alpha, 0.4);
+      graph._tick(true);
+      прогибы.push(св && св._bendC ? Math.hypot(св._bendC.ox, св._bendC.oy) : 0);
+      игреки.push(ж.y);
+    }
+    graph.drag = null;
+
+    let миганий = 0;
+    for (let i = 1; i < прогибы.length; i++) if ((прогибы[i-1] === 0) !== (прогибы[i] === 0)) миганий++;
+    let разворотов = 0;
+    for (let i = 2; i < игреки.length; i++) { const d1 = игреки[i-1]-игреки[i-2], d2 = игреки[i]-игреки[i-1];
+      if (d1*d2 < 0 && Math.abs(d2) > 0.3) разворотов++; }
+    t.push({имя:"под курсором нода не мечется", ок: разворотов === 0, факт:"разворотов " + разворотов});
+    t.push({имя:"дуга не мигает у границы зазора", ок: миганий <= 2, факт:"переключений " + миганий});
+
+    // отпустили — отталкивание снова в полную силу и уводит ноду с линии
+    graph.alpha = 0.4;
+    for (let i = 0; i < 250; i++) graph._tick(true);
+    t.push({имя:"после отпускания нода уходит с линии", ок: дист() >= ж.r + 18,
+            факт:"дистанция " + дист().toFixed(0) + " при зазоре " + (ж.r+18).toFixed(0)});
+    graph.nodes.forEach(n => n.fixed = false);
+  }
+  [A, B, Р, Ж].forEach(n => hardDeleteItem(n.id));
+  recomputeHierarchy(); graph.build();
+}
+
 // ===== связи стараются не пересекаться =====
 {
   const пл = (p,q,r) => (q.x-p.x)*(r.y-p.y) - (q.y-p.y)*(r.x-p.x);

@@ -1307,15 +1307,19 @@ class Graph{
       if(L2<1){ l._bendT=null; continue; }
       const minx=Math.min(ax,bx), maxx=Math.max(ax,bx), miny=Math.min(ay,by), maxy=Math.max(ay,by);
       let худший=null;
+      /* ГИСТЕРЕЗИС: отпускаем позже, чем захватываем. Нода у границы зазора качается — физика
+         её выталкивает, пружина к родителю возвращает — и прогиб мигал «есть/нет» по нескольку
+         раз за секунду. Пока дуга жива, держим её до зазора + 7 px. */
+      const запас=l._bendT ? 7 : 0;
       for(let ni=0; ni<N.length; ni++){
         const n=N[ni]; if(n===a||n===b) continue;
-        const nx=rx(n), ny=ry(n), need=n.r+PAD;
-        if(nx<minx-need || nx>maxx+need || ny<miny-need || ny>maxy+need) continue;
+        const nx=rx(n), ny=ry(n), need=n.r+PAD, порог=need+запас;
+        if(nx<minx-порог || nx>maxx+порог || ny<miny-порог || ny>maxy+порог) continue;
         let t=((nx-ax)*ex+(ny-ay)*ey)/L2;
         if(t<=0.02 || t>=0.98) continue;                       // у самых концов не гнём: там нода — сосед
         const dx=nx-(ax+ex*t), dy=ny-(ay+ey*t), d2=dx*dx+dy*dy;
-        if(d2>=need*need) continue;
-        const d=Math.sqrt(d2), глуб=need-d;
+        if(d2>=порог*порог) continue;
+        const d=Math.sqrt(d2), глуб=Math.max(0, need-d);        // в зоне гистерезиса глубина уже нулевая
         if(!худший || глуб>худший.глуб) худший={t, d, dx, dy, глуб};
       }
       if(!худший){ l._bendT=null; continue; }
@@ -1564,8 +1568,13 @@ class Graph{
         /* У самой границы зазора сила НЕ падает в ноль (0.35 остаётся): при чисто линейном
            затухании лист застревал в миллиметре от чужой линии — отталкивание там уже почти
            нулевое, а пружина к родителю тянет с прежней силой. За зазором сила и так не
-           считается вовсе (выход по d>need выше), так что дрожания на границе это не даёт. */
-        const ux=dx/d, uy=dy/d, f=(0.35+0.65*(need-d)/need)*1.1*this.alpha;
+           считается вовсе (выход по d>need выше), так что дрожания на границе это не даёт.
+           ПОКА НОДУ ТАЩАТ — сила мягче и без ступеньки у края: человек давит связью на ноду,
+           та отскакивает, он давит снова, и узел мечется под курсором. Отталкивание при этом
+           НЕ отключается (иначе ноды лезли бы на линии), просто перестаёт спорить с рукой —
+           а после отпускания физика доводит раскладку в полную силу. */
+        const мягко=this.drag ? 0.45 : 1, край=this.drag ? 0 : 0.35;
+        const ux=dx/d, uy=dy/d, f=(край+(1-край)*(need-d)/need)*1.1*мягко*this.alpha;
         n.vx+=ux*f;      n.vy+=uy*f;
         a.vx-=ux*f*(1-t)*0.5; a.vy-=uy*f*(1-t)*0.5;
         b.vx-=ux*f*t*0.5;     b.vy-=uy*f*t*0.5;
