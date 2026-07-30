@@ -18,6 +18,9 @@ ai/
 # editor backups внутри ui
 ui/backups/
 
+# разовый замер дрожи (debug-дрожь.bat) — файл переписывается на каждом запуске
+дрожь-отчёт.txt
+
 # os
 Thumbs.db
 desktop.ini

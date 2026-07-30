@@ -461,6 +461,25 @@ async function boot(){
   // последней удачной проверки, и длинный интервал промахивался бы мимо этого момента.
   autoCheckUpdate(true);
   setInterval(()=>autoCheckUpdate(), UPD_TICK);
+  shakeBoot();
+}
+
+/* РЕЖИМ ЗАМЕРА ДРОЖИ (debug-дрожь.bat). Спрашиваем у моста, а не смотрим адрес: приложение
+   грузится по file:// и параметров в адресе не имеет. Раз включили — сразу открываем паутину и
+   говорим тостом, что делать: замер идёт только в графе, и догадываться об этом человек не должен.
+   В обычном запуске метода shake_mode нет либо он вернёт false — тогда всё молчит. */
+async function shakeBoot(){
+  if(!HasPy() || !window.pywebview.api.shake_mode) return;
+  let вкл=false;
+  try{ вкл=await window.pywebview.api.shake_mode(); }catch(e){ return; }
+  if(!вкл) return;
+  дрожь(true, true);
+  if(view!=="notes"){ view="notes"; render(); }   // S.settings.view подтянет сам render (views.js)
+  toast("Замер дрожи идёт. Потяни ноду так, чтобы соседняя задрожала, и подержи секунд пять. Отчёт пишется в дрожь-отчёт.txt",
+        {icon:"ti-activity", hold:true});
+  // Отметка «фронт вооружился» — по ней видно, дошло ли включение до графа: если в файле остался
+  // один заголовок от Python, значит замер не начинался вовсе, а не «дрожь не поймалась».
+  try{ window.pywebview.api.shake_log("Диагностика включена, вкладка «Заметки», нод в паутине: "+(typeof graph!=="undefined"&&graph?graph.nodes.length:0)); }catch(e){}
 }
 
 /* Фоновая проверка обновлений: спрашивает у GitHub, не вышло ли новее. Ничего не качает —

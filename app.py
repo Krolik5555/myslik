@@ -45,6 +45,10 @@ DATA_DIR = os.path.join(_DATA_BASE, "data")
 DATA_FILE = os.path.join(DATA_DIR, "planner.json")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 MAX_BACKUPS = 30
+# Отчёт диагностики дрожи (см. debug-дрожь.bat) — рядом с приложением, а НЕ в data/: это не
+# данные, а разовый замер, который КРОЛИК просто передаёт целиком. Файл переписывается на каждом
+# запуске в этом режиме: старый замер только путал бы, какой отчёт свежий.
+SHAKE_LOG = os.path.join(_DATA_BASE, "дрожь-отчёт.txt")
 # Папка ИИ — РЯДОМ с приложением (портативно, как data/), в exe НЕ зашивается.
 # Внутри: models/ (файлы моделей .gguf), engine-cpu/, engine-vulkan/ (движки).
 AI_DIR = os.path.join(_DATA_BASE, "ai")
@@ -316,6 +320,24 @@ class Api:
                 os.remove(os.path.join(BACKUP_DIR, old))
         except Exception:
             pass
+
+    # ---------- диагностика дрожи ----------
+    def shake_mode(self):
+        """Включена ли автодиагностика дрожи в графе. Фронт спрашивает на старте, чтобы КРОЛИКУ
+        не приходилось открывать панель разработчика и набирать дрожь() руками: debug-дрожь.bat
+        ставит PLANNER_SHAKE=1, и замер начинается сам."""
+        return os.environ.get("PLANNER_SHAKE") == "1"
+
+    def shake_log(self, text):
+        """Дописать отчёт замера в файл рядом с приложением. Исключений наружу не отдаём:
+        из метода Api они уходят отказом промиса, который в JS никто не ловит (см. CLAUDE.md)."""
+        try:
+            with open(SHAKE_LOG, "a", encoding="utf-8") as f:
+                f.write(str(text) + "\n")
+            return True
+        except Exception as e:
+            print("shake_log error:", e)
+            return False
 
     def export_data(self, state):
         try:
@@ -1932,6 +1954,16 @@ def main():
 
     if os.environ.get("PLANNER_SELFTEST") == "1":
         threading.Thread(target=_selftest, args=(window,), daemon=True).start()
+
+    # Режим замера дрожи: файл отчёта начинаем с чистого листа, иначе в нём смешаются заходы
+    # разных дней и будет не понять, какой замер свежий.
+    if os.environ.get("PLANNER_SHAKE") == "1":
+        try:
+            with open(SHAKE_LOG, "w", encoding="utf-8") as f:
+                f.write("Замер дрожи, запуск %s\n" % datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            print("[дрожь] отчёт пишется в", SHAKE_LOG)
+        except Exception as e:
+            print("[дрожь] не удалось создать файл отчёта:", e)
 
     trace("starting webview, frameless=", frameless)
     # ИКОНКУ ОТДАЁМ ДО СОЗДАНИЯ ОКНА. pywebview, если icon не передан, берёт иконку из
