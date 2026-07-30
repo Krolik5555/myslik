@@ -914,7 +914,9 @@ class Graph{
     const svg=this.svg;
     svg.onpointerdown=(e)=>{
       if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; }   // прервать переезд камеры при ручном действии
-      if(e.button===1){ e.preventDefault(); this.panning={x:e.clientX,y:e.clientY,tx:this.tx,ty:this.ty,bx:this.bgPanX,by:this.bgPanY}; svg.setPointerCapture(e.pointerId); this._closePop(); return; }   // средняя кнопка — пан
+      // средняя кнопка — пан. Запоминаем только ПРЕДЫДУЩЕЕ положение курсора: tx/ty и параллакс
+      // двигаются приращениями (см. onpointermove), иначе зум колесом во время пана спорит с ним.
+      if(e.button===1){ e.preventDefault(); this.panning={x:e.clientX,y:e.clientY}; svg.setPointerCapture(e.pointerId); this._closePop(); return; }
       if(e.button!==0) return;   // ПКМ обрабатывает oncontextmenu
       const g=e.target.closest(".g-node");
       if(g){
@@ -961,9 +963,20 @@ class Graph{
         this.drag.x=p.x+g.dx; this.drag.y=p.y+g.dy; this.drag.vx=0; this.drag.vy=0;
         this.alpha=Math.max(this.alpha,.4); return;
       }
-      if(this.panning){ const rc=svg.getBoundingClientRect(); this.tx=this.panning.tx+(e.clientX-this.panning.x)/rc.width*this.W; this.ty=this.panning.ty+(e.clientY-this.panning.y)/rc.height*this.H;
-        this.bgPanX=this.panning.bx+(this.tx-this.panning.tx)/this.zoom; this.bgPanY=this.panning.by+(this.ty-this.panning.ty)/this.zoom;   // пан двигает параллакс (в мировых ед.); зум — нет
-        graphBgPan.x=this.bgPanX; graphBgPan.y=this.bgPanY;   // переживёт пересоздание графа (см. конструктор)
+      /* ПАН СЧИТАЕТСЯ ПРИРАЩЕНИЯМИ, а не от точки нажатия. Раньше tx/ty каждый раз пересчитывались
+         абсолютно (`панинг.tx + весь путь курсора`), и стоило крутнуть колесо с зажатой средней
+         кнопкой, как граф начинало кидать: зум меняет tx/ty каждый кадр, чтобы точка под курсором
+         стояла на месте, а следующее же движение мыши затирало это своим абсолютным значением от
+         устаревшей точки отсчёта. У полей появлялось два хозяина. Приращение просто складывается
+         с чем угодно, поэтому зум и пан больше не спорят.
+         Параллакс фона тоже стал приращением: раньше весь накопленный путь делился на ТЕКУЩИЙ зум,
+         и смена зума посреди пана пересчитывала уже пройденное по новому масштабу. */
+      if(this.panning){ const rc=svg.getBoundingClientRect();
+        const dx=(e.clientX-this.panning.x)/rc.width*this.W, dy=(e.clientY-this.panning.y)/rc.height*this.H;
+        this.panning.x=e.clientX; this.panning.y=e.clientY;
+        this.tx+=dx; this.ty+=dy;
+        this.bgPanX+=dx/this.zoom; this.bgPanY+=dy/this.zoom;   // пан двигает параллакс (в мировых ед.); зум — нет
+        graphBgPan.x=this.bgPanX; graphBgPan.y=this.bgPanY;     // переживёт пересоздание графа (см. конструктор)
         this._applyTransform(); return; }
       if(this.linkFrom){ const p=this._pt(e); const f=this.byId[this.linkFrom]; this.tempLine.style.display=""; this.tempLine.setAttribute("x1",f.x); this.tempLine.setAttribute("y1",f.y); this.tempLine.setAttribute("x2",p.x); this.tempLine.setAttribute("y2",p.y); return; }
       const g=e.target.closest(".g-node"); this._hover(g?g.dataset.id:null);
@@ -1024,10 +1037,26 @@ class Graph{
       if(lk){ this._openLinkPop(this.links[+lk.dataset.li], e); return; }
       this._openCreateMenu(e);   // ПКМ по пустому — меню «Создать» (заметка/задача/схема), вместо двойного клика
     };
-    svg.onwheel=(e)=>{ e.preventDefault(); if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; } const rc=svg.getBoundingClientRect();
-      const mx=(e.clientX-rc.left)/rc.width*this.W, my=(e.clientY-rc.top)/rc.height*this.H;
-      const f=e.deltaY<0?1.12:0.89; const nz=Math.max(.12,Math.min(2.5,this.zoom*f));   // нижний предел 0.12 — можно отдалиться сильно, чтобы уместить большой граф
-      this.tx=mx-(mx-this.tx)*(nz/this.zoom); this.ty=my-(my-this.ty)*(nz/this.zoom); this.zoom=nz; this._applyTransform();
+    /* ЗУМ КОЛЕСОМ: событие задаёт ЦЕЛЬ, а к ней камера едет в кадрах (см. _tick). Раньше каждое
+       событие применялось на месте и умножало зум на 1.12 или 0.89 — отсюда ступеньки: щелчок
+       мыши давал скачок в 12% за один кадр, а тачпад, который сыплет десятки мелких событий,
+       разгонял зум рывками, потому что величина delta вообще не учитывалась.
+       Шаг теперь пропорционален настоящему delta: у мыши это ±100 пикселей на щелчок (deltaMode 0),
+       и множитель выходит тот же ~1.12, что и раньше; у тачпада приходят единицы — и зум идёт
+       непрерывно. Строки и страницы (deltaMode 1 и 2) переводим в пиксели, иначе на мыши с
+       построчной прокруткой шаг был бы мизерным. Ограничение ±240 на событие — страховка от
+       «инерционных» пачек с огромным delta, которые иначе перебрасывали бы зум через весь предел. */
+    svg.onwheel=(e)=>{ e.preventDefault();
+      if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; }   // прервать переезд камеры
+      const rc=svg.getBoundingClientRect();
+      let d=e.deltaY;
+      if(e.deltaMode===1) d*=16; else if(e.deltaMode===2) d*=this.H;
+      if(d>240) d=240; else if(d<-240) d=-240;
+      const шаг=Math.exp(-d*0.00113);                                        // 100 px → ×1.12, как было
+      const от=(this._zoomTo!=null)?this._zoomTo:this.zoom;                  // копим от ЦЕЛИ, иначе быстрые щелчки теряются
+      this._zoomTo=Math.max(.12,Math.min(2.5, от*шаг));                      // нижний предел 0.12: большой граф должен уместиться целиком
+      // точку под курсором держим неподвижной весь доезд, поэтому запоминаем её вместе с целью
+      this._zoomAt={x:(e.clientX-rc.left)/rc.width*this.W, y:(e.clientY-rc.top)/rc.height*this.H};
     };
   }
   _applyTransform(){
@@ -1697,8 +1726,22 @@ class Graph{
     // На глаз не отличить, а нагрузка кадра падает вдвое. Любая активность (alpha>0, пан/зум, драг) → полный 60fps.
     const camKey=this.tx.toFixed(2)+"|"+this.ty.toFixed(2)+"|"+this.zoom.toFixed(4);
     const camMoving=camKey!==this._camKey; this._camKey=camKey;
-    const busy=this.drag||this.connectDrag||this.panning||this.marq||this.linkFrom;
+    // незакончившийся зум — тоже занятость: иначе доезд шёл бы через кадр и снова выглядел ступеньками
+    const busy=this.drag||this.connectDrag||this.panning||this.marq||this.linkFrom||this._zoomTo!=null;
     if(!force && this.alpha===0 && !camMoving && !busy){ this._sk=(this._sk||0)^1; if(this._sk){ this._schedule(); return; } }
+    /* ПЛАВНЫЙ ЗУМ: колесо задало цель (см. onwheel), здесь камера едет к ней — 28% остатка за кадр,
+       то есть щелчок мыши отрабатывается за ~6 кадров (100 мс). Точка под курсором остаётся на
+       месте весь доезд: смещение пересчитывается от неё на каждом шаге, а не один раз в событии. */
+    if(this._zoomTo!=null){
+      const цель=this._zoomTo, т=this._zoomAt||{x:this.W/2,y:this.H/2};
+      let nz;
+      if(Math.abs(цель-this.zoom)<0.0015){ nz=цель; this._zoomTo=null; }   // остаток меньше кадра — доезжаем сразу
+      else nz=this.zoom+(цель-this.zoom)*0.28;
+      if(nz!==this.zoom){
+        this.tx=т.x-(т.x-this.tx)*(nz/this.zoom); this.ty=т.y-(т.y-this.ty)*(nz/this.zoom);
+        this.zoom=nz; this._applyTransform();
+      } else this._zoomTo=null;
+    }
     /* ЧАСЫ АНИМАЦИЙ — ПЕРВЫМ ДЕЛОМ В КАДРЕ, до любой отрисовки: по ним идёт и дыхание нод, и
        собственный дрейф с мерцанием звёзд фона. Считать их от performance.now() нельзя — см.
        подробный разбор ниже, у дыхания. Фон болел тем же: пауза на диалоге выбора папки, часы
@@ -2002,6 +2045,7 @@ class Graph{
   // плавный переезд камеры к (zoom,tx,ty) — ease-out, ~0.5с
   _tweenView(tz, ttx, tty){
     if(this._vraf) cancelAnimationFrame(this._vraf);
+    this._zoomTo=null;   // переезд камеры главнее незакончившегося зума колесом — иначе два хозяина у zoom
     const sz=this.zoom, sx=this.tx, sy=this.ty, t0=performance.now(), dur=520;
     const step=()=>{
       const k=Math.min(1,(performance.now()-t0)/dur), e=1-Math.pow(1-k,3);
