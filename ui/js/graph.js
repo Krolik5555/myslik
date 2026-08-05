@@ -310,9 +310,13 @@ class Graph{
      один запланированный кадр» держится конструкцией, а не внимательностью. */
   _schedule(){
     if(this._paused){ this.raf=null; return; }
+    this._idle=false;
     if(this.raf) cancelAnimationFrame(this.raf);
     this.raf=requestAnimationFrame(()=>{ this.raf=null; this._tick(); });
   }
+  /* Разбудить цикл, если он остановился в покое. Зовут все, кто меняет картинку: жесты,
+     зум, выделение, перестройка. Дешевле, чем крутить пустые кадры «на всякий случай». */
+  _wake(){ if(this._idle || !this.raf) this._schedule(); }
   _onResize(){
     const w=this.svg.clientWidth, h=this.svg.clientHeight;
     if(!w || !h || (w===this.W && h===this.H)) return false;
@@ -513,7 +517,12 @@ class Graph{
     // Область — отдельное решение: бросить ноду на её кружок (см. _linkTo).
     // Цвет тоже не копируем: новая нода сразу связана с родителем, а значит подхватит его цвет
     // вычислением в build() — и будет подхватывать дальше, пока человек не назначит свой.
-    const data={kind, title:"", area:areaFilter||null};
+    /* Фильтр области подставляем ТОЛЬКО когда ноду заводят саму по себе (пустое место холста):
+       человек смотрит область — туда и кладём. При протяжке ОТ НОДЫ (Alt) область не назначаем
+       вовсе: жест про связь с родителем, про область речи не было. Раньше фильтр действовал и
+       здесь — стоило один раз щёлкнуть по области в полосе, и каждая новая мысль молча
+       приписывалась к ней, а дети наследовали это дальше по ветке. */
+    const data={kind, title:"", area:(fromId ? null : (areaFilter||null))};
     if(kind==="task") data.status="todo";
     // шаблон по умолчанию: нода рождается сразу с нужными полями (название человек впишет сам)
     if(kind!=="flow"){ const з=templateSeed(templateDefault(), kind); if(з && з.fields.length) data.fields=з.fields; }
@@ -881,6 +890,7 @@ class Graph{
     // а осевшая раскладка сохраняется (см. _moved) → следующее открытие статично, без повторного «взрыва».
     const freshN=this.nodes.filter(n=>n._fresh).length, placedN=this.nodes.length-freshN;
     this.alpha = placedN>0 ? (freshN>0 ? 0.12 : 0) : (this.nodes.length>1 ? 0.4 : 0);
+    this._пересчётВеса();  // вес веток — от него зависит длина связей (см. физику)
     this._recalcBends();  // сразу знаем, каким связям гнуться: иначе первый кадр рисует их прямыми
     this._renderTray();   // лоток всегда в такт с холстом: нода ушла на холст — исчезла из лотка
     this._tick(true);     // ОБЯЗАТЕЛЬНО рисуем: фигуры выше созданы без координат, пропуск кадра оставил бы граф пустым
@@ -929,6 +939,7 @@ class Graph{
   _wire(){
     const svg=this.svg;
     svg.onpointerdown=(e)=>{
+      this._wake();                      // цикл мог стоять в покое — жест обязан его разбудить
       if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; }   // прервать переезд камеры при ручном действии
       // средняя кнопка — пан. Запоминаем только ПРЕДЫДУЩЕЕ положение курсора: tx/ty и параллакс
       // двигаются приращениями (см. onpointermove), иначе зум колесом во время пана спорит с ним.
@@ -1017,8 +1028,10 @@ class Graph{
       if(this.drag){
         const n=this.drag;
         if(n._moved){   // позиции пишем ТОЛЬКО после настоящего перетаскивания — клик не должен трогать файл
-          if(n.ref){ n.ref.x=n.x; n.ref.y=n.y; persist(); }
-          else if(n.hubArea){ n.hubArea.x=n.x; n.hubArea.y=n.y; persist(); }   // позиция области
+          // соседи разъезжаются физикой и сохранятся, когда раскладка остынет (см. _tick)
+          if(n.ref){ n.ref.x=n.x; n.ref.y=n.y; }
+          else if(n.hubArea){ n.hubArea.x=n.x; n.hubArea.y=n.y; }                        // позиция области
+          persist();
         } else {
           // ручное определение двойного клика (надёжнее нативного dblclick при pointer capture)
           // Два РАЗНЫХ окна, их нельзя мерить одним числом:
@@ -1062,7 +1075,7 @@ class Graph{
        непрерывно. Строки и страницы (deltaMode 1 и 2) переводим в пиксели, иначе на мыши с
        построчной прокруткой шаг был бы мизерным. Ограничение ±240 на событие — страховка от
        «инерционных» пачек с огромным delta, которые иначе перебрасывали бы зум через весь предел. */
-    svg.onwheel=(e)=>{ e.preventDefault();
+    svg.onwheel=(e)=>{ e.preventDefault(); this._wake();
       if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; }   // прервать переезд камеры
       const rc=svg.getBoundingClientRect();
       let d=e.deltaY;
@@ -1076,6 +1089,7 @@ class Graph{
     };
   }
   _applyTransform(){
+    this._wake();                        // камера поехала — нужен кадр
     graphCam={tx:this.tx,ty:this.ty,zoom:this.zoom};   // запоминаем камеру для следующего пересоздания графа
     /* И НА ДИСК тоже — иначе после перезапуска граф открывался «где-то в ебенях»: камера жила
        только в памяти вкладки. Пишем с задержкой: _applyTransform зовётся на каждый кадр пана
@@ -1327,6 +1341,642 @@ class Graph{
     // связи не должны «просвечивать» свечением: стираем свечение ровно из-под линий связей.
     // «дырки» невидимы — они всегда закрыты либо самой связью, либо нодой сверху (endpoints в центрах нод).
     ctx.save(); ctx.globalCompositeOperation="destination-out"; ctx.strokeStyle="#000"; ctx.lineWidth=2.5; ctx.lineCap="round"; ctx.beginPath();
+    this.links.forEach(l=>{ const a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) return;
+      const ax=(a.x+(a._ix||0))*z+tx, ay=(a.y+(a._iy||0))*z+ty, bx=(b.x+(b._ix||0))*z+tx, by=(b.y+(b._iy||0))*z+ty;
+      ctx.moveTo(ax,ay);
+      /* Вырез повторяет ФОРМУ связи, включая прогиб (см. _linkPath). Пока он всегда шёл по
+         прямой, а связь гнулась, вырез оставался на хорде: свечение там стёрто, а линии нет —
+         и по светящейся ноде тянулась тёмная полоса. Смещение прогиба живёт в мировых
+         координатах, поэтому на экране его надо умножить на зум. */
+      const bd=l._bendC;
+      if(bd){ const px=ax+(bx-ax)*bd.t, py=ay+(by-ay)*bd.t;
+        ctx.quadraticCurveTo(px+bd.ox*2*z, py+bd.oy*2*z, bx, by); }
+      else ctx.lineTo(bx,by);
+    });
+    ctx.stroke(); ctx.restore();
+  }
+  /* Превью по одиночному клику: заглянуть внутрь, не открывая. Показывается через 350 мс —
+     ждём, не будет ли второго клика (тогда открывается ридер, а превью отменяется).
+     Переиспользуем id="node-pop": позиционирование и закрытие по клику мимо уже работают на нём. */
+  _openPreview(n){
+    if(!this.svg || !this.svg.isConnected) return;   // граф уже снесён (ушли на другую вкладку) — рисовать некуда
+    this._closePop();
+    const it=n.ref; if(!it) return;
+    this.sel=n.id;
+    const km = it.kind==="flow"?{i:"ti-artboard",n:"полотно"} : it.kind==="note"?{i:"ti-note",n:"заметка"} : {i:"ti-checklist",n:"задача"};
+    const conn=linksOf(it.id);
+    // в превью идёт и описание, и именованные поля: заглянуть внутрь — значит увидеть всё,
+    // что в ноде написано, а не только общий блок
+    const body=((it.body||"").trim()+"\n"+fieldsText(it)).trim();
+    const pv=el("div"); pv.id="node-pop"; pv.className="node-preview";
+    pv.innerHTML=`
+      <div class="np-ttl">${esc(it.title)||"<i>без названия</i>"}</div>
+      <div class="np-meta">
+        <span><i class="ti ${km.i}"></i> ${km.n}</span>
+        ${it.done?`<span><i class="ti ti-check"></i>готово</span>`:(it.status==="doing"?`<span><i class="ti ti-player-play"></i>в работе</span>`:(it.status==="paused"?`<span><i class="ti ti-player-pause"></i>на паузе</span>`:""))}
+        ${it.area?`<span><i class="ti ${areaIcon(it.area)}"></i>${esc(areaName(it.area))}</span>`:""}
+        ${conn.length?`<span><i class="ti ti-link"></i>${conn.length}</span>`:""}
+      </div>
+      <div class="pv-body">${it.kind==="flow" ? "<i>схема на полотне</i>" : (body?esc(body):"<i>пусто</i>")}</div>
+      <div class="np-row"><button class="btn" data-pv="open"><i class="ti ${it.kind==="flow"?"ti-artboard":"ti-eye"}"></i>Открыть</button></div>`;
+    $("#graph-wrap").appendChild(pv);
+    this._posPop(pv,n);
+    // «Открыть» ведёт в ЧИТАЛЬНЫЙ вид, а не в редактор: из превью человек хочет прочитать
+    // подробности, а не править поля. Задачи раньше открывались формой правки (Тип/Повтор/
+    // Приоритет…) — она выглядит как настройки и к чтению отношения не имеет.
+    // Полотно — исключение: у него нет текста, только своя схема.
+    pv.querySelector('[data-pv="open"]').onclick=()=>{
+      this._closePop();
+      if(it.kind==="flow") openFlowEditor(it); else openNoteReader(it);
+    };
+  }
+
+  _openNode(n){
+    // двойной клик: область → фильтр задач; заметка → ридер; задача → редактор
+    this._closePop();
+    if(n.type==="hub"){ areaFilter=n.id.replace("hub_",""); view="tasks"; render(); return; }
+    const it=n.ref; if(!it) return;
+    openItemSmart(it);
+  }
+  // наведение на ноду (Obsidian-стиль): узел+соседи+связи между ними ПОДСВЕЧИВАЮТСЯ (.hl),
+  // всё остальное гаснет (.dim). Плавно (transition в CSS). id=null — снять.
+  _hover(id){
+    /* Пока идёт поиск, гашением распоряжается ОН. Иначе достаточно было повести мышью по графу:
+       курсор вне ноды даёт id=null, а тогда toggle("dim", false) снимал класс со ВСЕХ нод —
+       и половина паутины снова загоралась поверх результатов поиска. */
+    if(this._searchMatches && this._searchMatches.length) return;
+    this.nodeEls.forEach(o=>{ const nid=o.n.id; const focus=!!id&&nid===id, nbr=!!id&&this.adj[id].has(nid);
+      o.g.classList.toggle("dim", !!id && !focus && !nbr);
+      o.g.classList.toggle("hl", focus||nbr);
+      o.g.classList.toggle("hl-focus", focus);
+    });
+    this.linkEls.forEach((e,i)=>{ const l=this.links[i]; const on=!id||l.a===id||l.b===id;
+      e.classList.toggle("dim", !!id && !on);
+      e.classList.toggle("hl", !!id && on);
+    });
+  }
+  /* МЯГКАЯ СВЯЗЬ. По умолчанию линия прямая — постоянные дуги отвергнуты, они читаются как
+     жёсткие арки. Но если на линии лежит ЧУЖАЯ нода, связь прогибается ровно в этом месте и
+     обходит её, а на остальной длине остаётся прямой. Это подстраховка к физике: та разводит
+     узлы, только пока не остыла, и на плотном дереве часть случаев ей не по силам (узел зажат
+     между своими связями). Прогиб же виден сразу и не двигает ни одной ноды.
+     Глубина прогиба равна тому, насколько нода залезла в зазор: чуть задела — почти прямая,
+     легла серединой — заметная дуга. Поэтому линия не «щёлкает» между двумя состояниями. */
+  /* Считаем по ТЕМ ЖЕ координатам, по которым рисуем, — то есть с дрейфом (RX/RY), а не по
+     базовым. Иначе дуга строится для одного положения, а линия рисуется для другого: при
+     замере расстояние от неподвижной ноды до линии гуляло на 10 px только из-за дрейфа, и в
+     тесном месте это читалось как дрожание. Дрейфуют и нода-помеха, и оба конца связи —
+     ошибки складываются, поэтому учитывать надо всех троих. */
+  /* ОСТОВ ПАУТИНЫ. Иерархия (it.parent) в данных есть далеко не всегда — связи люди тянут
+     как угодно, а области членство задают полем. Поэтому направление «вниз по ветке» выводим
+     сами: обход в ширину от хабов областей, затем от оставшихся узлов. Получаем родителя
+     обхода и список детей — на них держатся и вес ветки, и перенос ветки целиком.
+     Считаем ОДИН раз за перестройку: в кадре это было бы дороже всей физики. */
+  _остов(){
+    const родитель={}, дети=new Map(), видели=new Set();
+    /* Соседство считаем ТОЛЬКО по связям между нодами. Хаб области связан со ВСЕМИ её нодами
+       (членство рисуется лучом), и если пустить обход через него, вся область окажется его
+       прямыми детьми — структура проектов исчезнет, а вес каждой ветки станет единицей.
+       Хабы остаются корнями обхода, но детей набирают уже через настоящие связи. */
+    const сосед={};
+    this.nodes.forEach(n=>{ сосед[n.id]=[]; });
+    this.links.forEach(l=>{
+      if(String(l.a).indexOf("hub_")===0 || String(l.b).indexOf("hub_")===0) return;
+      if(сосед[l.a]) сосед[l.a].push(l.b);
+      if(сосед[l.b]) сосед[l.b].push(l.a);
+    });
+    const очередь=[];
+    /* Корни берём ПО ОЧЕРЕДИ, а не все сразу: сперва хабы областей, затем самые связные из
+       ещё не охваченных. Если пометить корнями всех, ни у кого не окажется непосещённых
+       соседей — дерево выйдет плоским, без детей (на этом я один раз уже споткнулся). */
+    const кандидаты=this.nodes.slice().sort((a,b)=>{
+      // корнями берём самые связные узлы: у них больше шансов быть «корнем проекта».
+      // хабы в корни не годятся — через них обход не идёт (см. выше)
+      return (сосед[b.id]?сосед[b.id].length:0)-(сосед[a.id]?сосед[a.id].length:0);
+    });
+    let ci=0, qi=0;
+    while(qi<очередь.length || ci<кандидаты.length){
+      if(qi>=очередь.length){                                     // очередь опустела — новый корень
+        const n=кандидаты[ci++]; if(!n || видели.has(n.id)) continue;
+        видели.add(n.id); родитель[n.id]=null; очередь.push(n.id);
+      }
+      const id=очередь[qi++], соседи=сосед[id];
+      if(!соседи) continue;
+      соседи.forEach(sid=>{ if(видели.has(sid)) return; видели.add(sid);
+        родитель[sid]=id; очередь.push(sid);
+        const с=дети.get(id); if(с) с.push(sid); else дети.set(id,[sid]); });
+    }
+    this._дети=дети; this._родитель=родитель; this._порядок=очередь;
+  }
+  /* ВЕС ВЕТКИ — сколько узлов висит на этом узле вниз по остову, включая его самого. Нужен,
+     чтобы длина связи зависела от величины проекта: у области с десятком веток все они раньше
+     отходили на одну длину, и крупные лезли друг на друга — в центре была толкучка. */
+  _пересчётВеса(){
+    this._остов();
+    const вес={}; this.nodes.forEach(n=>{ вес[n.id]=1; });
+    const порядок=this._порядок||[];
+    for(let i=порядок.length-1;i>=0;i--){
+      const id=порядок[i], с=this._дети.get(id); if(!с) continue;
+      let сумма=1; for(const k of с) сумма+=(вес[k]||1); вес[id]=сумма;
+    }
+    this._вес=вес;
+  }
+  /* Ветка узла с ГЛУБИНОЙ каждого потомка. Глубина нужна, чтобы шлейф двигался живо: ближние
+     догоняют руку почти сразу, дальние тянутся следом.
+     У ХАБА ОБЛАСТИ своих детей в остове нет (через хаб обход не идёт, иначе вся область
+     оказалась бы его прямыми детьми) — поэтому веткой области считаем её ноды: сперва те, что
+     сами лежат в области, а следом их поддеревья. Без этого область уезжала одна, растягивая
+     лучи через пол-экрана, а ноды не двигались вовсе. */
+  _ветка(узел){
+    const out=[], видели=new Set([узел.id]);
+    const добавить=(n,гл)=>{ if(!n || видели.has(n.id)) return; видели.add(n.id); out.push({n, гл}); };
+    let корни=[];
+    if(узел.hubArea){
+      const aid=узел.hubArea.id;
+      this.nodes.forEach(n=>{ if(n.ref && n.ref.area===aid){ добавить(n,1); корни.push(n); } });
+    } else {
+      корни=[узел];
+    }
+    let слой=корни.map(n=>({n, гл:узел.hubArea?1:0}));
+    let шаг=0;
+    while(слой.length && out.length<4000 && шаг<200){
+      const след=[];
+      for(const z of слой){
+        const дети=(this._дети && this._дети.get(z.n.id))||[];
+        for(const id of дети){ const n=this.byId[id]; if(!n || видели.has(id)) continue;
+          добавить(n, z.гл+1); след.push({n, гл:z.гл+1}); }
+      }
+      слой=след; шаг++;
+    }
+    return out;
+  }
+  /* Поддерево узла по остову — всё, что висит на нём ниже. Ветку тащат целиком. */
+  _поддерево(id){
+    const out=[], дети=this._дети;
+    if(!дети) return out;
+    let слой=(дети.get(id)||[]).slice(), seen=new Set([id]);
+    while(слой.length && out.length<4000){
+      const след=[];
+      for(const nid of слой){ if(seen.has(nid)) continue; seen.add(nid);
+        const n=this.byId[nid]; if(n) out.push(n);
+        const с=дети.get(nid); if(с) for(const k of с) след.push(k); }
+      слой=след;
+    }
+    return out;
+  }
+  /* Сетка соседства: ноды разложены по ячейкам, чтобы «кто рядом» находилось за постоянное
+     время. Ею пользуются и физика, и расчёт прогибов — оба раньше перебирали ВСЕ ноды на
+     каждую связь (877×876 = 768 тысяч проверок за кадр). */
+  _grid(rx, ry, cell){
+    const CELL=cell||460, m=new Map(), N=this.nodes;
+    for(let i=0;i<N.length;i++){
+      const k=Math.floor(rx(N[i])/CELL)+","+Math.floor(ry(N[i])/CELL);
+      const я=m.get(k); if(я) я.push(i); else m.set(k,[i]);
+    }
+    return {CELL, m};
+  }
+  // индексы нод в ячейках, покрывающих прямоугольник (с запасом)
+  _near(сетка, minx, miny, maxx, maxy, pad){
+    const out=[], C=сетка.CELL;
+    const x1=Math.floor((minx-pad)/C), x2=Math.floor((maxx+pad)/C);
+    const y1=Math.floor((miny-pad)/C), y2=Math.floor((maxy+pad)/C);
+    for(let gx=x1; gx<=x2; gx++) for(let gy=y1; gy<=y2; gy++){
+      const я=сетка.m.get(gx+","+gy); if(я) for(let q=0;q<я.length;q++) out.push(я[q]);
+    }
+    return out;
+  }
+  _recalcBends(RX, RY){
+    const rx=RX||(n=>n.x+(n._ix||0)), ry=RY||(n=>n.y+(n._iy||0));
+    const N=this.nodes, PAD=16, MAXH=70;
+    const сетка=this._grid(rx, ry);
+    /* Считаем прогибы только для связей В КАДРЕ — но лишь на БОЛЬШОМ дереве, где это главный
+       расход кадра. На малом графе считаем всё подряд: там это доли миллисекунды, зато дуги
+       готовы ещё до того, как камера на них наведётся (на этом спотыкались проверки). */
+    const кадром=this.nodes.length>350;
+    const z=this.zoom||1, зап=250;
+    const вид={ x1:(-this.tx-зап)/z, y1:(-this.ty-зап)/z,
+                x2:(this.W-this.tx+зап)/z, y2:(this.H-this.ty+зап)/z };
+    for(let li=0; li<this.links.length; li++){
+      const l=this.links[li], a=this.byId[l.a], b=this.byId[l.b];
+      if(!a||!b){ l._bendT=null; continue; }
+      const ax=rx(a), ay=ry(a), bx=rx(b), by=ry(b);
+      const ex=bx-ax, ey=by-ay, L2=ex*ex+ey*ey;
+      if(L2<1){ l._bendT=null; continue; }
+      const minx=Math.min(ax,bx), maxx=Math.max(ax,bx), miny=Math.min(ay,by), maxy=Math.max(ay,by);
+      if(кадром && (maxx<вид.x1 || minx>вид.x2 || maxy<вид.y1 || miny>вид.y2)) continue;   // связь вне кадра
+      /* Лучи к области на большом дереве дуг не получают. Их столько же, сколько нод (членство
+         рисуется лучом от хаба), они тянутся через пол-графа, и их рамка накрывает сотни нод —
+         на 880 нодах это 58 мс из кадра, больше всей остальной физики вместе взятой. Обход
+         помехи важен для связей между нодами, а не для луча принадлежности. */
+      if(кадром && (String(l.a).indexOf("hub_")===0 || String(l.b).indexOf("hub_")===0)){ l._bendT=null; continue; }
+      /* Очень длинная связь дуг тоже не получает: её рамка накрывает пол-графа, то есть сотни
+         кандидатов на каждую проверку, а обход помехи на таком пролёте глазом не читается. */
+      if(кадром && L2>1440000){ l._bendT=null; continue; }
+      let худший=null;
+      /* ГИСТЕРЕЗИС: отпускаем позже, чем захватываем. Нода у границы зазора качается — физика
+         её выталкивает, пружина к родителю возвращает — и прогиб мигал «есть/нет» по нескольку
+         раз за секунду. Пока дуга жива, держим её до зазора + 7 px. */
+      const запас=l._bendT ? 7 : 0;
+      const рядом=this._near(сетка, minx, miny, maxx, maxy, 90);
+      for(let ci=0; ci<рядом.length; ci++){
+        const n=N[рядом[ci]]; if(n===a||n===b) continue;
+        const nx=rx(n), ny=ry(n), need=n.r+PAD, порог=need+запас;
+        if(nx<minx-порог || nx>maxx+порог || ny<miny-порог || ny>maxy+порог) continue;
+        let t=((nx-ax)*ex+(ny-ay)*ey)/L2;
+        if(t<=0.02 || t>=0.98) continue;                       // у самых концов не гнём: там нода — сосед
+        const dx=nx-(ax+ex*t), dy=ny-(ay+ey*t), d2=dx*dx+dy*dy;
+        if(d2>=порог*порог) continue;
+        const d=Math.sqrt(d2), глуб=Math.max(0, need-d);        // в зоне гистерезиса глубина уже нулевая
+        if(!худший || глуб>худший.глуб) худший={t, d, dx, dy, глуб};
+      }
+      if(!худший){ l._bendT=null; continue; }
+      // уводим линию ПРОЧЬ от ноды; легла ровно на линию — уводим по нормали
+      let ux, uy;
+      if(худший.d>0.01){ ux=-худший.dx/худший.d; uy=-худший.dy/худший.d; }
+      else { const L=Math.sqrt(L2); ux=-ey/L; uy=ex/L; }
+      const h=Math.min(MAXH, худший.глуб+4);
+      /* СТОРОНУ ОБХОДА НЕ ПЕРЕКИДЫВАЕМ. Когда нода лежит почти ровно на линии, направление
+         считается от крошечного вектора, и от дрейфа в пару пикселей знак прыгал — дуга
+         перебрасывалась через линию туда-сюда. Пока прогиб жив, держим прежнюю сторону. */
+      const пред=l._bendT;
+      if(пред && (пред.ox*ux + пред.oy*uy) < 0){ ux=-ux; uy=-uy; }
+      l._bendT={t:худший.t, ox:ux*h, oy:uy*h};
+    }
+  }
+  /* Прогиб ПЕРЕТЕКАЕТ к цели, а не прыгает на неё. Цель меняется скачками по своей природе:
+     помеха сменилась на соседнюю, пересчёт идёт не каждый кадр, нода вышла из зазора. Без
+     инерции каждый такой скачок был бы виден как рывок линии. */
+  _easeBends(){
+    const K=0.14;
+    for(let i=0;i<this.links.length;i++){
+      const l=this.links[i], цель=l._bendT;
+      let c=l._bendC;
+      if(!цель && !c) continue;
+      if(!c) c={t:цель.t, ox:0, oy:0};
+      const tt=цель?цель.t:c.t, ox=цель?цель.ox:0, oy=цель?цель.oy:0;
+      c.t+=(tt-c.t)*K; c.ox+=(ox-c.ox)*K; c.oy+=(oy-c.oy)*K;
+      // цель ушла и остаток схлопнулся — снимаем прогиб совсем, чтобы путь снова стал прямым
+      l._bendC=(!цель && Math.abs(c.ox)<0.3 && Math.abs(c.oy)<0.3) ? null : c;
+    }
+  }
+  /* ==== ДИАГНОСТИКА ДРОЖИ (под выключателем дрожь(), по умолчанию молчит) ====
+     Стенд эту дрожь замерить не может: в тестах кадры физики идут синхронно, поэтому дрейф нод
+     (считается от performance.now) в них практически не меняется, а он и есть половина видимого
+     движения. Поэтому мерим у живого приложения: пока ноду тащат, раз в секунду печатаем, какая
+     нода дрожит сильнее всех, какова амплитуда и какая сила в ней преобладает.
+     Все накопители — на объекте замера, а не на нодах: build() пересобирает this.nodes, и поля
+     на нодах терялись бы посреди замера. */
+  _dbgNew(){
+    const D={ кадров:0, по:new Map(), связи:new Map() };
+    D.зап=n=>{ let r=D.по.get(n.id);
+      if(!r){ r={ имя:n.label||n.id, кадров:0, разворотов:0, макс:0, сумма:0, физика:0, дрейф:0,
+        минX:Infinity, максX:-Infinity, минY:Infinity, максY:-Infinity, силы:{},
+        вЗоне:false, былВЗоне:false, вЗонеКадров:0, миганий:0, зБазМин:null, зБазМакс:null, зДрМин:null, зДрМакс:null,
+        жертваКадров:0, жертваСвязь:"", жертваМин:null, жертваМакс:null, нетто:{},
+        вКресте:false, былВКресте:false, крестКадров:0, крестМиганий:0 };
+        D.по.set(n.id,r); }
+      return r; };
+    /* Пишем и МОДУЛЬ, и ВЕКТОРНУЮ СУММУ каждой силы. Модуль говорит, кто громче; сумма — что из
+       этого доехало до ноды. Расхождение и есть диагноз: «родитель 30 по модулю, 0.4 в сумме» —
+       это не виновник, а хаб с десятью детьми, чьи пружины гасят друг друга. Первая версия писала
+       только модуль, и наверх лезли именно такие хабы. */
+    D.сила=(n,ист,fx,fy)=>{ const r=D.зап(n);
+      r.силы[ист]=(r.силы[ист]||0)+Math.hypot(fx,fy);
+      const в=r.нетто[ист]||(r.нетто[ист]={x:0,y:0}); в.x+=fx; в.y+=fy; };
+    /* ЖЕРТВА РУКИ — нода, к которой ближе зазора подошла связь ТАЩИМОЙ ноды. Это ровно то, что
+       описывает КРОЛИК («держу ноду, её связь проходит близко к другой, та дрожит»), поэтому такую
+       ноду отчёт печатает ВСЕГДА, не полагаясь на ранжирование: сортировка по разворотам выносила
+       наверх ноды с шагом 0.2 px, а настоящую жертву прятала. */
+    /* Расплетение перекрестий — единственная сила, которая либо есть целиком, либо её нет вовсе:
+       величина постоянная (1.8·alpha), затухания по расстоянию нет. Перекрестье появилось на кадр
+       и исчезло — нода получила полный толчок и осталась без него, то есть ровно тот «включился-
+       выключился», из которого и получается дрожь. Поэтому считаем не только силу, но и МИГАНИЯ. */
+    D.крест=n=>{ D.зап(n).вКресте=true; };
+    D.жертва=(n,подпись,d)=>{ const r=D.зап(n); r.жертваКадров++; r.жертваСвязь=подпись;
+      if(r.жертваМин==null||d<r.жертваМин) r.жертваМин=d;
+      if(r.жертваМакс==null||d>r.жертваМакс) r.жертваМакс=d; };
+    D.зазор=(n,баз,дрейф)=>{ const r=D.зап(n); r.вЗоне=true;
+      if(r.зБазМин==null||баз<r.зБазМин) r.зБазМин=баз;
+      if(r.зБазМакс==null||баз>r.зБазМакс) r.зБазМакс=баз;
+      if(r.зДрМин==null||дрейф<r.зДрМин) r.зДрМин=дрейф;
+      if(r.зДрМакс==null||дрейф>r.зДрМакс) r.зДрМакс=дрейф; };
+    return D;
+  }
+  _dbgFrame(D){
+    const тащим=this.drag;
+    if(!тащим){                                    // отпустили — доложить итог и начать с чистого листа
+      if(D.кадров>4) this._dbgPrint(D,"отпустили");
+      else { D.кадров=0; D.по=new Map(); D.связи=new Map(); }
+      return;
+    }
+    D.кадров++;
+    for(const n of this.nodes){
+      if(n===тащим) continue;                      // ноду под курсором ведёт рука, а не физика
+      const r=D.зап(n);
+      const vx=n.x+(n._ix||0), vy=n.y+(n._iy||0);  // ВИДИМАЯ позиция: дрожь человек видит в ней
+      if(r.пx!=null){
+        const шx=vx-r.пx, шy=vy-r.пy, ш=Math.hypot(шx,шy);
+        // разворот — шаг пошёл против предыдущего; порог 0.05 px отсекает шум округлений
+        if(r.шx!=null && ш>0.05 && (шx*r.шx+шy*r.шy)<0) r.разворотов++;
+        r.шx=шx; r.шy=шy;
+        if(ш>r.макс) r.макс=ш;
+        r.сумма+=ш; r.кадров++;
+        r.физика+=Math.hypot(n.x-r.бx, n.y-r.бy);                    // сколько дала физика
+        r.дрейф+=Math.hypot((n._ix||0)-r.дx, (n._iy||0)-r.дy);       // сколько дало «дыхание»
+      }
+      r.пx=vx; r.пy=vy; r.бx=n.x; r.бy=n.y; r.дx=n._ix||0; r.дy=n._iy||0;
+      if(vx<r.минX) r.минX=vx; if(vx>r.максX) r.максX=vx;
+      if(vy<r.минY) r.минY=vy; if(vy>r.максY) r.максY=vy;
+      if(r.вЗоне) r.вЗонеКадров++;
+      if(r.вЗоне!==r.былВЗоне){ r.миганий++; r.былВЗоне=r.вЗоне; }   // зона отталкивания включается/выключается
+      r.вЗоне=false;                                                 // следующий кадр поставит заново, если сила придёт
+      if(r.вКресте) r.крестКадров++;
+      if(r.вКресте!==r.былВКресте){ r.крестМиганий++; r.былВКресте=r.вКресте; }
+      r.вКресте=false;
+    }
+    /* Прогибы: «немного дёргается и сама линия» — мигания цели и шаг уже сглаженной дуги. Первый
+       кадр НЕ считаем: запись создаётся с нуля, а у связи прогиб уже есть, и разница читалась как
+       скачок на 25 px — из-за этого в прошлом отчёте у каждой линии стоял ровно один «мигание,
+       макс шаг ~25 px», то есть артефакт замера, а не поведение графа. Смотрим только связи
+       ТАЩИМОЙ ноды: остальные к симптому отношения не имеют. */
+    for(let i=0;i<this.links.length;i++){
+      const l=this.links[i];
+      const a=this.byId[l.a], b=this.byId[l.b];
+      if(a!==тащим && b!==тащим) continue;
+      const c=l._bendC||{ox:0,oy:0};
+      let s=D.связи.get(l);
+      if(!s){ s={миганий:0, был:!!l._bendT, макс:0, пox:c.ox, пoy:c.oy,
+                 чей:((a&&a.label)||l.a)+" → "+((b&&b.label)||l.b)}; D.связи.set(l,s); continue; }
+      const есть=!!l._bendT;
+      if(есть!==s.был){ s.миганий++; s.был=есть; }
+      const ш=Math.hypot(c.ox-s.пox, c.oy-s.пoy);
+      if(ш>s.макс) s.макс=ш;
+      s.пox=c.ox; s.пoy=c.oy;
+    }
+    if(D.кадров>=60) this._dbgPrint(D,"60 кадров");
+  }
+  _dbgPrint(D, повод){
+    const ч=v=>v==null?"—":v.toFixed(1);
+    const т=this.drag;
+    const живые=[...D.по.values()].filter(r=>r.кадров>2);
+    /* РАНЖИРУЕМ ПО РАЗМАХУ ДРОЖИ (развороты × средний шаг), а не по одним разворотам. По
+       разворотам наверх выходили ноды с шагом 0.18 px — формально самые «дёрганые», а глазом
+       неподвижные; настоящая жертва с шагом 1.3 px оставалась за бортом отчёта. */
+    const оценка=r=>r.разворотов*(r.сумма/r.кадров);
+    const топ=живые.slice().sort((a,b)=>оценка(b)-оценка(a));
+    const жертвы=живые.filter(r=>r.жертваКадров).sort((a,b)=>b.жертваКадров-a.жертваКадров);
+    // Строки собираем, а не печатаем сразу: тот же текст уходит в файл одним вызовом моста
+    // (по вызову на строку мост захлебнулся бы — отчёт печатается раз в секунду).
+    const строки=[], п=s=>{ строки.push(s); console.log(s); };
+    const блок=(r, метка)=>{
+      const сум=Object.values(r.силы).reduce((s,v)=>s+v,0)||1;
+      const силы=Object.entries(r.силы).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
+        const в=r.нетто[k]||{x:0,y:0};
+        return `${k} ${(v/r.кадров).toFixed(2)}→${(Math.hypot(в.x,в.y)/r.кадров).toFixed(2)} (${Math.round(v/сум*100)}%)`;
+      }).join(" · ") || "нет";
+      п(`  ${метка} «${r.имя}»: разворотов ${r.разворотов} за ${r.кадров}, шаг макс ${r.макс.toFixed(2)} / средн ${(r.сумма/r.кадров).toFixed(2)} px, размах ${Math.max(r.максX-r.минX, r.максY-r.минY).toFixed(1)} px`);
+      п(`      физика ${(r.физика/r.кадров).toFixed(2)} px/кадр · дрейф ${(r.дрейф/r.кадров).toFixed(2)} px/кадр · оценка дрожи ${оценка(r).toFixed(2)}`);
+      п(`      силы (модуль→сумма за кадр): ${силы}`);
+      if(r.жертваКадров) п(`      связь руки «${r.жертваСвязь}»: ${r.жертваКадров} кадров ближе зазора, расстояние ${ч(r.жертваМин)}…${ч(r.жертваМакс)} px`);
+      if(r.крестКадров) п(`      расплетение крестий: ${r.крестКадров} кадров из ${r.кадров}, миганий ${r.крестМиганий}`);
+      п(r.вЗонеКадров
+        ? `      зона связи: ${r.вЗонеКадров} кадров, миганий ${r.миганий}; проникновение по базовым ${ч(r.зБазМин)}…${ч(r.зБазМакс)} px, по дрейфующим ${ч(r.зДрМин)}…${ч(r.зДрМакс)} px`
+        : `      рядом связей нет`);
+    };
+    п(`[дрожь] ${повод}: alpha ${this.alpha.toFixed(2)}, тащим «${т?(т.label||т.id):"—"}», нод ${this.nodes.length}, связей ${this.links.length}`);
+    // Жертвы связи руки — ВСЕГДА, даже с нулём разворотов: их отсутствие тоже факт («связь ни к
+    // кому не подошла ближе зазора»), и без него не понять, тот ли жест воспроизводился.
+    if(жертвы.length) жертвы.slice(0,2).forEach(r=>блок(r,"ЖЕРТВА"));
+    else п(`  ЖЕРТВ НЕТ: связи тащимой ноды ни к кому не подошли ближе зазора`);
+    топ.filter(r=>!r.жертваКадров).slice(0,2).forEach((r,i)=>блок(r, i===0?"дрожит→":"дрожит "));
+    const св=[...D.связи.values()].sort((a,b)=>(b.макс-a.макс)||(b.миганий-a.миганий))[0];
+    if(св) п(`  прогиб связи руки «${св.чей}»: миганий ${св.миганий}, макс шаг ${св.макс.toFixed(2)} px`);
+    if(_дрожьВФайл && HasPy() && window.pywebview.api.shake_log){
+      const час=new Date().toLocaleTimeString("ru-RU");
+      try{ window.pywebview.api.shake_log(час+"  "+строки.join("\n")+"\n"); }catch(e){}
+    }
+    D.кадров=0; D.по=new Map(); D.связи=new Map();
+  }
+  _linkPath(ax,ay,bx,by,l){
+    const bd=l&&l._bendC;
+    if(!bd) return `M ${ax.toFixed(1)} ${ay.toFixed(1)} L ${bx.toFixed(1)} ${by.toFixed(1)}`;
+    /* Контрольная точка квадратичной кривой отводится на ДВОЙНОЕ смещение: сама кривая проходит
+       примерно посередине между прямой и этой точкой. */
+    const px=ax+(bx-ax)*bd.t, py=ay+(by-ay)*bd.t;
+    const cx=px+bd.ox*2, cy=py+bd.oy*2;
+    return `M ${ax.toFixed(1)} ${ay.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${bx.toFixed(1)} ${by.toFixed(1)}`;
+  }
+  startLink(id){ this.linkFrom=id; this.svg.classList.add("linking"); $("#g-hint").innerHTML="Режим связи: кликни по второму узлу. Esc — отмена."; this._closePop(); }
+  cancelLink(){ this.linkFrom=null; this.svg.classList.remove("linking"); this.tempLine.style.display="none"; if($("#g-hint"))$("#g-hint").innerHTML="Alt+тащи от ноды — связь/заметка · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · Delete — удалить"; }
+  // Связать два узла. Связывать можно с чем угодно (заметка/задача/область), но не сам с собой
+  // и не область с областью. ОБЛАСТЬ — ОСОБЫЙ СЛУЧАЙ: членство в области это поле it.area, а не
+  // связь — линию элемент↔область граф рисует сам (см. build). Поэтому конец в хабе означает
+  // «назначить область», а не addLink: хранимая связь заслонила бы авто-связь (pairs в build),
+  // и «Открепить» в поп-апе связи перестало бы снимать область.
+  // Возвращает текст тоста, либо null если связывать нечего.
+  _linkTo(from, to){
+    if(to===from) return null;
+    const fh=from.indexOf("hub_")===0, th=to.indexOf("hub_")===0;
+    if(fh && th) return null;                        // область с областью не связываем
+    if(fh || th){
+      const it=S.items.find(x=>x.id===(fh?to:from));
+      if(!it) return null;
+      const aid=(fh?from:to).slice(4);
+      if(it.area===aid) return "Уже в области";
+      it.area=aid; it.areaAuto=false;   // перенесли руками — наследование от родителя больше не перебивает
+      touch(it); persist();
+      return "В области: "+areaName(aid);
+    }
+    // Цвет от соседа тут НЕ пишем: он ВЫЧИСЛЯЕТСЯ в build() при каждой отрисовке, пока
+    // у ноды нет своего. Запись сделала бы наследование одноразовым и заморозила бы цвет.
+    return addLink(from,to) ? "Связь создана" : "Уже связаны";
+  }
+  _nodeAt(e){ const el=document.elementFromPoint(e.clientX,e.clientY); const g=el&&el.closest?el.closest(".g-node"):null; return g?g.dataset.id:null; }
+  /* ЛОТОК неразобранного: мысли, брошенные в строку захвата, ждут тут, пока их не поставят на холст.
+     Пусто — лотка не видно совсем: разбирать нечего, нечего и мозолить глаза.
+     Свёрнутость живёт в настройках, а не в поле класса: разметка графа пересоздаётся на каждый
+     render(), и поле обнулялось бы при каждом возврате на вкладку. */
+  _renderTray(){
+    const wrap=this.svg.parentNode; if(!wrap) return;
+    const tray=wrap.querySelector("#g-tray"); if(!tray) return;
+    const loose=S.items.filter(it=>inWeb(it) && it.x==null);
+    if(!loose.length){ tray.style.display="none"; $(".gt-list",tray).innerHTML=""; return; }   // и список чистим, иначе в скрытом лотке остаются мёртвые строки
+    tray.style.display="";
+    const open=S.settings.trayOpen===true;   // по умолчанию свёрнут: бросил мысль — увидел цифру, а не раскрытую панель поперёк холста
+    tray.classList.toggle("closed",!open);
+    $(".gt-n",tray).textContent=loose.length;
+    $(".gt-tab",tray).title=open?"Свернуть":"Неразобранных: "+loose.length;
+    $(".gt-tab",tray).onclick=()=>{ S.settings.trayOpen=!open; persist(); this._renderTray(); };
+    if(!open){ $(".gt-list",tray).innerHTML=""; return; }   // свёрнут — список не строим вовсе
+    const ic=it=>it.kind==="flow"?"ti-artboard":it.kind==="note"?"ti-note":"ti-checklist";
+    $(".gt-list",tray).innerHTML=loose.map(it=>{ const t=(it.title||"").trim()||"(без названия)";
+      return `<div class="gt-it" data-tid="${it.id}" title="${esc(t)}"><i class="ti ${ic(it)}"></i><span>${esc(t)}</span><button class="gt-del" data-del="${it.id}" title="Удалить в корзину"><i class="ti ti-x"></i></button></div>`; }).join("");
+    // тащить на холст — но не когда жмут на крестик удаления
+    $$(".gt-it",tray).forEach(el=>{ el.onpointerdown=e=>{ if(e.button===0 && !e.target.closest(".gt-del")) this._trayGrab(e,el); }; });
+    // удалить элемент из лотка — сразу насовсем, с возвратом по кнопке в тосте
+    $$(".gt-del",tray).forEach(b=>{
+      b.onpointerdown=e=>e.stopPropagation();   // не запускать перетаскивание
+      b.onclick=e=>{ e.stopPropagation(); const id=b.dataset.del;
+        const пакет=deletePack([id]); render();
+        toast("Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restorePack(пакет); render(); }});
+      };
+    });
+  }
+  /* Тянем мысль из лотка на холст. Бросил на пустое место — она там и встала (это и есть «разобрал»).
+     Бросил на ноду — встала и привязалась к ней (через _linkTo, поэтому бросок на область назначит область).
+     Подсветку цели дёргаем ТОЛЬКО при её смене: на каждый mousemove она перекрашивала бы весь граф. */
+  _trayGrab(e, el){
+    const id=el.dataset.tid, it=S.items.find(x=>x.id===id); if(!it) return;
+    e.preventDefault();
+    const wrap=this.svg.parentNode, rc=wrap.getBoundingClientRect();
+    const ghost=el.cloneNode(true); ghost.className="gt-ghost"; wrap.appendChild(ghost);
+    const at=ev=>{ ghost.style.left=(ev.clientX-rc.left)+"px"; ghost.style.top=(ev.clientY-rc.top)+"px"; };
+    at(e);
+    let over=null;
+    const move=ev=>{ at(ev); const t=this._nodeAt(ev); if(t!==over){ over=t; this._hover(t); } };
+    const up=ev=>{
+      el.removeEventListener("pointermove",move); el.removeEventListener("pointerup",up); el.removeEventListener("pointercancel",up);
+      try{ el.releasePointerCapture(ev.pointerId); }catch(_){}
+      ghost.remove(); this._hover(null);
+      const target=this._nodeAt(ev);                       // ищем ДО перестроения, пока DOM ещё прежний
+      const sr=this.svg.getBoundingClientRect();
+      if(ev.clientX<sr.left||ev.clientX>sr.right||ev.clientY<sr.top||ev.clientY>sr.bottom) return;   // мимо холста — пусть лежит дальше
+      const p=this._pt(ev);
+      it.x=Math.round(p.x); it.y=Math.round(p.y); touch(it); persist();
+      recomputeHierarchy(); this.build();                  // теперь нода есть в byId — можно связывать
+      let msg=null;
+      if(target && target!==id){ msg=this._linkTo(id,target);
+        if(msg){ recomputeHierarchy(); this.build(); this.alpha=Math.max(this.alpha,0.12); } }   // бросил прямо на ноду — мягко разведём, чтобы не легли друг на друга
+      toast(msg||"На холсте",{icon:"ti-check"});
+    };
+    el.setPointerCapture(e.pointerId);
+    el.addEventListener("pointermove",move); el.addEventListener("pointerup",up); el.addEventListener("pointercancel",up);
+  }
+  /* Покрасить ноду — и всё выделение заодно, если кликнутая нода в нём (тыкать по одной грустно).
+     Если НЕ в нём — красим только её: ПКМ выделения не трогает, и покрасить невидимые «те пять
+     из прошлой рамки» вместо той, по которой ткнули, было бы сюрпризом.
+     persist/build — ОДИН раз в конце: в цикле это N записей на диск и N полных перестроений SVG.
+     Рамка выделения хватает и области — у них цвет живёт на самой области, а не на элементе,
+     и тянет за собой все ноды, что этот цвет наследуют. Поэтому в тосте считаем их отдельно. */
+  _paintColor(n, col){
+    const ids=(this.selNodes.has(n.id) && this.selNodes.size>1) ? [...this.selNodes] : [n.id];
+    const undo=[]; let nn=0, na=0;
+    ids.forEach(id=>{
+      if(id.indexOf("hub_")===0){ const a=areaById(id.slice(4)); if(a){ undo.push([id,a.color||null]); a.color=col; na++; } }
+      else { const it=S.items.find(x=>x.id===id); if(it){ undo.push([id,it.color||null]); it.color=col; touch(it); nn++; } }
+    });
+    if(!undo.length) return;
+    persist(); this.build();
+    // Перевесить отметку выбора: палитра рисуется ОДИН раз при открытии поп-апа и запоминает
+    // цвет, который был тогда. Без этого кольцо остаётся на прежнем кружке — жмёшь оранжевый,
+    // а обведён зелёный. Поп-ап build() не пересоздаёт, так что правим его на месте.
+    const pop=$("#node-pop");
+    if(pop) $$(".np-sw .swatch",pop).forEach(b=>b.classList.toggle("on",(PALETTE[+b.dataset.ci]||null)===col));
+    if(undo.length<2) return;   // одну ноду красят перебором — тост на каждый кружок был бы шумом
+    const back=()=>{ undo.forEach(([id,c])=>{
+        if(id.indexOf("hub_")===0){ const a=areaById(id.slice(4)); if(a) a.color=c; }
+        else { const it=S.items.find(x=>x.id===id); if(it){ it.color=c; touch(it); } } });
+      persist(); this.build(); };
+    toast("Цвет · "+[nn?"нод: "+nn:"", na?"областей: "+na:""].filter(Boolean).join(", "),
+          {icon:"ti-palette", label:"Вернуть", onAction:back});
+  }
+  /* Статус — как цвет: жмут по одной ноде, а применяется ко ВСЕМУ выделению, если кликнутая
+     в нём. Не в нём — только к ней: ПКМ выделения не трогает, и менять статус невидимым «тем
+     пяти из прошлой рамки» было бы сюрпризом. Повторное нажатие снимает статус.
+     persist/build — ОДИН раз в конце: в цикле это N записей на диск и N перестроений SVG. */
+  _setStatus(n, статус){
+    const был=(S.items.find(x=>x.id===n.id)||{}).status;
+    const ставим = был===статус ? "todo" : статус;
+    const ids=(this.selNodes.has(n.id) && this.selNodes.size>1) ? [...this.selNodes] : [n.id];
+    const undo=[]; let nn=0;
+    ids.forEach(id=>{
+      if(id.indexOf("hub_")===0) return;              // у области своего статуса нет
+      const it=S.items.find(x=>x.id===id);
+      if(!it || it.done) return;                      // завершённое статусом не трогаем: сперва «Вернуть»
+      undo.push([id, it.status]); it.status=ставим; touch(it); nn++;
+    });
+    if(!nn) return;
+    persist(); this._closePop(); this.build();
+    const имя={doing:"В работе", paused:"На паузе"}[ставим] || "Снято";
+    const ик={doing:"ti-player-play", paused:"ti-player-pause"}[ставим] || "ti-circle-dot";
+    if(nn<2){ toast(имя,{icon:ик}); return; }
+    const back=()=>{ undo.forEach(([id,s])=>{ const it=S.items.find(x=>x.id===id); if(it){ it.status=s; touch(it); } });
+      persist(); this.build(); };
+    toast(имя+" · нод: "+nn, {icon:ик, label:"Вернуть", onAction:back});
+  }
+  _finishLink(n){
+    // иерархию не задаём вручную — она выводится от области (см. recomputeHierarchy)
+    const msg=this._linkTo(this.linkFrom, n.id);
+    if(msg){ recomputeHierarchy(); toast(msg); this.cancelLink(); this.build(); return; }
+    this.cancelLink();
+  }
+  refit(){
+    // пере-раскладка: незакреплённые узлы расходятся заново, затем (когда остынет) обзор вписывается под всё дерево.
+    // it.x НЕ обнуляем: nullом теперь помечены ноды, которые лежат в лотке и на холст ещё не попали
+    // (см. build), так что обнуление здесь сослало бы в лоток весь граф — да ещё и с записью на диск.
+    // Оно тут и не нужно: позиции ниже ставятся на самих узлах, а на диск попадут, когда раскладка остынет.
+    this.nodes.forEach(n=>{ if(!n.fixed){ n.x=this.W/2+(Math.random()-.5)*420; n.y=this.H/2+(Math.random()-.5)*320; }});
+    this.alpha=1; this._needFit=true;
+  }
+  /* force=true — нарисовать кадр ОБЯЗАТЕЛЬНО, не пропуская. Так зовёт build(): фигуры он создаёт
+     БЕЗ координат (их ставит этот метод), поэтому пропуск первого же кадра оставлял бы весь граф
+     невидимым. Раньше это и происходило: пропуск ниже работает через раз, а если окно не в фокусе
+     (например, открыт системный диалог выбора папки), то кадр не только пропускался, но и следующий
+     не планировался — raf=null. Ноды исчезали до первого клика или движения графа. */
+  _tick(force){
+    // ТРОТТЛИНГ В ПОКОЕ: когда симуляция успокоилась (alpha=0), камера статична и ничего не тащим —
+    // «дыхание» узлов и мерцание фона медленные (период 30-40с), рисуем через кадр (~30fps вместо 60).
+    // На глаз не отличить, а нагрузка кадра падает вдвое. Любая активность (alpha>0, пан/зум, драг) → полный 60fps.
+    const camKey=this.tx.toFixed(2)+"|"+this.ty.toFixed(2)+"|"+this.zoom.toFixed(4);
+    const camMoving=camKey!==this._camKey; this._camKey=camKey;
+    // незакончившийся зум — тоже занятость: иначе доезд шёл бы через кадр и снова выглядел ступеньками
+    const busy=this.drag||this.connectDrag||this.panning||this.marq||this.linkFrom||this._zoomTo!=null;
+    /* ПОЛНЫЙ ПОКОЙ — КАДРОВ НЕТ. Раньше в покое рисовался каждый второй кадр «на всякий
+       случай»: на большом дереве это 30 мс работы тридцать раз в секунду ради картинки, которая
+       не меняется. Теперь при остывшей раскладке, неподвижной камере и выключенном дыхании цикл
+       останавливается совсем, а разбудит его любое событие (драг, зум, build, поиск). */
+    if(!force && this.alpha===0 && !camMoving && !busy){
+      const дышит=(this.nodes.length<=350) && (S.settings.graphDrift!=null?S.settings.graphDrift:4)>0;
+      if(!дышит){ this._idle=true; return; }             // кадр не планируем — просыпаемся по событию
+      this._sk=(this._sk||0)^1; if(this._sk){ this._schedule(); return; }
+    }
+    /* ПЛАВНЫЙ ЗУМ: колесо задало цель (см. onwheel), здесь камера едет к ней — 28% остатка за кадр,
+       то есть щелчок мыши отрабатывается за ~6 кадров (100 мс). Точка под курсором остаётся на
+       месте весь доезд: смещение пересчитывается от неё на каждом шаге, а не один раз в событии. */
+    if(this._zoomTo!=null){
+      const цель=this._zoomTo, т=this._zoomAt||{x:this.W/2,y:this.H/2};
+      let nz;
+      if(Math.abs(цель-this.zoom)<0.0015){ nz=цель; this._zoomTo=null; }   // остаток меньше кадра — доезжаем сразу
+      else nz=this.zoom+(цель-this.zoom)*0.28;
+      if(nz!==this.zoom){
+        this.tx=т.x-(т.x-this.tx)*(nz/this.zoom); this.ty=т.y-(т.y-this.ty)*(nz/this.zoom);
+        this.zoom=nz; this._applyTransform();
+      } else this._zoomTo=null;
+    }
+    /* ЧАСЫ АНИМАЦИЙ — ПЕРВЫМ ДЕЛОМ В КАДРЕ, до любой отрисовки: по ним идёт и дыхание нод, и
+       собственный дрейф с мерцанием звёзд фона. Считать их от performance.now() нельзя — см.
+       подробный разбор ниже, у дыхания. Фон болел тем же: пауза на диалоге выбора папки, часы
+       тикают, кадры стоят, а на возврате звёзды пересчитываются на новое время и поле разом
+       перерисовывается со сдвигом. */
+    const _сейчас=performance.now()*0.001;
+    let _дт=(graphDriftStamp==null) ? 0 : (_сейчас-graphDriftStamp);
+    if(!(_дт>0)) _дт=0; else if(_дт>0.1) _дт=0.1;   // провал длиннее 100 мс не догоняем
+    graphDriftStamp=_сейчас; graphDriftClock+=_дт;
+    this._drawBg();   // фон зависит от камеры и часов анимаций; камера внутри кадра не меняется
+    const N=this.nodes, cx=this.W/2, cy=this.H/2;
+    // даём симуляции полностью остыть, чтобы граф замирал и не дёргался; перетаскивание снова поднимает alpha
+    this.alpha*=0.985; if(this.alpha<0.004)this.alpha=0;
+    if(this.alpha>0.06) this._moved=true;   // была заметная активность → после остывания сохраним раскладку
+    const DBG=this._dbg, запиши=DBG?DBG.сила:null;   // null, пока диагностика выключена → в силах ровно одна проверка на ветку
+    /* ФИЗИКА ЧЕРЕЗ КАДР на большом дереве: раскладка — процесс на секунды, и считать её 60 раз
+       в секунду незачем, а вот отрисовка обязана идти каждый кадр, иначе рука чувствует рывки.
+       Шаг при этом удваиваем, чтобы дерево оседало с прежней скоростью. */
+    const _тяжело = this.nodes.length>350;
+    /* На большом дереве общую раскладку считаем через кадр. ПОД РУКОЙ — каждый кадр: пока
+       ноду ведут, соседи обязаны разъезжаться немедленно, иначе движение выглядит вязким. */
+    const _период = (_тяжело && !this.drag) ? 2 : 1;
+    this._pc=((this._pc||0)+1)%_период;
+    const _считатьФизику = this.alpha>0 && this._pc===0;
     this.links.forEach(l=>{ const a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) return;
       const ax=(a.x+(a._ix||0))*z+tx, ay=(a.y+(a._iy||0))*z+ty, bx=(b.x+(b._ix||0))*z+tx, by=(b.y+(b._iy||0))*z+ty;
       ctx.moveTo(ax,ay);
@@ -1843,9 +2493,15 @@ class Graph{
          Потолок 2.8, иначе крупные ветки улетали бы за экран. Настройка graphLinkLen остаётся
          сверху множителем, ползунок по-прежнему главный. */
       const dA=(this.adj[l.a]?this.adj[l.a].size:1), dB=(this.adj[l.b]?this.adj[l.b].size:1);
-      const простор=Math.min(2.8, 1+0.16*(Math.sqrt(Math.max(0,dA-1))+Math.sqrt(Math.max(0,dB-1))));
+      /* Длина связи растёт не только от числа соседей, но и от ВЕСА ВЕТКИ — сколько нод висит
+         дальше по этой связи. Раньше у области с десятком проектов все ветки отходили на одну
+         длину: ветка из трёх нод и ветка из двухсот получали одинаковое место, отчего в центре
+         была толкучка. Корень четвёртой степени — рост мягкий, без выброса за экран. */
+      const вес=Math.max((this._вес&&this._вес[l.a])||1, (this._вес&&this._вес[l.b])||1);
+      const тяжесть=Math.min(3.2, 1+0.55*(Math.pow(вес,0.25)-1));
+      const простор=Math.min(2.8, 1+0.16*(Math.sqrt(Math.max(0,dA-1))+Math.sqrt(Math.max(0,dB-1))))*тяжесть;
       const restLen=l.L*(S.settings.graphLinkLen!=null?S.settings.graphLinkLen:1)*(l.lenMul||1)*(l.doneMul||1)*простор;   // глобальная × индивидуальная × сжатие завершённой ветки × простор по степени
-      let dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy)||1, f=(d-restLen)*0.02*this.alpha, fx=dx/d*f, fy=dy/d*f;
+      let dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy)||1, f=(d-restLen)*0.036*this.alpha, fx=dx/d*f, fy=dy/d*f;
       a.vx+=fx; a.vy+=fy; b.vx-=fx; b.vy-=fy;
       if(запиши){ запиши(a,"пружина",fx,fy); запиши(b,"пружина",-fx,-fy); }
     });
@@ -1857,13 +2513,25 @@ class Graph{
        Инцидентные ноды пропускаем — они и есть концы. Дешёвый отсев по рамке ставит стоимость
        рядом с уже имеющимся O(N²), а не поверх него. */
     const EPAD=18;                       // зазор от края ноды до линии (замер: при 13 подпись ноды всё ещё задевала линию)
+    const _многоНод=N.length>350;
     for(let li=0; li<this.links.length; li++){
       const l=this.links[li], a=this.byId[l.a], b=this.byId[l.b];
       if(!a || !b) continue;
+      /* На большом дереве ноды НЕ отталкиваются от лучей области. Луч принадлежности идёт от
+         хаба к каждой ноде через пол-графа, таких лучей столько же, сколько нод, и их рамки
+         накрывают сотни соседей — это была главная статья расхода кадра (10 fps на 880 нодах).
+         Смысла в обходе луча немного: он и так рисуется тусклым фоном за паутиной. */
+      if(_многоНод && (String(l.a).indexOf("hub_")===0 || String(l.b).indexOf("hub_")===0)) continue;
       const ex=b.x-a.x, ey=b.y-a.y, eL2=ex*ex+ey*ey; if(eL2<1) continue;
       const minx=Math.min(a.x,b.x), maxx=Math.max(a.x,b.x), miny=Math.min(a.y,b.y), maxy=Math.max(a.y,b.y);
-      for(let ni=0; ni<N.length; ni++){
-        const n=N[ni]; if(n===a || n===b) continue;
+      /* Перебираем не ВСЕ ноды, а только те, что лежат в ячейках вдоль самой связи: нода за
+         сотни пикселей от линии всё равно отсеивалась рамкой, но проверка стоила по разу на
+         каждую связь — сотни тысяч сравнений за кадр. */
+      const кандидаты=(this._сеткаК)
+        ? this._near(this._сеткаК, minx, miny, maxx, maxy, 90)
+        : N.map((_,q)=>q);
+      for(let ci=0; ci<кандидаты.length; ci++){
+        const n=N[кандидаты[ci]]; if(n===a || n===b) continue;
         const need=n.r+EPAD;
         if(n.x<minx-need || n.x>maxx+need || n.y<miny-need || n.y>maxy+need) continue;   // мимо рамки связи
         let t=((n.x-a.x)*ex+(n.y-a.y)*ey)/eL2; if(t<0)t=0; else if(t>1)t=1;
@@ -1937,7 +2605,10 @@ class Graph{
       /* Коэффициент подобран замером, а не на глаз: при 0.35 крест не расплетался вовсе —
          alpha остывает за пару сотен кадров, и импульс оказывался на порядок меньше
          отталкивания нод (7000/d²), которое держит узлы на местах. */
-      const f=1.8*this.alpha;
+      /* Толчок расплетения подняли вместе с жёсткостью пружин (1.8 → 3.0): пружины стали
+         держать узлы крепче, и прежний импульс уже не выводил перекрестье из равновесия —
+         проверка «связи расплетаются» показывала «было 1, стало 1». */
+      const f=3.0*this.alpha;
       /* ПОКА НОДУ ДЕРЖАТ РУКОЙ, РАСПЛЕТЕНИЕ ПОЧТИ МОЛЧИТ — вот отчего нода дрожала, когда рядом
          держат связь. Величина толчка постоянная, а граница «есть перекрестье / нет» жёсткая, то
          есть это реле: нода переходит чужую линию, перекрестье исчезает, толчок пропадает, пружины
@@ -1964,6 +2635,9 @@ class Graph{
       if(запиши){ запиши(кого,"крестья",nx*куда*сила,ny*куда*сила); DBG.крест(кого); }   // пишем ПРИМЕНЁННУЮ силу
     };
     const LN=this.links.length;
+    /* Расплетение перекрестий — O(E²) и на большом дереве съедает кадр целиком. Правило
+       косметическое: раскладка читается и с парой пересечений, а семь кадров в секунду — нет. */
+    if(LN<=260)
     for(let i=0;i<LN;i++){
       const a=this.byId[this.links[i].a], b=this.byId[this.links[i].b]; if(!a||!b) continue;
       const ax1=Math.min(a.x,b.x), ax2=Math.max(a.x,b.x), ay1=Math.min(a.y,b.y), ay2=Math.max(a.y,b.y);
@@ -1983,12 +2657,18 @@ class Graph{
       if(n.ref && n.ref.parent && this.byId[n.ref.parent]){
         const p=this.byId[n.ref.parent];
         let dx=p.x-n.x, dy=p.y-n.y, d=Math.sqrt(dx*dx+dy*dy)||1;
-        const f=(d-45)*0.06*this.alpha, fx=dx/d*f, fy=dy/d*f;
+        /* Пружина к родителю ЖЁСТЧЕ прежней (0.06 → 0.10): «ноды очень медленно и долго плывут»
+           было ровно про неё. Выше поднимать нельзя — на 0.13 крупный узел под курсором снова
+           начинал дёргаться (проверка «крупный узел не дёргается» ловит это шагом за кадр). */
+        const f=(d-45)*0.10*this.alpha, fx=dx/d*f, fy=dy/d*f;
         n.vx+=fx; n.vy+=fy; p.vx-=fx; p.vy-=fy;
         if(запиши){ запиши(n,"родитель",fx,fy); запиши(p,"родитель",-fx,-fy); }
       }
     });
-    const MX=6;   // кламп смещения за кадр → плавный глайд при оседании, без резких рывков/телепортов
+    /* ПРЕДЕЛ СМЕЩЕНИЯ ЗА КАДР. Был 6 px — отсюда «ноды очень медленно и долго плывут»: рука
+       уходит на сотни пикселей, а ветка догоняет по шесть. Подняли до 16 вместе с жёсткостью
+       пружин и трением (см. ниже) — быстрее, но без рывков и без раскачки. */
+    const MX=16;
     N.forEach(n=>{ if(n===this.drag||n.fixed){ n.vx=0; n.vy=0; return; }
       /* Пока ноду тащат, соседи двигаются ВЯЗЧЕ, и тем сильнее, чем больше у них связей.
          Давишь соседней нодой на связь — крупный узел на её конце получает толчки каждый кадр
@@ -1996,14 +2676,21 @@ class Graph{
          Вязкость гасит именно эту дрожь, не мешая узлу спокойно отъехать. */
       const вязко=this.drag
         ? Math.max(0.5, 0.82-0.06*Math.min(5, 1+(this.adj[n.id]?this.adj[n.id].size:0)*0.5))
-        : 0.82;
+        : 0.74;   // трение подняли вместе с жёсткостью пружин: жёсткая пружина при слабом трении качается
       n.vx*=вязко; n.vy*=вязко;
       /* ПОКА НОДУ ДЕРЖАТ, крупный узел ходит медленнее мелкого: водишь нодой вдоль луча
          «Team Presentation» — центр качается в такт руке и дёргается (замер: 42 разворота
          направления, скачки до 7.4 px за кадр; с ограничением — 2.1). Вне драга ограничения
          НЕТ: тяжёлый хаб иначе не успевал доехать до равновесия, пока alpha жива, и после
          большого сдвига замирал на полпути. Массу режем сверху, чтобы хаб не вставал намертво. */
-      const мх=this.drag ? MX/Math.min(4, 1+(this.adj[n.id]?this.adj[n.id].size:0)*0.5) : MX;
+      /* Нода из ведомой ветки едет БЫСТРЕЕ общего предела: рука уходит на сотни пикселей, а
+         шесть пикселей за кадр — это «ноды очень медленно и долго плывут», ровно та жалоба.
+         Предел всё же есть: без него шлейф телепортируется и снова выглядит приклеенным. */
+      /* ПОД РУКОЙ предел прежний (6 px и меньше для тяжёлых узлов): поднятый до 16 давал
+         крупному узлу шаг под пять пикселей за кадр — это видимая дрожь, её ловит проверка
+         «крупный узел не дёргается». Свободный ход быстрее нужен ПОСЛЕ отпускания, когда
+         ветка догоняет и раскладка оседает. */
+      const мх=this.drag ? 6/Math.min(4, 1+(this.adj[n.id]?this.adj[n.id].size:0)*0.5) : MX;
       if(n.vx>мх)n.vx=мх; else if(n.vx<-мх)n.vx=-мх;
       if(n.vy>мх)n.vy=мх; else if(n.vy<-мх)n.vy=-мх;
       n.x+=n.vx; n.y+=n.vy;
@@ -2020,7 +2707,11 @@ class Graph{
        паузы дыхание продолжилось с того же места, а не догоняло реальное время.
        Часы живут на уровне модуля (как graphCam): Graph пересоздаётся на каждый render(), и на
        экземпляре они обнулялись бы при каждой перерисовке — то есть на том же прыжке. */
-    const _it=graphDriftClock, AMP=(S.settings.graphDrift!=null?S.settings.graphDrift:4);
+    /* «Дыхание» на большом дереве ОТКЛЮЧАЕТСЯ. Оно шевелит координаты каждый кадр, а значит
+       заставляет переписывать весь SVG даже у остывшего графа: на 877 нодах это 72 мс на кадр
+       ради шевеления в четыре пикселя, которого на таком масштабе всё равно не видно. */
+    const _it=graphDriftClock;
+    const AMP=(N.length>350) ? 0 : (S.settings.graphDrift!=null?S.settings.graphDrift:4);
     N.forEach(n=>{
       // Дрейф со СХВАЧЕННОЙ ноды не снимаем. Раньше тут было n===this.drag: на pointerdown
       // _ix/_iy мгновенно схлопывались в 0, и нода роняла себя из дрейфующей позиции в базовую
@@ -2037,18 +2728,57 @@ class Graph{
        Через кадр было дешевле (0.14 мс против 0.3 на сотне нод), но дуга отставала от линии:
        строилась для одного положения, рисовалась для другого, и в тесном месте это выглядело
        как дрожание. Точность тут важнее сэкономленной трети миллисекунды. */
-    this._recalcBends(RX, RY);
+    /* Прогибы пересчитываем ТОЛЬКО когда ноды двигались. При остывшей раскладке (и выключенном
+       дыхании) координаты кадр в кадр те же, а расчёт стоил 10 мс — почти половину бюджета
+       шестидесяти кадров в секунду. Панорама и зум ноды не двигают: они меняют камеру. */
+    const _двигались = this.alpha>0 || this.drag || AMP>0 || this._bendsDirty;
+    /* На большом дереве прогибы считаем НЕ каждый кадр: это пятая часть бюджета, а дуга живёт
+       десятки кадров и от задержки в один-два не дёргается (на сотне нод пересчёт остаётся
+       ежекадровым — там он стоит доли миллисекунды и точность важнее). */
+    const _редко = this.nodes.length>350;
+    this._bc=((this._bc||0)+1)%3;
+    if(_двигались && (!_редко || this._bc===0)){ this._bendsDirty=false; this._recalcBends(RX, RY); }
+    /* Сглаживание прогибов зовём ВСЕГДА: оно стоит доли миллисекунды, а дуга едет к своей цели
+       десятки кадров и после остановки нод. Привязать его к «двигались» — значит заморозить
+       дугу на полпути (проверки «связь обходит ноду» это и поймали). */
     this._easeBends();   // к цели всё равно идём плавно: помеха может смениться на соседнюю
     // Кадр диагностики снимаем ЗДЕСЬ: дрейф уже посчитан, прогибы уже обновлены — значит видно
     // ровно то, что через несколько строк уедет в атрибуты и попадёт человеку на экран.
     if(DBG) this._dbgFrame(DBG);
+    /* Отсечение по кадру включаем ТОЛЬКО на большом дереве. На малом оно ничего не экономит,
+       зато делает картинку зависимой от того, куда смотрит камера: элемент вне вида остаётся
+       со старой геометрией, и всё, что её меряет, получает вчерашние числа. */
+    const _крупно=this.nodes.length>350;
+    const _z0=this.zoom||1, _зап0=200;
+    const вид= _крупно
+      ? { x1:(-this.tx-_зап0)/_z0, y1:(-this.ty-_зап0)/_z0,
+          x2:(this.W-this.tx+_зап0)/_z0, y2:(this.H-this.ty+_зап0)/_z0 }
+      : { x1:-Infinity, y1:-Infinity, x2:Infinity, y2:Infinity };
     this.linkEls.forEach((e,i)=>{ const l=this.links[i], a=this.byId[l.a], b=this.byId[l.b];
       const ax=RX(a),ay=RY(a),bx=RX(b),by=RY(b), d=this._linkPath(ax,ay,bx,by,l);
-      e.setAttribute("d",d);
-      const h=this.hitEls[i]; if(h) h.setAttribute("d",d);
-      if(l._grad){ l._grad.setAttribute("x1",ax); l._grad.setAttribute("y1",ay); l._grad.setAttribute("x2",bx); l._grad.setAttribute("y2",by); }   // градиент — по концам (userSpaceOnUse)
+      /* Пишем в DOM, ТОЛЬКО если путь изменился. Панорама и зум двигают камеру одной
+         трансформой корня, координаты в мире при этом те же — а раньше каждый кадр всё равно
+         переписывались все d, hit-пути и градиенты. Это и была половина лага на большом графе. */
+      /* Связь целиком за экраном — путь не переписываем. НО только если он уже был записан
+         хоть раз: у нового элемента атрибута d нет вовсе, и всё, что меряет геометрию линии
+         (стрелки, подписи, getPointAtLength), спотыкается о пустой путь. */
+      if(e._d && (Math.max(ax,bx)<вид.x1 || Math.min(ax,bx)>вид.x2 ||
+                  Math.max(ay,by)<вид.y1 || Math.min(ay,by)>вид.y2)) return;
+      if(e._d!==d){ e._d=d; e.setAttribute("d",d);
+        const h=this.hitEls[i]; if(h) h.setAttribute("d",d);
+        if(l._grad){ l._grad.setAttribute("x1",ax); l._grad.setAttribute("y1",ay); l._grad.setAttribute("x2",bx); l._grad.setAttribute("y2",by); }
+        return;
+      }
     });
+    /* ВИДИМАЯ ОБЛАСТЬ в мировых координатах: ноду за краем экрана двигать в DOM незачем —
+       её всё равно не видно, а стоит это столько же, сколько видимую. Помечаем такие ноды
+       «грязными», чтобы дописать координаты, когда они вернутся в кадр. */
     this.nodeEls.forEach(o=>{ const n=o.n, x=RX(n), y=RY(n), sk=o.shapeKind;   // x/y — с idle: дрейфит фигура/ореол/пин/связи (вектор не мерцает)
+      if(o._px===x && o._py===y) return;    // нода не сдвинулась — в DOM писать нечего
+      // та же оговорка, что и у связей: первый раз координаты пишем всегда
+      if(o._px!=null && (x<вид.x1 || x>вид.x2 || y<вид.y1 || y>вид.y2)){ o._скрыта=true; return; }
+      o._скрыта=false;
+      o._px=x; o._py=y;
       if(sk==="square"||sk==="diamond"){ o.shape.setAttribute("x",x-n.r); o.shape.setAttribute("y",y-n.r); }   // ромб — тот же квадрат, поворот в CSS (.sh-diamond)
       else if(sk==="hexagon"){ o.shape.setAttribute("points", this._hexPts(x,y,n.r)); }
       else { o.shape.setAttribute("cx",x); o.shape.setAttribute("cy",y); }

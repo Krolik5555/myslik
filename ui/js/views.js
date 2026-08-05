@@ -79,7 +79,10 @@ function renderNav(){
     const n=tasks.filter(it=>!it.done&&it.status!=="note").length;
     const pct=tasks.length?Math.round(tasks.filter(it=>it.done).length/tasks.length*100):null;
     const col=a.color?`style="color:${a.color}"`:"";
-    const подпись = a.name + (n?` · ${n} задач`:"") + (pct!=null?` · ${pct}%`:"");
+    /* В подсказке честно говорим, что делает выделение: пока область выбрана, новые ноды
+       с пустого места холста попадают в неё — иначе это выглядит как случайность. */
+    const подпись = a.name + (n?` · ${n} задач`:"") + (pct!=null?` · ${pct}%`:"")
+      + (areaFilter===a.id ? " · выделена: новые ноды с пустого места попадут сюда" : "");
     return `<button class="areai ${areaFilter===a.id?"on":""}" data-area="${a.id}" title="${esc(подпись)}"><i class="ti ${a.icon}" ${col}></i><span class="nm">${esc(a.name)}</span><span class="cnt">${n||""}${pct!=null?" ("+pct+"%)":""}</span></button>`;
   }).join("");
 }
