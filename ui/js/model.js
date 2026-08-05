@@ -92,11 +92,13 @@ function deleteItem(id){
   if(it){ it.deleted=true; it.deletedAt=Date.now(); touch(it); persist(); }
 }
 function hardDeleteItem(id){
+  const it=S.items.find(i=>i.id===id);
   S.items=S.items.filter(i=>i.id!==id);
   S.links=S.links.filter(l=>l[0]!==id && l[1]!==id);
   S.items.forEach(i=>{ if(i.parent===id) i.parent=null; });          // снять висячие parent
   if(S.settings&&S.settings.collapsed) delete S.settings.collapsed[id]; // убрать мёртвый ключ свёрнутости
   if(S.boards) delete S.boards[id];   // доска полотна лежит отдельно от ноды — унести вместе с ней
+  if(it) fieldsDrop(it);              // картинки и доски ПОЛЕЙ лежат там же — унести тем же движением
   persist();
 }
 function restoreItem(id){

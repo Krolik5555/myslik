@@ -95,7 +95,7 @@ TRACE = os.environ.get("PLANNER_TRACE") == "1"
 
 # ---- авто-обновление с GitHub Releases ----
 # Единый источник версии для сравнения с релизом. Теги релизов: vX.Y.Z (напр. v1.3.0).
-APP_VERSION = "2.0.1.1"
+APP_VERSION = "2.0.1.2"
 APP_ID = "krolik.planner"   # идентификатор приложения для панели задач (группировка + иконка)
 # owner/repo публичного репозитория (заполнится после gh auth login — owner = твой GitHub-логин)
 GH_REPO_SLUG = "Krolik5555/myslik"
@@ -1164,6 +1164,12 @@ def _build_titlebar(form):
         for ch in "МЫСЛИК":
             g.DrawString(ch, f, brush_tx, x, y)
             x += g.MeasureString(ch, f).Width - float(2.5 * scale) + step
+        # --- номер версии сразу за названием: приглушённый и мельче, чтобы читался как подпись,
+        #     а не как часть логотипа. Нужен затем, чтобы по скриншоту было видно сборку.
+        fv = Font("Segoe UI", float(7.5 * scale), FontStyle.Regular)
+        g.DrawString(APP_VERSION, fv, SolidBrush(mut),
+                     x + float(4 * scale), float((H - fv.Height) / 2.0) + float(0.5 * scale))
+        fv.Dispose()
         f.Dispose()
 
         # --- кнопки окна

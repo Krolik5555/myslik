@@ -262,9 +262,9 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .as-self{background:none;border-style:dashed;color:var(--mut);cursor:default;}
 .as-self:hover{border-color:var(--bd);box-shadow:none;}
 .as-sec2{color:var(--mut2);}
-/* ряд действий внизу карточки */
-.as-foot{display:flex;gap:6px;justify-content:flex-end;margin-top:18px;padding-top:12px;
-  border-top:0.5px solid var(--bd);}
+/* действие внизу карточки — одно (отчёт), поэтому во всю ширину, а не иконкой в углу */
+.as-foot{display:flex;gap:6px;margin-top:18px;padding-top:12px;border-top:0.5px solid var(--bd);}
+.as-foot .as-wide{margin-top:0;}
 .as-act{width:34px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;
   color:var(--mut);font-size:16px;border:0.5px solid transparent;transition:.12s;}
 .as-act:hover{background:var(--surf2);color:var(--tx);border-color:var(--bd);}
@@ -512,6 +512,20 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .g-node.hit .g-ticon{opacity:1;}
 .g-node.faded .g-ticon{opacity:.5;}
 .g-node.doing .nd{fill:color-mix(in srgb, var(--nc, var(--acc)) 15%, var(--surf));}   /* «в работе» — еле заметный НЕПРОЗРАЧНЫЙ тон цвета самой ноды (не сквозной, не бьёт глаза) */
+/* «НА ПАУЗЕ» — третье состояние, между активной и завершённой. Завершённую глаз не должен
+   цеплять вовсе (она тусклая и мелкая), а отложенную надо ВИДЕТЬ и сразу понимать, что она
+   стоит. Поэтому: цвет ноды приглушается до серого (её собственный тон уходит), контур —
+   пунктиром, вокруг ровное серое кольцо-ореол без свечения. Пунктир и серость читаются как
+   «остановлено» и не спорят с цветными активными нодами. */
+.g-node.paused{opacity:.72;}
+.g-node.paused .nd{fill:color-mix(in srgb, var(--mut) 16%, var(--surf));stroke:var(--mut);
+  stroke-width:1.6;stroke-dasharray:3.4 2.6;}
+.g-node.paused .g-halo-pause{fill:none;stroke:var(--mut);stroke-width:1.1;opacity:.45;}
+.g-node.paused .g-label{fill:var(--mut2);font-style:italic;}
+.g-node.paused .g-ticon{opacity:.6;}
+/* наведение и поиск возвращают ей полную видимость: «на паузе» не значит «спрятана» */
+.g-node.paused.hl,.g-node.paused.hit{opacity:1;}
+.g-node.paused.hl .nd{stroke-dasharray:none;}
 /* шапка меню ноды: название + булавка иконкой. Булавка — переключатель состояния,
    целая строка ей была не нужна; состояние видно по заливке иконки. */
 .np-hd{display:flex;align-items:flex-start;gap:8px;}
@@ -828,6 +842,24 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .pal-it .pal-sub{margin-left:auto;font-size:11px;color:var(--mut);}
 .pal-empty{padding:24px;text-align:center;color:var(--mut);font-size:13px;}
 
+/* ===== плашка обновления =====
+   Не тост: тост живёт секунды и стирается следующим сообщением, а про новую версию человек
+   обязан узнать, даже если отошёл от компьютера. Висит, пока не обновится или не закроет сам.
+   Стоит СПРАВА ВНИЗУ, а не по центру: центр занят тостами, и они перекрывали бы друг друга. */
+.upd-banner{position:fixed;right:18px;bottom:18px;z-index:340;display:flex;align-items:center;gap:10px;
+  max-width:min(520px,92vw);padding:12px 14px;border-radius:12px;background:var(--surf3);
+  border:0.5px solid var(--bd2);box-shadow:0 10px 34px rgba(0,0,0,.5),0 0 24px var(--glow);
+  opacity:0;transform:translateY(14px);transition:opacity .22s,transform .22s;}
+.upd-banner.show{opacity:1;transform:none;}
+.upd-banner .upd-ico{font-size:20px;color:var(--acc);flex:none;}
+.upd-banner .upd-txt{display:flex;flex-direction:column;min-width:0;margin-right:4px;}
+.upd-banner .upd-txt b{font-size:13px;color:var(--tx);}
+.upd-banner .upd-sub{font-size:11.5px;color:var(--mut2);}
+.upd-banner .btn{flex:none;}
+.upd-banner .upd-x{flex:none;width:26px;height:26px;border-radius:7px;color:var(--mut2);
+  display:flex;align-items:center;justify-content:center;border:0.5px solid transparent;}
+.upd-banner .upd-x:hover{background:var(--surf2);color:var(--tx);}
+.upd-banner .spinning{animation:footSpin .8s linear infinite;}
 /* ===== toast ===== */
 #toast{position:absolute;bottom:18px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--surf3);border:0.5px solid var(--bd2);border-radius:10px;padding:10px 18px;font-size:13px;opacity:0;transition:.25s;z-index:300;box-shadow:0 0 20px var(--glow);pointer-events:none;}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
@@ -1157,3 +1189,134 @@ kbd{display:inline-block;font-family:var(--font);font-size:11px;line-height:1;pa
 .g-ctx{width:auto!important;min-width:172px;}
 .np-col{display:flex;flex-direction:column;gap:6px;margin-top:9px;}
 .np-col .btn{justify-content:flex-start;width:100%;}
+
+/* ===========================================================
+   ПОЛЯ НОДЫ (fields.js) — текст / картинка / врезка доски.
+   Одна и та же разметка живёт в трёх местах: окно правки, ридер, правая панель.
+   Отсюда правило — размеры задаём от контейнера, фиксированных ширин нет.
+   =========================================================== */
+/* КОЛОНКИ (модель Notion): строка — flex-контейнер, плитка занимает свою долю из двенадцати.
+   Сумма долей в строке всегда двенадцать, поэтому дыр не бывает и переносов тоже. */
+/* имя РАЗНОЕ с .fld-row из дерева заметок (folder-row): один класс на два компонента уже
+   перебивал списку выравнивание и отступы */
+/* строка → колонки → плитки друг под другом. Колонка ТЯНЕТСЯ на всю высоту строки (stretch):
+   пустое место под её плитками — законная зона броска, туда кладут вторую плашку. */
+.flds-row{position:relative;display:flex;gap:8px;margin-bottom:8px;align-items:stretch;}
+.fld-col{display:flex;flex-direction:column;gap:8px;min-width:0;
+  flex:0 0 calc(var(--gw,12) / 12 * 100% - 8px * (12 - var(--gw,12)) / 12);}
+/* разделитель колонок: узкая полоса между плитками, тянут мышью */
+.fld-split{flex:0 0 4px;align-self:stretch;min-height:36px;border-radius:3px;cursor:col-resize;
+  background:transparent;transition:background .12s;touch-action:none;}
+.fld-split:hover,.fld-split.тащим{background:var(--acc);}
+body.fld-split-drag{user-select:none;cursor:col-resize;}
+/* разделитель у правого края строки: им ужимают ПОСЛЕДНЮЮ колонку, даже если она одна */
+.fld-split-end{flex:0 0 4px;margin-left:-4px;}
+/* ручка высоты: нижняя кромка плитки. Видна только под курсором — постоянная полоска
+   на каждой плитке шумела бы в списке из десятка полей */
+.fld-grip{position:absolute;left:0;right:0;bottom:0;height:7px;cursor:row-resize;touch-action:none;
+  z-index:4;background:transparent;transition:background .12s;}
+.fld-grip::after{content:"";position:absolute;left:50%;transform:translateX(-50%);bottom:2px;
+  width:38px;height:3px;border-radius:2px;background:var(--bd3);opacity:0;transition:opacity .12s;}
+.fld:hover .fld-grip::after{opacity:.7;}
+.fld-grip:hover::after,.fld-grip.тащим::after{opacity:1;background:var(--acc);}
+body.fld-grip-drag{user-select:none;cursor:row-resize;}
+/* невидимый приёмник вставки: держит фокус, пока курсор над врезкой картинки, иначе система
+   не порождает событие paste вовсе. Не за экраном, а прозрачным на месте — уехавший за край
+   фокус заставляет браузер прокручивать страницу к нему */
+.fld-paste-sink{position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;padding:0;border:0;
+  resize:none;pointer-events:none;z-index:-1;}
+.fld{position:relative;display:flex;flex-direction:column;overflow:hidden;width:100%;flex:none;
+  border:0.5px solid var(--bd);border-radius:10px;background:var(--surf);}
+/* поднятая плитка: не ловит курсор (под ним ищется цель) и едет за рукой без переходов.
+   Приподнятость показываем тенью и лёгкой прозрачностью — под ней должно быть видно, куда
+   встанет линия вставки. */
+.fld.тащим{z-index:6;opacity:.82;box-shadow:0 18px 40px rgba(0,0,0,.55);border-color:var(--acc);
+  pointer-events:none;transition:none;}
+body.fld-drag{user-select:none;cursor:grabbing;}
+/* Куда встанет плитка: ЛИНИЯ на границе, а не подсветка всей плитки. Полоска сбоку — новая
+   колонка с этой стороны, сверху/снизу — в стопку этой же колонки, линия во всю строку —
+   плитка уедет своей строкой. Линию рисуем псевдоэлементом: она не двигает вёрстку. */
+.fld.до::after,.fld.после::after,.fld.выше::after,.fld.ниже::after,
+.flds-row.своей-выше::after,.flds-row.своей-ниже::after{
+  content:"";position:absolute;background:var(--acc);border-radius:2px;z-index:7;pointer-events:none;
+  box-shadow:0 0 8px var(--acc);animation:fld-линия .14s ease-out;}
+@keyframes fld-линия{from{opacity:0;transform:scale(.85);}to{opacity:1;transform:none;}}
+.fld.до::after{left:-5px;top:0;bottom:0;width:3px;}
+.fld.после::after{right:-5px;top:0;bottom:0;width:3px;}
+.fld.выше::after{top:-5px;left:0;right:0;height:3px;}
+.fld.ниже::after{bottom:-5px;left:0;right:0;height:3px;}
+.flds-row.своей-выше::after{top:-6px;left:0;right:0;height:3px;}
+.flds-row.своей-ниже::after{bottom:-6px;left:0;right:0;height:3px;}
+.fld-add{margin-top:10px;}
+.fld-bar{display:flex;align-items:center;gap:6px;padding:5px 6px 5px 9px;background:var(--surf2);border-bottom:0.5px solid var(--bd);cursor:grab;touch-action:none;}
+.fld-bar input,.fld-bar button:not(.fld-drag){cursor:auto;}
+.fld-bar button:not(.fld-drag){cursor:pointer;}
+.fld-bar>.ti,.fld-ico{font-size:15px;color:var(--mut);flex:none;}
+/* название НЕ растягивается во всю полосу: кнопки должны стоять рядом с ним, а не у дальнего
+   края широкой ноды — иначе до «копировать» и «убрать» тянуться через полэкрана */
+.flds .fld-name{flex:0 1 340px;min-width:80px;background:transparent;border:none;border-radius:6px;padding:3px 6px;font-size:12.5px;color:var(--tx);outline:none;font-weight:600;}
+.fld-sp{flex:1;}
+/* свёрнутое поле: одна полоса с названием и короткой сводкой — чтобы не разворачивать ради
+   «а что там лежало». Клик по полосе разворачивает обратно. */
+.fld.off .fld-bar{border-bottom:none;}
+.fld-name-off{font-size:12.5px;font-weight:600;color:var(--tx);flex:none;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.fld-sum{flex:1;min-width:0;font-size:11.5px;color:var(--mut2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.fld-fold{font-size:14px;color:var(--mut2);flex:none;}
+/* ручка переезда поля: тянут мышью, поэтому курсор-ладонь и заметная зона захвата */
+.fld.dragging .flds .fld-name::placeholder{font-weight:400;color:var(--mut2);}
+.flds .fld-name:focus{background:var(--surf3);box-shadow:none;}
+.fld-b{width:24px;height:24px;border-radius:6px;color:var(--mut);font-size:13px;flex:none;display:inline-flex;align-items:center;justify-content:center;}
+.fld-b:hover{background:var(--surf3);color:var(--tx);}
+.fld-b[data-fa="del"]:hover{color:var(--warn);}
+.flds .fld-text{display:block;width:100%;flex:1;min-height:0;background:transparent;border:none;border-radius:0;padding:8px 10px;font-size:13.5px;line-height:1.55;color:var(--tx);outline:none;resize:none;overflow:hidden;}
+.flds .fld-text:focus{background:var(--surf2);box-shadow:none;}
+/* Пока текст только для чтения, он НЕ ловит мышь: иначе поле ввода перехватывает нажатие,
+   и плитку нельзя тащить за её середину. Двойной клик ловит сама плитка (см. fields.js). */
+.flds .fld-text[readonly]{pointer-events:none;user-select:none;}
+.flds .fld-text.edit{cursor:text;user-select:text;}
+.fld-box{position:relative;flex:1;min-height:0;overflow:hidden;background:var(--surf2);display:flex;align-items:center;justify-content:center;}
+.fld-box .fld-img{max-width:100%;max-height:100%;object-fit:contain;display:block;
+  -webkit-user-drag:none;user-select:none;}
+.fld-box.drop{box-shadow:inset 0 0 0 1px var(--acc);}
+/* белый в обеих темах намеренно: снимок доски всегда светлый (см. fieldBoardPreview) */
+.fld-board{cursor:pointer;background:#fff;}
+/* врезка с ЖИВОЙ доской: здесь уже рисуют, центрирование плашки только мешало бы */
+.fld-box.live{display:block;cursor:default;background:transparent;}
+.fld-box.live .excalidraw{height:100%;}
+.fld-empty{display:flex;align-items:center;gap:6px;justify-content:center;width:100%;height:100%;color:var(--mut);font-size:12.5px;cursor:pointer;}
+.fld-empty i{font-size:16px;}
+.fld-board .fld-empty{color:var(--mut2);}
+/* ручка высоты: тянут её часто, поэтому полоса во всю ширину, а не уголок */
+/* ручка ШИРИНЫ — полоса по правому краю поля: тянут её, чтобы поставить поля в один ряд */
+/* угол — сразу ширина и высота: главный жест «сделать плитку такой» */
+.fld-add{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding-top:2px;}
+.fld-add span{font-size:11.5px;color:var(--mut);margin-right:2px;}
+.fld-add button{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--mut);border:0.5px solid var(--bd2);border-radius:7px;padding:4px 9px;}
+.fld-add button:hover{color:var(--tx);border-color:var(--bd3);background:var(--surf2);}
+.fld-add button i{font-size:14px;}
+/* шаблон — отдельной строкой: он не «добавляет поле», а задаёт весь набор сразу */
+.fld-tpl{margin-top:2px;padding-top:8px;border-top:0.5px solid var(--bd);}
+/* пока тащат поле, выделение текста и курсоры соседей только мешают */
+/* в ридере и правой панели поля идут сразу за описанием — отделяем воздухом, а не рамкой */
+.reader-flds{margin-top:12px;}
+.aside-flds{margin-top:10px;}
+.aside-flds .fld-bar{padding-left:7px;}
+
+/* Шаблоны нод */
+.tpl-note{font-size:12.5px;color:var(--mut);line-height:1.5;margin-bottom:12px;}
+.tpl-empty{font-size:12.5px;color:var(--mut2);padding:6px 2px;}
+.tpl-cnt{font-size:11.5px;color:var(--mut2);margin-right:2px;}
+.tpl-def{color:var(--mut2);}
+.tpl-def.on{color:var(--acc);}
+.tpl-def:hover{background:var(--surf3);color:var(--acc);}
+.tpl-fields{display:flex;flex-direction:column;gap:6px;margin-bottom:8px;}
+.tpl-f{display:flex;align-items:center;gap:6px;}
+.tpl-f>.ti{font-size:15px;color:var(--mut);width:18px;text-align:center;flex:none;}
+.tpl-f input{flex:1;min-width:0;background:var(--surf2);border:0.5px solid var(--bd);border-radius:8px;padding:6px 10px;font-size:13px;color:var(--tx);outline:none;}
+.tpl-f input:focus{border-color:var(--bd3);}
+.tpl-pick-list{display:flex;flex-direction:column;gap:6px;}
+.tpl-pick{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:9px 11px;border:0.5px solid var(--bd);border-radius:9px;color:var(--tx);}
+.tpl-pick:hover{background:var(--surf2);border-color:var(--bd3);}
+.tpl-pick>.ti{font-size:16px;color:var(--mut);flex:none;}
+.tpl-pick .nm{font-size:13px;flex:none;}
+.tpl-pick .tpl-cnt{font-size:11.5px;color:var(--mut2);margin-left:auto;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}

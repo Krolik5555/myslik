@@ -44,5 +44,44 @@ S.settings.theme = "dark"; applySettings(); await ж(40);
 t.push({имя:"тёмная тема доходит до нативной полосы", ок: журнал.includes("тема:тёмная"), факт: журнал.join(",")});
 S.settings.theme = былаТема; applySettings();
 
+/* ПЛАШКА ОБНОВЛЕНИЯ. Раньше про новую версию говорил тост: он жил пять секунд и стирался
+   следующим сообщением, так что отошедший от компьютера человек про обновление не узнавал
+   вовсе. Плашка обязана висеть, пока не обновятся или не закроют её руками. */
+{
+  document.querySelectorAll("#upd-banner").forEach(n=>n.remove());
+  журнал.length = 0;
+  // заглушка отвечает НЕ мгновенно: в жизни это качается ~20 МБ, и ход должен быть виден
+  window.pywebview.api.apply_update = async (a) => { журнал.push("apply:"+a); await ж(400); return {ok:false, error:"download"}; };
+
+  showUpdateBanner("9.9.9.9", "https://пример/сборка.zip");
+  await ж(120);
+  const пл = () => document.querySelector("#upd-banner");
+  t.push({имя:"плашка обновления появляется", ок: !!пл() && /9\.9\.9\.9/.test(пл().textContent),
+          факт: пл() ? пл().textContent.replace(/\s+/g," ").trim() : "нет плашки"});
+
+  // тосты живут 1.8–5 с и перетирают друг друга; плашка обязана пережить и их, и время
+  toast("что-то произошло"); toast("и ещё раз");
+  await ж(6200);
+  t.push({имя:"плашка не исчезает сама и не сбивается тостами", ок: !!пл(),
+          факт: пл() ? "висит через 6 секунд и два тоста" : "пропала"});
+
+  // «Обновить» показывает ход прямо в плашке и не закрывает её при неудаче
+  document.querySelector("#upd-go").click();
+  await ж(60);
+  const вХоде = (document.querySelector("#upd-sub")||{}).textContent||"";
+  await ж(700);
+  const итог = (document.querySelector("#upd-sub")||{}).textContent||"";
+  const кнопка = document.querySelector("#upd-go");
+  t.push({имя:"ход обновления виден в самой плашке, а ошибка её не закрывает",
+          ок: !!пл() && /Скачива/.test(вХоде) && /интернет|не удалось/i.test(итог)
+              && журнал.some(x=>x.indexOf("apply:")===0) && кнопка && !кнопка.disabled,
+          факт: "во время: «"+вХоде+"», после: «"+итог+"», кнопка снова жмётся: "+(кнопка&&!кнопка.disabled)});
+
+  // и только крестик её убирает
+  document.querySelector("#upd-close").click();
+  await ж(80);
+  t.push({имя:"плашка закрывается крестиком", ок: !пл(), факт: пл()?"осталась":"закрылась"});
+}
+
 if (прежний === undefined) delete window.pywebview; else window.pywebview = прежний;
 return t;

@@ -108,9 +108,19 @@ async function sendFeedback(msg, contact){
         {icon:"ti-alert-triangle", label:"Повторить", onAction:()=>openFeedback({msg, contact})});
 }
 
-function openItemEditor(existing, defaultKind, presetDue){
+function openItemEditor(existing, defaultKind, presetDue, seed){
   const isNew=!existing;
   const it = existing || {id:null, kind:defaultKind||"task", title:"", body:"", area:areaFilter||null, due:presetDue||null, repeat:"none", priority:0, tags:[]};
+  /* Заготовка по шаблону (см. fields.js). Тип из шаблона берём только тогда, когда его не
+     назвали явно кнопкой «Новая задача/заметка»: иначе шаблон-заметка молча превращал бы
+     нажатую задачу в заметку. */
+  if(isNew && seed){
+    if(!defaultKind && seed.kind) it.kind=seed.kind;
+    if(seed.tags && seed.tags.length) it.tags=seed.tags.slice();
+  }
+  /* Поля правятся ЧЕРНОВИКОМ: «Отмена» обязана отменять и их. Содержимое картинок и досок
+     лежит вне ноды и остаётся в S до следующей загрузки — там его подметёт санитайзер. */
+  const fields = (isNew && seed && seed.fields) ? seed.fields : JSON.parse(JSON.stringify(fieldsOf(it)));
   const m=el("div","modal");
   m.innerHTML=`
     <h3><i class="ti ${it.kind==="note"?"ti-note":"ti-checklist"}"></i>${isNew?"Новый элемент":"Изменить"}</h3>
@@ -122,6 +132,8 @@ function openItemEditor(existing, defaultKind, presetDue){
     </div>
     <div class="field"><label>Название</label><input type="text" id="f-title" value="${esc(it.title)}" placeholder="Что нужно сделать / о чём заметка"></div>
     <div class="field" id="wrap-body"><label>Заметка / детали</label><textarea id="f-body" placeholder="Текст, ссылки, мысли…">${esc(it.body||"")}</textarea></div>
+    <div class="field" id="wrap-fields" ${it.kind==="flow"?`style="display:none"`:""}><label>Поля</label>
+      <div class="flds" id="f-fields"></div></div>
     <div class="row2" id="wrap-due">
       <div class="field"><label>Срок</label><input type="date" id="f-due" value="${it.due||""}"></div>
       <div class="field"><label>Повтор</label><select id="f-rep">
@@ -152,6 +164,10 @@ function openItemEditor(existing, defaultKind, presetDue){
         <button class="btn primary" id="f-save"><i class="ti ti-check"></i>Сохранить</button>
       </div>
     </div>`;
+  /* Есть поле-доска — окно правки открываем ШИРЕ обычного. Не ради простора: рисовать во врезке
+     можно только начиная с 1000 px (см. fieldBoardFits в fields.js), а в штатных 520 доску
+     приходилось бы каждый раз разворачивать на весь экран. */
+  if(fields.some(f=>f.type==="board")) m.style.width="min(1120px, 94vw)";
   const ov=overlay(m);
   m.addEventListener("keydown",e=>{ if((e.ctrlKey||e.metaKey)&&e.key==="Enter"){ e.preventDefault(); $("#f-save",m).click(); } });  // Ctrl/Cmd+Enter = сохранить
   let kind=it.kind, priority=it.priority||0, tags=(it.tags||[]).slice(), color=it.color||null, folder=it.folder||null;
@@ -185,6 +201,12 @@ function openItemEditor(existing, defaultKind, presetDue){
   $("#f-tagin",m).addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); const v=e.target.value.trim().replace(/^#/,""); if(v&&!tags.includes(v)){tags.push(v);renderTags();} e.target.value=""; renderSugg(""); }});
   $("#f-tagmgr",m).onclick=()=>openTagManager();   // управление тегами прямо отсюда (не в настройках)
 
+  /* Поля ноды. Панель одна и та же во всех трёх местах (окно правки, ридер, правая панель) —
+     здесь она без save: правки уезжают в ноду по «Сохранить» вместе с остальными. */
+  fieldsPanel($("#f-fields",m), fields, {item:it});
+  onOverlayClose(ov, ()=>fieldsStopIn(m));   // живая доска в поле обязана сняться вместе с окном
+  fieldsCopyOnRight($("#f-body",m), ()=>$("#f-body",m).value);   // ПКМ копирует описание — как у полей
+
   // поле «Папка на ПК»: выбрать (системный диалог), открыть в проводнике, убрать. Папка пишется в it.folder при сохранении.
   const folderRow=$("#f-folder-row",m);
   const redrawFolder=()=>{
@@ -211,9 +233,15 @@ function openItemEditor(existing, defaultKind, presetDue){
     const data={ kind, title, body:$("#f-body",m).value,
       due: kind==="note"?null:($("#f-due",m).value||null), repeat: kind==="note"?"none":$("#f-rep",m).value,
       priority: kind==="note"?0:priority, tags, color, folder: folder||null };
+    /* Поля, убранные в черновике, уносят с собой картинку и доску — но только СЕЙЧАС, когда
+       правка принята. Считаем по id: сравнивать сами объекты нельзя, черновик их скопировал. */
+    { const остались=new Set(fields.map(f=>f.id));
+      fieldsOf(it).forEach(f=>{ if(!остались.has(f.id)) fieldDrop(f); }); }
+    if(fields.length) data.fields=fields;
     if(isNew){ addItem(data); }
     else {
       Object.assign(it,data);
+      if(!fields.length) delete it.fields;   // все поля убрали — не оставлять пустой массив в ноде
       if(kind==="note"){ it.status="note"; it.done=false; }
       else {
         if(it.status==="note") it.status="todo";        // заметку переключили в задачу
@@ -298,6 +326,7 @@ function openNoteReader(it){
     ${it.folder?`<div style="margin-bottom:10px;"><button class="tag folder-tag" id="nr-folder" title="${esc(it.folder)}"><i class="ti ti-folder"></i>Открыть папку</button></div>`:""}
     ${parentChain.length?`<div style="margin-bottom:10px;"><span class="tag"><i class="ti ti-sitemap"></i>Иерархия: ${parentChain.map(id=>{const p=S.items.find(i=>i.id===id);return p?esc(p.title):"";}).join(" → ")}</span></div>`:""}
     <div class="reader-body" id="nr-body" title="Кликни, чтобы править прямо здесь">${it.body?esc(it.body):`<span class="reader-empty">Пока пусто — кликни, чтобы написать.</span>`}</div>
+    <div class="flds reader-flds" id="nr-fields"></div>
     ${kids.length?`<div class="field"><label>Дочерние заметки (${kids.length})</label><div class="reader-links" id="kid-list">
       ${kids.map(k=>`<div class="rl-it" data-rl="${k.id}"><i class="ti ti-note"></i>${esc(k.title)}</div>`).join("")}
     </div></div>`:""}
@@ -305,6 +334,10 @@ function openNoteReader(it){
       <button class="btn ghost" id="nr-close">Закрыть</button>
       <button class="btn" id="nr-edit"><i class="ti ti-pencil"></i>Изменить</button>
     </div></div>`;
+  /* Есть поле-доска — открываем окно ШИРЕ обычного. Не ради красоты: живая доска во врезке
+     возможна только начиная с 1000 px (см. fieldBoardFits), а в стандартных 520 px пришлось бы
+     каждый раз разворачивать её на весь экран. Ширину дальше человек тянет сам за угол. */
+  if(fieldsOf(it).some(f=>f.type==="board")) m.style.width="min(1080px, 92vw)";
   const ov=overlay(m);
   setTimeout(()=>{ const c=$("#nr-close",m); if(c)c.focus(); },30);   // автофокус для клавиатуры
   $("#nr-close",m).onclick=()=>ov.remove();
@@ -332,7 +365,14 @@ function openNoteReader(it){
     };
     nb.addEventListener("blur",commitBody);
     onOverlayClose(ov, ()=>{ if(commitBody()) render(); });
+    fieldsCopyOnRight(nb, ()=>it.body||"");   // ПКМ копирует описание — как у полей
   }
+
+  /* Именованные поля — сразу под описанием. Здесь панель работает ВЖИВУЮ (есть save): ридер
+     тем и хорош, что правишь на месте, и лезть ради строчки в окно правки незачем. */
+  fieldsPanel($("#nr-fields",m), fieldsOf(it), {item:it, attach:true,
+    save:()=>{ touch(it); persist(); if(graph) graph.build(); }});
+  onOverlayClose(ov, ()=>fieldsStopIn(m));   // живая доска в поле обязана сняться вместе с окном
 
   /* Окно двигаем за заголовок (размер тянется за угол — resize в CSS у .reader-win).
      Сдвиг держим в transform: overlay центрует окно флексом, трогать left/top нельзя. */
@@ -425,7 +465,8 @@ function openItemSmart(it){
 }
 function createNew(kind){
   if(kind==="flow"){ const it=addItem({kind:"flow", title:"Новое полотно", area:areaFilter||null}); render(); openFlowEditor(it); }
-  else openItemEditor(null, kind);
+  // шаблон по умолчанию (если выбран) заводит ноду сразу с нужными полями; не выбран — как раньше
+  else openItemEditor(null, kind, null, templateSeed(templateDefault(), kind));
 }
 
 /* Полотно = доска Excalidraw (ui/js/draw.js). Прежний самописный редактор блок-схем удалён:

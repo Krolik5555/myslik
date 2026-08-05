@@ -925,5 +925,71 @@ t.push({имя:"возврат на вкладку пересобирает гр
   цель.title = было; graph.build();
 }
 
+/* СТАТУСЫ «в работе» и «на паузе» ставятся на ВСЁ выделение — как цвет: тыкать по одной ноде
+   грустно. Кликнутая нода не в выделении — меняется только она (ПКМ выделения не трогает).
+   «На паузе» — третье состояние: видно, но читается как остановленное, а не как активное. */
+{
+  const а=addItem({kind:"task", title:"ст-А"}), б=addItem({kind:"task", title:"ст-Б"}),
+        в=addItem({kind:"task", title:"ст-В"}), г=addItem({kind:"task", title:"ст-Г"});
+  [а,б,в,г].forEach((it,i)=>{ it.x=260+i*70; it.y=260; });
+  persist(); render(); await ж(600);
+  const узел=id=>graph.nodes.find(n=>n.id===id);
+
+  graph.selNodes=new Set([а.id,б.id,в.id]);
+  graph._setStatus(узел(а.id),"doing"); await ж(400);
+  t.push({имя:"«в работу» применяется ко всему выделению",
+          ок: а.status==="doing" && б.status==="doing" && в.status==="doing" && г.status!=="doing",
+          факт:[а,б,в,г].map(x=>x.title+":"+x.status).join(" ")});
+
+  // клик по ноде ВНЕ выделения меняет только её
+  graph._setStatus(узел(г.id),"paused"); await ж(400);
+  t.push({имя:"нода вне выделения меняет статус одна",
+          ок: г.status==="paused" && а.status==="doing" && б.status==="doing",
+          факт:[а,б,г].map(x=>x.title+":"+x.status).join(" ")});
+
+  graph.selNodes=new Set([а.id,б.id]);
+  graph._setStatus(узел(а.id),"paused"); await ж(400);
+  t.push({имя:"«на паузу» тоже идёт на всё выделение",
+          ок: а.status==="paused" && б.status==="paused" && в.status==="doing",
+          факт:[а,б,в].map(x=>x.title+":"+x.status).join(" ")});
+
+  const эл=id=>document.querySelector('.g-node[data-id="'+id+'"]');
+  // выделение снимаем: у выделенной ноды свой контур (толстый, сплошной), и пунктир паузы
+  // под ним не виден — проверять надо обычный вид, а не подсвеченный
+  graph.selNodes=new Set(); graph._paintSel(); await ж(200);
+  const пауза=эл(а.id);
+  {
+    const кл=пауза?пауза.getAttribute("class"):"";
+    const усл={
+      естьУзел: !!пауза,
+      классПаузы: /paused/.test(кл),
+      кольцо: !!(пауза&&пауза.querySelector(".g-halo-pause")),
+      тусклее: пауза ? +getComputedStyle(пауза).opacity < 1 : false,
+      ярчеЗавершённой: пауза ? +getComputedStyle(пауза).opacity > 0.5 : false,
+      пунктир: пауза&&пауза.querySelector(".nd")
+               ? getComputedStyle(пауза.querySelector(".nd")).strokeDasharray!=="none" : false
+    };
+    t.push({имя:"нода на паузе видна, но не как активная",
+            ок: Object.values(усл).every(Boolean),
+            факт: Object.keys(усл).map(k=>k+":"+усл[k]).join(", ")});
+  }
+
+  // повторное нажатие снимает статус
+  graph.selNodes=new Set();
+  graph._setStatus(узел(в.id),"doing"); await ж(400);
+  t.push({имя:"повторное нажатие снимает статус", ок: в.status==="todo", факт:"ст-В: "+в.status});
+
+  // завершённую статусом не трогаем: сперва «Вернуть»
+  toggleDone(г); persist(); render(); await ж(400);
+  const былГ=г.status;
+  graph.selNodes=new Set([г.id, а.id]);
+  graph._setStatus(graph.nodes.find(n=>n.id===а.id)||graph.nodes[0],"doing"); await ж(400);
+  t.push({имя:"завершённой ноде статус не меняют", ок: г.done && г.status===былГ,
+          факт:"ст-Г: done="+г.done+", статус "+г.status});
+
+  [а,б,в,г].forEach(x=>hardDeleteItem(x.id));
+  graph.selNodes=new Set(); render(); await ж(300);
+}
+
 hardDeleteItem(мысль.id); render();
 return t;

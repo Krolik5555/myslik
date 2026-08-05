@@ -13,6 +13,7 @@ function reportStatusOf(it){
   if(!it || it.kind!=="task") return null;
   if(it.done) return "done";
   if(it.status==="doing") return "doing";
+  if(it.status==="paused") return "paused";
   return "todo";
 }
 
@@ -24,6 +25,7 @@ function _reportMarker(it){
   const st=reportStatusOf(it);
   if(st==="done") return "✓";
   if(st==="doing") return "►";
+  if(st==="paused") return "‖";
   if(st==="todo") return "○";
   return "•";
 }
@@ -53,7 +55,7 @@ function buildReportText(items, opts){
   const tasks=items.filter(i=>i.kind==="task");
   if(tasks.length){
     const cnt=s=>tasks.filter(t=>reportStatusOf(t)===s).length;
-    const p=[]; if(cnt("done"))p.push("✓ "+cnt("done")+" выполнено"); if(cnt("doing"))p.push("► "+cnt("doing")+" в работе"); if(cnt("todo"))p.push("○ "+cnt("todo")+" не начато");
+    const p=[]; if(cnt("done"))p.push("✓ "+cnt("done")+" выполнено"); if(cnt("doing"))p.push("► "+cnt("doing")+" в работе"); if(cnt("paused"))p.push("‖ "+cnt("paused")+" на паузе"); if(cnt("todo"))p.push("○ "+cnt("todo")+" не начато");
     L.push("Задачи: "+tasks.length+(p.length?" — "+p.join(", "):""));
   }
   if(withFolders){ const n=items.filter(i=>i.folder).length; if(n) L.push("Папок: "+n); }
@@ -69,6 +71,13 @@ function buildReportText(items, opts){
     if(withFolders && it.folder) L.push(ind+"    Папка: "+((typeof shortFolder==="function")?shortFolder(it.folder):it.folder));
     const b=(it.body||"").trim();
     if(b) L.push(ind+"    "+b.replace(/\n/g,"\n"+ind+"    "));
+    /* Именованные поля идут в отчёт вслед за описанием: смежник читает отчёт вместо ноды,
+       и текст, написанный в поле «Что сделано», нужен ему не меньше общего описания. */
+    (typeof fieldsOf==="function"?fieldsOf(it):[]).forEach(f=>{
+      if(f.type!=="text") return;
+      const v=(f.value||"").trim(); if(!v) return;
+      L.push(ind+"    "+(f.name?f.name+": ":"")+v.replace(/\n/g,"\n"+ind+"    "));
+    });
     (children[it.id]||[]).forEach(ch=>walk(ch, depth+1));
   };
   roots.forEach(r=>walk(r,0));

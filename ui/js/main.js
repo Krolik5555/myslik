@@ -12,8 +12,9 @@ function openPalette(){
   const input=$("#pal-in",box), list=$("#pal-list",box);
   let sel=0, results=[];
   const commands=[
-    {t:"Новая задача",i:"ti-plus",run:()=>{closeOverlays();openItemEditor(null);}},
-    {t:"Новая заметка",i:"ti-note",run:()=>{closeOverlays();openItemEditor(null,"note");}},
+    // через createNew, а не напрямую в редактор: там подхватывается шаблон по умолчанию
+    {t:"Новая задача",i:"ti-plus",run:()=>{closeOverlays();createNew("task");}},
+    {t:"Новая заметка",i:"ti-note",run:()=>{closeOverlays();createNew("note");}},
     {t:"Новое полотно",i:"ti-artboard",run:()=>{closeOverlays();createNew("flow");}},
     {t:"Перейти: Сегодня",i:"ti-sun",run:()=>go("today")},
     {t:"Перейти: Задачи",i:"ti-checklist",run:()=>go("tasks")},
@@ -28,6 +29,7 @@ function openPalette(){
     {t:"Сообщить о проблеме",i:"ti-message-report",run:()=>{closeOverlays();openFeedback();}},
     {t:"Настройки",i:"ti-settings",run:()=>{closeOverlays();openSettings();}},
     {t:"Теги со стилем",i:"ti-tags",run:()=>{closeOverlays();openTagManager();}},
+    {t:"Шаблоны нод",i:"ti-layout-list",run:()=>{closeOverlays();openTemplateManager();}},
     {t:"Удалить пустые заметки",i:"ti-eraser",run:()=>{closeOverlays();cleanEmptyNotes();}},
     {t:"Одинокие ноды (найти/удалить)",i:"ti-circle-dashed",run:()=>{closeOverlays();openLonelyNodes();}},
     {t:"Умный захват (ИИ): вкл/выкл",i:"ti-sparkles",run:()=>{closeOverlays(); if(typeof aiToggle==="function") aiToggle();}},
@@ -40,7 +42,7 @@ function openPalette(){
     q=q.trim().toLowerCase();
     const cmds=commands.filter(c=>!q||c.t.toLowerCase().includes(q)).map(c=>({type:"cmd",...c}));
     if(q){
-      const items=S.items.filter(it=>!it.deleted&&(String(it.title||"").toLowerCase().includes(q)||String(it.body||"").toLowerCase().includes(q)))
+      const items=S.items.filter(it=>!it.deleted&&(String(it.title||"").toLowerCase().includes(q)||String(it.body||"").toLowerCase().includes(q)||fieldsText(it).toLowerCase().includes(q)))
         .slice(0,8).map(itemRow);
       results=[...items,...cmds];
     } else {
@@ -93,7 +95,8 @@ function cleanEmptyNotes(){
   const hasKid=id=>S.items.some(x=>!x.deleted && x.parent===id);
   const empties=S.items.filter(it=>!it.deleted && (it.kind==="note"||it.kind==="task")
     && !(it.title||"").trim()
-    && ( !(it.body||"").trim() || (!linked.has(it.id) && !hasKid(it.id)) ));
+    // «текст» — это и описание, и именованные поля: нода с заполненным полем не пустая
+    && ( !((it.body||"")+fieldsText(it)).trim() || (!linked.has(it.id) && !hasKid(it.id)) ));
   if(!empties.length){ toast("Безымянных висячих нод не найдено",{icon:"ti-check"}); return; }
   const ids=empties.map(it=>it.id);
   ids.forEach(id=>deleteItem(id)); render();
@@ -250,7 +253,8 @@ function wireGlobal(){
     const tdy=e.target.closest("[data-today]"); if(tdy){ const it=S.items.find(i=>i.id===tdy.dataset.today); if(it){ it.due=ymd(today()); touch(it); persist(); render(); toast("Перенесено на сегодня",{icon:"ti-target"}); } return; }
     const ot=e.target.closest("[data-overtoday]"); if(ot){ const T=today(), ds=ymd(T); let n=0; S.items.forEach(it=>{ if(!it.deleted&&it.kind==="task"&&!it.done&&it.due&&parseYmd(it.due)<T){ it.due=ds; touch(it); n++; } }); if(n){ persist(); render(); toast("Перенесено на сегодня: "+n,{icon:"ti-target"}); } return; }   // вся просрочка → сегодня
     const ed=e.target.closest("[data-edit]"); if(ed){ const it=S.items.find(i=>i.id===ed.dataset.edit); if(it)openItemEditor(it); return; }
-    const day=e.target.closest("[data-day]"); if(day){ openItemEditor(null,"task",day.dataset.day); return; }   // клик по дню календаря — новая задача на эту дату
+    // клик по дню календаря — новая задача на эту дату (с полями шаблона по умолчанию)
+    const day=e.target.closest("[data-day]"); if(day){ openItemEditor(null,"task",day.dataset.day,templateSeed(templateDefault(),"task")); return; }
     const del=e.target.closest("[data-del]"); if(del){ const it=S.items.find(i=>i.id===del.dataset.del); if(it){ const id=it.id; deleteItem(id); render(); toast("Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restoreItem(id); render(); }}); } return; }
     const ct=e.target.closest("[data-cleartag]"); if(ct){ tagFilter=null; render(); return; }
     const tg2=e.target.closest("[data-tag]"); if(tg2){ tagFilter=tg2.dataset.tag; areaFilter=null; view="tasks"; render(); return; }   // клик по тегу — фильтр по нему
@@ -513,20 +517,52 @@ async function autoCheckUpdate(delayed){
   if(!r.hasUpdate) return;
   if(_updNotified===r.latest) return;               // уже говорили про эту версию
   _updNotified=r.latest;
-  toast("Вышла новая версия "+r.latest, {icon:"ti-rocket", label:"Обновить",
-        onAction:()=>applyUpdateNow(r.asset, r.latest)});
+  showUpdateBanner(r.latest, r.asset);
+}
+
+/* ПЛАШКА ОБНОВЛЕНИЯ — не тост. Тост жил пять секунд и стирался следующим сообщением: кто не
+   заметил его в эти секунды, про новую версию не узнавал вовсе и оставался на старой сборке.
+   Поэтому отдельный узел, который висит, пока человек не обновится или не закроет его сам.
+   Закрыл — молчим до перезапуска приложения (о версии уже сказано, _updNotified её помнит). */
+function showUpdateBanner(ver, asset){
+  const было=$("#upd-banner"); if(было) было.remove();
+  const b=el("div","upd-banner"); b.id="upd-banner";
+  b.innerHTML=`<i class="ti ti-rocket upd-ico"></i>
+    <div class="upd-txt"><b>Вышла версия ${esc(ver)}</b><span class="upd-sub" id="upd-sub">Можно обновиться прямо сейчас</span></div>
+    <button class="btn primary" id="upd-go"><i class="ti ti-download"></i>Обновить</button>
+    <button class="btn ghost" id="upd-what" title="Что нового">Подробнее</button>
+    <button class="upd-x" id="upd-close" title="Закрыть — напомним при следующем запуске"><i class="ti ti-x"></i></button>`;
+  document.body.appendChild(b);
+  requestAnimationFrame(()=>b.classList.add("show"));
+  $("#upd-close",b).onclick=()=>b.remove();
+  $("#upd-what",b).onclick=()=>openSettingsUpdates();
+  $("#upd-go",b).onclick=async()=>{
+    /* Ход обновления показываем В САМОЙ плашке: она никуда не денется, а тост про «скачиваю»
+       перебивался бы любым другим сообщением, и человек оставался без обратной связи. */
+    const sub=$("#upd-sub",b), go=$("#upd-go",b);
+    go.disabled=true; go.innerHTML=`<i class="ti ti-loader-2 spinning"></i>Скачиваю…`;
+    sub.textContent="Скачиваю ~20 МБ, приложение перезапустится само";
+    const res=await applyUpdateNow(asset, ver, true);
+    if(res && res.ok){ sub.textContent="Скачано — перезапускаю…"; return; }
+    go.disabled=false; go.innerHTML=`<i class="ti ti-download"></i>Обновить`;
+    sub.textContent = (res&&res.error==="not_frozen") ? "Работает только в собранном приложении"
+                    : (res&&(res.error==="download"||res.error==="network")) ? "Не удалось скачать — проверь интернет"
+                    : "Не удалось обновить";
+  };
 }
 
 /* Обновление прямо из тоста, без похода в настройки. Приложение при этом СКАЧИВАЕТ ~20 МБ,
    закрывается и открывается заново (см. app.py apply_update) — поэтому на каждом шаге честно
    говорим, что происходит: молча захлопнувшееся окно читается как падение, а не как обновление.
    Путь через настройки остаётся — там список изменений, если хочется почитать перед обновлением. */
-async function applyUpdateNow(asset, ver){
-  if(!HasPy() || !asset) return;
-  toast("Скачиваю обновление "+ver+"…", {icon:"ti-loader-2", hold:true, spin:true});
+async function applyUpdateNow(asset, ver, тихо){
+  if(!HasPy() || !asset) return {ok:false, error:"not_frozen"};
+  // «тихо» — когда ход показывает плашка обновления: два места про одно и то же спорили бы
+  if(!тихо) toast("Скачиваю обновление "+ver+"…", {icon:"ti-loader-2", hold:true, spin:true});
   let res; try{ res=await window.pywebview.api.apply_update(asset); }
   catch(e){ res={ok:false, error:"network"}; }
-  if(res && res.ok){ toast("Обновление скачано — перезапускаю…", {icon:"ti-rocket", hold:true}); return; }
+  if(res && res.ok){ if(!тихо) toast("Обновление скачано — перезапускаю…", {icon:"ti-rocket", hold:true}); return res; }
+  if(тихо) return res||{ok:false};
   const err=res&&res.error;
   toast(err==="not_frozen" ? "Обновление работает только в собранном приложении"
       : (err==="download"||err==="network") ? "Не удалось скачать — проверь интернет"

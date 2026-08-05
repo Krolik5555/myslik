@@ -198,7 +198,7 @@ function renderNotesList(v){
   const q=listQuery.trim().toLowerCase();
   let shown=nodes;
   if(q){
-    const hit=n=>(n.title||"").toLowerCase().includes(q)||(n.body||"").toLowerCase().includes(q)||(n.tags||[]).some(t=>String(t).toLowerCase().includes(q));
+    const hit=n=>(n.title||"").toLowerCase().includes(q)||(n.body||"").toLowerCase().includes(q)||(n.tags||[]).some(t=>String(t).toLowerCase().includes(q))||fieldsText(n).toLowerCase().includes(q);
     const keep=new Set();
     nodes.filter(hit).forEach(n=>{ let cur=n,g=new Set(); while(cur&&!g.has(cur.id)){ g.add(cur.id); keep.add(cur.id); const pid=(cur.parent&&ids.has(cur.parent))?cur.parent:null; cur=pid?byId(pid):null; } });
     shown=nodes.filter(n=>keep.has(n.id));
@@ -430,6 +430,7 @@ class Graph{
       const it=n.ref; if(!it) return false;
       if((it.tags||[]).some(t=>String(t).toLowerCase().includes(q))) return true;
       if((it.body||"").toLowerCase().includes(q)) return true;
+      if(fieldsText(it).toLowerCase().includes(q)) return true;   // написанное в именованном поле тоже надо находить
       if((it.folder||"").toLowerCase().includes(q)) return true;
       return false;
     };
@@ -475,6 +476,8 @@ class Graph{
         // доска полотна живёт в S.boards, а не в самой ноде — копируем её отдельно,
         // иначе дубликат приезжал бы с пустым холстом
         board:it.kind==="flow"&&S.boards&&S.boards[it.id]?JSON.parse(JSON.stringify(S.boards[it.id])):null,
+        // поля ноды вместе с их содержимым: новые ключи выдаст fieldsUnpack при вставке
+        pack:fieldsPack(it),
         x:n.x, y:n.y }; });
     const links=(S.links||[]).filter(l=>idset.has(l[0])&&idset.has(l[1])).map(l=>[l[0],l[1],+l[2]||1]);
     graphClip={items,links}; toast("Скопировано: "+ids.length,{icon:"ti-copy"});
@@ -492,6 +495,7 @@ class Graph{
       else if(it.status==="done"){ it.status="todo"; it.doneAt=null; }
       if(d.kind==="flow"&&d.flow){ it.flow=JSON.parse(JSON.stringify(d.flow)); ensureFlow(it); }
       if(d.kind==="flow"&&d.board){ if(!S.boards) S.boards={}; S.boards[it.id]=JSON.parse(JSON.stringify(d.board)); }
+      if(d.pack){ const поля=fieldsUnpack(d.pack); if(поля) it.fields=поля; }
       it.x=(d.x||0)+off; it.y=(d.y||0)+off;
       map[d._old]=it.id; newIds.push(it.id);
     });
@@ -511,6 +515,8 @@ class Graph{
     // вычислением в build() — и будет подхватывать дальше, пока человек не назначит свой.
     const data={kind, title:"", area:areaFilter||null};
     if(kind==="task") data.status="todo";
+    // шаблон по умолчанию: нода рождается сразу с нужными полями (название человек впишет сам)
+    if(kind!=="flow"){ const з=templateSeed(templateDefault(), kind); if(з && з.fields.length) data.fields=з.fields; }
     const it=addItem(data);
     it.x=Math.round(wx); it.y=Math.round(wy); persist();
     if(fromId) addLink(fromId, it.id);
@@ -654,8 +660,12 @@ class Graph{
       const arch=_isFaded(it);
       // «в работе» — ручная пометка (отдельный явный вид: заливка + цветное свечение).
       const doing = it.kind==="task" && !it.done && it.status==="doing";
+      /* «На паузе» — не про задачи, а про любую работу: у КРОЛИКА проекты живут и заметками.
+         Вид у неё третий, отдельный: завершённое глаз не должно цеплять вовсе, а отложенное
+         обязано быть видно и читаться как отложенное, не как активное. */
+      const paused = !it.done && it.status==="paused";
       const n={id:it.id, ref:it, label:it.title, type:it.kind, done:it.done, area:it.area,
-        archived:arch, doing:doing, status:it.status,
+        archived:arch, doing:doing, paused:paused, status:it.status,
         color: it.color || (ts&&ts.color) || (it.area?areaColor(it.area):null) || null, tagStyle:ts,
         r:7, x, y, vx:0, vy:0, fixed:!!it.pin, _fresh:false};   // элемент на холсте всегда размещён (иначе он в лотке) — «свежих» среди них не бывает
       this.nodes.push(n);
@@ -788,10 +798,15 @@ class Graph{
          зелёный — низкий, жёлтый — средний, красный — высокий. Свечение при этом остаётся
          цветом ноды, поэтому принадлежность к области не теряется. */
       const пр = (n.type==="task" && n.ref && !n.ref.done && n.ref.priority) ? " pri"+Math.min(+n.ref.priority,3) : "";
-      const g=document.createElementNS(NS,"g"); g.setAttribute("class","g-node "+n.type+(n.done?" done":"")+(n.archived?" faded":"")+(n.doing?" doing":"")+пр); g.dataset.id=n.id;
+      const g=document.createElementNS(NS,"g"); g.setAttribute("class","g-node "+n.type+(n.done?" done":"")+(n.archived?" faded":"")+(n.doing?" doing":"")+(n.paused?" paused":"")+пр); g.dataset.id=n.id;
       if(n.color) g.style.setProperty("--nc", n.color);   // цвет ноды в CSS-переменную (для заливки «в работе» её же тоном и для подсветки)
       let halo=null;
       if(n.type==="hub"){ halo=document.createElementNS(NS,"circle"); halo.setAttribute("class","g-halo"); halo.setAttribute("r",n.r+5); if(n.color)halo.style.stroke=n.color; g.appendChild(halo); }
+      /* Кольцо «на паузе» — ровное, серое, БЕЗ свечения: свечение занято нодами в работе, и
+         второе светящееся состояние спорило бы с ним за внимание. Рисуем до фигуры, чтобы
+         оно шло каймой, а не поверх содержимого. */
+      if(n.paused){ const кп=document.createElementNS(NS,"circle"); кп.setAttribute("class","g-halo-pause");
+        кп.setAttribute("r", (n.type==="square"||n.type==="task") ? n.r*1.41+4 : n.r+4); g.appendChild(кп); }
       // форма: из тега (если задана), иначе по типу ноды
       const shapeKind = (n.tagStyle&&n.tagStyle.shape) ? n.tagStyle.shape : (n.type==="task"?"square":n.type==="flow"?"diamond":"circle");
       // Невидимый круг вокруг ноды — попадать мышкой в кружок радиусом 7 px неудобно.
@@ -1278,7 +1293,11 @@ class Graph{
     // такие ноды тоже должны светиться — берём им нейтральный цвет темы, как и заливка в CSS
     // (там фолбэк var(--nc, var(--acc))). Иначе белая doing-нода оставалась без свечения.
     const doing=this.nodes.filter(n=>n.doing);
-    if(!doing.length) return;
+    /* «На паузе» светится тоже — иначе на большом графе отложенную область глазом не найти.
+       Но СЕРЫМ и слабее: цветной свет занят работой, и второе яркое состояние спорило бы
+       с ним за внимание. Свет здесь показывает не ноду, а ОБЛАСТЬ, которая стоит. */
+    const paused=this.nodes.filter(n=>n.paused);
+    if(!doing.length && !paused.length) return;
     const z=this.zoom, tx=this.tx, ty=this.ty;
     const R=(s.graphDoingGlowRadius!=null?s.graphDoingGlowRadius:110)*z;
     const inten=(s.graphDoingGlowBright!=null?s.graphDoingGlowBright:0.3);
@@ -1287,15 +1306,22 @@ class Graph{
     const neutral=NEUTRAL();   // --acc: тот же «белый по умолчанию», которым нода и рисуется
     ctx.save();
     if(blur>0) ctx.filter="blur("+blur+"px)";
-    doing.forEach(n=>{
-      const rgb=rgbOf(n.color||neutral); if(!rgb) return;
+    const блоб=(n, rgb, сила, радиус)=>{
       const x=(n.x+(n._ix||0))*z+tx, y=(n.y+(n._iy||0))*z+ty;   // мир → экран (та же трансформа, что у корня графа)
-      if(x<-R-blur||x>cw+R+blur||y<-R-blur||y>ch+R+blur) return;
-      const grd=ctx.createRadialGradient(x,y,0,x,y,R);
-      grd.addColorStop(0,`rgba(${rgb[0]},${rgb[1]},${rgb[2]},${inten})`);
+      if(x<-радиус-blur||x>cw+радиус+blur||y<-радиус-blur||y>ch+радиус+blur) return;
+      const grd=ctx.createRadialGradient(x,y,0,x,y,радиус);
+      grd.addColorStop(0,`rgba(${rgb[0]},${rgb[1]},${rgb[2]},${сила})`);
       grd.addColorStop(1,`rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
-      ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(x,y,R,0,6.283); ctx.fill();
-    });
+      ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(x,y,радиус,0,6.283); ctx.fill();
+    };
+    doing.forEach(n=>{ const rgb=rgbOf(n.color||neutral); if(rgb) блоб(n, rgb, inten, R); });
+    /* Пауза светит СЕРЫМ и втрое слабее: свет нужен, чтобы отложенная область находилась
+       глазом на большом графе, но перебивать работу он не должен. Цвет ноды здесь не берём
+       намеренно — по цвету свечения и отличают «в работе» от «на паузе». */
+    if(paused.length){
+      const сер=rgbOf(getComputedStyle(document.documentElement).getPropertyValue("--mut"))||[150,150,150];
+      paused.forEach(n=>блоб(n, сер, inten*0.38, R*0.85));
+    }
     ctx.restore();
     // связи не должны «просвечивать» свечением: стираем свечение ровно из-под линий связей.
     // «дырки» невидимы — они всегда закрыты либо самой связью, либо нодой сверху (endpoints в центрах нод).
@@ -1324,13 +1350,15 @@ class Graph{
     this.sel=n.id;
     const km = it.kind==="flow"?{i:"ti-artboard",n:"полотно"} : it.kind==="note"?{i:"ti-note",n:"заметка"} : {i:"ti-checklist",n:"задача"};
     const conn=linksOf(it.id);
-    const body=(it.body||"").trim();
+    // в превью идёт и описание, и именованные поля: заглянуть внутрь — значит увидеть всё,
+    // что в ноде написано, а не только общий блок
+    const body=((it.body||"").trim()+"\n"+fieldsText(it)).trim();
     const pv=el("div"); pv.id="node-pop"; pv.className="node-preview";
     pv.innerHTML=`
       <div class="np-ttl">${esc(it.title)||"<i>без названия</i>"}</div>
       <div class="np-meta">
         <span><i class="ti ${km.i}"></i> ${km.n}</span>
-        ${it.done?`<span><i class="ti ti-check"></i>готово</span>`:(it.status==="doing"?`<span><i class="ti ti-player-play"></i>в работе</span>`:"")}
+        ${it.done?`<span><i class="ti ti-check"></i>готово</span>`:(it.status==="doing"?`<span><i class="ti ti-player-play"></i>в работе</span>`:(it.status==="paused"?`<span><i class="ti ti-player-pause"></i>на паузе</span>`:""))}
         ${it.area?`<span><i class="ti ${areaIcon(it.area)}"></i>${esc(areaName(it.area))}</span>`:""}
         ${conn.length?`<span><i class="ti ti-link"></i>${conn.length}</span>`:""}
       </div>
@@ -1700,6 +1728,30 @@ class Graph{
       persist(); this.build(); };
     toast("Цвет · "+[nn?"нод: "+nn:"", na?"областей: "+na:""].filter(Boolean).join(", "),
           {icon:"ti-palette", label:"Вернуть", onAction:back});
+  }
+  /* Статус — как цвет: жмут по одной ноде, а применяется ко ВСЕМУ выделению, если кликнутая
+     в нём. Не в нём — только к ней: ПКМ выделения не трогает, и менять статус невидимым «тем
+     пяти из прошлой рамки» было бы сюрпризом. Повторное нажатие снимает статус.
+     persist/build — ОДИН раз в конце: в цикле это N записей на диск и N перестроений SVG. */
+  _setStatus(n, статус){
+    const был=(S.items.find(x=>x.id===n.id)||{}).status;
+    const ставим = был===статус ? "todo" : статус;
+    const ids=(this.selNodes.has(n.id) && this.selNodes.size>1) ? [...this.selNodes] : [n.id];
+    const undo=[]; let nn=0;
+    ids.forEach(id=>{
+      if(id.indexOf("hub_")===0) return;              // у области своего статуса нет
+      const it=S.items.find(x=>x.id===id);
+      if(!it || it.done) return;                      // завершённое статусом не трогаем: сперва «Вернуть»
+      undo.push([id, it.status]); it.status=ставим; touch(it); nn++;
+    });
+    if(!nn) return;
+    persist(); this._closePop(); this.build();
+    const имя={doing:"В работе", paused:"На паузе"}[ставим] || "Снято";
+    const ик={doing:"ti-player-play", paused:"ti-player-pause"}[ставим] || "ti-circle-dot";
+    if(nn<2){ toast(имя,{icon:ик}); return; }
+    const back=()=>{ undo.forEach(([id,s])=>{ const it=S.items.find(x=>x.id===id); if(it){ it.status=s; touch(it); } });
+      persist(); this.build(); };
+    toast(имя+" · нод: "+nn, {icon:ик, label:"Вернуть", onAction:back});
   }
   _finishLink(n){
     // иерархию не задаём вручную — она выводится от области (см. recomputeHierarchy)
@@ -2135,8 +2187,11 @@ class Graph{
       <div class="swatches np-sw" style="margin-bottom:10px;">${swatchRow(it.color)}</div>
       <div class="np-row" style="margin-bottom:6px;">
         ${hasOpen?`<button class="btn" data-pop="open"><i class="ti ${it.kind==="flow"?"ti-artboard":"ti-eye"}"></i>Открыть</button>`
-                :`<button class="btn ${(!it.done&&it.status!=="doing")?"primary":""}" data-pop="done"><i class="ti ${it.done?"ti-arrow-back-up":"ti-check"}"></i>${it.done?"Вернуть":"Готово"}</button>${it.done?"":`<button class="btn ${it.status==="doing"?"primary":""}" data-pop="doing"><i class="ti ti-player-play"></i>${it.status==="doing"?"В работе":"В работу"}</button>`}`}
+                :`<button class="btn ${(!it.done&&it.status!=="doing"&&it.status!=="paused")?"primary":""}" data-pop="done"><i class="ti ${it.done?"ti-arrow-back-up":"ti-check"}"></i>${it.done?"Вернуть":"Готово"}</button>${it.done?"":`<button class="btn ${it.status==="doing"?"primary":""}" data-pop="doing"><i class="ti ti-player-play"></i>${it.status==="doing"?"В работе":"В работу"}</button>`}`}
       </div>
+      ${it.done?"":`<div class="np-row" style="margin-bottom:6px;">
+        <button class="btn ${it.status==="paused"?"primary":""}" data-pop="paused"><i class="ti ti-player-pause"></i>${it.status==="paused"?"На паузе":"На паузу"}</button>
+      </div>`}
       <div class="np-row" style="margin-bottom:6px;">
         ${it.folder
           ? `<div class="np-split">
@@ -2156,7 +2211,8 @@ class Graph{
     $$(".np-sw .swatch",pop).forEach(b=>b.onclick=()=>this._paintColor(n, PALETTE[+b.dataset.ci]||null));
     if(pop.querySelector('[data-pop="open"]')) pop.querySelector('[data-pop="open"]').onclick=()=>{ this._closePop(); openItemSmart(it); };
     if(pop.querySelector('[data-pop="done"]')) pop.querySelector('[data-pop="done"]').onclick=()=>{ toggleDone(it); this._closePop(); this.build(); toast(it.done?"Выполнено":"Возвращено в работу"); };
-    if(pop.querySelector('[data-pop="doing"]')) pop.querySelector('[data-pop="doing"]').onclick=()=>{ it.status = it.status==="doing" ? "todo" : "doing"; touch(it); persist(); this._closePop(); this.build(); toast(it.status==="doing"?"В работе":"Снято с работы",{icon:it.status==="doing"?"ti-player-play":"ti-player-pause"}); };
+    if(pop.querySelector('[data-pop="doing"]')) pop.querySelector('[data-pop="doing"]').onclick=()=>this._setStatus(n,"doing");
+    if(pop.querySelector('[data-pop="paused"]')) pop.querySelector('[data-pop="paused"]').onclick=()=>this._setStatus(n,"paused");
     const setSize=(d)=>{ const cur=+it.size||1; it.size=Math.max(0.4,Math.min(3,+(cur+d).toFixed(2))); touch(it); persist(); this.build(); const v=$(".np-sz-val",pop); if(v) v.textContent=(+it.size).toFixed(1)+"×"; };
     if(pop.querySelector('[data-pop="size-"]')) pop.querySelector('[data-pop="size-"]').onclick=()=>setSize(-0.2);
     if(pop.querySelector('[data-pop="size+"]')) pop.querySelector('[data-pop="size+"]').onclick=()=>setSize(0.2);

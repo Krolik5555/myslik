@@ -234,28 +234,18 @@ asideSelect(зад.id); await ж(150);
 // ===== действия внизу карточки =====
 {
   asideSelect(зад.id); await ж(150);
-  /* Три: отчёт, дубль, удаление. Карандаш отсюда убран — он дублировал кнопку в шапке и НЕ работал
-     (обработчики вешаются через querySelector, то есть на первый [data-edit], а он в шапке).
-     Отчёт добавлен вместо кнопки над графом: он открывается в панели, там же и запускается. */
-  t.push({имя:"ряд действий на месте", ок: document.querySelectorAll("#aside .as-act").length === 3,
-          факт: "кнопок: " + [...document.querySelectorAll("#aside .as-act")].map(b=>b.title).join(", ")});
-  t.push({имя:"отчёт запускается из панели",
-          ок: !!document.querySelector('#aside .as-act[data-report]'), факт:""});
-
-  const былоНод = S.items.filter(i => !i.deleted).length;
-  document.querySelector("#aside [data-dup]").click(); await ж(300);
-  const дубль = S.items.find(i => (i.title||"").indexOf("— копия") >= 0 && !i.deleted);
-  t.push({имя:"дубликат создаётся и открывается в панели",
-          ок: !!дубль && asideId === дубль.id && S.items.filter(i => !i.deleted).length === былоНод + 1,
-          факт: дубль ? дубль.title : "не создан"});
-  if (дубль) hardDeleteItem(дубль.id);
-
-  asideSelect(зад.id); await ж(150);
-  document.querySelector("#aside [data-del]").click(); await ж(300);
-  t.push({имя:"удаление из панели мягкое и панель очищается",
-          ок: зад.deleted === true && !!document.querySelector(".aside-empty"),
-          факт: "deleted: " + зад.deleted});
-  restoreItem(зад.id);
+  /* Действие внизу карточки ОДНО — отчёт, и оно подписано словами. Дубль и удаление убраны:
+     две мелкие иконки стояли рядом, и удаление ловилось промахом по дублю. Удаляют в окне
+     правки и по ПКМ в графе, дублируют там же копипастом. */
+  const низ = document.querySelectorAll("#aside .as-foot button");
+  t.push({имя:"внизу карточки одно действие — отчёт",
+          ок: низ.length===1 && !!document.querySelector('#aside .as-foot [data-report]')
+              && !document.querySelector("#aside [data-dup], #aside [data-del]"),
+          факт: "кнопок: " + [...низ].map(b=>b.textContent.trim()).join(", ")});
+  t.push({имя:"кнопка отчёта во всю ширину панели",
+          ок: (()=>{ const к=document.querySelector('#aside .as-foot [data-report]'), п=document.querySelector("#aside");
+                     return к && (к.getBoundingClientRect().width > п.getBoundingClientRect().width*0.8); })(),
+          факт: Math.round((document.querySelector('#aside .as-foot [data-report]')||{getBoundingClientRect:()=>({width:0})}).getBoundingClientRect().width)+" px"});
 }
 
 hardDeleteItem(зад.id);

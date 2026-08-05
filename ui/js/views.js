@@ -189,6 +189,9 @@ function asideApplyWidth(){
 function renderAside(){
   const a=$("#aside");
   if(!a) return;
+  // живая доска в поле уедет вместе с разметкой — снимаем её ДО перерисовки, иначе React-корень
+  // остался бы в оторванном DOM (та же болезнь, что у графа и врезки полотна)
+  if(typeof fieldsStopIn==="function") fieldsStopIn(a);
   asideApplyWidth();
   if(S.settings.asideOn === false) return;
   // сводка по выделенной группе — вместо карточки одной ноды
@@ -305,11 +308,12 @@ function asideCard(it){
        ${S.areas.map(a=>`<option value="${esc(a.id)}" ${it.area===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}
      </select>${it.areaAuto ? `<span class="as-note" title="Область взята у родительской ноды">наследуется</span>` : ""}`));
   if(it.kind==="task"){
-    const ст = it.done ? "done" : (it.status==="doing" ? "doing" : "todo");
+    const ст = it.done ? "done" : (it.status==="doing" ? "doing" : (it.status==="paused" ? "paused" : "todo"));
     стр.push(строка("Статус", ["ti-circle-dot"],
       `<select class="as-sel" data-f="status">
          <option value="todo"  ${ст==="todo" ?"selected":""}>Не начато</option>
          <option value="doing" ${ст==="doing"?"selected":""}>В работе</option>
+         <option value="paused" ${ст==="paused"?"selected":""}>На паузе</option>
          <option value="done"  ${ст==="done" ?"selected":""}>Готово</option>
        </select>`));
     стр.push(строка("Срок", ["ti-calendar"],
@@ -356,7 +360,9 @@ function asideCard(it){
         : `<div class="as-note as-narrow">Панель уже 730 px — Excalidraw показал бы телефонный интерфейс.
              Расширь панель или открой доску целиком.</div>
            <button class="btn primary as-open" data-open="1"><i class="ti ti-artboard"></i>Открыть доску</button>`)
-    : `<textarea class="as-area" data-f="body" placeholder="Описание…">${esc(it.body||"")}</textarea>`;
+    // именованные поля идут под описанием и правятся прямо здесь (панель из fields.js)
+    : `<textarea class="as-area" data-f="body" placeholder="Описание…">${esc(it.body||"")}</textarea>
+       <div class="flds aside-flds" id="as-fields"></div>`;
 
   /* Связанные ноды показываем ИЕРАРХИЕЙ, а не свалкой: родитель сверху, под ним сама нода
      (приглушённо, как «ты здесь»), под ней — вложенные. Плоский список не давал понять, где
@@ -381,13 +387,13 @@ function asideCard(it){
     ${боковые.length?`<div class="as-sec as-sec2">Связаны без вложенности</div>
       <div class="as-links">${боковые.slice(0,20).map(n=>asideNodeRow(n,0,"")).join("")}</div>`:""}` : "";
 
-  /* Ряд действий внизу — то, что не влезает в поля: дубль и удаление.
-     Карандаша тут больше нет: он дублировал кнопку в шапке И НЕ РАБОТАЛ — обработчики
-     вешаются через querySelector, то есть на ПЕРВЫЙ [data-edit], а он в шапке. */
+  /* Внизу панели осталось ОДНО действие — отчёт, и оно подписано словами. Дубль и удаление
+     ушли: обе кнопки были мелкими иконками рядом, и удаление ловилось промахом по дублю.
+     Обе живут там, где их и ищут: удалить — в окне правки и по ПКМ в графе, дубль — Ctrl+C /
+     Ctrl+V в графе (он там же и раскладывает копию). */
+  // кнопка та же и такая же, как в сводке по нескольким нодам (.as-wide) — одно действие, одна форма
   const действия = `<div class="as-foot">
-      <button class="as-act" data-report="1" title="Собрать отчёт по этой ноде"><i class="ti ti-file-text"></i></button>
-      <button class="as-act" data-dup="1" title="Дублировать"><i class="ti ti-copy"></i></button>
-      <button class="as-act as-del" data-del="1" title="Удалить"><i class="ti ti-trash"></i></button>
+      <button class="as-wide" data-report="1" title="Собрать отчёт по этой ноде и её дереву"><i class="ti ti-file-text"></i>Собрать отчёт</button>
     </div>`;
 
   return `<div class="as-head"><h2 class="as-title" contenteditable="plaintext-only" data-ph="без названия">${esc(it.title||"")}</h2>
@@ -437,26 +443,6 @@ function wireAside(it){
   });
   b("[data-open]",  ()=>openBoard(it));
   b("[data-full]",  ()=>openBoard(it));   // из врезки — развернуть ту же доску на весь экран
-  b("[data-dup]", ()=>{
-    const копия = addItem({kind:it.kind, title:(it.title||"")+" — копия", body:it.body||"", area:it.area,
-      tags:(it.tags||[]).slice(), status:it.status, due:it.due||null, repeat:it.repeat||"none",
-      priority:it.priority||0, color:it.color||null});
-    // флаг наследования переносим как есть: своя область остаётся своей, унаследованная —
-    // унаследованной, иначе дубликат сам прицепится к хабу области отдельным лучом
-    if(it.areaAuto===false) копия.areaAuto=false;
-    else if(it.areaAuto===true) копия.areaAuto=true;
-    // доска полотна лежит отдельно от ноды — копируем её тем же движением
-    if(it.kind==="flow" && S.boards && S.boards[it.id]) S.boards[копия.id]=JSON.parse(JSON.stringify(S.boards[it.id]));
-    persist(); asideSelect(копия.id); if(graph) graph.build();
-    toast("Дубликат создан", {icon:"ti-copy"});
-  });
-  b("[data-del]", ()=>{
-    const id = it.id;
-    deleteItem(id);
-    asideId = null;
-    render();
-    toast("Удалено", {icon:"ti-trash", label:"Вернуть", onAction:()=>{ restoreItem(id); asideSelect(id); render(); }});
-  });
   // переход по связанной ноде не только меняет карточку, но и выделяет её в паутине
   a.querySelectorAll("[data-go]").forEach(el=>{
     el.onclick=()=>{ asideSelect(el.dataset.go); if(graph) graph.focusNode(el.dataset.go); };
@@ -547,7 +533,12 @@ function wireAside(it){
   if(тело){
     asideAutoGrow(тело);                                   // открыли ноду — сразу видно весь текст
     тело.oninput = ()=>{ asideAutoGrow(тело); позже(()=>{ it.body = тело.value; обновить(false); }); };
+    fieldsCopyOnRight(тело, ()=>тело.value);               // ПКМ копирует описание — как у полей
   }
+  /* Поля ноды. Панель перерисовывает себя сама, поэтому renderAside отсюда НЕ зовём:
+     иначе панель сносила бы собственный узел прямо в обработчике. */
+  const поля = a.querySelector("#as-fields");
+  if(поля) fieldsPanel(поля, fieldsOf(it), {item:it, attach:true, save:()=>обновить(false)});
 }
 
 // Разделитель. Тянем мышью, ширину пишем в настройки — но только по отпусканию,
@@ -762,7 +753,7 @@ function renderTasks(v){
   const filt=FILT[taskFilter]||FILT.all;
   // видимые задачи: фильтр срока + (done только при showDone) + фильтр по тегу + текстовый фильтр
   const q=listQuery.trim().toLowerCase();
-  const qhit=it=>!q || (it.title||"").toLowerCase().includes(q) || (it.body||"").toLowerCase().includes(q);
+  const qhit=it=>!q || (it.title||"").toLowerCase().includes(q) || (it.body||"").toLowerCase().includes(q) || fieldsText(it).toLowerCase().includes(q);
   const visTasks=S.items.filter(it=>isTask(it) && (showDone||!it.done) && filt(it) && (!tagFilter||(it.tags||[]).includes(tagFilter)) && qhit(it));
   // дерево из паутины (заметки+задачи), parent из графа; оставляем только задачи + их предков-структуру
   const nodes=S.items.filter(inWeb);

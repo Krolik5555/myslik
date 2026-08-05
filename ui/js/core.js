@@ -214,13 +214,21 @@ function defaultState(){
     items:[],
     links:[],
     /* Доски нод-полотен: ключ — id ноды. Лежат ОТДЕЛЬНО от items намеренно: снимок отката
-       (_undoSnap) сериализует items целиком, и рисунки раздували бы историю на каждый шаг. */
+       (_undoSnap) сериализует items целиком, и рисунки раздували бы историю на каждый шаг.
+       Доска ПОЛЯ ноды лежит здесь же под ключом "fld_"+id поля — по той же причине. */
     boards:{},
+    /* Картинки полей: ключ "m_…" → data-URL. Тоже вне items и по той же причине: одна
+       фотография — сотни килобайт base64, и каждый шаг отмены таскал бы их копию. */
+    media:{},
+    /* Шаблоны нод: {id, name, kind, title, tags[], fields[{type,name,h}]}. По шаблону нода
+       рождается сразу с нужными полями (см. fields.js). */
+    templates:[],
     tags:[],   // реестр стилизованных тегов: {name, icon?, color?, size?, shape?} — все свойства опциональны
     settings:{ theme:"dark", view:"today", graphDrift:4, graphSpread:1, graphBg:true, glow:1, graphLinkLen:1, graphNodeSize:1, graphDegScale:1, graphDoneScale:0.6, graphDoneLinkLen:0.6, graphLinkBright:1, graphFadedBright:0.5,
       graphDoingGlow:true, graphDoingGlowRadius:110, graphDoingGlowBright:0.3, graphDoingGlowBlur:30,
       asideW:420, asideFrac:0.34, asideOn:true,   // правая панель: доля от ширины окна и показана ли
-      sideHidden:false }           // левая полоса: свёрнута ли до кромки
+      sideHidden:false,            // левая полоса: свёрнута ли до кромки
+      template:null }              // шаблон новых нод по умолчанию (id из S.templates); null — как раньше, одно описание
   };
 }
 
@@ -255,6 +263,37 @@ function iconGlyph(tiName){
   }catch(e){}
   _glyphCache[key]=c; return c;
 }
+
+/* ---------- поля ноды ----------
+   Кроме общего описания (it.body) у ноды бывают ИМЕНОВАННЫЕ поля: текст, картинка, доска.
+   Здесь только то, что нужно санитайзеру; вся работа с полями — в ui/js/fields.js. */
+const FIELD_TYPES=["text","image","board"];
+const FIELDS_MAX=30;                       // потолок: защита от чужого json, а не от человека
+const FIELD_H_MIN=90, FIELD_H_MAX=1400, FIELD_H_DEF=220;
+/* Высота врезки. Хранится у поля и переживает сессию — её тянут ручкой руками, поэтому
+   значение ЗАЖИМАЕМ в пределы, а не отбрасываем: человек, растянувший доску на 1200 px,
+   иначе получал бы её обратно 220-й. Мусор (не число) — это дефолт. */
+const fieldHeight = h => { const v=Math.round(+h||0); return v ? Math.max(FIELD_H_MIN, Math.min(FIELD_H_MAX, v)) : FIELD_H_DEF; };
+// доска родится повыше картинки: её собственный тулбар съедает верхние ~50 px, и в 220 px
+// на рисование остаётся полоска
+const FIELD_BOARD_H_DEF=340;
+const fieldHeightFor = (type,h) => fieldHeight(h || (type==="board" ? FIELD_BOARD_H_DEF : FIELD_H_DEF));
+// доска поля лежит в S.boards, как и доска полотна: снимок отката сериализует items целиком
+const fieldBoardKey = fid => "fld_"+fid;
+/* ---------- СЕТКА ПОЛЕЙ ----------
+   Поля лежат на сетке из 12 колонок, как плитки дашборда: у каждой свои координаты, а не
+   место в списке. gx — колонка (0…11), gw — сколько колонок занимает, gy и gh — верх и высота
+   В ПИКСЕЛЯХ. Вертикаль в пикселях, а не в «строках сетки», потому что содержимое полей разной
+   природы: текст растёт под свой текст, картинка живёт по своим пропорциям, доске нужен запас
+   под тулбар — общей «единицы строки» для них не существует.
+
+   Порядок в массиве fields остаётся, но раскладку больше НЕ задаёт: он нужен отчёту, поиску и
+   шаблонам. Читаем сверху вниз и слева направо — сортировкой по (gy, gx). */
+const GRID_COLS=12, GRID_GAP=8;
+const gridW = w => Math.max(1, Math.min(GRID_COLS, Math.round(+w||GRID_COLS)));
+// СТАРОЕ: доля ряда в процентах. Осталась только для переноса старых данных на сетку
+const FIELD_W_MIN=15;
+const fieldWidth = w => { const v=Math.round(+w||0); return (v>=FIELD_W_MIN && v<100) ? v : 100; };
 
 // нормализация загруженного/импортированного состояния: бэкилл полей, дедуп id,
 // белый список иконок и валидация цветов — защита от битых/вредоносных данных (импорт/ручная правка json)
@@ -309,6 +348,37 @@ function sanitizeState(s){
       shape:TAG_SHAPES.includes(t.shape)?t.shape:null,
       project: t.project===true
     })); }
+  /* Картинки полей: только строка-data-URL картинки. Чужой json может принести сюда путь
+     к файлу или javascript: — такое в <img src> не пускаем. */
+  if(!s.media || typeof s.media!=="object" || Array.isArray(s.media)) s.media={};
+  Object.keys(s.media).forEach(k=>{ const v=s.media[k];
+    if(typeof v!=="string" || !/^data:image\//i.test(v)) delete s.media[k]; });
+  /* Шаблоны нод. Поля шаблона — только описание («какие блоки завести»), без содержимого:
+     картинка и доска у каждой ноды свои. */
+  if(!Array.isArray(s.templates)) s.templates=[];
+  { const seenTpl=new Set();
+    s.templates=s.templates.filter(t=>t&&typeof t==="object"&&!Array.isArray(t)).slice(0,60).map(t=>{
+      let id=(typeof t.id==="string"&&t.id&&!seenTpl.has(t.id))?t.id:("tpl_"+uid()); seenTpl.add(id);
+      // названия ноды в шаблоне нет намеренно (см. templateSeed в fields.js) — из старых данных выбрасываем
+      return { id, name:String(t.name==null?"":t.name).trim().slice(0,60)||"Шаблон",
+        kind:(t.kind==="note"||t.kind==="task")?t.kind:"note",
+        tags:Array.isArray(t.tags)?t.tags.map(x=>String(x)).slice(0,20):[],
+        fields:(Array.isArray(t.fields)?t.fields:[]).filter(f=>f&&typeof f==="object").slice(0,FIELDS_MAX)
+          /* Флаги раскладки (br — своя строка, st — под соседом в колонке, gwm — ширину задали
+             руками) обязаны пережить чистку: без них шаблон помнил только состав, и поля,
+             стоявшие в ряд и стопкой, приезжали каждое своей строкой. */
+          .map((f,n)=>{ const о={ type:FIELD_TYPES.includes(f.type)?f.type:"text",
+                     name:String(f.name==null?"":f.name).slice(0,80),
+                     gw:gridW(f.gw!=null?f.gw:GRID_COLS),
+                     gh:fieldHeight(f.gh!=null?f.gh:f.h) };
+            if(f.br===true) о.br=true;
+            if(f.st===true && n>0) о.st=true;
+            if(f.gwm===true) о.gwm=true;
+            return о; }) };
+    }); }
+  if(s.settings.template && !s.templates.some(t=>t.id===s.settings.template)) s.settings.template=null;
+
+  const seenF=new Set();   // id полей уникальны ГЛОБАЛЬНО: по ним же лежат доски (ключ "fld_"+id)
   const seen=new Set();
   s.items.forEach(it=>{
     if(typeof it.id!=="string" || !it.id || seen.has(it.id)){
@@ -341,7 +411,54 @@ function sanitizeState(s){
     // день (2026-02-31 → 3 марта) и он тихо разъедется по календарю, спискам и повторам
     if(it.due!=null){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(it.due)); it.due = (m && makeDate(m[1],m[2],m[3])) ? String(it.due) : null; }
     if(it.folder!=null){ it.folder = typeof it.folder==="string" ? it.folder : undefined; if(it.folder==="") it.folder=undefined; }   // привязанная папка на ПК: только непустая строка
+    /* Дополнительные поля ноды. Столкнувшийся id поля переименовываем ВМЕСТЕ с его доской:
+       иначе две ноды рисовали бы на одном холсте (ключ доски выводится из id поля). */
+    if(it.fields!=null){
+      if(!Array.isArray(it.fields)) it.fields=[];
+      it.fields = it.fields.filter(f=>f&&typeof f==="object"&&!Array.isArray(f)).slice(0,FIELDS_MAX).map((f,n)=>{
+        let id=(typeof f.id==="string"&&f.id&&!seenF.has(f.id))?f.id:null;
+        if(!id){ const старый=(typeof f.id==="string")?f.id:""; id="f_"+uid();
+          // доску забираем только если по старому ключу никто не сидит: при столкновении id
+          // хозяин — тот, кого санитайзер прошёл первым, иначе перенос украл бы у него холст
+          if(старый && !seenF.has(старый) && s.boards[fieldBoardKey(старый)] && !s.boards[fieldBoardKey(id)]){
+            s.boards[fieldBoardKey(id)]=s.boards[fieldBoardKey(старый)]; delete s.boards[fieldBoardKey(старый)]; } }
+        seenF.add(id);
+        const тип=FIELD_TYPES.includes(f.type)?f.type:"text";
+        const o={ id, type:тип, name:String(f.name==null?"":f.name).slice(0,80) };
+        if(f.off===true) o.off=true;      // свёрнутое поле остаётся свёрнутым между сессиями
+        if(f.br===true) o.br=true;        // «с новой строки» — иначе плитку не положить ПОД другую
+        /* «Под предыдущей плиткой, в той же колонке». Флага не было до двухуровневой раскладки,
+           и его отсутствие читается верно: поле без обоих флагов открывает новую колонку. */
+        if(f.st===true && n>0) o.st=true;
+        // «ширину этой строки задали руками» — без пометки нормализация растянула бы её обратно
+        if(f.gwm===true) o.gwm=true;
+        /* Доля строки. Старые данные знали проценты (w) или координаты сетки (gx/gy) — от них
+           берём только ширину: строки теперь выводятся из порядка и долей, а координаты
+           не хранятся вовсе. Первая плитка бывшей строки помечается «с новой строки». */
+        o.gw = f.gw!=null ? gridW(f.gw) : gridW(Math.round(fieldWidth(f.w)/100*GRID_COLS));
+        /* Начало строки. Явный флаг важнее всего; иначе поле во всю ширину заведомо занимало
+           строку целиком, а узкое — делило её с соседом (так было и в координатах, и в долях). */
+        if(f.br===true || (n>0 && (o.gw>=GRID_COLS || f.gx===0))) o.br=true;
+        // высота плитки в пикселях: у старых полей это h, у текста без высоты — свой дефолт
+        o.gh = fieldHeight(f.gh!=null ? f.gh : (f.h!=null ? f.h : fieldHeightFor(тип)));
+        if(тип==="text") o.value=String(f.value==null?"":f.value);
+        if(тип==="image") o.media=(typeof f.media==="string"&&s.media[f.media])?f.media:null;
+        return o;
+      });
+      if(!it.fields.length) delete it.fields;   // пустой массив в каждой ноде — лишний вес файла и шум в снимке отката
+    }
   });
+  /* Уборка мусора: картинка и доска поля живут вне ноды, и удалить их «заодно» с полем можно
+     только зная все живые поля. Считаем здесь — на загрузке видно сразу всё состояние.
+     Ноды в корзине тоже считаются живыми: их ещё можно вернуть. */
+  { const живыеМедиа=new Set(), живыеДоски=new Set(s.items.map(it=>it.id));
+    s.items.forEach(it=>(it.fields||[]).forEach(f=>{
+      if(f.media) живыеМедиа.add(f.media);
+      if(f.type==="board") живыеДоски.add(fieldBoardKey(f.id));
+    }));
+    Object.keys(s.media).forEach(k=>{ if(!живыеМедиа.has(k)) delete s.media[k]; });
+    Object.keys(s.boards).forEach(k=>{ if(/^fld_/.test(k) && !живыеДоски.has(k)) delete s.boards[k]; });
+  }
   s.items.forEach(it=>{ if(it.parent && !seen.has(it.parent)) it.parent=null; });   // снять висячие parent
   s.links=s.links.filter(l=>Array.isArray(l)&&l.length>=2 &&
     (seen.has(l[0])||/^hub_/.test(l[0])) && (seen.has(l[1])||/^hub_/.test(l[1])))   // выкинуть связи в никуда
