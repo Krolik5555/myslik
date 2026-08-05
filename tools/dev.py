@@ -108,15 +108,30 @@ def _check_data():
         d = json.load(io.open(p, encoding="utf-8"))
     except Exception as e:
         return [("data/planner.json читается", False, repr(e))]
-    items = d.get("items") or []
-    ids = set(i.get("id") for i in items)
-    dangling = [l for l in (d.get("links") or []) if len(l) >= 2
-                and (l[0] not in ids and not str(l[0]).startswith("hub_")
-                     or l[1] not in ids and not str(l[1]).startswith("hub_"))]
-    bad_parent = [i for i in items if i.get("parent") and i["parent"] not in ids]
+    # Ноды и области живут внутри графов (их несколько). Верхнеуровневые items/areas остались
+    # только у старых файлов — читаем оба вида, иначе проверка молча рапортует «0 элементов»
+    # о полном файле, и настоящая беда с данными проходит незамеченной.
+    graphs = d.get("graphs")
+    if isinstance(graphs, list) and graphs:
+        parts = [(g.get("name") or "?", g.get("items") or [], g.get("areas") or [], g.get("links") or [])
+                 for g in graphs if isinstance(g, dict)]
+    else:
+        parts = [("(один граф)", d.get("items") or [], d.get("areas") or [], d.get("links") or [])]
+    items = [i for _, its, _, _ in parts for i in its]
+    links = [l for _, _, _, ls in parts for l in ls]
+    areas = [a for _, _, ars, _ in parts for a in ars]
+    dangling, bad_parent = [], []
+    for _, its, _, ls in parts:
+        ids = set(i.get("id") for i in its)          # связи проверяем В ПРЕДЕЛАХ своего графа
+        dangling += [l for l in ls if len(l) >= 2
+                     and (l[0] not in ids and not str(l[0]).startswith("hub_")
+                          or l[1] not in ids and not str(l[1]).startswith("hub_"))]
+        bad_parent += [i for i in its if i.get("parent") and i["parent"] not in ids]
+    состав = ", ".join("%s: %d" % (n, len(its)) for n, its, _, _ in parts)
     return [
-        ("данные читаются", True, "%d элементов, %d связей, %d областей"
-         % (len(items), len(d.get("links") or []), len(d.get("areas") or []))),
+        ("данные читаются", len(items) > 0 or not parts,
+         "%d элементов, %d связей, %d областей | графы — %s"
+         % (len(items), len(links), len(areas), состав)),
         ("нет висячих связей", not dangling, "%d" % len(dangling)),
         ("нет висячих родителей", not bad_parent, "%d" % len(bad_parent)),
     ]

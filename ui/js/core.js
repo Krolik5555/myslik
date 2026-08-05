@@ -228,8 +228,67 @@ function defaultState(){
       graphDoingGlow:true, graphDoingGlowRadius:110, graphDoingGlowBright:0.3, graphDoingGlowBlur:30,
       asideW:420, asideFrac:0.34, asideOn:true,   // правая панель: доля от ширины окна и показана ли
       sideHidden:false,            // левая полоса: свёрнута ли до кромки
-      template:null }              // шаблон новых нод по умолчанию (id из S.templates); null — как раньше, одно описание
+      template:null,               // шаблон новых нод по умолчанию (id из S.templates); null — как раньше, одно описание
+      graph:"g_main" }             // активный граф (id из S.graphs); ноды и области у каждого свои
   };
+}
+
+/* Значок графа по умолчанию. Намеренно НЕ ti-affiliate: этой иконкой отмечен вид «Заметки»
+   в той же полосе, и два одинаковых значка подряд читались как дубль одного и того же. */
+const GRAPH_ICON_DEF="ti-topology-star-3";
+/* ---------- графы ----------
+   Графов может быть несколько, и они НЕ пересекаются: свои ноды, свои области, свои связи.
+   Чтобы не переписывать сотню обращений к S.items по всему коду, активный граф подставляется
+   геттерами: S.items — это items активного графа. Свойства НЕперечисляемые, поэтому в файл
+   уезжает только s.graphs, без дубля. */
+function graphBind(s){
+  const активный=()=>s.graphs.find(g=>g.id===s.settings.graph)||s.graphs[0];
+  ["items","areas","links"].forEach(ключ=>{
+    delete s[ключ];
+    Object.defineProperty(s, ключ, { configurable:true, enumerable:false,
+      get:()=>активный()[ключ], set:v=>{ активный()[ключ]=v; } });
+  });
+  return s;
+}
+const graphCurrent = ()=> (S.graphs||[]).find(g=>g.id===S.settings.graph) || (S.graphs||[])[0] || null;
+function graphAdd(name){
+  if(!Array.isArray(S.graphs)) S.graphs=[];
+  const g={id:"g_"+uid(), name:String(name||"").trim().slice(0,40)||("Граф "+(S.graphs.length+1)),
+           icon:GRAPH_ICON_DEF, color:null, items:[], areas:[], links:[]};
+  S.graphs.push(g); persist();
+  return g;
+}
+/* Переключение графа обнуляет ИСТОРИЮ отката: снимки сняты с прежнего графа, и Ctrl+Z после
+   перехода подменил бы содержимое соседнего. Фильтр по области тоже сбрасываем — область
+   принадлежала тому графу и в этом её нет. */
+function graphSwitch(id){
+  if(!S.graphs.some(g=>g.id===id) || S.settings.graph===id) return false;
+  S.settings.graph=id; areaFilter=null; asideId=null;
+  persist(); undoInit();
+  return true;
+}
+function graphRename(id, name){
+  const g=(S.graphs||[]).find(x=>x.id===id); if(!g) return false;
+  const n=String(name||"").trim().slice(0,40); if(!n) return false;
+  g.name=n; persist(); return true;
+}
+/* Удаление графа уносит ВСЁ его содержимое, включая доски и картинки нод: хранилища общие,
+   и без этого от снесённого графа остались бы мегабайты, которые уже некому показать.
+   Последний граф удалить нельзя — приложению нужно где-то жить. */
+function graphDelete(id){
+  if(!Array.isArray(S.graphs) || S.graphs.length<2) return false;
+  const g=S.graphs.find(x=>x.id===id); if(!g) return false;
+  g.items.forEach(it=>{
+    if(S.boards) delete S.boards[it.id];
+    (it.fields||[]).forEach(f=>{
+      if(f.media && S.media) delete S.media[f.media];
+      if(f.type==="board" && S.boards) delete S.boards[fieldBoardKey(f.id)];
+    });
+  });
+  S.graphs=S.graphs.filter(x=>x.id!==id);
+  if(S.settings.graph===id){ S.settings.graph=S.graphs[0].id; areaFilter=null; asideId=null; undoInit(); }
+  persist();
+  return true;
 }
 
 /* ---------- стилизованные теги ---------- */
@@ -300,16 +359,7 @@ const fieldWidth = w => { const v=Math.round(+w||0); return (v>=FIELD_W_MIN && v
 function sanitizeState(s){
   if(!s || typeof s!=="object") return defaultState();
   s.settings = Object.assign({}, defaultState().settings, s.settings||{});
-  if(!Array.isArray(s.areas)) s.areas=[];
-  if(!Array.isArray(s.items)) s.items=[];
-  if(!Array.isArray(s.links)) s.links=[];
-  // Сами ЭЛЕМЕНТЫ массивов тоже могут быть мусором (null, число, строка) — функция для того и
-  // существует, чтобы принять чужой/подпорченный json. Без фильтра первый же it.title ронял
-  // импорт с TypeError, и приложение оставалось с наполовину применённым состоянием.
-  s.areas=s.areas.filter(a=>a && typeof a==="object" && !Array.isArray(a));
-  s.items=s.items.filter(it=>it && typeof it==="object" && !Array.isArray(it));
   const okColor=c=>(typeof c==="string"&&/^#[0-9a-fA-F]{3,8}$/.test(c))?c:null;
-  s.areas.forEach(a=>{ if(!ICONS.includes(a.icon)) a.icon="ti-folder"; a.color=okColor(a.color); a.name=String(a.name==null?"":a.name); });
   /* Доски нод. Чужой или подпорченный json может принести сюда что угодно, а сцена уходит
      в Excalidraw как есть — мусорный элемент валит рендер всей доски. Пропускаем только
      объекты с типом и id, остальное молча отбрасываем. */
@@ -378,8 +428,62 @@ function sanitizeState(s){
     }); }
   if(s.settings.template && !s.templates.some(t=>t.id===s.settings.template)) s.settings.template=null;
 
+  /* ГРАФЫ. Ноды, области и связи принадлежат КОНКРЕТНОМУ графу: их два и больше, и они друг о
+     друге не знают вовсе. Общими остаются доски, картинки, теги и шаблоны — они адресуются по
+     id и одинаково нужны везде. Старые данные (items/areas/links на верхнем уровне) переезжают
+     в первый граф; сами поля дальше живут геттерами на активный граф (graphBind). */
+  if(!Array.isArray(s.graphs) || !s.graphs.length){
+    s.graphs=[{id:"g_main", name:"Мой граф", icon:GRAPH_ICON_DEF, items:s.items||[], areas:s.areas||[], links:s.links||[]}];
+  }
+  { const виден=new Set();
+    s.graphs=s.graphs.filter(g=>g&&typeof g==="object"&&!Array.isArray(g)).slice(0,20).map((g,i)=>{
+      let id=(typeof g.id==="string"&&g.id&&!виден.has(g.id))?g.id:("g_"+uid()); виден.add(id);
+      return { id, name:String(g.name==null?"":g.name).trim().slice(0,40)||("Граф "+(i+1)),
+               icon:ICONS.includes(g.icon)?g.icon:GRAPH_ICON_DEF,   // значок только из белого списка
+               color:okColor(g.color),
+               items:Array.isArray(g.items)?g.items:[], areas:Array.isArray(g.areas)?g.areas:[],
+               links:Array.isArray(g.links)?g.links:[] };
+    });
+    if(!s.graphs.length) s.graphs=[{id:"g_main", name:"Мой граф", icon:GRAPH_ICON_DEF, items:[], areas:[], links:[]}];
+  }
+  if(!s.graphs.some(g=>g.id===s.settings.graph)) s.settings.graph=s.graphs[0].id;
+
+  /* Множества id — ОБЩИЕ на все графы: доски и картинки лежат в одном хранилище, и одинаковый
+     id ноды в двух графах означал бы двух хозяев у одного холста. */
   const seenF=new Set();   // id полей уникальны ГЛОБАЛЬНО: по ним же лежат доски (ключ "fld_"+id)
   const seen=new Set();
+  s.graphs.forEach(гр=>{ s.items=гр.items; s.areas=гр.areas; s.links=гр.links;
+    _sanitizeGraph(s, seen, seenF, okColor);
+    гр.items=s.items; гр.areas=s.areas; гр.links=s.links; });
+  /* Уборка мусора считается ПО ВСЕМ графам сразу: хранилище досок и картинок одно, и,
+     подметая по одному графу, мы снесли бы содержимое нод соседнего. */
+  { const живыеМедиа=new Set(), живыеДоски=new Set();
+    s.graphs.forEach(гр=>гр.items.forEach(it=>{ живыеДоски.add(it.id);
+      (it.fields||[]).forEach(f=>{ if(f.media) живыеМедиа.add(f.media);
+        if(f.type==="board") живыеДоски.add(fieldBoardKey(f.id)); }); }));
+    Object.keys(s.media).forEach(k=>{ if(!живыеМедиа.has(k)) delete s.media[k]; });
+    Object.keys(s.boards).forEach(k=>{ if(/^fld_/.test(k) && !живыеДоски.has(k)) delete s.boards[k]; });
+  }
+  graphBind(s);
+  s.v=2;
+  return s;
+}
+/* Чистка ОДНОГО графа: работает с s.items/s.areas/s.links, которые вызывающий подставил.
+   Множества id приходят снаружи — они общие на все графы (см. выше). */
+function _sanitizeGraph(s, seen, seenF, okColor){
+  if(!Array.isArray(s.areas)) s.areas=[];
+  if(!Array.isArray(s.items)) s.items=[];
+  if(!Array.isArray(s.links)) s.links=[];
+  /* Сами ЭЛЕМЕНТЫ массивов тоже могут быть мусором (null, число, строка) — функция для того и
+     существует, чтобы принять чужой/подпорченный json. Без фильтра первый же it.title ронял
+     импорт с TypeError, и приложение оставалось с наполовину применённым состоянием. */
+  s.areas=s.areas.filter(a=>a && typeof a==="object" && !Array.isArray(a));
+  s.items=s.items.filter(it=>it && typeof it==="object" && !Array.isArray(it));
+  /* МИГРАЦИЯ: корзины больше нет. Ноды, помеченные удалёнными в старых данных, сносим
+     насовсем — иначе они висели бы в файле невидимками, недоступные ни через один вид.
+     Их доски и картинки уйдут следом сами: осиротевшее подметается общей уборкой. */
+  s.items=s.items.filter(it=>it.deleted!==true);
+  s.areas.forEach(a=>{ if(!ICONS.includes(a.icon)) a.icon="ti-folder"; a.color=okColor(a.color); a.name=String(a.name==null?"":a.name); });
   s.items.forEach(it=>{
     if(typeof it.id!=="string" || !it.id || seen.has(it.id)){
       /* Смена id (битый json, склейка экспортов) обязана тянуть за собой доску: она лежит
@@ -448,17 +552,6 @@ function sanitizeState(s){
       if(!it.fields.length) delete it.fields;   // пустой массив в каждой ноде — лишний вес файла и шум в снимке отката
     }
   });
-  /* Уборка мусора: картинка и доска поля живут вне ноды, и удалить их «заодно» с полем можно
-     только зная все живые поля. Считаем здесь — на загрузке видно сразу всё состояние.
-     Ноды в корзине тоже считаются живыми: их ещё можно вернуть. */
-  { const живыеМедиа=new Set(), живыеДоски=new Set(s.items.map(it=>it.id));
-    s.items.forEach(it=>(it.fields||[]).forEach(f=>{
-      if(f.media) живыеМедиа.add(f.media);
-      if(f.type==="board") живыеДоски.add(fieldBoardKey(f.id));
-    }));
-    Object.keys(s.media).forEach(k=>{ if(!живыеМедиа.has(k)) delete s.media[k]; });
-    Object.keys(s.boards).forEach(k=>{ if(/^fld_/.test(k) && !живыеДоски.has(k)) delete s.boards[k]; });
-  }
   s.items.forEach(it=>{ if(it.parent && !seen.has(it.parent)) it.parent=null; });   // снять висячие parent
   s.links=s.links.filter(l=>Array.isArray(l)&&l.length>=2 &&
     (seen.has(l[0])||/^hub_/.test(l[0])) && (seen.has(l[1])||/^hub_/.test(l[1])))   // выкинуть связи в никуда
@@ -476,11 +569,11 @@ function sanitizeState(s){
       if(it && !it.area && areaIds.has(aid)) it.area=aid;      // область ещё не проставлена — берём из связи
       return false;                                            // саму связь не храним
     }); }
-  s.v=2;
   return s;
 }
 
-let S = defaultState();
+// стартовое состояние тоже прогоняем через санитайзер: он и графы соберёт, и геттеры повесит
+let S = sanitizeState(defaultState());
 let _prevView=null;   // для анимации входа: отличаем смену вкладки от обычной перерисовки
 let saveTimer=null;
 let _undoWindow=false;   // открыто ли окно «одного действия человека» (см. persist)
@@ -560,6 +653,36 @@ const UNDO_STEPS=50;                    // 50 × ~43 КБ ≈ 2 МБ на обы
 const UNDO_BYTES=16*1024*1024;          // потолок на всю историю: спасает, когда в полотне видео
 let _undoStack=[], _redoStack=[], _undoLast=null, _undoKeyLast=null, _undoBusy=false;
 // полный снимок — для восстановления
+/* КАРМАН УДАЛЁННОГО. Корзины больше нет: удалил — удалено, второй раз подтверждать нечего.
+   Но вернуть по Ctrl+Z обязано вернуть ВСЁ, а тяжёлое содержимое ноды (доска полотна, доски
+   и картинки полей) лежит вне неё и в снимок отката не входит — иначе каждый шаг истории
+   таскал бы копии фотографий. Поэтому при удалении складываем содержимое сюда, в память,
+   и достаём обратно, когда нода воскресла. В файл карман не пишется и живёт до перезапуска. */
+const TRASH_KEEP=40;                 // помним последние удаления; дальше содержимое отпускаем
+const _trash=new Map();              // id ноды → {boards:{ключ:сцена}, media:{ключ:data-URL}}
+function trashKeep(it){
+  if(!it) return;
+  const карман={boards:{}, media:{}};
+  if(S.boards && S.boards[it.id]){ карман.boards[it.id]=S.boards[it.id]; }
+  (Array.isArray(it.fields)?it.fields:[]).forEach(f=>{
+    const к=fieldBoardKey(f.id);
+    if(S.boards && S.boards[к]) карман.boards[к]=S.boards[к];
+    if(f.media && S.media && S.media[f.media]) карман.media[f.media]=S.media[f.media];
+  });
+  _trash.set(it.id, карман);
+  while(_trash.size>TRASH_KEEP) _trash.delete(_trash.keys().next().value);
+}
+// вернуть содержимое нодам, которые снова появились в списке (после отката)
+function trashRevive(items){
+  if(!_trash.size) return;
+  (items||[]).forEach(it=>{
+    const к=_trash.get(it.id); if(!к) return;
+    if(!S.boards || typeof S.boards!=="object") S.boards={};
+    if(!S.media  || typeof S.media !=="object") S.media={};
+    Object.keys(к.boards).forEach(x=>{ if(!S.boards[x]) S.boards[x]=к.boards[x]; });
+    Object.keys(к.media ).forEach(x=>{ if(!S.media[x])  S.media[x] =к.media[x];  });
+  });
+}
 const _undoSnap=()=>JSON.stringify({items:S.items, links:S.links, areas:S.areas, tags:S.tags});
 // ключ — для сравнения: без x/y, но с признаком «стоит на холсте»
 const _noXY=o=>{ const r=Object.assign({},o); delete r.x; delete r.y; r._on=(o.x!=null); return r; };
@@ -587,6 +710,7 @@ function _undoApply(snap){
     стало.forEach(o=>{ if(o.x==null) return; const c=p.get(o.id); if(c){ o.x=c.x; o.y=c.y; } }); };
   держать(S.items, d.items); держать(S.areas, d.areas);
   S.items=d.items; S.links=d.links; S.areas=d.areas; S.tags=d.tags;   // настройки и вкладку не трогаем
+  trashRevive(S.items);   // воскресшим нодам вернуть их доски и картинки (см. карман удалённых)
   if(areaFilter && !S.areas.some(a=>a.id===areaFilter)) areaFilter=null;   // область могли откатить в небытие
   render();
   _undoBusy=false;

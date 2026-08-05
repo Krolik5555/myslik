@@ -80,8 +80,15 @@ select option{background:var(--surf2);color:var(--tx);}
 #side.slim .navi .badge{position:absolute;top:2px;right:2px;margin:0;min-width:0;width:15px;height:15px;
   padding:0;display:flex;align-items:center;justify-content:center;font-size:9.5px;border-radius:20px;}
 #side.slim .navi{position:relative;}
-#side.slim .side-h{margin:14px 0 6px;justify-content:center;}
+/* В СВЁРНУТОЙ полосе подписи разделов не видны, и две кнопки «+» подряд читались как одна и та
+   же: непонятно, где добавляется граф, а где область. Поэтому у каждого раздела свой значок —
+   он остаётся видимым и в свёрнутом виде, рядом с «плюсом». */
+#side.slim .side-h{margin:12px 0 6px;justify-content:center;padding-top:10px;}
+#side.slim .side-h.sh-areas{margin-top:auto;padding-top:16px;}
+#side.slim .side-h.sh-graphs{margin-top:24px;}
 #side.slim .side-h-txt{display:none;}
+#side.slim .side-h-lbl{display:flex;align-items:center;justify-content:center;}
+#side.slim .side-h-ic{font-size:15px;}
 /* В столбик flex:1 делил бы высоту между кнопками и сплющивал их до полосок — фиксируем размер. */
 #side.slim .side-foot{flex-direction:column;gap:5px;width:100%;align-items:center;}
 #side.slim .foot-btn{flex:none;width:40px;height:40px;}
@@ -108,11 +115,37 @@ select option{background:var(--surf2);color:var(--tx);}
 .navi i{font-size:17px;width:19px;text-align:center;}
 .navi .badge{margin-left:auto;font-size:11px;background:var(--bd2);color:var(--tx);min-width:20px;text-align:center;padding:1px 6px;border-radius:20px;}
 .navi.on .badge{background:var(--bg);color:var(--tx);opacity:.85;}
-.side-h{display:flex;align-items:center;justify-content:space-between;margin:16px 8px 7px;font-size:10.5px;letter-spacing:.09em;color:var(--mut);text-transform:uppercase;}
+/* Разделы полосы отделены ЛИНИЕЙ и заметным отступом: без них графы и области сливались в один
+   список, и было неясно, к чему относится ближайшая кнопка «+». Отступ важнее линии — глаз
+   группирует по расстоянию раньше, чем по разделителям. */
+.side-h{display:flex;align-items:center;justify-content:space-between;margin:14px 8px 7px;padding-top:12px;
+  border-top:0.5px solid var(--bd);font-size:10.5px;letter-spacing:.09em;color:var(--mut);text-transform:uppercase;}
+/* «Области» отодвинуты от графов сильнее прочего: это ДРУГОЙ уровень — области живут ВНУТРИ
+   выбранного графа, и рядом стоящие кнопки «+» иначе читаются как две кнопки одного списка */
+/* ОБЛАСТИ ПРИЖАТЫ К НИЗУ панели, к подвалу с кнопками. Причина не в красоте: графы и области —
+   разные уровни (области живут ВНУТРИ выбранного графа), и пока они стояли вплотную, две
+   кнопки «+» подряд читались как две кнопки одного списка. Разнесённые по краям панели, они
+   не спорят вовсе. Пустота между ними — не потеря места: в полосе иконок её нечем занять.
+   margin-top:auto работает, потому что #side — колонка flex. */
+.side-h.sh-areas{margin-top:auto;padding-top:18px;border-top-color:var(--bd2);}
+.side-h-lbl{display:flex;align-items:center;gap:6px;min-width:0;}
+.side-h-ic{font-size:13px;color:var(--mut2);}
+/* У первого раздела линии нет — над ним кнопка вида, а не соседний список. Но отступ нужен
+   и здесь: вплотную к «Заметкам» список графов читался как продолжение навигации. */
+.side-h.sh-graphs{border-top:none;padding-top:4px;margin-top:26px;}
 .side-h-btns{display:flex;gap:2px;}
 .side-h button{color:var(--mut);font-size:15px;width:22px;height:22px;border-radius:6px;}
 .side-h button:hover{color:var(--tx);background:var(--surf2);}
 .areai{display:flex;align-items:center;gap:11px;padding:8px 11px;border-radius:9px;font-size:13px;color:var(--mut);width:100%;text-align:left;}
+/* граф в списке: активный держим ярче обычного выделения — это не фильтр, а «где я сейчас»,
+   и спутать его с подсвеченной областью нельзя */
+.grafi.on{background:var(--surf3);color:var(--tx);box-shadow:inset 2px 0 0 var(--gc, var(--acc));}
+.grafi .ti{color:var(--gc, var(--mut));}
+.grafi.on .ti{color:var(--gc, var(--acc));}
+/* список графов не должен съедать всю панель, когда их много: свой скролл */
+#graphs{max-height:26vh;overflow:auto;padding-bottom:2px;}
+/* «удалить» в окне ввода — слева от кнопок подтверждения, приглушённым */
+.modal-foot .danger-txt{color:var(--warn);}
 .areai:hover{background:var(--surf2);color:var(--tx);}
 .areai.on{background:var(--surf2);color:var(--tx);}
 /* перетаскивание секций-областей в списке */
@@ -123,7 +156,11 @@ select option{background:var(--surf2);color:var(--tx);}
 body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;}
 .areai i{font-size:15px;width:17px;text-align:center;}
 .areai .cnt{margin-left:auto;font-size:11px;color:var(--mut);}
-.side-foot{margin-top:auto;display:flex;gap:6px;padding-top:10px;border-top:0.5px solid var(--bd);}
+/* Распорку держит блок областей выше (margin-top:auto). Два auto в одной колонке поделили бы
+   пустоту пополам, и области зависли бы посреди панели, а не у её низа.
+   Зазор до подвала крупный намеренно: прижатые вплотную, области читались как часть панели
+   настроек — те же одинаковые значки в столбик. */
+.side-foot{margin-top:34px;display:flex;gap:6px;padding-top:12px;border-top:0.5px solid var(--bd);}
 /* Экспорт, импорт, таймер и настройки — попасть по ним должно быть легко: в полосе
    значков они были почти точками. */
 .foot-btn{flex:1;height:40px;min-width:40px;background:var(--surf2);border:0.5px solid var(--bd);border-radius:9px;color:var(--mut);font-size:18px;display:flex;align-items:center;justify-content:center;transition:.12s;}

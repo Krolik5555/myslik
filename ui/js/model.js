@@ -87,12 +87,14 @@ function addItem(data){
   if(it.kind==="flow") ensureFlow(it);
   S.items.unshift(it); persist(); return it;
 }
-function deleteItem(id){
-  const it=S.items.find(i=>i.id===id);
-  if(it){ it.deleted=true; it.deletedAt=Date.now(); touch(it); persist(); }
-}
+/* УДАЛЕНИЕ СРАЗУ НАСОВСЕМ. Корзины больше нет: удалять дважды — лишний шаг, а «удалённое, но
+   ещё лежащее» путало счётчики и списки. Возврат даёт откат (Ctrl+Z) и кнопка «Вернуть» в
+   тосте; тяжёлое содержимое ноды перед сносом уходит в карман удалённых (trashKeep в core.js),
+   иначе воскресшая нода вернулась бы без доски и картинок. */
+function deleteItem(id){ hardDeleteItem(id); }
 function hardDeleteItem(id){
   const it=S.items.find(i=>i.id===id);
+  if(it) trashKeep(it);               // содержимое придержим в памяти — на случай отката
   S.items=S.items.filter(i=>i.id!==id);
   S.links=S.links.filter(l=>l[0]!==id && l[1]!==id);
   S.items.forEach(i=>{ if(i.parent===id) i.parent=null; });          // снять висячие parent
@@ -101,9 +103,26 @@ function hardDeleteItem(id){
   if(it) fieldsDrop(it);              // картинки и доски ПОЛЕЙ лежат там же — унести тем же движением
   persist();
 }
-function restoreItem(id){
-  const it=S.items.find(i=>i.id===id);
-  if(it){ it.deleted=false; it.deletedAt=null; touch(it); persist(); }
+/* Удаление ПАКЕТОМ: снимает ноды вместе с их связями и отдаёт снимок, по которому «Вернуть»
+   в тосте восстановит и то, и другое. Без связей возврат давал бы висящие в пустоте ноды —
+   ветку пришлось бы собирать заново руками. */
+function deletePack(ids){
+  const набор=new Set(ids);
+  const items=S.items.filter(i=>набор.has(i.id)).map(i=>JSON.parse(JSON.stringify(i)));
+  const links=S.links.filter(l=>набор.has(l[0])||набор.has(l[1])).map(l=>JSON.parse(JSON.stringify(l)));
+  ids.forEach(id=>hardDeleteItem(id));
+  return {items, links};
+}
+function restorePack(pack){
+  if(!pack || !Array.isArray(pack.items)) return 0;
+  pack.items.forEach(it=>{ if(!S.items.some(i=>i.id===it.id)) S.items.push(it); });
+  (pack.links||[]).forEach(l=>{
+    const есть=S.items.some(i=>i.id===l[0]) && S.items.some(i=>i.id===l[1]);
+    if(есть && !S.links.some(x=>x[0]===l[0]&&x[1]===l[1])) S.links.push(l);
+  });
+  trashRevive(pack.items);   // доски и картинки ноды лежат вне неё — вернуть тем же движением
+  recomputeHierarchy(); persist();
+  return pack.items.length;
 }
 function toggleDone(it){
   if(it.kind!=="task") return;

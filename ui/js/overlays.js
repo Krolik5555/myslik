@@ -60,6 +60,38 @@ function uiConfirm(message, opts){
   });
 }
 
+/* Ввод одной строки — тот же uiConfirm, но с полем. Нужен там, где заводить целое окно ради
+   названия избыточно (граф, например). Возвращает строку, null при отмене или "__удалить__",
+   если нажали дополнительную кнопку: у графа правка и удаление живут в одном месте. */
+function uiPrompt(message, opts){
+  opts=opts||{};
+  return new Promise(resolve=>{
+    const m=el("div","modal confirm-modal");
+    m.innerHTML=`
+      <h3><i class="ti ti-pencil"></i>${esc(opts.title||"Название")}</h3>
+      <div class="confirm-msg">${esc(message)}</div>
+      <div class="field"><input type="text" id="pr-in" value="${esc(opts.value||"")}" maxlength="40" placeholder="${esc(opts.placeholder||"")}"></div>
+      <div class="modal-foot">
+        ${opts.extraLabel?`<button class="btn ghost danger-txt" id="pr-extra"><i class="ti ti-trash"></i>${esc(opts.extraLabel)}</button>`:""}
+        <div class="right">
+        <button class="btn ghost" id="pr-no">${esc(opts.cancelLabel||"Отмена")}</button>
+        <button class="btn primary" id="pr-yes"><i class="ti ti-check"></i>${esc(opts.okLabel||"ОК")}</button>
+      </div></div>`;
+    m.tabIndex=-1;
+    const ov=overlay(m); const op=ov._opener; let done=false;
+    const finish=(v)=>{ if(done) return; done=true; if(ov.isConnected) ov.remove(); restoreFocus(op); resolve(v); };
+    onOverlayClose(ov, ()=>finish(null));
+    const взять=()=>{ const v=($("#pr-in",m).value||"").trim(); finish(v||null); };
+    $("#pr-no",m).onclick=()=>finish(null);
+    $("#pr-yes",m).onclick=взять;
+    const ex=$("#pr-extra",m); if(ex) ex.onclick=()=>finish("__удалить__");
+    ov.addEventListener("mousedown",e=>{ if(e.target===ov) finish(null); });
+    m.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); взять(); }
+      else if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); finish(null); } });
+    setTimeout(()=>{ const i=$("#pr-in",m); if(i){ i.focus(); i.select(); } },30);
+  });
+}
+
 /* Отчёт о проблеме → веб-приложение Google Apps Script (URL в app.py FEEDBACK_URL).
    Пользователю не нужны аккаунты. Данные пользователя НЕ уходят: только его текст,
    версия приложения и версия Windows — этого хватает для диагностики.
@@ -224,7 +256,7 @@ function openItemEditor(existing, defaultKind, presetDue, seed){
   redrawFolder();
 
   $("#f-cancel",m).onclick=()=>ov.remove();
-  if($("#f-delete",m)) $("#f-delete",m).onclick=()=>{ const id=it.id; deleteItem(id); ov.remove(); render(); toast("Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restoreItem(id); render(); }}); };
+  if($("#f-delete",m)) $("#f-delete",m).onclick=()=>{ const пакет=deletePack([it.id]); ov.remove(); render(); toast("Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restorePack(пакет); render(); }}); };
   $("#f-save",m).onclick=()=>{
     const title=$("#f-title",m).value.trim(); if(!title){ $("#f-title",m).focus(); return; }
     // area здесь НЕТ намеренно: область назначается только в графе (бросок на неё, см. _linkTo).
@@ -311,6 +343,54 @@ function openAreaEditor(area, after){
     persist(); ov.remove(); render(); if(after) after();   // render() сам зовёт renderNav()
   };
   setTimeout(()=>$("#ar-name",m).focus(),30);
+}
+
+/* Граф правится своим окном, а не строкой ввода: у него есть ЗНАЧОК, и выбирать его надо
+   глазами. Значок обязателен ещё и потому, что без него все графы в свёрнутой полосе выглядели
+   одинаковыми кружками — и сливались с иконкой вида «Заметки». */
+function openGraphEditor(гр, after){
+  const isNew=!гр;
+  const g=гр||{id:null, name:"", icon:GRAPH_ICON_DEF, color:null};
+  const m=el("div","modal");
+  m.innerHTML=`<h3><i class="ti ${esc(g.icon||GRAPH_ICON_DEF)}"></i>${isNew?"Новый граф":"Граф"}</h3>
+    <div class="set-hint">У графа своя паутина: свои ноды, области и связи. Графы не пересекаются.</div>
+    <div class="field"><label>Название</label><input type="text" id="gr-name" value="${esc(g.name)}" placeholder="Например: Работа, Личное, Учёба"></div>
+    <div class="field"><label>Значок</label><div class="icon-grid" id="gr-icons">
+      ${ICONS.map(ic=>`<button data-ic="${ic}" class="${(g.icon||GRAPH_ICON_DEF)===ic?"on":""}"><i class="ti ${ic}"></i></button>`).join("")}
+    </div></div>
+    <div class="field"><label>Цвет</label><div class="swatches" id="gr-color">${swatchRow(g.color)}</div></div>
+    <div class="modal-foot">
+      ${(!isNew && (S.graphs||[]).length>1)?`<button class="btn ghost danger-txt" id="gr-del"><i class="ti ti-trash"></i>Удалить граф</button>`:""}
+      <div class="right">
+      <button class="btn ghost" id="gr-cancel">Отмена</button>
+      <button class="btn primary" id="gr-save"><i class="ti ti-check"></i>${isNew?"Создать":"Сохранить"}</button>
+    </div></div>`;
+  const ov=overlay(m); let icon=g.icon||GRAPH_ICON_DEF, color=g.color||null;
+  $$("#gr-color .swatch",m).forEach(b=>b.onclick=()=>{ color=PALETTE[+b.dataset.ci]||null;
+    $$("#gr-color .swatch",m).forEach(x=>x.classList.toggle("on",PALETTE[+x.dataset.ci]===color)); });
+  $$("#gr-icons button",m).forEach(b=>b.onclick=()=>{ icon=b.dataset.ic;
+    $$("#gr-icons button",m).forEach(x=>x.classList.toggle("on",x===b)); });
+  $("#gr-cancel",m).onclick=()=>ov.remove();
+  const del=$("#gr-del",m);
+  if(del) del.onclick=async()=>{
+    const n=(g.items||[]).length;
+    if(!(await uiConfirm("Граф «"+g.name+"» и всё, что в нём есть"+(n?" — "+n+" нод с их досками и картинками":"")+
+        " — будут удалены навсегда.",{danger:true, title:"Удалить граф?", okLabel:"Удалить"}))) return;
+    graphDelete(g.id); ov.remove(); render(); toast("Граф удалён",{icon:"ti-trash"});
+  };
+  $("#gr-save",m).onclick=()=>{
+    const name=$("#gr-name",m).value.trim(); if(!name){ $("#gr-name",m).focus(); return; }
+    if(isNew){
+      const нов=graphAdd(name); нов.icon=icon; нов.color=color;
+      graphSwitch(нов.id); view="notes";
+      ov.remove(); render(); toast("Граф «"+name+"» создан",{icon:icon});
+    }else{
+      g.name=name; g.icon=icon; g.color=color; persist();
+      ov.remove(); render(); toast("Сохранено",{icon:icon});
+    }
+    if(after) after();
+  };
+  setTimeout(()=>$("#gr-name",m).focus(),30);
 }
 
 /* ===========================================================
@@ -793,9 +873,10 @@ function openLonelyNodes(){
     return `<div class="ln-row" data-id="${it.id}"><i class="ti ${ic} ln-ic"></i><span class="ln-ttl">${esc(ttl)}${body?` — <span class="ln-sub">${esc(body.slice(0,44))}</span>`:""}</span><button class="btn ghost ln-del" data-del="${it.id}" title="Удалить"><i class="ti ti-trash"></i></button></div>`; };
   const paint=()=>{ const items=looseList();
     $(".ln-list",m).innerHTML = items.length ? items.map(rowHtml).join("") : '<div class="set-hint">Одиноких нод нет.</div>';
-    $$(".ln-del",m).forEach(b=>b.onclick=()=>{ const id=b.dataset.del; deleteItem(id);
+    $$(".ln-del",m).forEach(b=>b.onclick=()=>{ const пакет=deletePack([b.dataset.del]);
       if(typeof graph!=="undefined" && graph) graph.build();
-      toast("Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restoreItem(id); if(typeof graph!=="undefined"&&graph) graph.build(); }}); paint(); }); };
+      toast("Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restorePack(пакет);
+        if(typeof graph!=="undefined"&&graph) graph.build(); paint(); }}); paint(); }); };
   m.innerHTML=`<h3><i class="ti ti-circle-dashed"></i>Одинокие ноды</h3>
     <div class="set-hint">Ноды без области и без связей — «висят» в графе сами по себе. Вот они — удали лишнее.</div>
     <div class="ln-list"></div>

@@ -2,26 +2,27 @@
 /* ===========================================================
    RENDER
    =========================================================== */
-/* В полосе слева пока только «Заметки» и «Корзина»: остальные виды ждут переработки и
-   до неё из меню убраны. Сами виды живы — открываются из палитры (Ctrl+K) и цифрами. */
+/* В полосе слева пока только «Заметки»: остальные виды ждут переработки и до неё из меню
+   убраны. Сами виды живы — открываются из палитры (Ctrl+K) и цифрами.
+   Корзины нет вовсе: удалённое не откладывается «на потом», а сносится сразу, вернуть можно
+   откатом (Ctrl+Z) или кнопкой в тосте. */
 const NAV=[
-  ["notes","ti-affiliate","Заметки"],
-  ["bin","ti-trash","Корзина"]
+  ["notes","ti-affiliate","Заметки"]
 ];
 // виды, которых нет в полосе, но которые по-прежнему рисуются
-const VIEWS_ALL=["today","tasks","notes","board","cal","bin"];
+const VIEWS_ALL=["today","tasks","notes","board","cal"];
 
 // Неразобранное = мысль, которую ещё не поставили на холст (нет координат). Считаем ради
 // бейджа на «Заметках»: лоток живёт внутри графа, и, не заходя туда, про накопившееся
 // (например, пачку из Telegram) человек бы не узнал вовсе.
 function counts(){
-  let unsorted=0, todayN=0, binN=0;
+  // корзины больше нет: удалённое не хранится вовсе, считать нечего
+  let unsorted=0, todayN=0;
   S.items.forEach(it=>{
-    if(it.deleted){ binN++; return; }
     if(it.x==null) unsorted++;
     if(it.kind==="task" && !it.done && it.due && parseYmd(it.due)<=today()) todayN++;
   });
-  return {unsorted, today:todayN, bin:binN};
+  return {unsorted, today:todayN};
 }
 
 /* Левая панель — всегда полоса иконок; кнопка внизу сворачивает её до кромки и обратно.
@@ -55,9 +56,23 @@ function renderNav(){
   $("#nav").innerHTML = NAV.map(n=>{
     const badge = (n[0]==="notes"&&c.unsorted)?`<span class="badge">${c.unsorted}</span>`
                 : (n[0]==="today"&&c.today)?`<span class="badge">${c.today}</span>`
-                : (n[0]==="bin"&&c.bin)?`<span class="badge">${c.bin}</span>`:"";
+                : "";
     // подпись дублируем в title: в свёрнутой полосе виден только значок
     return `<button class="navi ${view===n[0]?"on":""}" data-v="${n[0]}" title="${esc(n[2])}"><i class="ti ${n[1]}"></i><span>${n[2]}</span>${badge}</button>`;
+  }).join("");
+  /* Список графов. Показываем даже когда он один: иначе кнопка «новый граф» висела бы над
+     пустотой и было бы непонятно, к чему она. Число нод — чтобы отличать графы, у которых
+     похожие названия. */
+  const списокГрафов=$("#graphs");
+  if(списокГрафов) списокГрафов.innerHTML = (S.graphs||[]).map(g=>{
+    const свой = g.id===S.settings.graph;
+    const подпись = g.name + " · нод: " + (g.items||[]).length + " · правая кнопка — значок, имя, удалить";
+    /* Цвет графа задаёт и значок, и полоску активного: полоска акцентного цвета рядом с
+       цветным значком читалась как чужая метка, а не как «этот граф сейчас открыт». */
+    const цв = g.color ? ` style="--gc:${g.color}"` : "";
+    return `<button class="areai grafi ${свой?"on":""}" data-graph="${esc(g.id)}" title="${esc(подпись)}"${цв}>`+
+      `<i class="ti ${esc(g.icon||GRAPH_ICON_DEF)}"></i><span class="nm">${esc(g.name)}</span>`+
+      `<span class="cnt">${(g.items||[]).length||""}</span></button>`;
   }).join("");
   $("#areas").innerHTML = S.areas.map(a=>{
     const tasks=S.items.filter(it=>it.kind==="task"&&it.area===a.id&&!it.deleted);
@@ -667,7 +682,6 @@ function render(){
   else if(view==="notes") renderNotes(v);
   else if(view==="board") renderFolders(v);
   else if(view==="cal") renderCal(v);
-  else if(view==="bin") renderBin(v);
   renderAside();                       // правая часть живёт своей жизнью, но перерисовывается вместе
   _viewRestore(_sn);
 }
@@ -939,25 +953,4 @@ function renderCal(v){
     };
   });
 }
-function renderBin(v){
-  head("Корзина","Удалённые элементы · можно восстановить или стереть навсегда",
-    `<button class="btn ghost" data-toggle="clear"><i class="ti ti-trash"></i>Очистить всё</button>`);
-  const arr=S.items.filter(it=>it.deleted).sort((a,b)=>(b.deletedAt||0)-(a.deletedAt||0));
-  if(!arr.length){ v.innerHTML=emptyBox("ti-trash","Корзина пуста. Удалённые элементы появятся здесь."); return; }
-  v.innerHTML=arr.map(it=>`<div class="card" data-id="${it.id}">
-    <div class="card-body" style="flex:1">
-      <div class="card-ttl">${esc(it.title)}</div>
-      <div class="meta">
-        ${it.area?`<span class="tag"><i class="ti ${areaIcon(it.area)}"></i>${esc(areaName(it.area))}</span>`:""}
-        <span class="due"><i class="ti ti-calendar-event"></i>удалено ${it.deletedAt?new Date(it.deletedAt).toLocaleDateString("ru"):""}</span>
-      </div>
-    </div>
-    <div class="card-act" style="opacity:1;display:flex;gap:4px;">
-      <button data-restore="${it.id}" title="Восстановить"><i class="ti ti-arrow-back-up"></i></button>
-      <button data-hard="${it.id}" title="Удалить навсегда" style="color:var(--warn)"><i class="ti ti-trash"></i></button>
-    </div>
-  </div>`).join("");
-  $$("[data-restore]",v).forEach(b=>b.onclick=()=>{ restoreItem(b.dataset.restore); render(); toast("Восстановлено"); });
-  $$("[data-hard]",v).forEach(b=>b.onclick=async()=>{ if(await uiConfirm("Этот элемент будет удалён навсегда. Это нельзя отменить.",{danger:true,title:"Удалить навсегда?",okLabel:"Удалить"})){ hardDeleteItem(b.dataset.hard); render(); toast("Удалено навсегда"); } });
-  // «Очистить всё» обрабатывает делегат #head-actions (data-toggle="clear") — без дубля здесь (был двойной confirm)
-}
+

@@ -28,15 +28,109 @@ t.push({имя:"текст заметки в редактируемом поле
           ок: getComputedStyle(document.querySelector(".navi span:not(.badge)")).display === "none"
               && !!document.querySelector(".navi").title,
           факт: "подсказка: " + document.querySelector(".navi").title});
-  // счётчик показывается точкой в углу значка — проверяем на корзине, чтобы не зависеть от данных
-  const мусор = addItem({kind:"note", title:"Для корзины"});
-  deleteItem(мусор.id); renderNav(); await ж(120);
-  t.push({имя:"счётчик виден точкой на значке", ок: !!document.querySelector('.navi[data-v="bin"] .badge'),
-          факт: "бейдж корзины: " + ((document.querySelector('.navi[data-v="bin"] .badge')||{}).textContent || "нет")});
-  hardDeleteItem(мусор.id); renderNav();
+  /* Счётчик показывается точкой в углу значка. Проверяем на «Заметках»: бейдж там считает
+     неразобранное — ноды, ещё не поставленные на холст. Корзины больше нет вовсе. */
+  const вЛотке = addItem({kind:"note", title:"Ещё не на холсте"});
+  вЛотке.x=null; вЛотке.y=null; renderNav(); await ж(120);
+  t.push({имя:"счётчик виден точкой на значке", ок: !!document.querySelector('.navi[data-v="notes"] .badge'),
+          факт: "бейдж заметок: " + ((document.querySelector('.navi[data-v="notes"] .badge')||{}).textContent || "нет")});
+  hardDeleteItem(вЛотке.id); renderNav();
 
-  t.push({имя:"в полосе только «Заметки» и «Корзина»", ок: document.querySelectorAll(".navi").length === 2,
+  t.push({имя:"в полосе только «Заметки», корзины нет", ок: document.querySelectorAll(".navi").length === 1
+            && !document.querySelector('.navi[data-v="bin"]'),
           факт: [...document.querySelectorAll(".navi")].map(b=>b.title).join(", ")});
+
+  /* ГРАФЫ. Панель поделена надвое: сверху графы, снизу области ТЕКУЩЕГО графа. Графы не
+     пересекаются: свои ноды, свои области, свои связи. */
+  {
+    const свой=addItem({kind:"note", title:"нода первого"});
+    renderNav(); await ж(120);
+    const строки=()=>[...document.querySelectorAll("#graphs .grafi")];
+    t.push({имя:"список графов есть в панели, активный отмечен",
+            ок: строки().length>=1 && строки().some(b=>b.classList.contains("on")),
+            факт: строки().map(b=>b.textContent.trim()).join(" | ")});
+    t.push({имя:"графы стоят ВЫШЕ областей",
+            ок: !!(document.querySelector("#graphs").compareDocumentPosition(document.querySelector("#areas"))
+                   & Node.DOCUMENT_POSITION_FOLLOWING),
+            факт: "порядок в разметке"});
+    /* Разделы обязаны РАЗЛИЧАТЬСЯ: в свёрнутой полосе подписей не видно, и две кнопки «+»
+       подряд читались как одна. Значок раздела виден всегда, а области отделены линией. */
+    {
+      const шапки=[...document.querySelectorAll("#side .side-h")];
+      const значки=шапки.map(h=>((h.querySelector(".side-h-ic")||{}).className||"").split(" ")[1]||"");
+      const областиШапка=document.querySelector(".side-h.sh-areas");
+      t.push({имя:"у разделов свои значки и они не одинаковые",
+              ок: значки.length>=2 && значки[0] && значки[1] && значки[0]!==значки[1],
+              факт: значки.join(" / ")});
+      t.push({имя:"области отделены от графов линией",
+              ок: parseFloat(getComputedStyle(областиШапка).borderTopWidth)>0,
+              факт: "линия: "+getComputedStyle(областиШапка).borderTopWidth});
+      t.push({имя:"кнопки «+» подписаны по-разному",
+              ок: document.querySelector("#add-graph").title!==document.querySelector("#add-area").title
+                  && /граф/i.test(document.querySelector("#add-graph").title)
+                  && /област/i.test(document.querySelector("#add-area").title),
+              факт: document.querySelector("#add-graph").title+" | "+document.querySelector("#add-area").title});
+    }
+
+    const второй=graphAdd("Проверочный"); renderNav(); await ж(120);
+    /* Значок графа НЕ должен совпадать со значком вида «Заметки» в той же полосе: два
+       одинаковых кружка подряд читались как дубль одного и того же. */
+    {
+      const свой=[...document.querySelectorAll("#graphs .grafi i")].map(i=>(i.className.split(" ")[1]||""));
+      const вид=(document.querySelector('.navi[data-v="notes"] i').className.split(" ")[1]||"");
+      t.push({имя:"значок графа свой, а не тот же, что у вида «Заметки»",
+              ок: свой.length>0 && свой.every(x=>x && x!==вид),
+              факт: "графы: "+свой.join(",")+"; вид: "+вид});
+      // и его можно сменить: значок хранится у графа и переживает чистку данных
+      второй.icon="ti-heart"; второй.color="#e0625a"; persist(); renderNav(); await ж(80);
+      const кн=[...document.querySelectorAll("#graphs .grafi")].find(b=>b.dataset.graph===второй.id);
+      const чищено=sanitizeState(JSON.parse(JSON.stringify(S)));
+      t.push({имя:"значок и цвет графа сохраняются",
+              ок: /ti-heart/.test(кн.innerHTML) && (чищено.graphs.find(x=>x.id===второй.id)||{}).icon==="ti-heart",
+              факт: "в разметке: "+/ti-heart/.test(кн.innerHTML)+
+                    ", после чистки: "+((чищено.graphs.find(x=>x.id===второй.id)||{}).icon||"—")});
+    }
+    const кнопка=строки().find(b=>b.dataset.graph===второй.id);
+    кнопка.click(); await ж(400);
+    t.push({имя:"клик по графу переключает на него",
+            ок: S.settings.graph===второй.id, факт:"активный: "+S.settings.graph});
+    t.push({имя:"новый граф пустой: ни нод, ни областей чужого графа",
+            ок: S.items.length===0 && S.areas.length===0
+                && !document.querySelector("#areas .areai"),
+            факт: "нод "+S.items.length+", областей "+S.areas.length});
+
+    // в новом графе своя жизнь, и она не течёт в соседний
+    const чужая=addItem({kind:"note", title:"нода второго"});
+    S.areas.push({id:"a_второй", name:"Область второго", icon:"ti-star"});
+    persist(); renderNav(); await ж(120);
+    const первый=S.graphs[0].id;
+    [...document.querySelectorAll("#graphs .grafi")].find(b=>b.dataset.graph===первый).click();
+    await ж(400);
+    t.push({имя:"графы не видят содержимого друг друга",
+            ок: S.items.some(i=>i.id===свой.id) && !S.items.some(i=>i.id===чужая.id)
+                && !S.areas.some(a=>a.id==="a_второй") && S.areas.length>0,
+            факт: "в первом нод "+S.items.length+", областей "+S.areas.length});
+
+    // в файл уезжают графы, а не дубль items
+    const файл=JSON.parse(JSON.stringify(S));
+    t.push({имя:"в файл пишутся графы, без дубля списков",
+            ок: Array.isArray(файл.graphs) && файл.graphs.length>=2
+                && !Object.prototype.hasOwnProperty.call(файл,"items"),
+            факт: "графов в файле: "+(файл.graphs||[]).length+
+                  ", отдельный items: "+Object.prototype.hasOwnProperty.call(файл,"items")});
+
+    // удаление графа уносит его содержимое целиком
+    const былоНод=S.graphs.find(g=>g.id===второй.id).items.length;
+    graphDelete(второй.id); renderNav(); await ж(120);
+    t.push({имя:"удаление графа уносит его ноды",
+            ок: !S.graphs.some(g=>g.id===второй.id) && !S.items.some(i=>i.id===чужая.id),
+            факт: "было нод во втором: "+былоНод+", графов осталось: "+S.graphs.length});
+    t.push({имя:"последний граф удалить нельзя",
+            ок: S.graphs.length===1 ? graphDelete(S.graphs[0].id)===false : true,
+            факт: "графов: "+S.graphs.length});
+
+    hardDeleteItem(свой.id); renderNav();
+  }
 
   const былаШирина = шир("side");
   // разворот подписей: кнопка «показать названия»

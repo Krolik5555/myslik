@@ -569,9 +569,10 @@ class Graph{
   deleteSelected(){
     const ids=[...this.selNodes].filter(id=>this.byId[id] && this.byId[id].ref);   // только заметки/задачи/схемы, не области-хабы
     if(!ids.length) return;
-    const snap=ids.slice();
-    ids.forEach(id=>deleteItem(id)); this.selNodes.clear(); recomputeHierarchy(); this.build();
-    toast(ids.length>1?ids.length+" удалено":"Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ snap.forEach(id=>restoreItem(id)); recomputeHierarchy(); render(); }});
+    // снимаем ноды ВМЕСТЕ СО СВЯЗЯМИ: иначе «Вернуть» отдало бы их висящими в пустоте
+    const пакет=deletePack(ids); this.selNodes.clear(); recomputeHierarchy(); this.build();
+    toast(ids.length>1?ids.length+" удалено":"Удалено",{icon:"ti-trash",label:"Вернуть",
+      onAction:()=>{ restorePack(пакет); render(); }});
   }
   build(){
     const NS="http://www.w3.org/2000/svg";
@@ -1662,12 +1663,12 @@ class Graph{
       return `<div class="gt-it" data-tid="${it.id}" title="${esc(t)}"><i class="ti ${ic(it)}"></i><span>${esc(t)}</span><button class="gt-del" data-del="${it.id}" title="Удалить в корзину"><i class="ti ti-x"></i></button></div>`; }).join("");
     // тащить на холст — но не когда жмут на крестик удаления
     $$(".gt-it",tray).forEach(el=>{ el.onpointerdown=e=>{ if(e.button===0 && !e.target.closest(".gt-del")) this._trayGrab(e,el); }; });
-    // удалить элемент из лотка (мягко, в Корзину, с отменой)
+    // удалить элемент из лотка — сразу насовсем, с возвратом по кнопке в тосте
     $$(".gt-del",tray).forEach(b=>{
       b.onpointerdown=e=>e.stopPropagation();   // не запускать перетаскивание
       b.onclick=e=>{ e.stopPropagation(); const id=b.dataset.del;
-        deleteItem(id); render();
-        toast("Удалено в корзину",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restoreItem(id); render(); }});
+        const пакет=deletePack([id]); render();
+        toast("Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restorePack(пакет); render(); }});
       };
     });
   }

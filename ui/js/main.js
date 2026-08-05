@@ -21,7 +21,6 @@ function openPalette(){
     {t:"Перейти: Заметки",i:"ti-affiliate",run:()=>go("notes")},
     {t:"Перейти: Папки",i:"ti-folders",run:()=>go("board")},
     {t:"Перейти: Календарь",i:"ti-calendar-month",run:()=>go("cal")},
-    {t:"Перейти: Корзина",i:"ti-trash",run:()=>go("bin")},
     {t:"Управление областями",i:"ti-folders",run:()=>{closeOverlays();openAreaManager();}},
     {t:"Сделать бэкап",i:"ti-shield-check",run:()=>{closeOverlays();doBackup();}},
     {t:"Проверить Telegram",i:"ti-brand-telegram",run:()=>{closeOverlays();checkTelegram();}},
@@ -99,8 +98,8 @@ function cleanEmptyNotes(){
     && ( !((it.body||"")+fieldsText(it)).trim() || (!linked.has(it.id) && !hasKid(it.id)) ));
   if(!empties.length){ toast("Безымянных висячих нод не найдено",{icon:"ti-check"}); return; }
   const ids=empties.map(it=>it.id);
-  ids.forEach(id=>deleteItem(id)); render();
-  toast("Удалено: "+ids.length,{icon:"ti-eraser",label:"Вернуть",onAction:()=>{ ids.forEach(id=>restoreItem(id)); render(); }});
+  const пакет=deletePack(ids); render();
+  toast("Удалено: "+ids.length,{icon:"ti-eraser",label:"Вернуть",onAction:()=>{ restorePack(пакет); render(); }});
 }
 // Бэкап рапортует по ФАКТУ: backup() возвращает "" и когда файла данных ещё нет, и когда копия
 // не удалась. Врать «сохранено» тут особенно вредно — бэкап делают перед рискованным шагом.
@@ -217,6 +216,17 @@ function wireGlobal(){
   // nav + areas + footer (delegated)
   $("#side").addEventListener("click",e=>{
     const nav=e.target.closest("[data-v]"); if(nav){ areaFilter=null; tagFilter=null; view=nav.dataset.v; render(); return; }
+    /* Клик по графу ПЕРЕКЛЮЧАЕТ на него: у графа свои ноды, области и связи, поэтому меняется
+       вся картина разом. Правка и удаление — правой кнопкой, как у областей в самом графе. */
+    const gr=e.target.closest("[data-graph]");
+    if(gr){
+      if(graphSwitch(gr.dataset.graph)){
+        if(view!=="notes") view="notes";
+        render();
+        toast("Граф · "+((S.graphs.find(x=>x.id===gr.dataset.graph)||{}).name||""),{icon:"ti-affiliate"});
+      }
+      return;
+    }
     /* Клик по области в полосе слева ВЫДЕЛЯЕТ её ноды в графе, а не уводит в «Задачи»:
        область — это часть паутины, и смотреть на неё логично там же. Повторный клик снимает. */
     const ar=e.target.closest("[data-area]");
@@ -231,6 +241,17 @@ function wireGlobal(){
     }
   });
   $("#add-area").onclick=(e)=>{ e.stopPropagation(); openAreaEditor(null,()=>renderNav()); };
+  /* Новый граф создаётся ПУСТЫМ и сразу становится активным: заводят его, чтобы начать другую
+     историю с чистого листа, а не чтобы смотреть на прежнюю. */
+  const ag=$("#add-graph"); if(ag) ag.onclick=(e)=>{ e.stopPropagation(); openGraphEditor(null); };
+  /* Правая кнопка по графу — переименовать или удалить. Отдельных кнопок в полосе нет: они
+     заняли бы место у каждого графа ради действий, которые делают раз в месяц. */
+  $("#side").addEventListener("contextmenu",e=>{
+    const gr=e.target.closest("[data-graph]"); if(!gr) return;
+    e.preventDefault();
+    const g=(S.graphs||[]).find(x=>x.id===gr.dataset.graph); if(!g) return;
+    openGraphEditor(g);
+  });
   // кнопки «управление областями» в полосе больше нет — правка и удаление живут в ПКМ по
   // кружку области в графе; менеджер по-прежнему доступен из палитры команд
   const ma=$("#manage-area"); if(ma) ma.onclick=(e)=>{ e.stopPropagation(); openAreaManager(); };
@@ -242,7 +263,7 @@ function wireGlobal(){
   $("#head-actions").addEventListener("click",async e=>{
     const nw=e.target.closest("[data-new]"); if(nw){ createNew(nw.dataset.new); return; }
     const cal=e.target.closest("[data-cal]"); if(cal){ const v=+cal.dataset.cal; if(v===0) calOffset=0; else calOffset+=v; render(); return; }
-    const tg=e.target.closest("[data-toggle]"); if(tg){ if(tg.dataset.toggle==="done"){ showDone=!showDone; render(); } else if(tg.dataset.toggle==="clear"){ if(!(await uiConfirm("Все элементы корзины будут удалены навсегда. Это нельзя отменить.",{danger:true,title:"Очистить корзину?",okLabel:"Очистить"}))) return; S.items.filter(it=>it.deleted).forEach(it=>hardDeleteItem(it.id)); render(); toast("Корзина очищена"); } return; }
+    const tg=e.target.closest("[data-toggle]"); if(tg){ if(tg.dataset.toggle==="done"){ showDone=!showDone; render(); } return; }
     const tgb=e.target.closest("[data-telegram]"); if(tgb){ checkTelegram(tgb); return; }
   });
 
@@ -255,7 +276,7 @@ function wireGlobal(){
     const ed=e.target.closest("[data-edit]"); if(ed){ const it=S.items.find(i=>i.id===ed.dataset.edit); if(it)openItemEditor(it); return; }
     // клик по дню календаря — новая задача на эту дату (с полями шаблона по умолчанию)
     const day=e.target.closest("[data-day]"); if(day){ openItemEditor(null,"task",day.dataset.day,templateSeed(templateDefault(),"task")); return; }
-    const del=e.target.closest("[data-del]"); if(del){ const it=S.items.find(i=>i.id===del.dataset.del); if(it){ const id=it.id; deleteItem(id); render(); toast("Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restoreItem(id); render(); }}); } return; }
+    const del=e.target.closest("[data-del]"); if(del){ const it=S.items.find(i=>i.id===del.dataset.del); if(it){ const пакет=deletePack([it.id]); render(); toast("Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restorePack(пакет); render(); }}); } return; }
     const ct=e.target.closest("[data-cleartag]"); if(ct){ tagFilter=null; render(); return; }
     const tg2=e.target.closest("[data-tag]"); if(tg2){ tagFilter=tg2.dataset.tag; areaFilter=null; view="tasks"; render(); return; }   // клик по тегу — фильтр по нему
     const tf=e.target.closest("[data-tf]"); if(tf){ taskFilter=tf.dataset.tf; render(); return; }
@@ -431,12 +452,22 @@ function toast(msg, opt){
 /* ===========================================================
    BOOT
    =========================================================== */
+/* Похоже ли прочитанное на СОХРАНЁННОЕ состояние. Признаков несколько намеренно: формат
+   менялся (areas/items на верхнем уровне → graphs), и любая проверка по одному ключу однажды
+   объявит живой файл пустым. Цена ошибки здесь максимальная — приложение перезапишет данные
+   демо-набором, что однажды и случилось. */
+function жилойФайл(d){
+  if(!d || typeof d!=="object" || Array.isArray(d)) return false;
+  return Array.isArray(d.graphs) || Array.isArray(d.areas) || Array.isArray(d.items)
+      || !!d.settings || !!d.boards || !!d.templates;
+}
 async function boot(){
   const P=new URLSearchParams(location.search);
   // DEV-режим (только в браузере, по ?dev): каждый запуск — свежие демо-данные,
   // чтобы граф/виды всегда были наполнены для превью; ?view=graph|tasks|notes|... прыгает в вид.
   if(P.has("dev") && !HasPy()){
-    S=defaultState(); seedDemo();
+    // через санитайзер, а не голым defaultState: он собирает графы и вешает на S геттеры
+    S=sanitizeState(defaultState()); seedDemo();
     const v=P.get("view"); if(v) S.settings.view=v;
     if(P.has("light")) S.settings.theme="light";
     undoInit();
@@ -446,7 +477,11 @@ async function boot(){
   }
   bootedWithoutBridge = !HasPy();   // помним, что стартовали без моста: см. onBridgeReady
   const loaded=await Store.load();
-  if(loaded && loaded.areas){ S=sanitizeState(Object.assign(defaultState(),loaded)); }
+  /* «Файл есть» проверяем по ЛЮБОМУ признаку состояния, а не по одному ключу areas. После
+     перехода на несколько графов ноды и области лежат внутри graphs, верхнего areas в файле
+     больше нет — и проверка по нему считала живой файл чужим, подсовывала демо и ЗАТИРАЛА
+     его записью. Демо законно только тогда, когда файла нет вовсе. */
+  if(жилойФайл(loaded)){ S=sanitizeState(Object.assign(defaultState(),loaded)); }
   else { seedDemo(); await writeNow(); }
   const v=P.get("view"); if(v) S.settings.view=v;   // ?view= работает и в реальном аппе
   undoInit();   // точка отсчёта истории — состояние, с которым приложение открылось
@@ -632,7 +667,7 @@ async function onBridgeReady(){
   bootedWithoutBridge=false;
   clearTimeout(saveTimer); saveTimer=null;            // выбросить отложенную запись демо-данных
   const loaded=await Store.load();
-  if(loaded && loaded.areas){ S=sanitizeState(Object.assign(defaultState(),loaded)); }
+  if(жилойФайл(loaded)){ S=sanitizeState(Object.assign(defaultState(),loaded)); }
   else { await writeNow(); }                          // файла и правда нет — тогда демо законно
   undoInit();
   view=S.settings.view||"today"; applySettings(); render();
