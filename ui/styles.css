@@ -451,7 +451,10 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
   background:var(--surf);}
 .graph-bg-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;display:block;}
 .graph-glow-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;display:block;}   /* цветная подсветка «в работе» — между фоном и нодами */
-#graph{position:relative;z-index:2;width:100%;height:100%;display:block;touch-action:none;cursor:default;}
+/* Холст самого графа (режим «canvas» в настройках). Лежит НАД свечением и ПОД <svg>: svg в этом
+   режиме остаётся пустым, но продолжает принимать события мыши — иначе пропали бы пан и зум. */
+.graph-main-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2;display:block;}
+#graph{position:relative;z-index:3;width:100%;height:100%;display:block;touch-action:none;cursor:default;}
 #graph.linking{cursor:crosshair;}
 .g-link{fill:none;stroke:var(--bd3);stroke-width:1;stroke-linecap:round;transition:opacity .18s,stroke-width .18s;pointer-events:none;}
 .g-link.manual{stroke:var(--bd3);stroke-width:1.6;filter:drop-shadow(0 0 4px var(--glow));}
@@ -524,6 +527,12 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .g-label{fill:var(--mut);font-size:10.5px;pointer-events:none;}
 .g-label-empty{font-style:italic;opacity:.7;}
 .g-label.hub{fill:var(--tx);font-size:11.5px;font-weight:500;}
+/* ПУСТЫШКА — узел-развилка внутри области: к ней перецепляют часть нод, чтобы разгрузить лучи
+   от хаба и само пространство. Содержимого у неё нет, поэтому и вид «пустой»: тонкий пунктирный
+   контур без заливки. Спутать её с обычной нодой нельзя, а место она занимает то же. */
+.g-node.hollow{opacity:.75;}
+.g-node.hollow .nd{fill:none;stroke:var(--nc,var(--mut));stroke-width:1.2;stroke-dasharray:3 3;}
+.g-node.hollow .g-label{fill:var(--mut2);font-style:italic;}
 .g-node.dim{opacity:.14;}
 /* фокус-кластер при наведении (Obsidian): узел+соседи ярче, подписи проявляются */
 .g-node.hl .nd{stroke-width:2.4;filter:drop-shadow(0 0 6px var(--nc,var(--glow)));}

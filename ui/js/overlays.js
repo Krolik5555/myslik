@@ -639,7 +639,6 @@ function openShortcuts(){
       ["<kbd>Ctrl</kbd><kbd>K</kbd>","Поиск и команды"],
       ["<kbd>N</kbd>","Новая задача"],
       ["<kbd>/</kbd>","Фокус в поле захвата"],
-      ["<kbd>1</kbd>…<kbd>6</kbd>","Переключение видов"],
       ["<kbd>Esc</kbd>","Закрыть окно / отменить"],
     ])}
     <div class="sc-sec">Граф заметок</div>${rows([
@@ -709,6 +708,28 @@ function openSettings(tab){
         </div></div>
     </div>
     <div class="set-panel" data-panel="graph" hidden>
+      <!-- Чем рисуется граф. SVG — прежний путь со всеми возможностями; холст рисует дерево целиком
+           и не создаёт элементов вовсе (на 650 узлах это 38 мс кадра из 47). Переключается на лету,
+           данные не трогает: не понравилось — вернул обратно. -->
+      <div class="field"><label>Отрисовка графа</label>
+        <div class="seg" id="set-render">
+          <button data-v="svg" class="${s.graphRender!=="canvas"?"on":""}">SVG</button>
+          <button data-v="canvas" class="${s.graphRender==="canvas"?"on":""}">Холст</button>
+        </div></div>
+      <div class="set-hint" style="margin-bottom:10px;">Холст пока рисует узлы и связи; подписи, формы по тегам и клики по нодам — на подходе.</div>
+      <!-- Потолок кадров. Без него граф рисует со скоростью монитора: на 165-герцевом это вчетверо
+           больше нагрузки на видеокарту при том же самом изображении (замер: 42.6 Вт против 19.6). -->
+      <div class="field"><label>Плавность графа</label>
+        <div class="seg" id="set-maxfps">${[["30","30"],["60","60"],["120","120"],["0","Как монитор"]]
+          .map(([v,l])=>`<button data-v="${v}" class="${(+(s.graphFpsCap!=null?s.graphFpsCap:0))===+v?"on":""}">${l}</button>`).join("")}</div></div>
+      <div class="set-hint" style="margin-bottom:10px;">Кадров в секунду. Меньше кадров — меньше ватт на видеокарте (на 165 Гц вчетверо), но процент её занятости в диспетчере задач от этого почти не меняется.</div>
+      <!-- Зум и пан картинкой: замер на 946 узлах — честный кадр 0.641 мс, кадр картинкой 0.001 мс. -->
+      <div class="field"><label>Зум и пан готовой картинкой</label>
+        <div class="seg" id="set-fastzoom">
+          <button data-v="1" class="${s.graphFastZoom!==false?"on":""}">Вкл</button>
+          <button data-v="0" class="${s.graphFastZoom===false?"on":""}">Выкл</button>
+        </div></div>
+      <div class="set-hint" style="margin-bottom:10px;">Пока крутят колесо или тащат холст, граф не перерисовывается заново, а выводится готовой картинкой. Работает на деревьях больше 350 узлов; при сильном приближении картинка на мгновение мягче.</div>
       <div class="field"><label>Размер нод <span class="set-val" id="val-nsz">${gn()}×</span></label>
         <input type="range" id="set-nsz" min="0.6" max="1.8" step="0.1" value="${gn()}"></div>
       <div class="field"><label>Размер от числа связей <span class="set-val" id="val-deg">${gds()}×</span></label>
@@ -794,23 +815,42 @@ function openSettings(tab){
     tgToken.value=""; toast(ok?"Токен сохранён":"Не удалось сохранить токен",{icon:ok?"ti-check":"ti-alert-triangle"}); renderTgStatus();
   };
   tgClear.onclick=async()=>{ await window.pywebview.api.telegram_clear(); toast("Бот отвязан",{icon:"ti-unlink"}); renderTgStatus(); };
-  $$("#set-theme button",m).forEach(b=>b.onclick=()=>{ s.theme=b.dataset.v; persist(); applySettings(); $$("#set-theme button",m).forEach(x=>x.classList.toggle("on",x===b)); if(view==="notes") render(); });
-  $$("#set-glow button",m).forEach(b=>b.onclick=()=>{ s.glow=+b.dataset.v; persist(); applySettings(); $$("#set-glow button",m).forEach(x=>x.classList.toggle("on",x===b)); });
-  $$("#set-bg button",m).forEach(b=>b.onclick=()=>{ s.graphBg=b.dataset.v==="1"; persist(); $$("#set-bg button",m).forEach(x=>x.classList.toggle("on",x===b)); });
-  const drift=$("#set-drift",m); drift.oninput=()=>{ s.graphDrift=+drift.value; $("#val-drift",m).textContent=drift.value; persist(); };   // граф читает S.settings каждый кадр → применяется вживую
-  const spread=$("#set-spread",m); spread.oninput=()=>{ s.graphSpread=+spread.value; $("#val-spread",m).textContent=spread.value+"×"; persist(); if(graph) graph.alpha=Math.max(graph.alpha,0.4); };
-  const len=$("#set-len",m); len.oninput=()=>{ s.graphLinkLen=+len.value; $("#val-len",m).textContent=len.value+"×"; persist(); if(graph) graph.alpha=Math.max(graph.alpha,0.4); };   // будим симуляцию → связи переезжают к новой длине вживую
-  const nsz=$("#set-nsz",m); nsz.oninput=()=>{ s.graphNodeSize=+nsz.value; $("#val-nsz",m).textContent=nsz.value+"×"; persist(); }; nsz.onchange=()=>{ if(graph) graph.build(); };   // размер r считается в build → пересобираем при отпускании
-  const deg=$("#set-deg",m); deg.oninput=()=>{ s.graphDegScale=+deg.value; $("#val-deg",m).textContent=deg.value+"×"; persist(); }; deg.onchange=()=>{ if(graph) graph.build(); };   // 0× = все ноды одного размера; больше = сильнее зависит от связей
-  const done=$("#set-done",m); done.oninput=()=>{ s.graphDoneScale=+done.value; $("#val-done",m).textContent=done.value+"×"; persist(); }; done.onchange=()=>{ if(graph) graph.build(); };   // насколько ужимать завершённые ветки
-  const lbr=$("#set-lbright",m); lbr.oninput=()=>{ s.graphLinkBright=+lbr.value; $("#val-lbright",m).textContent=lbr.value+"×"; persist(); if(graph) graph.build(); };   // яркость обычных связей
-  const dlen=$("#set-donelen",m); dlen.oninput=()=>{ s.graphDoneLinkLen=+dlen.value; $("#val-donelen",m).textContent=dlen.value+"×"; persist(); if(graph){ graph.build(); graph.alpha=Math.max(graph.alpha,0.4); } };   // длина связей завершённых → будим симуляцию
-  const fbr=$("#set-fbright",m); fbr.oninput=()=>{ s.graphFadedBright=+fbr.value; $("#val-fbright",m).textContent=fbr.value+"×"; persist(); if(graph) graph.build(); };   // яркость потухших связей
+  /* ВСЕ настройки вида и графа ниже пишутся ТИХО (persist(true)). Настройки в снимок отката не
+     входят (см. core.js) — обычный persist() всё равно ничего туда не кладёт (undoPush сверяет
+     _undoKey и видит, что данные те же), НО в конце каждого дебаунса он безусловно пересчитывает
+     _undoSnap()+_undoKey() — две полные сериализации items/links/areas/tags — ради сравнения,
+     которое и так ничего не найдёт. На протяжке ползунка (десятки oninput подряд) это лишняя
+     работа на каждое отпускание. Тот же класс бага, что уже чинили для камеры графа. */
+  $$("#set-theme button",m).forEach(b=>b.onclick=()=>{ s.theme=b.dataset.v; persist(true); applySettings(); $$("#set-theme button",m).forEach(x=>x.classList.toggle("on",x===b)); if(view==="notes") render(); });
+  $$("#set-glow button",m).forEach(b=>b.onclick=()=>{ s.glow=+b.dataset.v; persist(true); applySettings(); $$("#set-glow button",m).forEach(x=>x.classList.toggle("on",x===b)); });
+  $$("#set-bg button",m).forEach(b=>b.onclick=()=>{ s.graphBg=b.dataset.v==="1"; persist(true); $$("#set-bg button",m).forEach(x=>x.classList.toggle("on",x===b)); });
+  const drift=$("#set-drift",m); drift.oninput=()=>{ s.graphDrift=+drift.value; $("#val-drift",m).textContent=drift.value; persist(true); };   // граф читает S.settings каждый кадр → применяется вживую
+  const spread=$("#set-spread",m); spread.oninput=()=>{ s.graphSpread=+spread.value; $("#val-spread",m).textContent=spread.value+"×"; persist(true); if(graph) graph.alpha=Math.max(graph.alpha,0.4); };
+  const len=$("#set-len",m); len.oninput=()=>{ s.graphLinkLen=+len.value; $("#val-len",m).textContent=len.value+"×"; persist(true); if(graph) graph.alpha=Math.max(graph.alpha,0.4); };   // будим симуляцию → связи переезжают к новой длине вживую
+  const nsz=$("#set-nsz",m); nsz.oninput=()=>{ s.graphNodeSize=+nsz.value; $("#val-nsz",m).textContent=nsz.value+"×"; persist(true); }; nsz.onchange=()=>{ if(graph) graph.build(); };   // размер r считается в build → пересобираем при отпускании
+  const deg=$("#set-deg",m); deg.oninput=()=>{ s.graphDegScale=+deg.value; $("#val-deg",m).textContent=deg.value+"×"; persist(true); }; deg.onchange=()=>{ if(graph) graph.build(); };   // 0× = все ноды одного размера; больше = сильнее зависит от связей
+  const done=$("#set-done",m); done.oninput=()=>{ s.graphDoneScale=+done.value; $("#val-done",m).textContent=done.value+"×"; persist(true); }; done.onchange=()=>{ if(graph) graph.build(); };   // насколько ужимать завершённые ветки
+  const lbr=$("#set-lbright",m); lbr.oninput=()=>{ s.graphLinkBright=+lbr.value; $("#val-lbright",m).textContent=lbr.value+"×"; persist(true); if(graph) graph.build(); };   // яркость обычных связей
+  const dlen=$("#set-donelen",m); dlen.oninput=()=>{ s.graphDoneLinkLen=+dlen.value; $("#val-donelen",m).textContent=dlen.value+"×"; persist(true); if(graph){ graph.build(); graph.alpha=Math.max(graph.alpha,0.4); } };   // длина связей завершённых → будим симуляцию
+  const fbr=$("#set-fbright",m); fbr.oninput=()=>{ s.graphFadedBright=+fbr.value; $("#val-fbright",m).textContent=fbr.value+"×"; persist(true); if(graph) graph.build(); };   // яркость потухших связей
   // подсветка «в работе» — рисуется каждый кадр, поэтому применяется вживую без пересборки
-  $$("#set-doglow button",m).forEach(b=>b.onclick=()=>{ s.graphDoingGlow=b.dataset.v==="1"; persist(); $$("#set-doglow button",m).forEach(x=>x.classList.toggle("on",x===b)); });
-  const elDgr=$("#set-dgr",m); elDgr.oninput=()=>{ s.graphDoingGlowRadius=+elDgr.value; $("#val-dgr",m).textContent=elDgr.value; persist(); };
-  const elDgb=$("#set-dgb",m); elDgb.oninput=()=>{ s.graphDoingGlowBright=+elDgb.value; $("#val-dgb",m).textContent=elDgb.value; persist(); };
-  const elDgbl=$("#set-dgbl",m); elDgbl.oninput=()=>{ s.graphDoingGlowBlur=+elDgbl.value; $("#val-dgbl",m).textContent=elDgbl.value; persist(); };
+  /* Переключение рендера пересобирает вид целиком: Graph решает, создавать ли SVG-элементы,
+     в build(), и на лету это не меняется. render() снимает старый граф и строит новый — данные
+     при этом не трогаются вовсе. */
+  $$("#set-render button",m).forEach(b=>b.onclick=()=>{ s.graphRender=b.dataset.v; persist(true);
+    $$("#set-render button",m).forEach(x=>x.classList.toggle("on",x===b));
+    if(view==="notes") render(); });
+  // потолок кадров применяется на лету: _schedule читает настройку перед каждым кадром
+  $$("#set-maxfps button",m).forEach(b=>b.onclick=()=>{ s.graphFpsCap=+b.dataset.v; persist(true);
+    $$("#set-maxfps button",m).forEach(x=>x.classList.toggle("on",x===b));
+    if(graph) graph._wake(); });
+  $$("#set-fastzoom button",m).forEach(b=>b.onclick=()=>{ s.graphFastZoom=b.dataset.v==="1"; persist(true);
+    $$("#set-fastzoom button",m).forEach(x=>x.classList.toggle("on",x===b));
+    if(graph){ graph._сн=null; graph._wake(); } });
+  $$("#set-doglow button",m).forEach(b=>b.onclick=()=>{ s.graphDoingGlow=b.dataset.v==="1"; persist(true); $$("#set-doglow button",m).forEach(x=>x.classList.toggle("on",x===b)); });
+  const elDgr=$("#set-dgr",m); elDgr.oninput=()=>{ s.graphDoingGlowRadius=+elDgr.value; $("#val-dgr",m).textContent=elDgr.value; persist(true); };
+  const elDgb=$("#set-dgb",m); elDgb.oninput=()=>{ s.graphDoingGlowBright=+elDgb.value; $("#val-dgb",m).textContent=elDgb.value; persist(true); };
+  const elDgbl=$("#set-dgbl",m); elDgbl.oninput=()=>{ s.graphDoingGlowBlur=+elDgbl.value; $("#val-dgbl",m).textContent=elDgbl.value; persist(true); };
   const showTab=(name)=>{ const t=$(`.set-tab[data-tab="${name}"]`,m); if(!t) return;
     $$(".set-tab",m).forEach(x=>x.classList.toggle("on",x===t));
     $$(".set-panel",m).forEach(p=>p.hidden=p.dataset.panel!==name); };
@@ -822,7 +862,7 @@ function openSettings(tab){
     if(!(await uiConfirm("Настройки вида и графа вернутся к значениям по умолчанию. Заметки, задачи и схемы не пострадают.",
         {danger:true, title:"Сбросить настройки?", okLabel:"Сбросить"}))) return;
     const cur=$(".set-tab.on",m), back=cur?cur.dataset.tab:null;
-    ["theme","glow","graphBg","graphDrift","graphSpread","graphLinkLen","graphNodeSize","graphDegScale","graphDoneScale","graphDoneLinkLen","graphLinkBright","graphFadedBright","graphDoingGlow","graphDoingGlowRadius","graphDoingGlowBright","graphDoingGlowBlur"].forEach(k=>s[k]=def[k]);
+    ["theme","glow","graphBg","graphDrift","graphSpread","graphLinkLen","graphNodeSize","graphDegScale","graphDoneScale","graphDoneLinkLen","graphLinkBright","graphFadedBright","graphDoingGlow","graphDoingGlowRadius","graphDoingGlowBright","graphDoingGlowBlur","graphFpsCap","graphFastZoom"].forEach(k=>s[k]=def[k]);
     persist(); applySettings(); ov.remove(); openSettings(back); if(graph) graph.build(); if(view==="notes") render();
   };
   // ---- обновления ----
