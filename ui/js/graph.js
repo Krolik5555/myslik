@@ -3,7 +3,10 @@
    NOTES GRAPH
    =========================================================== */
 let graph=null;
-let graphCam=null;   // камера графа (tx/ty/zoom) переживает пересоздание Graph → нет рывка вьюпорта при создании ноды/связи
+/* Камера — СЛОВАРЬ по id графа (переживает пересоздание Graph при каждом render() → нет рывка
+   вьюпорта при создании ноды/связи), а не одна на всё приложение: иначе переключение графов
+   уносило бы камеру графа A на граф B, и человек терял ноды из вида (см. Graph.constructor). */
+let graphCam={};
 let graphClip=null;  // буфер копирования нод (Ctrl+C/V в графе)
 /* ВЫКЛЮЧАТЕЛЬ ДИАГНОСТИКИ ДРОЖИ. Живёт на уровне модуля, а не на объекте графа: Graph
    пересоздаётся на каждый render(), и флаг на экземпляре гас бы от любого перехода по вкладкам
@@ -288,14 +291,26 @@ class Graph{
     this.alpha=1; this.drag=null; this.linkFrom=null; this.sel=null;
     this._dbg = _дрожьВкл ? this._dbgNew() : null;   // диагностика дрожи — только по выключателю (см. дрожь())
     this.zoom=1; this.tx=0; this.ty=0; this.panning=null;
-    /* Камера с прошлого запуска. graphCam живёт только в памяти вкладки, поэтому после
-       перезапуска приложения вид открывался в стороне от графа. Числа проверяем: битая
-       настройка не должна утащить вьюпорт в пустоту. */
-    const кам=S.settings && S.settings.graphCam;
-    if(кам && isFinite(кам.tx) && isFinite(кам.ty) && isFinite(кам.zoom) && кам.zoom>0.05 && кам.zoom<4){
-      if(!graphCam) graphCam={tx:+кам.tx, ty:+кам.ty, zoom:+кам.zoom};
+    /* СВОЙ id графа — запоминаем ОДИН РАЗ здесь, а не читаем S.settings.graph по требованию
+       дальше (build(), отложенная запись камеры): экземпляр Graph никогда не переживает смену
+       графа — render() его сносит и создаёт новый (см. renderNotes) — а вот ОТЛОЖЕННАЯ запись
+       камеры (_applyTransform → _camSave, до 1900 мс) вполне может дожить до момента, когда
+       S.settings.graph уже указывает на СЛЕДУЮЩИЙ граф. Читать его тогда — значит подписать
+       камеру старого графа именем нового. */
+    this._графID=S.settings.graph;
+    /* Камера с прошлого запуска — СВОЯ у каждого графа (см. graphCam выше и миграцию в
+       sanitizeState). graphCam живёт только в памяти вкладки, поэтому после перезапуска
+       приложения вид открывался в стороне от графа. Числа проверяем: битая настройка не
+       должна утащить вьюпорт в пустоту. */
+    if(!graphCam[this._графID]){
+      const кам=S.settings.graphCam && S.settings.graphCam[this._графID];
+      if(кам && isFinite(кам.tx) && isFinite(кам.ty) && isFinite(кам.zoom) && кам.zoom>0.05 && кам.zoom<4){
+        graphCam[this._графID]={tx:+кам.tx, ty:+кам.ty, zoom:+кам.zoom};
+      }
+    }
+    if(graphCam[this._графID]){
       // ставим и на сам граф: build() тоже её поднимет, но до первого build камера уже верная
-      this.tx=graphCam.tx; this.ty=graphCam.ty; this.zoom=graphCam.zoom;
+      this.tx=graphCam[this._графID].tx; this.ty=graphCam[this._графID].ty; this.zoom=graphCam[this._графID].zoom;
     }
     /* Мировой сдвиг фон-параллакса: копится ТОЛЬКО от пана (не от зума/фита) → зум читается чисто.
        Берём его из модульного хранилища, как камеру: Graph пересоздаётся на каждый render(), и с
@@ -715,7 +730,7 @@ class Graph{
     if(this.mainCanvas) this.mainCanvas.style.display=this.canvasMode?"block":"none";
     this._пал=null;   // палитра из CSS перечитывается на каждую сборку: тема могла смениться
     this._bgReduce=!!(window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-    if(graphCam){ this.tx=graphCam.tx; this.ty=graphCam.ty; this.zoom=graphCam.zoom; }   // восстановить камеру ДО размещения (для центра вида)
+    if(graphCam[this._графID]){ this.tx=graphCam[this._графID].tx; this.ty=graphCam[this._графID].ty; this.zoom=graphCam[this._графID].zoom; }   // восстановить камеру ДО размещения (для центра вида)
     const cx=this.W/2, cy=this.H/2;
     // сохраняем текущие позиции узлов, чтобы при перестроении (смена цвета/связи) граф не «прыгал»
     const prev=this.byId||{};
@@ -1048,7 +1063,7 @@ class Graph{
     });
     this._wire();
     this._paintSel();   // вернуть подсветку выделения после перестроения
-    if(graphCam){ this.tx=graphCam.tx; this.ty=graphCam.ty; this.zoom=graphCam.zoom; }   // восстановить камеру → вьюпорт не прыгает при ребилде
+    if(graphCam[this._графID]){ this.tx=graphCam[this._графID].tx; this.ty=graphCam[this._графID].ty; this.zoom=graphCam[this._графID].zoom; }   // восстановить камеру → вьюпорт не прыгает при ребилде
     this._applyTransform();   // сразу ставим трансформу на новый корень (иначе кадр рисуется в (0,0) до первого пана)
     // первичная раскладка — полный «разогрев»; перестроение (цвет/связь) — лёгкое, чтобы граф не прыгал
     // плавный старт: позиции уже сохранены → не дёргаем (alpha 0); новые узлы мягко вписываются (0.12);
@@ -1294,7 +1309,7 @@ class Graph{
   }
   _applyTransform(){
     this._wake();                        // камера поехала — нужен кадр
-    graphCam={tx:this.tx,ty:this.ty,zoom:this.zoom};   // запоминаем камеру для следующего пересоздания графа
+    graphCam[this._графID]={tx:this.tx,ty:this.ty,zoom:this.zoom};   // запоминаем камеру ЭТОГО графа для следующего пересоздания
     /* И НА ДИСК тоже — иначе после перезапуска граф открывался «где-то в ебенях»: камера жила
        только в памяти вкладки. Пишем с задержкой: _applyTransform зовётся на каждый кадр пана
        и зума, а persist гонит весь файл через мост.
@@ -1314,7 +1329,10 @@ class Graph{
       // ДВЕ спокойные проверки подряд: жест мог начаться ровно в тот миг, когда сработал таймер,
       // и тогда рывок от записи пришёлся бы на первое же движение — то, ради чего всё это
       if(++спокойно<2){ this._camSave=setTimeout(записать, 400); return; }
-      S.settings.graphCam={tx:this.tx, ty:this.ty, zoom:this.zoom};
+      // this._графID — не S.settings.graph: к моменту срабатывания (до 1900 мс) человек мог
+      // уже переключиться на другой граф, и текущее значение указывало бы не туда (см. конструктор)
+      if(!S.settings.graphCam || typeof S.settings.graphCam!=="object") S.settings.graphCam={};
+      S.settings.graphCam[this._графID]={tx:this.tx, ty:this.ty, zoom:this.zoom};
       persist(true);
     };
     this._camSave=setTimeout(записать, 3000);
