@@ -184,6 +184,22 @@ t.push({имя:"состояние приложения не пострадал�
           факт: "нод "+s4.items.length+", досок "+Object.keys(s4.boards).length});
 }
 
+/* ДЕФОЛТ НАСТРОЙКИ НЕ ПЕРЕЕЗЖАЕТ ПОВЕРХ УЖЕ СОХРАНЁННОГО ВЫБОРА. sanitizeState сливает дефолт
+   с файлом через Object.assign({}, defaultState().settings, s.settings||{}) — явное значение
+   в файле всегда побеждает. Смена дефолта в коде (пример: graphRender на canvas, 2026-08-11)
+   обязана трогать ТОЛЬКО совсем новые файлы (ключа ещё не было вовсе), а не тех, кто уже
+   сохранялся при старом дефолте — иначе обновление тихо переключило бы вид всем разом. */
+{
+  const своё = sanitizeState(Object.assign(defaultState(), {settings:{graphRender:"svg"}}));
+  t.push({имя:"явно сохранённый режим отрисовки графа переживает смену дефолта в коде",
+          ок: своё.settings.graphRender==="svg",
+          факт: "ждали svg (записан явно), получили "+своё.settings.graphRender});
+  const новый = sanitizeState(Object.assign(defaultState(), {settings:{}}));
+  t.push({имя:"у совсем нового файла (ключа нет) подхватывается ТЕКУЩИЙ дефолт приложения",
+          ок: новый.settings.graphRender===defaultState().settings.graphRender,
+          факт: "дефолт сейчас "+defaultState().settings.graphRender+", получили "+новый.settings.graphRender});
+}
+
 /* ДОСКИ ЧЕРЕЗ МОСТ — ТОЛЬКО КОГДА РЕАЛЬНО ПОМЕНЯЛИСЬ. На живых данных доски — 3.5+ из 4+ МБ
    файла, и раньше мост нёс их ПОЛНОСТЬЮ на каждый save(), даже когда правили чек-бокс задачи.
    boardSet/boardDelete — ЕДИНСТВЕННЫЙ путь мутации S.boards (см. core.js) — бьют счётчик
