@@ -52,13 +52,13 @@ function fieldsText(it){
 function fieldsDrop(it){
   fieldsOf(it).forEach(f=>{
     if(f.media && S.media) delete S.media[f.media];
-    if(f.type==="board" && S.boards) delete S.boards[fieldBoardKey(f.id)];
+    if(f.type==="board") boardDelete(fieldBoardKey(f.id));
   });
 }
 function fieldDrop(f){
   if(!f) return;
   if(f.media && S.media) delete S.media[f.media];
-  if(f.type==="board" && S.boards) delete S.boards[fieldBoardKey(f.id)];
+  if(f.type==="board") boardDelete(fieldBoardKey(f.id));
 }
 /* Упаковка для буфера графа и дубликата: поля вместе с их содержимым. Ключи НЕ переносим —
    их выдаёт распаковка, иначе копия и оригинал делили бы одну картинку и один холст. */
@@ -74,12 +74,11 @@ function fieldsPack(it){
 }
 function fieldsUnpack(pack){
   if(!pack || !Array.isArray(pack.fields) || !pack.fields.length) return null;
-  if(!S.boards || typeof S.boards!=="object") S.boards={};
   if(!S.media  || typeof S.media !=="object") S.media={};
   return pack.fields.map(f=>{
     const старый=f.id, n=Object.assign({}, f, {id:"f_"+uid()});
     if(n.media){ const url=(pack.media||{})[n.media]; n.media = url ? fieldMediaPut(url) : null; }
-    if(n.type==="board"){ const b=(pack.boards||{})[старый]; if(b) S.boards[fieldBoardKey(n.id)]=b; }
+    if(n.type==="board"){ const b=(pack.boards||{})[старый]; if(b) boardSet(fieldBoardKey(n.id), b); }
     return n;
   });
 }

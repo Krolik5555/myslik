@@ -560,7 +560,7 @@ class Graph{
       if(it.done){ it.status="done"; it.doneAt=d.doneAt||Date.now(); }
       else if(it.status==="done"){ it.status="todo"; it.doneAt=null; }
       if(d.kind==="flow"&&d.flow){ it.flow=JSON.parse(JSON.stringify(d.flow)); ensureFlow(it); }
-      if(d.kind==="flow"&&d.board){ if(!S.boards) S.boards={}; S.boards[it.id]=JSON.parse(JSON.stringify(d.board)); }
+      if(d.kind==="flow"&&d.board){ boardSet(it.id, JSON.parse(JSON.stringify(d.board))); }
       if(d.pack){ const поля=fieldsUnpack(d.pack); if(поля) it.fields=поля; }
       it.x=(d.x||0)+off; it.y=(d.y||0)+off;
       map[d._old]=it.id; newIds.push(it.id);

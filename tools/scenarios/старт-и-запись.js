@@ -184,6 +184,51 @@ t.push({имя:"состояние приложения не пострадал�
           факт: "нод "+s4.items.length+", досок "+Object.keys(s4.boards).length});
 }
 
+/* ДОСКИ ЧЕРЕЗ МОСТ — ТОЛЬКО КОГДА РЕАЛЬНО ПОМЕНЯЛИСЬ. На живых данных доски — 3.5+ из 4+ МБ
+   файла, и раньше мост нёс их ПОЛНОСТЬЮ на каждый save(), даже когда правили чек-бокс задачи.
+   boardSet/boardDelete — ЕДИНСТВЕННЫЙ путь мутации S.boards (см. core.js) — бьют счётчик
+   _boardsVer, и Store.save шлёт доски только когда он разошёлся с версией последней удачной
+   отправки. Дев-режим этого не проверяет сам по себе (там HasPy()===false, доски шлются
+   всегда, см. Store.save) — мост подменяем здесь тем же приёмом, что и выше в этом файле. */
+{
+  const слал = [];
+  // СНИМОК, а не ссылка: s.boards — это тот же живой объект S.boards (не копия), и следующий
+  // же boardDelete задним числом стёр бы ключ во всех уже отправленных «записях журнала».
+  window.pywebview.api.save = async (s) => { слал.push(s.boards ? JSON.parse(JSON.stringify(s.boards)) : s.boards); return true; };
+
+  await writeNow();                          // зафиксировать текущую версию, какой бы она ни была
+  слал.length = 0;
+
+  await writeNow();                          // ничего в досках не менялось
+  const безИзменений = слал[слал.length - 1];
+
+  const ключ = "тест_доска_" + Date.now();
+  boardSet(ключ, {elements: []});
+  await writeNow();                          // доски изменились — обязаны прийти
+  const послеBoardSet = слал[слал.length - 1];
+
+  await writeNow();                          // снова ничего не менялось
+  const ещёРаз = слал[слал.length - 1];
+
+  boardDelete(ключ);
+  await writeNow();                          // удаление — тоже изменение, обязаны прийти
+  const послеBoardDelete = слал[слал.length - 1];
+
+  t.push({имя: "мост несёт доски только когда они реально изменились",
+          ок: безИзменений === null && послеBoardSet !== null && !!послеBoardSet[ключ]
+              && ещёРаз === null && послеBoardDelete !== null && !послеBoardDelete[ключ],
+          факт: "без изменений: " + JSON.stringify(безИзменений)
+              + "; после boardSet: " + (послеBoardSet ? "пришли, есть ключ: " + !!послеBoardSet[ключ] : "null")
+              + "; повторно без изменений: " + JSON.stringify(ещёРаз)
+              + "; после boardDelete: " + (послеBoardDelete ? "пришли, ключа нет: " + !послеBoardDelete[ключ] : "null")});
+
+  слал.length = 0;
+  boardDelete("несуществующий_ключ_" + Date.now());   // удаление ОТСУТСТВУЮЩЕГО ключа — не изменение
+  await writeNow();
+  t.push({имя: "boardDelete несуществующего ключа не считается изменением",
+          ок: слал[0] === null, факт: JSON.stringify(слал[0])});
+}
+
 // убираем мост за собой
 if (былоPy === undefined) delete window.pywebview; else window.pywebview = былоPy;
 const мусор = S.items.find(i => i.title === "Мысль перед закрытием");

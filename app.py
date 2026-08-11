@@ -43,6 +43,12 @@ else:
 UI = os.path.join(_UI_BASE, "index.html")
 DATA_DIR = os.path.join(_DATA_BASE, "data")
 DATA_FILE = os.path.join(DATA_DIR, "planner.json")
+# ДОСКИ (Excalidraw, kind:"flow" и поля-доски) — ОТДЕЛЬНЫМ ФАЙЛОМ, см. Api.save/load ниже.
+# На живых данных доски — основной вес planner.json (3.6 из 4.2 МБ), и раньше ЛЮБОЕ
+# сохранение в приложении (чек-бокс задачи, ползунок настроек, мазок на доске) писало на
+# диск ВЕСЬ этот объём разом. In-memory модель (S.boards в JS) не меняется вовсе — только
+# то, куда ложатся байты при записи и откуда подхватываются при чтении.
+BOARDS_FILE = os.path.join(DATA_DIR, "boards.json")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 MAX_BACKUPS = 30
 # Отчёт диагностики дрожи (см. debug-дрожь.bat) — рядом с приложением, а НЕ в data/: это не
@@ -233,6 +239,11 @@ _WINDOW = None
 _MAXED = False
 _SAVE_LOCK = threading.Lock()
 _HWND = 0
+# Кэш последней ЗАПИСАННОЙ версии досок (сырой JSON) — пропускаем запись boards.json, если
+# содержимое не изменилось с прошлого save() (частый случай: действие вообще не трогало
+# доски). Сбрасывается на None при каждом запуске процесса — первый save() сессии всегда
+# пишет boards.json заново; это же и есть переезд с версий, где доски лежали в planner.json.
+_LAST_BOARDS_JSON = None
 
 
 def _get_hwnd():
@@ -262,9 +273,10 @@ class Api:
         _ensure_dirs(safe=True)
         if not os.path.exists(DATA_FILE):
             return None
+        state = None
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                state = json.load(f)
         except Exception as e:
             print("load error:", e)
             # подкинуть резервную копию, если основной файл побился:
@@ -277,20 +289,63 @@ class Api:
                 for f in reversed(bks):
                     try:
                         with open(os.path.join(BACKUP_DIR, f), "r", encoding="utf-8") as bf:
-                            return json.load(bf)
+                            state = json.load(bf)
+                            break
                     except Exception:
                         continue
             except Exception:
                 pass
+        if state is None:
             return None
+        # ДОСКИ поверх основного файла (см. save()). boards.json — авторитетный источник,
+        # если уже существует. Не существует — с версии ДО этой правки доски ещё лежат
+        # ВСТРОЕННЫМИ в planner.json (state уже несёт их в себе, только что прочитан выше),
+        # и мы их не трогаем: переезд завершится сам на первом же save() этой сессии,
+        # никакого отдельного шага миграции нет и не нужно — не потерять доску можно, только
+        # ничего не подменяя, пока не появится новый файл.
+        if os.path.exists(BOARDS_FILE):
+            try:
+                with open(BOARDS_FILE, "r", encoding="utf-8") as f:
+                    boards = json.load(f)
+                if isinstance(boards, dict):
+                    state["boards"] = boards
+            except Exception as e:
+                print("load boards error:", e)   # boards.json битый — остаёмся на том, что уже в state
+        return state
 
     def save(self, state):
         trace("save() called, items=", len((state or {}).get("items", [])))
         if not _ensure_dirs(safe=True):
             return False          # папка недоступна — честный отказ, фронт покажет предупреждение
+        global _LAST_BOARDS_JSON
+        state = state or {}
         with _SAVE_LOCK:
             try:
-                _atomic_write(DATA_FILE, json.dumps(state, ensure_ascii=False, indent=1))
+                # ДОСКИ — ОТДЕЛЬНЫМ ФАЙЛОМ (см. BOARDS_FILE выше). JS шлёт "boards" ТОЛЬКО
+                # когда они реально менялись (core.js: Store.save, счётчик _boardsVer) — иначе
+                # ключ приходит как None, и boards.json вообще не трогаем. Раньше замер end-to-
+                # end через настоящий мост (bridge_bench.py) показал: даже после разноса файлов
+                # на Python-стороне несвязанная правка всё равно стоила ~75 мс — почти столько
+                # же, сколько раньше ВСЯ запись целиком (~95 мс), потому что JS продолжал слать
+                # доски через мост при любом действии. Раз JS теперь шлёт их только когда надо —
+                # boards.json не тронется вовсе на подавляющем большинстве сохранений. Кэш
+                # _LAST_BOARDS_JSON — вторая, независимая линия защиты: даже если JS всё же
+                # прислал доски (первая запись сессии, переезд со старого формата), но
+                # содержимое совпадает с уже записанным — второй раз не пишем.
+                boards = state.get("boards")
+                if boards is not None:
+                    if not isinstance(boards, dict):
+                        boards = {}
+                    boards_json = json.dumps(boards, ensure_ascii=False)
+                    if boards_json != _LAST_BOARDS_JSON:
+                        _atomic_write(BOARDS_FILE, boards_json)
+                        _LAST_BOARDS_JSON = boards_json
+                core = dict(state)
+                core["boards"] = {}
+                # БЕЗ indent: любой отступ отключает C-ускоренный кодировщик json (CPython
+                # использует его только при indent=None) — на живом файле это почти вдвое
+                # дороже. Файл не читается человеком — тут не жертвуем ничем, только временем.
+                _atomic_write(DATA_FILE, json.dumps(core, ensure_ascii=False))
                 return True
             except Exception as e:
                 print("save error:", e)
@@ -305,6 +360,10 @@ class Api:
         dst = os.path.join(BACKUP_DIR, "planner_%s.json" % stamp)
         try:
             shutil.copy2(DATA_FILE, dst)
+            # доски — отдельным файлом (см. save()): без этой строки бэкап восстанавливал бы
+            # всё, КРОМЕ рисунков на досках, — planner.json теперь несёт их пустыми нарочно.
+            if os.path.exists(BOARDS_FILE):
+                shutil.copy2(BOARDS_FILE, os.path.join(BACKUP_DIR, "boards_%s.json" % stamp))
             self._rotate()
             return dst
         except Exception as e:
@@ -312,12 +371,18 @@ class Api:
             return ""
 
     def _rotate(self):
+        # ДВЕ независимые серии, а не общий список файлов: сортировка по имени развела бы
+        # planner_* и boards_* по разным концам списка («b» < «p»), и общий потолок в
+        # MAX_BACKUPS вычищал бы одну серию раньше другой вместо того, чтобы хранить по
+        # MAX_BACKUPS штук каждой.
         try:
-            bks = sorted(
-                [f for f in os.listdir(BACKUP_DIR) if f.endswith(".json")]
-            )
-            for old in bks[:-MAX_BACKUPS]:
-                os.remove(os.path.join(BACKUP_DIR, old))
+            for префикс in ("planner_", "boards_"):
+                bks = sorted(
+                    f for f in os.listdir(BACKUP_DIR)
+                    if f.startswith(префикс) and f.endswith(".json")
+                )
+                for old in bks[:-MAX_BACKUPS]:
+                    os.remove(os.path.join(BACKUP_DIR, old))
         except Exception:
             pass
 

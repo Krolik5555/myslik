@@ -117,9 +117,8 @@ function drawStash(){
     DRAW_STATE_KEYS.forEach(k=>{ if(st[k] !== undefined) ap[k] = st[k]; });
     if(st.zoom) ap.zoom = { value: st.zoom.value || 1 };
 
-    if(!S.boards || typeof S.boards!=="object") S.boards = {};
     const прежняя = boardOf(drawItem.id) || {};
-    S.boards[drawItem.id] = { elements: els, files: files, appState: ap, fromFlow: !!прежняя.fromFlow };
+    boardSet(drawItem.id, { elements: els, files: files, appState: ap, fromFlow: !!прежняя.fromFlow });
     drawSeen = отпечаток;
     persist(true);   // тихо: у доски своя история отмены, глобальный Ctrl+Z сюда не годится
     return true;
@@ -400,19 +399,19 @@ function drawSeedFromFlow(it){
   const f = it.flow;
   const есть = f && ((f.blocks||[]).length || (f.edges||[]).length);
   if(!есть){
-    S.boards[it.id] = { elements:[], files:{}, appState:{}, fromFlow:false };
+    boardSet(it.id, { elements:[], files:{}, appState:{}, fromFlow:false });
     return false;
   }
   try{
-    S.boards[it.id] = {
+    boardSet(it.id, {
       elements: flowToExcalidraw(f),
       files: flowFiles(f),
       appState: {},
       fromFlow: true
-    };
+    });
   }catch(e){
     // не смогли перенести — заводим пустую доску, старая схема остаётся в it.flow нетронутой
-    S.boards[it.id] = { elements:[], files:{}, appState:{}, fromFlow:false };
+    boardSet(it.id, { elements:[], files:{}, appState:{}, fromFlow:false });
     toast("Старую схему перенести не удалось, доска открыта пустой", {icon:"ti-alert-triangle"});
     return false;
   }

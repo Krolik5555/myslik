@@ -10,13 +10,40 @@
    проверка «объект api существует» истинна, а api.load() бросает TypeError: приложение
    стартовало бы в мёртвое окно. */
 const HasPy = () => typeof (window.pywebview && window.pywebview.api && window.pywebview.api.load) === "function";
+/* ВЕРСИЯ ДОСОК. Python-сторона хранит доски ОТДЕЛЬНЫМ файлом (app.py: BOARDS_FILE) — сюда
+   бьётся замер: без версии мост нёс бы S.boards ПОЛНОСТЬЮ на КАЖДЫЙ save(), хотя на живых
+   данных доски — 3.5+ МБ из 4+ МБ, и абсолютное большинство действий (чек-бокс задачи,
+   ползунок настроек графа) их вообще не касаются. bridge_bench.py: несвязанная правка через
+   мост — 95 мс со старой Python-логикой (indent=1, один файл), 75 мс после разноса файлов,
+   но БЕЗ этого счётчика мост всё ещё нёс бы полный объём — падение было в основном за счёт
+   Python-стороны, а не самой передачи.
+   ВСЕ прямые S.boards[...]=/delete S.boards[...] ОБЯЗАНЫ идти через boardSet/boardDelete —
+   иначе мутация не долетит до Store.save() как «доски изменились», и правка останется только
+   в памяти вкладки до следующего случайного «настоящего» изменения доски. */
+let _boardsVer = 0;
+let _boardsVerSent = -1;   // -1: гарантированно не равно _boardsVer → первая же запись сессии несёт доски
+function boardSet(key, value){
+  if(!S.boards || typeof S.boards!=="object") S.boards={};
+  S.boards[key]=value; _boardsVer++;
+}
+function boardDelete(key){
+  if(S.boards && key in S.boards){ delete S.boards[key]; _boardsVer++; }
+}
 const Store = {
   async load(){
     if(HasPy()) return await window.pywebview.api.load();
     try{ return JSON.parse(localStorage.getItem("planner")||"null"); }catch(e){ return null; }
   },
   async save(s){
-    if(HasPy()) return await window.pywebview.api.save(s);
+    if(HasPy()){
+      // В деве такого разделения нет (всё в одном ключе localStorage) — там доски шлём всегда,
+      // иначе следующая же «несвязанная» запись стёрла бы их из localStorage начисто.
+      const слатьДоски = _boardsVer !== _boardsVerSent;
+      const пакет = слатьДоски ? s : Object.assign({}, s, {boards:null});
+      const ok = await window.pywebview.api.save(пакет);
+      if(ok!==false && слатьДоски) _boardsVerSent = _boardsVer;
+      return ok;
+    }
     localStorage.setItem("planner", JSON.stringify(s));
   },
   async backup(){
@@ -293,10 +320,10 @@ function graphDelete(id){
   if(!Array.isArray(S.graphs) || S.graphs.length<2) return false;
   const g=S.graphs.find(x=>x.id===id); if(!g) return false;
   g.items.forEach(it=>{
-    if(S.boards) delete S.boards[it.id];
+    boardDelete(it.id);
     (it.fields||[]).forEach(f=>{
       if(f.media && S.media) delete S.media[f.media];
-      if(f.type==="board" && S.boards) delete S.boards[fieldBoardKey(f.id)];
+      if(f.type==="board") boardDelete(fieldBoardKey(f.id));
     });
   });
   S.graphs=S.graphs.filter(x=>x.id!==id);
@@ -712,9 +739,8 @@ function trashRevive(items){
   if(!_trash.size) return;
   (items||[]).forEach(it=>{
     const к=_trash.get(it.id); if(!к) return;
-    if(!S.boards || typeof S.boards!=="object") S.boards={};
     if(!S.media  || typeof S.media !=="object") S.media={};
-    Object.keys(к.boards).forEach(x=>{ if(!S.boards[x]) S.boards[x]=к.boards[x]; });
+    Object.keys(к.boards).forEach(x=>{ if(!S.boards || !S.boards[x]) boardSet(x, к.boards[x]); });
     Object.keys(к.media ).forEach(x=>{ if(!S.media[x])  S.media[x] =к.media[x];  });
   });
 }
