@@ -544,7 +544,12 @@ function openItemSmart(it){
   else openItemEditor(it);
 }
 function createNew(kind){
-  if(kind==="flow"){ const it=addItem({kind:"flow", title:"Новое полотно", area:areaFilter||null}); render(); openFlowEditor(it); }
+  /* Полотно СОЗДАЁТСЯ, но НЕ открывается фулскрином сразу (КРОЛИК, 2026-08-11) — раньше эта
+     ветка звала openFlowEditor(it) сразу после addItem, и создание любого полотна выдёргивало
+     в полноэкранный редактор доски без спроса. Сама доска по-прежнему открывается на весь
+     экран, когда её ОТКРЫВАЮТ (см. инвариант в CLAUDE.md) — трогаем только момент СОЗДАНИЯ.
+     Нода без координат уходит в лоток графа, как и любая другая мысль без места на холсте. */
+  if(kind==="flow"){ addItem({kind:"flow", title:"Новое полотно", area:areaFilter||null}); render(); }
   // шаблон по умолчанию (если выбран) заводит ноду сразу с нужными полями; не выбран — как раньше
   else openItemEditor(null, kind, null, templateSeed(templateDefault(), kind));
 }

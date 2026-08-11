@@ -198,10 +198,13 @@ function asideApplyWidth(){
     S.settings.asideFrac = Math.min(0.6, Math.max(0.2, (+S.settings.asideW || 420) / Math.max(600, window.innerWidth)));
     persist();
   }
+  /* Ширина панели — ТОЛЬКО от asideFrac, без исключений под доску. Раньше открытие ноды-полотна
+     принудительно раздвигало панель минимум до BOARD_MIN (790 px), а уход с неё возвращал
+     обычную ширину — панель прыгала при каждом переключении между узкой карточкой и полотном.
+     Узкая доска и так умеет показать себя статично («панель уже N px — открой доску целиком»,
+     см. renderAside/тело ниже) — этого достаточно, мобильная раскладка Excalidraw не критична. */
   const макс = asideMaxW();
-  let w = Math.min(макс, Math.max(300, Math.round(window.innerWidth * S.settings.asideFrac)));
-  const it = asideId ? liveById(asideId) : null;
-  if(it && it.kind==="flow" && asideBoardFits()) w = Math.min(макс, Math.max(w, BOARD_MIN));
+  const w = Math.min(макс, Math.max(300, Math.round(window.innerWidth * S.settings.asideFrac)));
   a.style.width = w + "px";
 }
 

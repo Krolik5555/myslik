@@ -592,7 +592,9 @@ class Graph{
     it.x=Math.round(wx); it.y=Math.round(wy); persist();
     if(fromId) addLink(fromId, it.id);
     recomputeHierarchy(); this.build();
-    if(kind==="flow") openFlowEditor(it); else this._inlineRename(it.id);
+    // полотно тоже сразу переименовывается на месте, а не выдёргивает в фулскрин доски —
+    // доска открывается только по явному открытию ноды (двойной клик и т.п.)
+    this._inlineRename(it.id);
   }
   // меню «Создать» по ПКМ на пустом месте холста — заметка / задача / схема в точке клика
   _openCreateMenu(e){
