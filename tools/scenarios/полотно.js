@@ -73,6 +73,30 @@ const инстр1 = st().activeTool.type;
 await ж(150);
 t.push({имя:"горячие клавиши доски работают", ок: инстр1 === "rectangle" && st().activeTool.type === "ellipse",
         факт: "r → " + инстр1 + ", o → " + st().activeTool.type});
+/* ТЕ ЖЕ КЛАВИШИ НА РУССКОЙ РАСКЛАДКЕ. Вендор ищет букву в e.key, и с русской раскладки ему
+   приходит «к» вместо «r» — ни один инструмент не совпадает, клавиши мертвы. Подменяет событие
+   мост раскладки в draw.js (по e.code, он от раскладки не зависит). */
+drawApi.setActiveTool({type:"selection"});
+кор.dispatchEvent(new KeyboardEvent("keydown", {key:"к", code:"KeyR", bubbles:true, cancelable:true}));
+await ж(150);
+const рус1 = st().activeTool.type;
+кор.dispatchEvent(new KeyboardEvent("keydown", {key:"щ", code:"KeyO", bubbles:true, cancelable:true}));
+await ж(150);
+t.push({имя:"горячие клавиши доски работают и на русской раскладке",
+        ок: рус1 === "rectangle" && st().activeTool.type === "ellipse",
+        факт: "к → " + рус1 + ", щ → " + st().activeTool.type});
+// а вот в поле ввода подмены быть не должно: там клавиша — это буква, а не команда
+{
+  const поле = document.createElement("input"); кор.appendChild(поле); поле.focus();
+  let подменено = false;
+  const шпион = e => { if (e.key === "r") подменено = true; };
+  поле.addEventListener("keydown", шпион);
+  поле.dispatchEvent(new KeyboardEvent("keydown", {key:"к", code:"KeyR", bubbles:true, cancelable:true}));
+  await ж(60);
+  поле.removeEventListener("keydown", шпион); поле.remove();
+  t.push({имя:"в поле ввода буква остаётся буквой", ок: !подменено,
+          факт: подменено ? "«к» подменилась на «r»" : "подмены нет"});
+}
 let утекло = false;
 const шпион = () => { утекло = true; };
 document.addEventListener("keydown", шпион);

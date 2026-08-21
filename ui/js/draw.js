@@ -419,6 +419,38 @@ function drawSeedFromFlow(it){
   return true;
 }
 
+/* Мост раскладки. Вендор ловит буквы инструментов по e.key (v, r, o, a, t, d, l, e…), и на
+   русской раскладке приходит «м», «к», «щ» — ни одна буква не совпадает, клавиши мертвы.
+   Править вендор нельзя, поэтому подменяем событие в capture-фазе: физическая клавиша известна
+   из e.code (KeyR от раскладки не зависит), собираем такое же событие с латинской буквой и
+   шлём в ту же цель. Оригинал глушим stopPropagation, но БЕЗ preventDefault: отмена по умолчанию
+   отняла бы у браузера родные Ctrl+C/Ctrl+V/Ctrl+X, которые он делает сам, мимо вендора.
+   Гасить оригинал обязательно — иначе вендор получил бы клавишу дважды: Z и Y он умеет читать
+   и по e.code (свой обход раскладки), и второй заход дал бы двойную отмену.
+   Набор текста не трогаем вовсе: в подписи на холсте стоит настоящая textarea, и подмена
+   события ломала бы ввод по-русски. */
+function drawLayoutBridge(wrap){
+  wrap.addEventListener("keydown", e=>{
+    if(e.defaultPrevented) return;                 // разобрано щитом выше (Ctrl+K)
+    const м = /^Key([A-Z])$/.exec(e.code || "");
+    if(!м) return;                                 // цифры, стрелки, Delete — раскладке не подвластны
+    if(e.key.length !== 1 || /^[a-zA-Z]$/.test(e.key)) return;   // латиница и Dead/Unidentified — мимо
+    const цель = e.target;
+    if(!цель || drawIsTextTarget(цель)) return;
+    e.stopPropagation();
+    const буква = e.shiftKey ? м[1] : м[1].toLowerCase();
+    цель.dispatchEvent(new KeyboardEvent("keydown", {
+      key: буква, code: e.code, keyCode: м[1].charCodeAt(0), which: м[1].charCodeAt(0),
+      ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, altKey: e.altKey,
+      repeat: e.repeat, bubbles: true, cancelable: true, composed: true
+    }));
+  }, true);
+}
+// поле ввода или редактируемый узел — там клавиша это буква, а не команда
+function drawIsTextTarget(el){
+  return el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName || "");
+}
+
 /* Монтаж доски в произвольный контейнер. Общая часть двух режимов: полноэкранного слоя
    и врезки в правую панель. Возвращает промис — вызвавшему бывает нужно знать, поднялось ли. */
 function drawInto(it, host){
@@ -439,6 +471,7 @@ function drawInto(it, host){
         if($("#overlay-root").children.length === 0) openPalette();
       }
     }, true);
+    drawLayoutBridge(wrap);
   }
   return drawLoadLib().then(ok=>{
     if(drawItem !== it || !host.isConnected) return false;   // успели закрыть или переключиться

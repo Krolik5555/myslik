@@ -642,7 +642,6 @@ function openShortcuts(){
     <h3><i class="ti ti-keyboard"></i>Горячие клавиши и жесты</h3>
     <div class="sc-sec">Везде</div>${rows([
       ["<kbd>Ctrl</kbd><kbd>K</kbd>","Поиск и команды"],
-      ["<kbd>N</kbd>","Новая задача"],
       ["<kbd>/</kbd>","Фокус в поле захвата"],
       ["<kbd>Esc</kbd>","Закрыть окно / отменить"],
     ])}
@@ -665,6 +664,7 @@ function openShortcuts(){
       ["<kbd>Ctrl</kbd>+колесо","Зум"],
       ["<kbd>Ctrl</kbd><kbd>Z</kbd> · <kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>Z</kbd>","Отмена · возврат (своя история доски)"],
       ["<kbd>Delete</kbd>","Удалить выделенное"],
+      ["Раскладка","Клавиши работают и на русской — жать можно не переключаясь"],
     ])}
     <div class="modal-foot"><div class="right"><button class="btn primary" id="sc-close"><i class="ti ti-check"></i>Понятно</button></div></div>`;
   const ov=overlay(m); $("#sc-close",m).onclick=()=>ov.remove();
