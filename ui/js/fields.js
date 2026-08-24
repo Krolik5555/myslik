@@ -23,6 +23,7 @@ const FIELD_META = {
   board: {icon:"ti-artboard",   name:"Доска"}
 };
 const FIELD_IMG_MAX = 1600;          // сторона, до которой ужимаем картинку при вставке
+const FIELD_BAR_H   = 36;            // полоса с названием над содержимым (она же вся высота свёрнутой плитки)
 
 /* ---------- данные ---------- */
 
@@ -285,6 +286,44 @@ function fieldPasteUnder(){
   const box=n && n.closest ? n.closest(".fld-box") : null;
   return (box && box.__пастеПринять) ? box : null;
 }
+/* Над доской не встреваем: у Excalidraw своя вставка, картинка ложится прямо на холст. Окно
+   правки со своей панелью полей при этом никуда не делось (доска открывается ПОВЕРХ него),
+   и без этой проверки Ctrl+V на доске заводил бы поле вместо рисунка. */
+function fieldPasteNoGo(){
+  if(document.querySelector("#overlay-root .draw-screen")) return true;
+  const вДоске=n=>!!(n && n.closest && n.closest(".excalidraw"));
+  if(вДоске(document.activeElement)) return true;
+  if(fieldPasteXY && вДоске(document.elementFromPoint(fieldPasteXY.x, fieldPasteXY.y))) return true;
+  return false;
+}
+/* Куда уедет картинка из буфера. Врезка под курсором — первым делом: человек показал пальцем.
+   Врезки нет — картинка заводит СЕБЕ поле сама. Раньше на это уходило три действия (открыть
+   ноду, нажать «картинка», вставить), из которых решало одно.
+   В окне правки и в ридере курсор не спрашиваем: окно открыто, за Ctrl+V спорить не с кем.
+   В правой панели — только под курсором: на холсте графа Ctrl+V занят вставкой скопированных
+   нод (см. main.js), и перехват вслепую отнял бы её. */
+function fieldPasteTarget(){
+  if(fieldPasteNoGo()) return null;
+  const box=fieldPasteUnder();
+  if(box) return box.__пастеПринять;
+  /* Панель ищем только в ВЕРХНЕМ слое: под окном шаблона или подтверждения может лежать
+     открытое окно правки, и вставка уезжала бы в него мимо того, с чем человек сейчас работает. */
+  const слои=document.querySelectorAll("#overlay-root > *");
+  const верх=слои[слои.length-1];
+  const вОкне=верх ? [...верх.querySelectorAll(".fld-host")].filter(h=>h.__полеПаста).pop() : null;
+  if(вОкне) return вОкне.__полеПаста;
+  /* Целимся в ПАНЕЛЬ ЦЕЛИКОМ, а не в узел с полями: у ноды без картинок это полоска кнопок
+     «Добавить поле» высотой в строку, и попасть в неё курсором было заданием на меткость.
+     Годится любое место правой панели — холст графа она не занимает, спорить за Ctrl+V не с чем. */
+  if(fieldPasteXY){
+    const n=document.elementFromPoint(fieldPasteXY.x, fieldPasteXY.y);
+    const где=n && n.closest ? n.closest(".fld-host, #aside") : null;
+    const host=!где ? null
+             : где.classList.contains("fld-host") ? где : где.querySelector(".fld-host");
+    if(host && host.__полеПаста) return host.__полеПаста;
+  }
+  return null;
+}
 function fieldPasteWire(){
   if(fieldPasteWire.готово) return;
   fieldPasteWire.готово=true;
@@ -296,12 +335,16 @@ function fieldPasteWire(){
     if(!(ev.ctrlKey||ev.metaKey) || ev.altKey) return;
     if((ev.key||"").toLowerCase()!=="v" && ev.code!=="KeyV") return;
     if(document.activeElement===fieldPasteSink.узел) return;
-    if(!fieldPasteUnder()) return;
+    /* У contenteditable фокус не отнимаем: вернуть в него текст нечем — fieldPasteGiveBack знает
+       только value. Так правятся заголовок ноды в правой панели и описание в ридере, и вставка
+       текста там пропадала бы бесследно. */
+    if(document.activeElement && document.activeElement.isContentEditable) return;
+    if(!fieldPasteTarget()) return;
     fieldPasteFocus();
   }, true);
   document.addEventListener("paste", ev=>{
-    const box=fieldPasteUnder();
-    const цель=box ? {box, принять:box.__пастеПринять} : null;
+    const принять=fieldPasteTarget();
+    const цель=принять ? {принять} : null;
     if(!цель){
       // фокус мог остаться на приёмнике после ухода мыши — текст обязан вернуться хозяину
       if(document.activeElement===fieldPasteSink.узел && fieldPastePrev && ev.clipboardData){
@@ -568,6 +611,9 @@ function fieldBlockHtml(f, i){
       ${кнопка("del","ti-x","Убрать поле")}
       ${f.type==="board"?кнопка("full","ti-maximize","Открыть доску на весь экран"):""}
       ${f.type==="image"?кнопка("pick","ti-photo-search","Выбрать картинку файлом"):""}
+      ${f.type==="image"?`<button type="button" class="fld-b${fieldAutoFit(f)?" on":""}" data-fa="fit" data-i="${i}" title="${
+        fieldAutoFit(f)?"Высота едет за картинкой — нажми, чтобы задавать её руками"
+                       :"Всегда подгонять высоту плитки под картинку"}"><i class="ti ti-aspect-ratio"></i></button>`:""}
       <span class="fld-sp"></span>
       <i class="ti ti-chevron-up fld-fold" title="Клик по полосе — свернуть"></i>
     </div>${тело}<div class="fld-grip" title="Потяни — высота плитки"></div></div>`;
@@ -622,7 +668,11 @@ function fieldsPanel(host, fields, opts){
     // картинки и снимки досок — после вставки разметки: data-URL в innerHTML раздувал бы строку
     host.querySelectorAll(".fld-img").forEach(img=>{
       const f=полеУзла(img); const url=f&&f.media&&S.media?S.media[f.media]:null;
-      if(url) img.src=url; else img.replaceWith(el("div","fld-empty","<i class='ti ti-photo-off'></i>картинка потерялась"));
+      if(!url){ img.replaceWith(el("div","fld-empty","<i class='ti ti-photo-off'></i>картинка потерялась")); return; }
+      /* Пропорции знает только загруженная картинка, поэтому пересчёт «всегда по размеру»
+         вешаем на её загрузку, а не делаем сразу после разметки. */
+      if(fieldAutoFit(f)) img.addEventListener("load", ()=>{ if(fieldsFitAuto(host, fields)) позже(сохранить); }, {once:true});
+      img.src=url;
     });
     /* Доску поднимаем СРАЗУ, а не по клику: поле для того и заводят, чтобы рисовать, и лишний
        клик по плашке был просто данью реализации. Замер размеров — через два кадра: сразу
@@ -929,7 +979,12 @@ function fieldsPanel(host, fields, opts){
         const кончить=()=>{
           window.removeEventListener("pointermove",вести); window.removeEventListener("pointerup",кончить);
           руч.classList.remove("тащим"); document.body.classList.remove("fld-grip-drag");
-          if(h!==h0){ f.gh=h; сохранить(); draw(); }   // перерисовка нужна доске: порог живой врезки зависит от высоты
+          if(h!==h0){
+            /* Потянули руками — «всегда по размеру» снимаем. Иначе жест молчал бы: высоту тут
+               же вернул бы пересчёт, и со стороны это выглядело бы как «ручка не работает». */
+            if(fieldAutoFit(f)){ f.nofit=true; toast("Высоту задаёшь руками",{icon:"ti-aspect-ratio"}); }
+            f.gh=h; сохранить(); draw();                // перерисовка нужна доске: порог живой врезки зависит от высоты
+          }
         };
         window.addEventListener("pointermove",вести); window.addEventListener("pointerup",кончить);
       });
@@ -966,6 +1021,26 @@ function fieldsPanel(host, fields, opts){
       fieldFitImage(host, f, url).then(()=>{ сохранить(); draw(); });
     });
   };
+  /* Ctrl+V мимо врезок: картинка заводит СЕБЕ поле в конце списка. Смысл жеста — «положить это
+     сюда», а не «выбери сперва, куда»; поле-приёмник человек всё равно заводил вручную и тут же
+     заполнял. Плитку сразу подгоняем под пропорции — как и при обычной вставке во врезку. */
+  const принятьНовой=(файл)=>{
+    if(fields.length>=FIELDS_MAX){ toast("Полей и так много",{icon:"ti-alert-triangle"}); return; }
+    fieldReadImage(файл).then(url=>{
+      if(!url){ toast("Это не картинка",{icon:"ti-photo-off"}); return; }
+      const нов=fieldMake("image","");
+      нов.media=fieldMediaPut(url);
+      fields.push(нов);
+      // рисуем ДО подгонки: fieldFitImage меряет ширину уже существующей плитки
+      сохранить(); draw();
+      fieldFitImage(host, нов, url).then(()=>{
+        сохранить(); draw();
+        const узел=host.querySelector('[data-fid="'+нов.id+'"]');
+        if(узел) узел.scrollIntoView({block:"nearest"});
+        toast("Картинка вставлена новым полем",{icon:"ti-photo"});
+      });
+    });
+  };
   /* Клик по врезке доски = рисовать ЗДЕСЬ ЖЕ, если врезка достаточно велика (см. fieldBoardFits).
      Не влезает — открываем на весь экран: телефонный интерфейс Excalidraw хуже, чем смена окна. */
   const рисовать=(f, box)=>{
@@ -989,7 +1064,7 @@ function fieldsPanel(host, fields, opts){
            в той же колонке), gw/gh (размеры) и gwm (ширину строки задали руками). Без st поля
            из одной колонки приезжали бы каждое своей колонкой — а именно так их и ставили. */
         fields: fields.map(f=>({type:f.type, name:f.name||"", gw:f.gw, gh:f.gh,
-                                br:f.br===true, st:f.st===true, gwm:f.gwm===true})) });
+                                br:f.br===true, st:f.st===true, gwm:f.gwm===true, nofit:f.nofit===true})) });
       return;
     }
     if(fields.length>=FIELDS_MAX){ toast("Полей и так много",{icon:"ti-alert-triangle"}); return; }
@@ -1031,6 +1106,17 @@ function fieldsPanel(host, fields, opts){
     const i=fields.indexOf(f);
     if(a==="full"){ наВесьЭкран(f); return; }
     if(a==="pick"){ выбрать(f); return; }
+    /* «Всегда по размеру». Включили — сразу подгоняем: иначе режим выглядел бы сломанным до
+       первой смены ширины. Выключили — высота остаётся той, какая есть, и дальше её задают рукой. */
+    if(a==="fit"){
+      if(fieldAutoFit(f)) f.nofit=true; else delete f.nofit;
+      const авто=fieldAutoFit(f);
+      const url=(авто && f.media && S.media) ? S.media[f.media] : null;
+      if(url) await fieldFitImage(host, f, url);
+      сохранить(); draw();
+      toast(авто?"Высота едет за картинкой":"Высоту задаёшь руками",{icon:"ti-aspect-ratio"});
+      return;
+    }
     if(a==="del"){
       const непусто = f.type==="text" ? !!(f.value||"").trim()
                     : f.type==="image" ? !!f.media
@@ -1045,27 +1131,70 @@ function fieldsPanel(host, fields, opts){
     }
   };
 
+  /* Разделитель меняет ширину панели БЕЗ перерисовки полей, и «всегда по размеру» обязано ехать
+     следом — иначе режим работал бы ровно до первого движения разделителя. Наблюдателя заводим
+     заново на каждую панель: прежний держал бы старый массив полей (панель одна на три места). */
+  if(host.__fitRO){ host.__fitRO.disconnect(); host.__fitRO=null; }
+  if(typeof ResizeObserver!=="undefined"){
+    host.__fitRO=new ResizeObserver(()=>{ if(fieldsFitAuto(host, fields)) позже(сохранить); });
+    host.__fitRO.observe(host);
+  }
   host._fieldsDraw=draw;   // владелец панели может попросить перерисовать (сменилась тема, вернулись с доски)
-  draw();
+  /* Метка для вставки: по ней Ctrl+V находит панель (в окне — любую, в правой панели — ту, что
+     под курсором). Класс, а не реестр: панель живёт ровно столько, сколько её узел в DOM. */
+  host.classList.add("fld-host");
+  host.__полеПаста=принятьНовой;
+  draw();                  // слушатели вставки ставит wire() внутри отрисовки
   return { draw };
 }
 
 /* Плитку под пропорции вставленной картинки: ширину человек уже выбрал, а высоту считаем от
-   неё — «картинка по размеру картинки» без ручной подгонки. */
+   неё — «картинка по размеру картинки» без ручной подгонки.
+
+   Ширину меряем у САМОЙ ПЛИТКИ. Раньше мерили узел `.fld-grid`, а его в панели нет с тех пор,
+   как поля переехали на строки и колонки: querySelector отдавал пусто, функция молча выходила,
+   и картинка ложилась в плитку прежней высоты — куском или с пустыми полями по краям. */
 function fieldFitImage(host, f, url){
   return new Promise(res=>{
-    const сетка=host.querySelector(".fld-grid");
-    if(!сетка){ res(false); return; }
-    const ширина=Math.max(40, сетка.getBoundingClientRect().width/GRID_COLS*f.gw - GRID_GAP);
+    const плитка=host.querySelector('[data-fid="'+f.id+'"]');
+    const ширина=Math.max(40, плитка ? плитка.getBoundingClientRect().width
+                    : host.getBoundingClientRect().width/GRID_COLS*f.gw - GRID_GAP);
     const img=new Image();
     img.onerror=()=>res(false);
     img.onload=()=>{
-      const k=(img.naturalHeight||1)/(img.naturalWidth||1);
-      f.gh=fieldHeight(Math.round(ширина*k)+36);   // 36 — полоса с названием над картинкой
+      f.gh=fieldImgHeight(ширина, img);
       res(true);
     };
     img.src=url;
   });
+}
+/* Высота плитки под КАРТИНКУ, а не под ширину плитки. Картинка не растягивается сверх своего
+   размера (max-width/max-height в styles.css), поэтому в широкой плитке она лежит по центру
+   своей натуральной ширины — а высота, посчитанная от ширины ПЛИТКИ, оставляла над ней и под
+   ней по сотне пустых пикселей. Берём ту ширину, которой картинка показана на самом деле. */
+function fieldImgHeight(ширинаПлитки, img){
+  const w=img.naturalWidth||ширинаПлитки, h=img.naturalHeight||w;
+  const показана=Math.min(ширинаПлитки, w);
+  return fieldHeight(Math.round(показана*(h/w))+FIELD_BAR_H);
+}
+/* «Всегда по размеру»: высота плитки едет за её шириной. Хранится ОТКАЗ от режима (f.nofit), а не
+   согласие: по умолчанию картинка сама держит свой размер — так же ведут себя и поля, вставленные
+   до появления кнопки, иначе они навсегда остались бы с пустотами вокруг картинки.
+   Правим ТОЛЬКО высоту и только в разметке, без перерисовки панели: пересчёт случается на каждом
+   движении разделителя, а перерисовка на каждом кадре сносила бы живую доску и сбрасывала правку. */
+const fieldAutoFit = f => !!f && f.type==="image" && f.nofit!==true;
+function fieldsFitAuto(host, fields){
+  let менялось=false;
+  (fields||[]).forEach(f=>{
+    if(!fieldAutoFit(f) || !f.media) return;
+    const плитка=host.querySelector('[data-fid="'+f.id+'"]');
+    const img=плитка ? плитка.querySelector(".fld-img") : null;
+    if(!плитка || !img || !img.naturalWidth) return;
+    const h=fieldImgHeight(плитка.getBoundingClientRect().width, img);
+    if(h===f.gh) return;
+    f.gh=h; плитка.style.height=h+"px"; менялось=true;
+  });
+  return менялось;
 }
 
 /* ---------- шаблоны нод ---------- */
@@ -1089,6 +1218,7 @@ function templateSeed(tpl, kind){
              if(f.br!==true) delete н.br;
              if(f.st===true && i>0) н.st=true;      // «под предыдущим, в той же колонке»
              if(f.gwm===true) н.gwm=true;           // ширину строки задавали руками — не выравнивать
+             if(f.nofit===true && н.type==="image") н.nofit=true;   // «высоту задаю руками» едет вместе с раскладкой
              return н; })) };
 }
 

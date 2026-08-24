@@ -294,7 +294,7 @@ function wireGlobal(){
     const p=parseCapture(cap.value); const chips=[];
     if(p.kind==="note") chips.push(`<span class="cap-chip"><i class="ti ti-note"></i>заметка</span>`);
     if(p.area){ const a=areaById(p.area); if(a) chips.push(`<span class="cap-chip"><i class="ti ${esc(a.icon)}"></i>${esc(a.name)}</span>`); }
-    (p.tags||[]).forEach(t=>{ const ts=tagStyle(t); chips.push(`<span class="cap-chip" ${ts&&ts.color?`style="color:${ts.color}"`:""}><i class="ti ${ts&&ts.icon?ts.icon:"ti-hash"}"></i>${esc(t)}</span>`); });
+    (p.tags||[]).forEach(t=>{ const ts=tagStyle(t); chips.push(`<span class="cap-chip" ${ts&&ts.color?tagInk(ts.color):""}><i class="ti ${ts&&ts.icon?ts.icon:"ti-hash"}"></i>${esc(t)}</span>`); });
     if(p.due){ const dl=dueLabel(p.due); chips.push(`<span class="cap-chip"><i class="ti ti-calendar-event"></i>${esc(dl?dl.txt:p.due)}</span>`); }
     if(p.repeat&&p.repeat!=="none") chips.push(`<span class="cap-chip"><i class="ti ti-repeat"></i>${esc(REPEAT[p.repeat])}</span>`);
     if(p.priority) chips.push(`<span class="cap-chip"><i class="ti ti-flag-3"></i>${"!".repeat(p.priority)}</span>`);

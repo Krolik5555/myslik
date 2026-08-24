@@ -343,6 +343,17 @@ function graphDelete(id){
 /* ---------- стилизованные теги ---------- */
 const TAG_SHAPES=["circle","square","diamond","hexagon"];
 function tagStyle(name){ return (S.tags||[]).find(t=>t.name===name)||null; }
+/* Цвет тега — В СМЕСИ С ЦВЕТОМ ТЕМЫ, а не сырым. Тег красят под себя (белый, чёрный, кислотный),
+   и сырой цвет в тексте пропадал на своём же фоне: белый тег в светлой теме — белые буквы и
+   белая рамка на белом, виден один крестик. Смесь оставляет тег узнаваемым и всегда читаемым.
+   color-mix есть в WebView2 (Chromium 111+), на котором приложение и работает. */
+function tagInk(color){
+  if(!color) return "";
+  /* 45/55 в пользу темы: на 62% белый тег в светлой теме давал контраст 2.3 — читалось как
+     выцветшее. Рамке цвета можно дать больше: она не текст, и её видно и в слабом тоне. */
+  return `style="color:color-mix(in srgb, ${color} 45%, var(--tx));`+
+         `border-color:color-mix(in srgb, ${color} 70%, var(--bd2))"`;
+}
 // слитый стиль ноды по её тегам: max размер, первый заданный цвет/иконку/форму
 function itemTagStyle(it){
   if(!it||!it.tags||!it.tags.length||!S.tags||!S.tags.length) return null;
@@ -473,6 +484,7 @@ function sanitizeState(s){
             if(f.br===true) о.br=true;
             if(f.st===true && n>0) о.st=true;
             if(f.gwm===true) о.gwm=true;
+            if(f.nofit===true && о.type==="image") о.nofit=true;   // «высоту задаю руками» — тоже часть раскладки
             return о; }) };
     }); }
   if(s.settings.template && !s.templates.some(t=>t.id===s.settings.template)) s.settings.template=null;
@@ -578,6 +590,11 @@ function _sanitizeGraph(s, seen, seenF, okColor){
     if(it.done && it.status!=="done") it.status="done";
     if(it.kind==="flow") ensureFlow(it);   // нормализуем содержимое схемы
     if(it.size!=null){ const sz=+it.size; it.size = (sz>=0.4&&sz<=3)?sz:1; }   // индивидуальный множитель размера ноды
+    /* Длина нити до своей области. У обычной связи она лежит третьим элементом в S.links, но
+       связь с областью там не хранится вовсе — её строит граф из it.area (см. миграцию ниже),
+       поэтому множитель держит сама нода. Пределы те же, что у связей. */
+    if(it.arealen!=null){ const al=+it.arealen;
+      if(al>=0.3 && al<=3 && Math.abs(al-1)>0.001) it.arealen=al; else delete it.arealen; }
     if(it.doneAt!=null && typeof it.doneAt!=="number") delete it.doneAt;       // дата выполнения (для метки опоздания)
     // срок: только «YYYY-MM-DD», и только существующая дата — иначе parseYmd отдаст сдвинутый
     // день (2026-02-31 → 3 марта) и он тихо разъедется по календарю, спискам и повторам
@@ -614,7 +631,13 @@ function _sanitizeGraph(s, seen, seenF, okColor){
         // высота плитки в пикселях: у старых полей это h, у текста без высоты — свой дефолт
         o.gh = fieldHeight(f.gh!=null ? f.gh : (f.h!=null ? f.h : fieldHeightFor(тип)));
         if(тип==="text") o.value=String(f.value==null?"":f.value);
-        if(тип==="image") o.media=(typeof f.media==="string"&&s.media[f.media])?f.media:null;
+        if(тип==="image"){
+          o.media=(typeof f.media==="string"&&s.media[f.media])?f.media:null;
+          /* Хранится ОТКАЗ от авто-высоты, а не согласие: по умолчанию плитка держит размер
+             картинки (см. fieldAutoFit), и поля из старых данных ведут себя так же — иначе они
+             навсегда остались бы с пустотами вокруг картинки. */
+          if(f.nofit===true) o.nofit=true;
+        }
         return o;
       });
       if(!it.fields.length) delete it.fields;   // пустой массив в каждой ноде — лишний вес файла и шум в снимке отката

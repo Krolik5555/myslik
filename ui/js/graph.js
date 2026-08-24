@@ -156,7 +156,7 @@ function noteCard(it, depth=0, hasKids, compact){
     <div class="nc-foot">
       ${conn.length?`<span class="tag"><i class="ti ti-link"></i>${conn.length}</span>`:""}
       ${kids.length?`<span class="tag"><i class="ti ti-sitemap"></i>${kids.length}</span>`:""}
-      ${(it.tags||[]).map(t=>{ const ts=tagStyle(t); return `<span class="tag hash" data-tag="${esc(t)}" title="Фильтр по тегу" ${ts&&ts.color?`style="border-color:${ts.color};color:${ts.color}"`:""}><i class="ti ${ts&&ts.icon?ts.icon:"ti-hash"}"></i>${esc(t)}</span>`; }).join("")}
+      ${(it.tags||[]).map(t=>{ const ts=tagStyle(t); return `<span class="tag hash" data-tag="${esc(t)}" title="Фильтр по тегу" ${ts&&ts.color?tagInk(ts.color):""}><i class="ti ${ts&&ts.icon?ts.icon:"ti-hash"}"></i>${esc(t)}</span>`; }).join("")}
       ${it.folder?`<button class="nc-folder" data-openfolder="${it.id}" title="Открыть папку на ПК"><i class="ti ti-folder"></i></button>`:""}
     </div>
   </div>`;
@@ -863,7 +863,7 @@ class Graph{
            идёт или до родительской пустышки, роль та же. */
         const родПуст=it.hollowParent && this.byId[it.hollowParent];
         const цельПуст=(родПуст && родПуст.hollow && родПуст.area===it.area) ? it.hollowParent : hub;
-        this.links.push({a:it.id,b:цельПуст,L:78,manual:false,hubLink:true}); якорь[it.id]=цельПуст; return; }
+        this.links.push({a:it.id,b:цельПуст,L:78,manual:false,hubLink:true,lenMul:(+it.arealen||1)}); якорь[it.id]=цельПуст; return; }
       const дист=(м)=>{ const dx=я.x-м.x, dy=я.y-м.y; return Math.sqrt(dx*dx+dy*dy); };
       let цель=hub, лучшее=дист(this.byId[hub]);
       (пустышки[it.area]||[]).forEach(p=>{ if(p.id===it.id) return;
@@ -871,7 +871,8 @@ class Graph{
       const был=прежний[it.id];
       if(был && был!==цель && this.byId[был] && дист(this.byId[был])<=лучшее*1.15) цель=был;
       if(pairs.has(it.id+"|"+цель)) { якорь[it.id]=цель; return; }  // с этой пустышкой уже связаны руками
-      this.links.push({a:it.id, b:цель, L:78, manual:false});
+      // длина нити до области — своя у каждой ноды (см. it.arealen в санитайзере core.js)
+      this.links.push({a:it.id, b:цель, L:78, manual:false, lenMul:(+it.arealen||1)});
       якорь[it.id]=цель;
     });
     this._якорь=якорь;
@@ -1252,6 +1253,17 @@ class Graph{
       this._hover(наведено);
       // курсор-рука над узлом: на SVG это делал CSS по .g-node, на холсте курсор ставим сами
       if(this.canvasMode) svg.style.cursor = наведено ? "pointer" : "default";
+    };
+    /* КУРСОР УШЁЛ С ХОЛСТА — снимаем наведение сами. Подсветку гасил только pointermove, а он
+       за пределами холста не приходит вовсе: уводишь мышь в правую панель или за окно — нода
+       остаётся гореть, а граф считает себя занятым (условие покоя смотрит на _hovId) и крутит
+       полные кадры без конца, разогревая карту на пустом месте.
+       Жесты не трогаем: во время перетаскивания, пана и рамки курсор законно уходит за край, а
+       события продолжают идти через захват указателя. */
+    svg.onpointerleave=()=>{
+      if(this.drag||this.panning||this.marq||this.connectDrag||this.linkFrom) return;
+      this._hover(null);
+      if(this.canvasMode) svg.style.cursor="default";
     };
     svg.onpointerup=(e)=>{
       if(this.connectDrag){ const from=this.connectDrag; this.connectDrag=null; this.tempLine.style.display="none"; this._hover(null);
@@ -2052,7 +2064,15 @@ class Graph{
        задевает узлы, и полграфа гасло и загоралось по нескольку раз в секунду. Гашением
        распоряжается выделение (см. _drawMain). Сам узел под курсором при этом подрастает и
        светится — кадр для этого разбудить надо. */
-    if(this.canvasMode){ this._wake(); return; }
+    if(this.canvasMode){
+      /* ЦЕЛЬ ПОДСВЕТКИ СМЕНИЛАСЬ — значит она ПОЕДЕТ, и кадры нужны полные. Признак ставим
+         ЗДЕСЬ, а не по факту движения в кадре: условие покоя проверяется РАНЬШЕ отрисовки, а
+         к моменту ухода курсора прошлая анимация уже доехала и признак был снят. На большом
+         дереве (дыхание выключено, >350 узлов) это роняло граф в ветку «рисуем только фон», и
+         затухание двигалось лишь тогда, когда полный кадр случался по другой причине — скачками
+         раз в 160 мс. Замер: 168 кадров/с под курсором против 6 кадров/с сразу после ухода. */
+      this._навЕдет=true; this._wake(); return;
+    }
     const родня=id?this._родня(id):null;   // у области и пустышки это вся их область (см. _родня)
     this.nodeEls.forEach(o=>{ const nid=o.n.id; const focus=!!id&&nid===id, nbr=!!id&&!!родня&&родня.has(nid);
       o.g.classList.toggle("dim", !!id && !focus && !nbr);
@@ -2640,7 +2660,7 @@ class Graph{
     const camMoving=camKey!==this._camKey; this._camKey=camKey;
     // незакончившийся зум — тоже занятость: иначе доезд шёл бы через кадр и снова выглядел ступеньками
     const busy=this.drag||this.connectDrag||this.panning||this.marq||this.linkFrom||this._zoomTo!=null;
-    if(!force && this.alpha===0 && !camMoving && !busy && !this._hovId){
+    if(!force && this.alpha===0 && !camMoving && !busy && !this._hovId && !this._навЕдет){
       // то же условие, что у AMP ниже: дышат ноды или нет — от этого зависит, нужен ли полный кадр
       const дышат = !(this.nodes.length>350) && (S.settings.graphDrift!=null?S.settings.graphDrift:4)>0;
       /* «Дуги едут» держит полную частоту ТОЛЬКО на недышащем дереве. Пока ноды дышат, цели
@@ -2718,14 +2738,22 @@ class Graph{
        видимого соседства: рядом они по-прежнему расталкиваются и не налезают друг на друга, а
        разведённые — не чувствуют друг друга вовсе и стоят там, где их поставили. Внутри острова
        ничего не меняется: там дальнее поле по-прежнему держит соседние ветки разведёнными.
-       Гасим ПЛАВНО: на пороге сила и так мизерная (7000/450² = 0.035), но обрыв в ноль дал бы
-       ноде, качающейся ровно на границе, толчок «есть/нет» — ту самую дрожь, которую мы лечим
-       гистерезисом в других местах. */
+       Гасим ПЛАВНО: обрыв в ноль дал бы ноде, качающейся ровно на границе, толчок «есть/нет» —
+       ту самую дрожь, которую мы лечим гистерезисом в других местах.
+       ПОРОГ СЧИТАЕМ ОТ САМИХ НОД: их радиусы плюс просвет. Первая версия брала круглые 450 px
+       (радиус ближнего поля) — и этого хватало, чтобы деревья, разведённые на вид далеко, всё
+       равно медленно ползли врозь: между их ближайшими нодами было около 320 px, то есть ВНУТРИ
+       порога (замер: +8 px за 600 кадров и дальше без остановки; КРОЛИК: «на норм расстоянии и
+       медленно пытаются отдаляться»). Задача чужого острова — не налезать, а не держать дистанцию
+       в пол-экрана.
+       ПРОСВЕТ 200 — ЗАМЕР, А НЕ ВКУС. На 90 px чужие деревья начинали перемешиваться: в проверке
+       «узлы держатся своей звезды» сбитых становилось 10 из 90 против 9 на прежнем коде. На 200
+       сбитых 8, то есть НЕ ХУЖЕ прежнего, а ползучесть при этом уходит в ноль. */
     const _остр=this._остров||{};
-    const ОСТ_ПРЕДЕЛ=450, ОСТ_ПЛАВНО=150;
+    const ОСТ_ПРОСВЕТ=200, ОСТ_ПЛАВНО=60;
     const _чужиеОстрова=(a,b)=>_остр[a.id]!==_остр[b.id];
-    const _затуханиеОстрова=d=> d<=ОСТ_ПРЕДЕЛ-ОСТ_ПЛАВНО ? 1
-                             : (d>=ОСТ_ПРЕДЕЛ ? 0 : (ОСТ_ПРЕДЕЛ-d)/ОСТ_ПЛАВНО);
+    const _затуханиеОстрова=(a,b,d)=>{ const порог=a.r+b.r+ОСТ_ПРОСВЕТ;
+      return d>=порог ? 0 : (d<=порог-ОСТ_ПЛАВНО ? 1 : (порог-d)/ОСТ_ПЛАВНО); };
     const _многоНод=N.length>350;
     const SPREAD=(S.settings.graphSpread!=null?S.settings.graphSpread:1);
     // сетка строится ОДИН раз за кадр и служит ещё и отталкиванию от связей (см. ниже)
@@ -2739,7 +2767,7 @@ class Graph{
           const connected = adjA && adjA.has(b.id);
           const rep = (connected ? 2400 : 7000) * SPREAD;
           let f=(rep/d2)*this.alpha;
-          if(_чужиеОстрова(a,b)){ const з=_затуханиеОстрова(d); if(з<=0) continue; f*=з; }
+          if(_чужиеОстрова(a,b)){ const з=_затуханиеОстрова(a,b,d); if(з<=0) continue; f*=з; }
           const fx=dx/d*f, fy=dy/d*f;
           a.vx+=fx; a.vy+=fy; b.vx-=fx; b.vy-=fy;
           // знак у второго конца ОБРАТНЫЙ — как в самой физике строкой выше; иначе «сумма» врёт
@@ -2776,7 +2804,7 @@ class Graph{
           const connected = adjA && adjA.has(b.id);
           const rep = (connected ? 2400 : 7000) * SPREAD;
           let f=(rep/d2)*this.alpha;
-          if(_чужиеОстрова(a,b)){ const з=_затуханиеОстрова(d); if(з<=0) continue; f*=з; }
+          if(_чужиеОстрова(a,b)){ const з=_затуханиеОстрова(a,b,d); if(з<=0) continue; f*=з; }
           const fx=dx/d*f, fy=dy/d*f;
           a.vx+=fx; a.vy+=fy;
           if(запиши) запиши(a,"ноды",fx,fy);
@@ -2868,7 +2896,7 @@ class Graph{
     if(N.length>60 && this._группа){
       const пучки=new Map();
       for(let i=0;i<N.length;i++){ const n=N[i], g=this._группа[n.id]; if(g==null) continue;
-        let о=пучки.get(g); if(!о){ о={x:0,y:0,к:0,r:0,узлы:[]}; пучки.set(g,о); }
+        let о=пучки.get(g); if(!о){ о={x:0,y:0,к:0,r:0,узлы:[],о:_остр[n.id]}; пучки.set(g,о); }
         о.x+=n.x; о.y+=n.y; о.к++; о.узлы.push(n);
       }
       const список=[], радиусы={};
@@ -2893,6 +2921,12 @@ class Graph{
         const A=список[i];
         for(let j=i+1;j<список.length;j++){
           const B=список[j];
+          /* ЭТА СИЛА РАБОТАЕТ И МЕЖДУ ОСТРОВАМИ — намеренно, хотя стяжка между ними снята.
+             Пробовал ограничить её своим островом: два несвязанных дерева, положенные друг на
+             друга, тогда не расходятся, а ПЕРЕМЕШИВАЮТСЯ (замер: центры 150 px → 98, то есть
+             они сползлись, а не разъехались) — отталкивание отдельных узлов внутри наложения
+             гасится само, разводить пучок как целое некому. Дальнобойности тут нет: сила живёт
+             только пока круги налезают, и с их расхождением гаснет сама. */
           let dx=B.x-A.x, dy=B.y-A.y, d2=dx*dx+dy*dy;
           const нужно=A.r+B.r+ЗАЗОР;
           if(d2>=нужно*нужно) continue;      // не налезают — дальше дешёвой проверки не идём
@@ -3694,6 +3728,7 @@ class Graph{
        жили ВСЕГДА, и 651 текстовый элемент был одной из главных статей расхода. */
     const детали=(r)=>r>=4.5, подписьВидна=(r)=>r>=6.5 && z>=0.45;
     const соседиКурсора=this._hovId ? this._родня(this._hovId) : null;
+    let навЕдет=false;                 // хоть у одной ноды подсветка не доехала до цели
     for(let i=0;i<this.nodes.length;i++){
       const n=this.nodes[i], x=эx(n), y=эy(n);
       /* УЗЕЛ ПОД КУРСОРОМ ПОДРАСТАЕТ — как .g-node:hover .nd{transform:scale(1.18)} в стилях, и
@@ -3704,6 +3739,12 @@ class Graph{
       const целНав=(n.id===this._hovId) ? 1 : (соседиКурсора&&соседиКурсора.has(n.id) ? 0.55 : 0);
       const был=(n._нав==null)?целНав:n._нав, стал=был+(целНав-был)*0.25;
       n._нав=(Math.abs(целНав-стал)<0.01)?целНав:стал;
+      /* Подсветка ещё едет — это ДВИЖУЩАЯСЯ картинка, и уходить в покой нельзя (см. _tick).
+         Курсор ушёл с ноды → _hovId=null → условие покоя выполнялось В ТОТ ЖЕ КАДР, и остаток
+         затухания доигрывался на шести кадрах в секунду: подсветка гасла рывками. Разгорание
+         при этом было плавным (пока курсор на ноде, граф считается занятым) — отсюда и жалоба
+         «нагревается нормально, остывает дёргано». */
+      if(n._нав!==целНав) навЕдет=true;
       const r=n.r*z*(1+0.18*n._нав);
       if(x+r<вид.x1||x-r>вид.x2||y+r<вид.y1||y-r>вид.y2) continue;    // вне кадра — не рисуем вовсе
       const свой=n.color||пал.узел;
@@ -3757,6 +3798,7 @@ class Graph{
         if(гл) значки.push({x, y, гл, кегль:Math.max(8,n.r*1.15*z), цвет:пал.текст, альфа}); }
       if(подписьВидна(r)) подписи.push({n, x, y:y+r+12*z, альфа});
     }
+    this._навЕдет=навЕдет;
     /* Свечение выделенных — ДО самих фигур, чтобы ореол не лёг поверх соседей. Порог 25 тот же,
        что у SVG (#graph.many-sel снимает тени): размытие считается на каждую фигуру, и на сотне
        выделенных это возвращает ровно ту нагрузку, ради ухода от которой всё и делается. */
@@ -4103,7 +4145,7 @@ class Graph{
         <span>${esc(this._nodeLabel(l.a))}</span><i class="ti ti-arrows-left-right" style="opacity:.5"></i><span>${esc(this._nodeLabel(l.b))}</span>
       </div>
       ${auto?`<div class="np-meta" style="opacity:.7;margin-bottom:8px;">Авто-связь с областью. Убрать = открепить от области.</div>`:""}
-      ${!auto?`<div class="np-len"><span class="np-len-lbl">Длина</span><input class="np-len-in" type="range" min="0.4" max="2.5" step="0.1" value="${(l.lenMul||1)}"><span class="np-len-val">${(l.lenMul||1).toFixed(1)}×</span></div>`:""}
+      <div class="np-len"><span class="np-len-lbl">Длина</span><input class="np-len-in" type="range" min="0.4" max="2.5" step="0.1" value="${(l.lenMul||1)}"><span class="np-len-val">${(l.lenMul||1).toFixed(1)}×</span></div>
       <div class="np-row"><button class="btn" data-lp="del"><i class="ti ti-unlink"></i>${auto?"Открепить":"Убрать связь"}</button></div>`;
     const wrap=$("#graph-wrap"); wrap.appendChild(pop);
     const rc=this.svg.getBoundingClientRect();
@@ -4114,8 +4156,21 @@ class Graph{
     px=Math.max(8, Math.min(px, rc.width-pw-8));
     py=Math.max(8, Math.min(py, rc.height-ph-8));
     pop.style.left=px+"px"; pop.style.top=py+"px";
-    const li=$(".np-len-in",pop);   // индивидуальная длина связи: пишем в lenMul (живо) + в S.links[2], будим симуляцию
-    if(li) li.oninput=()=>{ const v=+li.value; l.lenMul=v; if(l.src) l.src[2]=v; const vv=$(".np-len-val",pop); if(vv) vv.textContent=v.toFixed(1)+"×"; this.alpha=Math.max(this.alpha,0.4); persist(); };
+    const li=$(".np-len-in",pop);   // индивидуальная длина связи: пишем в lenMul (живо) + в данные, будим симуляцию
+    if(li) li.oninput=()=>{
+      const v=+li.value; l.lenMul=v;
+      if(l.src) l.src[2]=v;         // ручная связь: длина живёт третьим элементом в S.links
+      else{
+        /* Нить к области в S.links не хранится — граф строит её из it.area на каждой сборке.
+           Поэтому длину держит САМА НОДА: положи её в связь, и настройка исчезла бы при первом
+           же build (а он случается от любой правки графа). */
+        const itemId=(l.a.indexOf("hub_")===0)?l.b:l.a;
+        const it=S.items.find(x=>x.id===itemId);
+        if(it){ if(Math.abs(v-1)<0.001) delete it.arealen; else it.arealen=v; }
+      }
+      const vv=$(".np-len-val",pop); if(vv) vv.textContent=v.toFixed(1)+"×";
+      this.alpha=Math.max(this.alpha,0.4); persist();
+    };
     pop.querySelector('[data-lp="del"]').onclick=()=>{
       if(l.manual){
         /* Отцепили от пустышки — нода возвращается к области напрямую. Наследование шло через

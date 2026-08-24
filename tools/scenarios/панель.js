@@ -255,7 +255,8 @@ t.push({имя:"приоритет меняется из панели", ок: з
 t.push({имя:"срок ставится из панели", ок: зад.due === "2026-08-15", факт: "due: " + зад.due});
 
 asideSelect(зад.id); await ж(150);
-document.querySelector('#aside [data-clear="due"]').click(); await ж(150);
+// крестик живёт ВНУТРИ кнопки срока: в узкой строке панели отдельная кнопка съедала бы место
+document.querySelector('#aside [data-dateclear]').click(); await ж(150);
 t.push({имя:"срок снимается крестиком", ок: зад.due === null, факт: "due: " + зад.due});
 
 asideSelect(зад.id); await ж(150);
@@ -309,6 +310,21 @@ asideSelect(зад.id); await ж(150);
   const правые = [...document.querySelectorAll("#aside .as-sel, #aside .as-inp")].map(v => Math.round(v.getBoundingClientRect().right));
   t.push({имя:"поля одной ширины (стрелки в столбик)", ок: new Set(правые).size === 1,
           факт: "правых краёв: " + [...new Set(правые)].join(", ")});
+  /* СРОК — ТАКАЯ ЖЕ СТРОКА, А НЕ ПЛАШКА. Своя кнопка живёт среди чужих правил, и одно из них
+     («.empty i» — кружок 62×62 для заглушек пустого состояния) уже раздувало её втрое: строка
+     срока вылезала на 88 px и читалась как здоровая панель посреди списка полей. Меряем высоту
+     против соседнего списка — так ловится любое чужое правило, а не только это. */
+  const срок = document.querySelector("#aside .date-ctl [data-datepick]");
+  const статус = document.querySelector('#aside [data-f="status"]');
+  const hс = срок ? срок.getBoundingClientRect().height : 0;
+  const hст = статус ? статус.getBoundingClientRect().height : 0;
+  t.push({имя:"поле срока — строка той же высоты, что соседние поля",
+          ок: !!срок && !!статус && Math.abs(hс - hст) <= 2 && Math.round(hс) <= 34,
+          факт: "срок " + Math.round(hс) + " px против статуса " + Math.round(hст) + " px"});
+  t.push({имя:"кнопка срока не ловит чужой стиль пустого состояния",
+          ок: !!срок && !срок.classList.contains("empty")
+              && Math.round((срок.querySelector("i")||{getBoundingClientRect:()=>({height:0})}).getBoundingClientRect().height) <= 24,
+          факт: "классы: " + (срок ? срок.className : "нет кнопки")});
 }
 
 // ===== смена типа ноды прямо в панели =====
@@ -488,11 +504,25 @@ t.push({имя:"ширина записана в настройки", ок: Math
   t.push({имя:"ширина панели хранится долей от окна",
           ок: доля > 0.1 && доля < 0.7 && Math.abs(доля * window.innerWidth - шир("aside")) < 6,
           факт: "доля " + доля.toFixed(3) + " → " + шир("aside") + " px при окне " + window.innerWidth});
-  // имитируем открытие в маленьком окне: панель должна ужаться пропорционально
+  /* Имитируем открытие в маленьком окне: панель должна ужаться. Проверяем СМЫСЛ, а не круглое
+     число: рядом с панелью обязаны поместиться левая полоса, разделитель, её правый отступ и
+     минимум левой части (280 px у #view). Раньше здесь стояла константа 420, посчитанная под
+     СВЁРНУТУЮ полосу, — с подписями (188 px) панель, растянутая до упора, вылезала за правый
+     край окна ровно на разницу, и проверка этого не замечала. */
+  const хвост = ()=> шир("side") + 14 + 18 + 280;
   S.settings.asideFrac = 0.75;   // как будто тянули в полный экран
   asideApplyWidth();
-  t.push({имя:"панель не съедает окно целиком", ок: шир("aside") <= window.innerWidth - 420,
-          факт: шир("aside") + " px при окне " + window.innerWidth});
+  t.push({имя:"панель не съедает окно целиком", ок: шир("aside") + хвост() <= window.innerWidth + 2,
+          факт: шир("aside") + " px панели + " + хвост() + " px остального при окне " + window.innerWidth});
+
+  // …и то же самое с РАЗВЁРНУТОЙ полосой: она шире свёрнутой на 132 px, и предел обязан это учесть
+  const былаШирокой = S.settings.sideWide;
+  S.settings.sideWide = true; applySide(); await ж(150);
+  S.settings.asideFrac = 0.75; asideApplyWidth(); await ж(100);
+  t.push({имя:"с подписями в левой полосе панель тоже помещается",
+          ок: шир("aside") + хвост() <= window.innerWidth + 2,
+          факт: "полоса " + шир("side") + ", панель " + шир("aside") + ", окно " + window.innerWidth});
+  S.settings.sideWide = былаШирокой; applySide(); await ж(150);
   S.settings.asideFrac = доля; asideApplyWidth();
 }
 

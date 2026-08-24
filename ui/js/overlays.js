@@ -60,6 +60,185 @@ function uiConfirm(message, opts){
   });
 }
 
+/* ===== СРОК: СВОЙ ВЫБОР ДАТЫ =====
+   Раньше срок задавался нативным <input type="date">, а он открывает системный календарь
+   WebView2: чужие шрифты, свои отступы и синие акценты Chromium посреди монохромного окна —
+   вставка из другой программы. Теперь поле — обычная кнопка с человеческой подписью, а
+   календарь свой: та же сетка и та же неделя с понедельника, что на вкладке «Календарь»,
+   те же поверхности и тени, что у остальных всплывающих панелей.
+
+   ЗНАЧЕНИЕ В ДАННЫХ НЕ МЕНЯЕТСЯ: рядом с кнопкой лежит скрытый input с той же строкой
+   YYYY-MM-DD и теми же id/data-f, что были у нативного поля, и на выбор он шлёт change.
+   Так окно правки, правая панель и проверки продолжают читать срок ровно как раньше. */
+const DP_МЕС = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"];
+const DP_МЕС_КР = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"];
+const DP_ДНИ = ["пн","вт","ср","чт","пт","сб","вс"];
+/* Подпись на кнопке. Год пишем ТОЛЬКО чужой: «15 сен» читается быстрее, чем «15.09.2026», а
+   год в подавляющем большинстве сроков сегодняшний и место занимает зря. */
+function dueButtonText(due){
+  const d=due?parseYmd(due):null;
+  if(!d) return "Без срока";
+  const свой=d.getFullYear()===today().getFullYear();
+  return DP_ДНИ[(d.getDay()+6)%7]+", "+d.getDate()+" "+DP_МЕС_КР[d.getMonth()]+(свой?"":" "+d.getFullYear());
+}
+/* Разметка контрола. Крестик рисуем ВНУТРИ кнопки, а не рядом: строка правой панели узкая
+   (165 px на всё поле), и отдельная кнопка съедала бы место у самой даты. */
+function dueControlHtml(due, opts){
+  opts=opts||{};
+  const п=dueLabel(due);
+  return `<div class="date-ctl">
+    <input type="hidden" ${opts.id?`id="${opts.id}"`:""} ${opts.data?`data-f="${opts.data}"`:""} value="${esc(due||"")}">
+    <button type="button" class="date-btn${due?"":" nodate"}${п&&п.cls==="over"?" over":""}" data-datepick title="Выбрать дату">
+      <i class="ti ti-calendar-event"></i>
+      <span class="db-txt">${esc(dueButtonText(due))}</span>
+      ${п&&п.txt&&п.cls!==""?`<span class="db-rel">${esc(п.txt)}</span>`:""}
+      ${due?`<i class="ti ti-x db-x" data-dateclear title="Убрать срок"></i>`:""}
+    </button>
+  </div>`;
+}
+// сколько задач уже стоит на день — точкой под числом: видно занятые дни, не открывая календарь
+function dueBusyMap(y, m){
+  const карта={};
+  S.items.forEach(it=>{ if(it.deleted||it.kind!=="task"||!it.due||it.done) return;
+    const d=parseYmd(it.due); if(!d||d.getFullYear()!==y||d.getMonth()!==m) return;
+    карта[it.due]=(карта[it.due]||0)+1; });
+  return карта;
+}
+let datePopEsc=null, datePopСторож=null;
+function closeDatePicker(){
+  const p=$("#date-pop"); if(p) p.remove();
+  if(datePopEsc){ document.removeEventListener("keydown", datePopEsc, true); datePopEsc=null; }
+  if(datePopСторож){ datePopСторож.disconnect(); datePopСторож=null; }
+  document.removeEventListener("mousedown", closeDatePickerOutside, true);
+  document.removeEventListener("scroll", closeDatePicker, true);
+}
+function closeDatePickerOutside(e){
+  const p=$("#date-pop"); if(!p) return;
+  if(p.contains(e.target) || (e.target.closest && e.target.closest("[data-datepick]"))) return;
+  closeDatePicker();
+}
+/* Сам календарь. Открывается ОТ КНОПКИ и живёт в body с fixed-позицией: окно правки
+   прокручивается, и попап, положенный внутрь него, уезжал бы вместе с содержимым. */
+function openDatePicker(кнопка, значение, выбрать){
+  closeDatePicker();
+  const выбрана=значение?parseYmd(значение):null;
+  let курсор=new Date(выбрана||today());          // день под клавишами-стрелками
+  let база=new Date(курсор); база.setDate(1);     // какой месяц показан
+  const pop=el("div","dp"); pop.id="date-pop"; pop.tabIndex=-1;
+  const готово=ds=>{ closeDatePicker(); выбрать(ds); };
+  const рисовать=()=>{
+    const y=база.getFullYear(), m=база.getMonth();
+    const сдвиг=(new Date(y,m,1).getDay()+6)%7, дней=new Date(y,m+1,0).getDate();
+    const занято=dueBusyMap(y,m), сегодня=ymd(today());
+    let сетка=DP_ДНИ.map(d=>`<div class="dp-wd">${d}</div>`).join("");
+    for(let i=0;i<сдвиг;i++) сетка+=`<span class="dp-d off"></span>`;
+    for(let d=1;d<=дней;d++){
+      const ds=ymd(new Date(y,m,d));
+      const выходной=[5,6].includes((new Date(y,m,d).getDay()+6)%7);
+      сетка+=`<button type="button" class="dp-d${ds===сегодня?" tod":""}${значение===ds?" sel":""}`+
+             `${ymd(курсор)===ds?" cur":""}${выходной?" wknd":""}" data-d="${ds}">${d}`+
+             `${занято[ds]?`<i class="dp-dot"></i>`:""}</button>`;
+    }
+    pop.innerHTML=`
+      <div class="dp-head">
+        <button type="button" class="dp-nav" data-mv="-1" title="Предыдущий месяц"><i class="ti ti-chevron-left"></i></button>
+        <span class="dp-ttl">${DP_МЕС[m]} ${y}</span>
+        <button type="button" class="dp-nav" data-mv="1" title="Следующий месяц"><i class="ti ti-chevron-right"></i></button>
+      </div>
+      <div class="dp-grid">${сетка}</div>
+      <div class="dp-quick">
+        <button type="button" data-q="0">сегодня</button>
+        <button type="button" data-q="1">завтра</button>
+        <button type="button" data-q="7">+нед</button>
+        <button type="button" class="dp-clear" data-q="clear" title="Снять срок"><i class="ti ti-x"></i></button>
+      </div>`;
+    pop.querySelectorAll("[data-mv]").forEach(b=>b.onclick=()=>{ база.setMonth(база.getMonth()+ +b.dataset.mv); рисовать(); });
+    pop.querySelectorAll("[data-d]").forEach(b=>b.onclick=()=>готово(b.dataset.d));
+    pop.querySelectorAll("[data-q]").forEach(b=>b.onclick=()=>{
+      if(b.dataset.q==="clear"){ готово(""); return; }
+      const d=today(); d.setDate(d.getDate()+ +b.dataset.q); готово(ymd(d));
+    });
+  };
+  рисовать();
+  document.body.appendChild(pop);
+  /* Ставим ПОД кнопкой, а у нижнего края экрана разворачиваем вверх — тот же приём, что у
+     меню графа (_posPop): прижатый к краю попап терял бы нижний ряд дней и быстрые кнопки. */
+  const r=кнопка.getBoundingClientRect(), ш=pop.offsetWidth, в=pop.offsetHeight;
+  let x=r.left, y=r.bottom+6;
+  if(y+в>innerHeight-8) y=Math.max(8, r.top-6-в);
+  x=Math.max(8, Math.min(x, innerWidth-ш-8));
+  pop.style.left=x+"px"; pop.style.top=y+"px";
+  pop.focus({preventScroll:true});
+  /* Клавиши — в ФАЗЕ ПЕРЕХВАТА и с глушением: Escape в приложении закрывает окна (см. main.js),
+     и без этого он снёс бы вместе с календарём всё окно правки. */
+  datePopEsc=(e)=>{
+    if(!$("#date-pop")) return;
+    const шаг=(дн)=>{ курсор.setDate(курсор.getDate()+дн); база=new Date(курсор); база.setDate(1); рисовать(); };
+    if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); closeDatePicker(); кнопка.focus(); return; }
+    if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); готово(ymd(курсор)); return; }
+    if(e.key==="ArrowLeft"){ e.preventDefault(); e.stopPropagation(); шаг(-1); return; }
+    if(e.key==="ArrowRight"){ e.preventDefault(); e.stopPropagation(); шаг(1); return; }
+    if(e.key==="ArrowUp"){ e.preventDefault(); e.stopPropagation(); шаг(-7); return; }
+    if(e.key==="ArrowDown"){ e.preventDefault(); e.stopPropagation(); шаг(7); return; }
+    if(e.key==="PageUp"){ e.preventDefault(); e.stopPropagation(); база.setMonth(база.getMonth()-1); рисовать(); return; }
+    if(e.key==="PageDown"){ e.preventDefault(); e.stopPropagation(); база.setMonth(база.getMonth()+1); рисовать(); return; }
+  };
+  document.addEventListener("keydown", datePopEsc, true);
+  // клик мимо закрывает — но в ПЕРЕХВАТЕ, иначе подложка окна успела бы закрыть само окно
+  document.addEventListener("mousedown", closeDatePickerOutside, true);
+  /* Прокрутили окно под календарём — закрываем его. Попап стоит по координатам кнопки и
+     пересчитать себя не может: он оставался висеть на прежнем месте экрана, накрывая поля,
+     от которых уже уехал. Своё колесо (листание месяцев) до документа не всплывает. */
+  document.addEventListener("scroll", closeDatePicker, true);
+  /* СТОРОЖ ЗА КНОПКОЙ. Попап живёт в body и сам по себе не узнаёт, что его якоря больше нет:
+     окно правки закрывают (closeOverlays чистит #overlay-root целиком), правая панель
+     перерисовывается на любую правку, а переключение типа ноды на «заметку» просто прячет весь
+     блок срока. Во всех трёх случаях календарь оставался висеть на экране сам по себе.
+     offsetParent ловит именно скрытие: у спрятанного родителем узла он пуст. */
+  datePopСторож=new MutationObserver(()=>{
+    if(!кнопка.isConnected || !кнопка.offsetParent) closeDatePicker();
+  });
+  datePopСторож.observe(document.body,{childList:true, subtree:true, attributes:true, attributeFilter:["style","class"]});
+  /* Колесо листает месяцы. Гасим прокрутку под собой: календарь висит над окном правки, и без
+     этого колесо уезжало бы вместе с содержимым окна, оставив попап на прежнем месте. */
+  pop.addEventListener("wheel", e=>{
+    e.preventDefault(); e.stopPropagation();
+    база.setMonth(база.getMonth()+(e.deltaY>0?1:-1)); рисовать();
+  }, {passive:false});
+}
+/* Навесить поведение на все контролы даты внутри узла. Зовут и окно правки, и правая панель:
+   разметка у них одна, разница только в том, кто слушает change у скрытого поля. */
+function wireDateControls(root){
+  (root||document).querySelectorAll(".date-ctl").forEach(ctl=>{
+    if(ctl._датаГотова) return;
+    ctl._датаГотова=true;
+    const вход=ctl.querySelector("input"), кн=ctl.querySelector("[data-datepick]");
+    if(!вход||!кн) return;
+    const записать=ds=>{
+      вход.value=ds||"";
+      /* Кнопку перерисовываем САМИ: в окне правки правка идёт черновиком и панель не
+         пересобирается, а человек обязан видеть, что срок принят. */
+      const п=dueLabel(вход.value||null);
+      кн.classList.toggle("nodate", !вход.value);
+      кн.classList.toggle("over", !!(п&&п.cls==="over"));
+      кн.querySelector(".db-txt").textContent=dueButtonText(вход.value||null);
+      const rel=кн.querySelector(".db-rel"); if(rel) rel.remove();
+      const x=кн.querySelector(".db-x"); if(x) x.remove();
+      if(вход.value){
+        if(п&&п.txt&&п.cls!=="") кн.insertAdjacentHTML("beforeend",`<span class="db-rel">${esc(п.txt)}</span>`);
+        кн.insertAdjacentHTML("beforeend",`<i class="ti ti-x db-x" data-dateclear title="Убрать срок"></i>`);
+      }
+      вход.dispatchEvent(new Event("change",{bubbles:true}));
+    };
+    кн.addEventListener("click", e=>{
+      // крестик снимает срок, не открывая календарь: это самое частое действие после «поставить»
+      if(e.target.closest("[data-dateclear]")){ e.preventDefault(); e.stopPropagation(); записать(""); return; }
+      e.preventDefault();
+      openDatePicker(кн, вход.value||"", записать);
+    });
+  });
+}
+
 /* Ввод одной строки — тот же uiConfirm, но с полем. Нужен там, где заводить целое окно ради
    названия избыточно (граф, например). Возвращает строку, null при отмене или "__удалить__",
    если нажали дополнительную кнопку: у графа правка и удаление живут в одном месте. */
@@ -167,7 +346,7 @@ function openItemEditor(existing, defaultKind, presetDue, seed){
     <div class="field" id="wrap-fields" ${it.kind==="flow"?`style="display:none"`:""}><label>Поля</label>
       <div class="flds" id="f-fields"></div></div>
     <div class="row2" id="wrap-due">
-      <div class="field"><label>Срок</label><input type="date" id="f-due" value="${it.due||""}"></div>
+      <div class="field"><label>Срок</label>${dueControlHtml(it.due, {id:"f-due"})}</div>
       <div class="field"><label>Повтор</label><select id="f-rep">
         ${Object.entries(REPEAT).map(([k,vv])=>`<option value="${k}" ${it.repeat===k?"selected":""}>${k==="none"?"нет":vv}</option>`).join("")}
       </select></div>
@@ -215,7 +394,7 @@ function openItemEditor(existing, defaultKind, presetDue, seed){
   $$("#f-pri button",m).forEach(b=>b.onclick=()=>{ priority=+b.dataset.p; $$("#f-pri button",m).forEach(x=>x.classList.toggle("on",x===b)); });
 
   // чип тега показывает стиль зарегистрированного тега (иконка + цвет) — нагляднее
-  const tagChip=(t,i)=>{ const ts=tagStyle(t), ic=(ts&&ts.icon)?ts.icon:"ti-hash", col=(ts&&ts.color)?`style="border-color:${ts.color};color:${ts.color}"`:"";
+  const tagChip=(t,i)=>{ const ts=tagStyle(t), ic=(ts&&ts.icon)?ts.icon:"ti-hash", col=(ts&&ts.color)?tagInk(ts.color):"";
     return `<span class="chip${ts?" styled":""}" ${col}><i class="ti ${ic}"></i>${esc(t)}<button data-i="${i}"><i class="ti ti-x"></i></button></span>`; };
   const renderTags=()=>{ $("#f-tags",m).innerHTML=tags.map(tagChip).join("");
     $$("#f-tags button",m).forEach(b=>b.onclick=()=>{ tags.splice(+b.dataset.i,1); renderTags(); renderSugg($("#f-tagin",m).value); }); };
@@ -224,7 +403,7 @@ function openItemEditor(existing, defaultKind, presetDue, seed){
     const avail=(S.tags||[]).filter(t=>!tags.includes(t.name) && (!q || t.name.toLowerCase().includes(q)));
     if(!avail.length){ box.innerHTML=""; box.classList.remove("show"); return; }
     box.classList.add("show");
-    box.innerHTML=`<span class="sugg-lbl">Доступные:</span>`+avail.map(t=>`<button type="button" class="sugg-chip" data-add="${esc(t.name)}" ${t.color?`style="border-color:${t.color};color:${t.color}"`:""}><i class="ti ${t.icon||"ti-hash"}"></i>${esc(t.name)}</button>`).join("");
+    box.innerHTML=`<span class="sugg-lbl">Доступные:</span>`+avail.map(t=>`<button type="button" class="sugg-chip" data-add="${esc(t.name)}" ${t.color?tagInk(t.color):""}><i class="ti ${t.icon||"ti-hash"}"></i>${esc(t.name)}</button>`).join("");
     $$("[data-add]",box).forEach(b=>b.onclick=()=>{ const nm=b.dataset.add; if(!tags.includes(nm)){ tags.push(nm); renderTags(); } renderSugg($("#f-tagin",m).value); $("#f-tagin",m).focus(); });
   };
   renderTags(); renderSugg("");
@@ -236,6 +415,7 @@ function openItemEditor(existing, defaultKind, presetDue, seed){
   /* Поля ноды. Панель одна и та же во всех трёх местах (окно правки, ридер, правая панель) —
      здесь она без save: правки уезжают в ноду по «Сохранить» вместе с остальными. */
   fieldsPanel($("#f-fields",m), fields, {item:it});
+  wireDateControls(m);          // срок — свой календарь вместо системного пикера
   onOverlayClose(ov, ()=>fieldsStopIn(m));   // живая доска в поле обязана сняться вместе с окном
   fieldsCopyOnRight($("#f-body",m), ()=>$("#f-body",m).value);   // ПКМ копирует описание — как у полей
 
@@ -456,15 +636,26 @@ function openNoteReader(it){
 
   /* Окно двигаем за заголовок (размер тянется за угол — resize в CSS у .reader-win).
      Сдвиг держим в transform: overlay центрует окно флексом, трогать left/top нельзя. */
-  { const h=$("h3",m); let on=false, sx=0, sy=0, ox=0, oy=0;
+  { const h=$("h3",m); let on=false, sx=0, sy=0, ox=0, oy=0, дом={x:0,y:0};
     h.addEventListener("pointerdown",e=>{
       if(e.button!==0) return;
       const t=/translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(m.style.transform||"");
       ox=t?+t[1]:0; oy=t?+t[2]:0; sx=e.clientX; sy=e.clientY; on=true;
+      /* Запоминаем НЕСДВИНУТОЕ положение окна: сдвиг ниже зажимаем по нему, иначе окно
+         утаскивалось за край экрана целиком — вместе с заголовком, единственным местом,
+         за которое его можно вернуть. */
+      const r=m.getBoundingClientRect();
+      дом={x:r.left-ox, y:r.top-oy, w:r.width, h:r.height};
       try{ h.setPointerCapture(e.pointerId); }catch(_){}
       e.preventDefault();
     });
-    h.addEventListener("pointermove",e=>{ if(on) m.style.transform=`translate(${ox+e.clientX-sx}px, ${oy+e.clientY-sy}px)`; });
+    h.addEventListener("pointermove",e=>{
+      if(!on) return;
+      // на экране обязана остаться полоса окна — держим видимыми хотя бы 120 px по ширине и всю шапку
+      const кx=(v)=>Math.max(-(дом.x+дом.w-120), Math.min(v, innerWidth-дом.x-120));
+      const кy=(v)=>Math.max(-дом.y, Math.min(v, innerHeight-дом.y-44));
+      m.style.transform=`translate(${кx(ox+e.clientX-sx)}px, ${кy(oy+e.clientY-sy)}px)`;
+    });
     h.addEventListener("pointerup",()=>{ on=false; });
     h.addEventListener("pointercancel",()=>{ on=false; });
   }

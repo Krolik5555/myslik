@@ -6,6 +6,9 @@
   --pri1:#5fb98e; --pri2:#e8a14b; --pri3:#e0625a;
   --glow:rgba(255,255,255,.30);
   --dot:rgba(255,255,255,.08); --halo:rgba(255,255,255,.05);
+  /* тень окон и меню: в тёмной теме густая, в светлой — мягкая, иначе на белом фоне
+     вокруг каждой модалки лежит грязное чёрное пятно вместо подъёма над плоскостью */
+  --sh:rgba(0,0,0,.55); --sh-strong:rgba(0,0,0,.6);
   --r-s:8px; --r-m:11px; --r-l:14px;
   --tbh:40px;
   --font:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;
@@ -18,6 +21,7 @@
   --pri1:#3f9e72; --pri2:#c8821f; --pri3:#cc4b43;
   --glow:rgba(0,0,0,.18);
   --dot:rgba(0,0,0,.07); --halo:rgba(0,0,0,.035);
+  --sh:rgba(0,0,0,.13); --sh-strong:rgba(0,0,0,.17);
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 /* корень заперт наглухо: иначе при возврате фокуса колесом WebView2 прокручивает
@@ -28,7 +32,12 @@ body{background:var(--bg);color:var(--tx);font-family:var(--font);font-size:14px
 #app{position:relative;}
 #app::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
   background:radial-gradient(120% 80% at 50% -10%, var(--halo), transparent 60%);}
-#titlebar,#topbar,#body{position:relative;z-index:1;}
+/* Верхняя полоса ВЫШЕ тела, и это не вкусовщина: из строки захвата свисает предпросмотр разбора
+   (#cap-preview, абсолютный, на 7 px ниже поля). При равном z-index порядок решает DOM, тело идёт
+   позже — и непрозрачная карточка графа закрашивала подсказку целиком: человек печатал
+   «купить фильтр #дом завтра !!» и не видел, что именно понял парсер. */
+#titlebar,#topbar{position:relative;z-index:2;}
+#body{position:relative;z-index:1;}
 button{font-family:inherit;cursor:pointer;color:inherit;background:none;border:none;}
 input,textarea,select{font-family:inherit;color:var(--tx);}
 select option{background:var(--surf2);color:var(--tx);}
@@ -137,20 +146,31 @@ select option{background:var(--surf2);color:var(--tx);}
 .side-h button{color:var(--mut);font-size:15px;width:22px;height:22px;border-radius:6px;}
 .side-h button:hover{color:var(--tx);background:var(--surf2);}
 .areai{display:flex;align-items:center;gap:11px;padding:8px 11px;border-radius:9px;font-size:13px;color:var(--mut);width:100%;text-align:left;}
+/* Название в один ряд с многоточием: длинное имя области или графа переносилось на вторую-третью
+   строку, кнопки списка получали разную высоту, а счётчик уезжал к середине строки. */
+.areai .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.areai>i{flex:none;}
 /* граф в списке: активный держим ярче обычного выделения — это не фильтр, а «где я сейчас»,
    и спутать его с подсвеченной областью нельзя */
 .grafi.on{background:var(--surf3);color:var(--tx);box-shadow:inset 2px 0 0 var(--gc, var(--acc));}
 .grafi .ti{color:var(--gc, var(--mut));}
 .grafi.on .ti{color:var(--gc, var(--acc));}
 /* список графов не должен съедать всю панель, когда их много: свой скролл */
-#graphs{max-height:26vh;overflow:auto;padding-bottom:2px;}
+/* Оба списка сжимаемые и оба со своей прокруткой. Ограничен был только список графов, а области
+   росли без предела — и подвал полосы («Экспорт / Импорт / Таймер / Настройки») вместе с версией
+   уезжал ниже кромки окна: body{overflow:hidden}, доскроллить нечем, настройки оставались
+   доступны только через Ctrl+K. min-height у графов — чтобы они не ужимались в ноль первыми.
+   overflow-x:hidden обязателен: списки центрируются, и вертикальная полоса иначе тянет за собой
+   горизонтальную в 44-пиксельной свёрнутой полосе. */
+#graphs{max-height:26vh;min-height:39px;overflow-y:auto;overflow-x:hidden;padding-bottom:2px;}
+#areas{max-height:34vh;overflow-y:auto;overflow-x:hidden;}
 /* «удалить» в окне ввода — слева от кнопок подтверждения, приглушённым */
 .modal-foot .danger-txt{color:var(--warn);}
 .areai:hover{background:var(--surf2);color:var(--tx);}
 .areai.on{background:var(--surf2);color:var(--tx);}
 /* перетаскивание секций-областей в списке */
 .sec-collapse{touch-action:none;}
-.sec-drag{position:relative;z-index:30;color:var(--tx)!important;background:var(--surf3);border-radius:8px;padding:6px 10px;margin:12px 0 3px;box-shadow:0 8px 24px rgba(0,0,0,.55),0 0 14px var(--glow);cursor:grabbing;pointer-events:none;}
+.sec-drag{position:relative;z-index:30;color:var(--tx)!important;background:var(--surf3);border-radius:8px;padding:6px 10px;margin:12px 0 3px;box-shadow:0 8px 24px var(--sh),0 0 14px var(--glow);cursor:grabbing;pointer-events:none;}
 .sec.drop-before{box-shadow:inset 0 2px 0 var(--acc);}
 .sec.drop-after{box-shadow:inset 0 -2px 0 var(--acc);}
 body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;}
@@ -163,7 +183,10 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .side-foot{margin-top:34px;display:flex;gap:6px;padding-top:12px;border-top:0.5px solid var(--bd);}
 /* Экспорт, импорт, таймер и настройки — попасть по ним должно быть легко: в полосе
    значков они были почти точками. */
-.foot-btn{flex:1;height:40px;min-width:40px;background:var(--surf2);border:0.5px solid var(--bd);border-radius:9px;color:var(--mut);font-size:18px;display:flex;align-items:center;justify-content:center;transition:.12s;}
+/* min-width:0 обязателен: четыре кнопки по 40 px с зазорами не влезают в развёрнутую полосу
+   188 px, и «Настройки» — последняя — обрезалась её краем, заодно включая горизонтальную
+   прокрутку у всего списка областей. */
+.foot-btn{flex:1;height:40px;min-width:0;background:var(--surf2);border:0.5px solid var(--bd);border-radius:9px;color:var(--mut);font-size:18px;display:flex;align-items:center;justify-content:center;transition:.12s;}
 .foot-btn:hover{color:var(--tx);border-color:var(--bd2);}
 .spin i{animation:footSpin .8s linear infinite;}
 #toast i.spinning{animation:footSpin .8s linear infinite;}   /* «Отправляю…»: статичный глиф читается как зависон */
@@ -171,13 +194,10 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 
 /* ===== main ===== */
 #main{flex:1;min-width:0;display:flex;flex-direction:column;}
-/* Заголовок вида стоит В ВЕРХНЕЙ ПОЛОСЕ, рядом со строкой захвата: отдельной полосы под ним
-   больше нет — она съедала полсотни пикселей высоты у графа и доски. Подпись прячется на
-   узком окне: строка захвата важнее объяснения про двойной клик. */
-#view-head{display:flex;align-items:baseline;gap:10px;min-width:0;flex:0 0 auto;}
-@media (max-width:820px){ #view-head{display:none;} }
-#main-title{font-size:19px;font-weight:600;letter-spacing:-.01em;flex:none;}
-#main-sub{font-size:12.5px;color:var(--mut);}
+/* Названия вида в верхней полосе нет: сначала из-под неё убрали отдельную полосу (съедала
+   полсотни пикселей у графа и доски), потом подпись с объяснением жестов, а следом и сам
+   заголовок — вид и так виден по подсвеченному значку слева, и повторять его словом незачем.
+   head() в views.js по-прежнему принимает название: вызовы менять не стали, оно игнорируется. */
 .head-actions{display:flex;gap:8px;}
 .btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border:0.5px solid var(--bd2);border-radius:9px;font-size:13px;color:var(--tx);transition:.12s;background:var(--surf);white-space:nowrap;flex:0 0 auto;}
 .btn:hover{border-color:var(--bd3);background:var(--surf2);box-shadow:0 0 14px var(--glow);}
@@ -202,8 +222,11 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
   border:0.5px solid var(--bd);border-radius:var(--r-l);background:var(--surf);}
 #aside.off,#splitter.off{display:none;}
 /* карточка выбранного элемента */
-.as-head{display:flex;align-items:flex-start;gap:8px;padding:10px 2px 12px;}
-.as-title{flex:1;font-size:19px;font-weight:600;line-height:1.25;letter-spacing:-.01em;}
+.as-head{display:flex;align-items:flex-start;gap:8px;padding:10px 2px 12px;min-width:0;}
+/* min-width:0 и перенос по буквам: у flex-элемента минимальная ширина равна самому длинному
+   слову, и название вроде «ОченьДлинноеСловоБезПробелов» раздвигало шапку панели на сотни
+   пикселей — кнопки правки и закрытия уезжали за её край. */
+.as-title{flex:1;min-width:0;overflow-wrap:anywhere;font-size:19px;font-weight:600;line-height:1.25;letter-spacing:-.01em;}
 .as-acts{display:flex;gap:4px;flex:none;}
 .as-ic{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;
   color:var(--mut);font-size:15px;transition:.12s;}
@@ -213,23 +236,29 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .as-rows.compact{padding-bottom:6px;border-bottom:0;}
 /* Сетка, а не flex: у части строк перед значением есть иконка, у части нет — на flex значения
    вставали лесенкой. Три колонки фиксируют и подпись, и слот иконки, и начало значения. */
-.as-row{display:grid;grid-template-columns:88px 18px 1fr;align-items:center;gap:8px;
+/* Последняя колонка — minmax(0,1fr): доля сама по себе не даёт колонке стать уже своего
+   содержимого, и длинный путь папки или цепочка тегов растягивали строку за край панели. */
+.as-row{display:grid;grid-template-columns:88px 18px minmax(0,1fr);align-items:center;gap:8px;
   min-height:30px;font-size:13px;}
 .as-k{color:var(--mut);font-size:12px;}
 .as-ico{display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:15px;}
 .as-v{display:flex;align-items:center;gap:6px;color:var(--tx);min-width:0;flex-wrap:wrap;}
 .as-chip{padding:2px 9px;border-radius:7px;background:var(--surf2);border:0.5px solid var(--bd);font-size:12px;}
-.as-tags{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
+/* min-width:0 у ряда и обрезка у самого чипа: длинный тег («оченьдлинныйтегдлинапроверка»)
+   не переносится по буквам и на узкой панели выталкивал строку за её край. */
+.as-tags{display:flex;align-items:center;gap:5px;flex-wrap:wrap;min-width:0;max-width:100%;}
+.as-tags .as-chip{max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .as-note{font-size:10.5px;color:var(--mut2);letter-spacing:.02em;white-space:nowrap;}
 /* правка на месте: поля выглядят как текст, пока их не трогаешь */
 /* Ширина у всех полей одна. Иначе select берёт её по длине текста, и стрелки выпадающих
    списков встают лесенкой — именно это читается как «плывёт», хотя текст выровнен. */
-.as-sel,.as-inp{width:165px;flex:none;background:transparent;border:0.5px solid transparent;
+/* max-width обязателен: панель тянут разделителем, и на 300 px жёсткие 165 px переставали
+   помещаться в колонку значений — поля вылезали за край панели. */
+.as-sel,.as-inp{width:165px;max-width:100%;flex:none;background:transparent;border:0.5px solid transparent;
   border-radius:7px;color:var(--tx);font:inherit;font-size:13px;padding:3px 6px;transition:.12s;}
 .as-sel:hover,.as-inp:hover{border-color:var(--bd);background:var(--surf2);}
 .as-sel:focus,.as-inp:focus{outline:none;border-color:var(--acc);background:var(--surf2);}
 .as-sel option{background:var(--surf2);color:var(--tx);}
-.as-inp[type=date]{font-variant-numeric:tabular-nums;}
 .as-x{width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;
   color:var(--mut2);font-size:12px;}
 .as-x:hover{background:var(--surf3);color:var(--tx);}
@@ -265,7 +294,12 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
    Было «100vh − 220» под пять строк полей. */
 .as-kind{flex:none;}
 .as-kind .as-sel{min-width:104px;font-size:12.5px;padding:3px 6px;}
-.as-board{margin:8px 0 4px;display:flex;flex-direction:column;height:calc(100vh - 134px);min-height:560px;
+/* 134 не покрывало всей обвязки: замер показал доску на 10 px ниже кромки окна и 119 px
+   паразитной прокрутки в панели — нижний край холста срезан, кнопка «Собрать отчёт» под ним.
+   Считаем честно: верхняя полоса 56 + отступы панели 28 + шапка карточки с кнопками ~96 +
+   ряд действий под доской ~70. Минимум опущен до 320: если в такой высоте вендор уходит в
+   телефонный интерфейс, врезка честно покажет снимок и кнопку «Открыть доску» (asideBoardFits). */
+.as-board{margin:8px 0 4px;display:flex;flex-direction:column;height:calc(100vh - 250px);min-height:320px;
   border:0.5px solid var(--bd);border-radius:var(--r-l);overflow:hidden;background:var(--surf2);}
 .as-board-bar{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;
   padding:6px 8px 6px 12px;border-bottom:0.5px solid var(--bd);}
@@ -433,7 +467,12 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .ev.over{border-color:var(--warn);color:var(--warn);}
 .ev.done{opacity:.45;text-decoration:line-through;}
 /* призрак повтора: проекция повторяющейся задачи на будущие даты (не событие, просто напоминание ритма) */
-.ev.ghost{opacity:.42;border-style:dashed;color:var(--mut);}
+/* без двойного гашения: opacity .42 поверх приглушённого цвета давала контраст около 1.6 —
+   призрак повтора было видно как грязную полоску, название не читалось вовсе */
+.ev.ghost{border-style:dashed;color:var(--mut);opacity:.8;}
+/* «ещё N» — не задача, а указатель: без рамки и приглушённо, чтобы не путался с событиями */
+.ev.more{border-color:transparent;color:var(--mut);font-size:10px;padding-left:6px;}
+.ev.more:hover{color:var(--tx);background:var(--surf2);}
 .ev.ghost i{font-size:10px;margin-right:3px;}
 .ev[data-ev]{cursor:grab;}
 .ev[data-ev]:active{cursor:grabbing;}
@@ -595,7 +634,7 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .node-preview .pv-body i{color:var(--mut2);}
 .g-pin{fill:none;stroke:var(--acc);stroke-width:1;stroke-dasharray:2 2;opacity:.7;}
 .graph-toolbar{position:absolute;top:12px;left:12px;display:flex;gap:7px;z-index:5;}
-.graph-more{position:absolute;top:54px;left:12px;z-index:7;display:flex;flex-direction:column;gap:2px;background:var(--surf2);border:0.5px solid var(--bd2);border-radius:10px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.5),0 0 18px var(--glow);}
+.graph-more{position:absolute;top:54px;left:12px;z-index:7;display:flex;flex-direction:column;gap:2px;background:var(--surf2);border:0.5px solid var(--bd2);border-radius:10px;padding:6px;box-shadow:0 10px 30px var(--sh),0 0 18px var(--glow);}
 .gm-it{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:7px;font-size:13px;color:var(--tx);width:100%;text-align:left;white-space:nowrap;}
 .gm-it i{font-size:16px;color:var(--mut);}
 .gm-it:hover{background:var(--surf3);}
@@ -610,7 +649,7 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .graph-tray:not(.closed) .gt-n{display:none;}   /* развёрнут — счёт и так виден по списку */
 .graph-tray.closed .gt-body{display:none;}
 .gt-body{display:flex;flex-direction:column;min-height:0;width:210px;background:var(--surf2);
-  border:0.5px solid var(--bd2);border-radius:11px;padding:8px;box-shadow:0 10px 30px rgba(0,0,0,.5);}
+  border:0.5px solid var(--bd2);border-radius:11px;padding:8px;box-shadow:0 10px 30px var(--sh);}
 .gt-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px;}
 .gt-ttl{font-size:11.5px;color:var(--tx);}
 .gt-sub{font-size:10.5px;color:var(--mut2);}
@@ -631,7 +670,7 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
    и elementFromPoint возвращал бы его вместо ноды, на которую целятся. */
 .gt-ghost{position:absolute;z-index:9;pointer-events:none;transform:translate(-50%,-50%);
   display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:7px;font-size:12px;
-  color:var(--tx);background:var(--surf2);border:0.5px solid var(--bd3);box-shadow:0 8px 22px rgba(0,0,0,.55);
+  color:var(--tx);background:var(--surf2);border:0.5px solid var(--bd3);box-shadow:0 8px 22px var(--sh);
   max-width:200px;white-space:nowrap;opacity:.95;}
 .gt-ghost span{overflow:hidden;text-overflow:ellipsis;}
 .graph-legend{position:absolute;bottom:12px;left:12px;display:flex;gap:16px;font-size:11px;color:var(--mut);z-index:5;flex-wrap:wrap;}
@@ -657,9 +696,11 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .toggle button.on{background:var(--acc);color:var(--bg);}
 .toggle button:not(.on):hover{background:var(--surf2);color:var(--tx);}
 
-.card.pri-1{border-left:3px solid #5fb98e;}
-.card.pri-2{border-left:3px solid #e8a14b;}
-.card.pri-3{border-left:3px solid #e0625a;}
+/* через переменные темы, а не жёсткими цифрами: в светлой теме приоритеты свои (--pri* темнее),
+   и полоски карточек оставались тёмными, из-за чего низкий приоритет читался ярче высокого */
+.card.pri-1{border-left:3px solid var(--pri1);}
+.card.pri-2{border-left:3px solid var(--pri2);}
+.card.pri-3{border-left:3px solid var(--pri3);}
 
 /* notes list */
 .notes-tree{display:flex;flex-direction:column;gap:8px;padding:2px 0;}
@@ -725,8 +766,10 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .col-h .col-name:hover{background:var(--surf3);}
 .col-h input{background:var(--surf3);border:0.5px solid var(--bd2);border-radius:5px;color:var(--tx);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;padding:1px 4px;width:90px;outline:none;}
 .cal-nav{display:flex;gap:6px;align-items:center;}
-.cal-nav button{width:30px;height:30px;border-radius:8px;border:0.5px solid var(--bd2);color:var(--mut);display:flex;align-items:center;justify-content:center;font-size:16px;}
-.cal-nav button:hover{color:var(--tx);background:var(--surf2);}
+/* Коробка 30×30 — только для СТРЕЛОК. Селектор ловил все кнопки внутри, включая текстовую
+   «Сегодня»: слово в 62 px вылезало из неё в обе стороны и ложилось поверх шевронов. */
+.cal-nav button:not(.btn){width:30px;height:30px;border-radius:8px;border:0.5px solid var(--bd2);color:var(--mut);display:flex;align-items:center;justify-content:center;font-size:16px;}
+.cal-nav button:not(.btn):hover{color:var(--tx);background:var(--surf2);}
 .graph-hint{position:absolute;top:12px;right:12px;font-size:11px;color:var(--mut);background:var(--surf2);border:0.5px solid var(--bd);border-radius:8px;padding:6px 26px 6px 10px;z-index:5;max-width:230px;line-height:1.5;}
 .graph-hint.off{display:none;}
 #g-hint-x{position:absolute;top:4px;right:4px;width:18px;height:18px;border-radius:5px;display:flex;
@@ -751,7 +794,7 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .rep-acts #rep-close{margin-left:auto;}
 
 /* node popover */
-#node-pop{position:absolute;z-index:20;width:288px;background:var(--surf2);border:0.5px solid var(--bd2);border-radius:var(--r-m);box-shadow:0 8px 30px rgba(0,0,0,.5),0 0 20px var(--glow);padding:12px;}
+#node-pop{position:absolute;z-index:20;width:288px;background:var(--surf2);border:0.5px solid var(--bd2);border-radius:var(--r-m);box-shadow:0 8px 30px var(--sh),0 0 20px var(--glow);padding:12px;}
 #node-pop .swatch{width:24px;height:24px;}
 #node-pop .np-ttl{font-size:13.5px;font-weight:500;line-height:1.35;margin-bottom:6px;}
 #node-pop .np-meta{font-size:11px;color:var(--mut);margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
@@ -809,16 +852,83 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 /* ===== modal ===== */
 .overlay{position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:100;}
 .light .overlay{background:rgba(0,0,0,.30);}
-.modal{width:520px;max-width:92vw;max-height:88vh;overflow-y:auto;background:var(--surf);border:0.5px solid var(--bd2);border-radius:var(--r-l);box-shadow:0 20px 60px rgba(0,0,0,.6),0 0 30px var(--glow);padding:20px;}
-.modal h3{font-size:16px;font-weight:500;margin-bottom:16px;display:flex;align-items:center;gap:9px;}
+.modal{width:520px;max-width:92vw;max-height:88vh;overflow-y:auto;background:var(--surf);border:0.5px solid var(--bd2);border-radius:var(--r-l);box-shadow:0 20px 60px var(--sh-strong),0 0 30px var(--glow);padding:20px;}
+/* Заголовок окна несёт название ноды, а оно бывает без пробелов: без переноса длинное слово
+   вылезало за окно и включало в нём горизонтальную прокрутку. */
+.modal h3{font-size:16px;font-weight:500;margin-bottom:16px;display:flex;align-items:center;gap:9px;
+  min-width:0;overflow-wrap:anywhere;}
 .modal h3 i{font-size:19px;}
 .field{margin-bottom:14px;}
 .field label{display:block;font-size:11.5px;color:var(--mut);margin-bottom:6px;letter-spacing:.03em;}
-.field input[type=text],.field textarea,.field select,.field input[type=date]{width:100%;background:var(--surf2);border:0.5px solid var(--bd);border-radius:9px;padding:9px 12px;font-size:13.5px;color:var(--tx);outline:none;transition:.15s;}
+/* password перечислен наравне с text: без него поле токена бота в настройках рисовалось
+   системным белым прямоугольником посреди тёмного окна, чужой ширины и без рамки приложения */
+.field input[type=text],.field input[type=password],.field textarea,.field select{width:100%;background:var(--surf2);border:0.5px solid var(--bd);border-radius:9px;padding:9px 12px;font-size:13.5px;color:var(--tx);outline:none;transition:.15s;}
 .field input:focus,.field textarea:focus,.field select:focus{border-color:var(--bd3);box-shadow:0 0 0 3px var(--surf3);}
 .field textarea{resize:vertical;min-height:90px;line-height:1.55;}
-.field input[type=date]{color-scheme:dark;}
-.light .field input[type=date]{color-scheme:light;}
+/* ===== срок: своя кнопка + свой календарь =====
+   Нативного пикера здесь больше нет (он открывал системное окно WebView2 — чужие шрифты и синие
+   акценты Chromium посреди монохромного интерфейса). Кнопка сделана по образцу полей формы:
+   те же поверхность, рамка и радиус, чтобы строка «Срок» читалась как поле, а не как кнопка. */
+.date-ctl{width:100%;}
+/* line-height задан явно: у кнопки его считает содержимое, и без этого поле «Срок» вставало на
+   два пикселя ниже соседнего «Повтора» — в строке из двух полей это видно сразу */
+.date-btn{display:flex;align-items:center;gap:8px;width:100%;background:var(--surf2);
+  border:0.5px solid var(--bd);border-radius:9px;padding:9px 12px;font-size:13.5px;line-height:20px;
+  color:var(--tx);text-align:left;transition:.15s;}
+.date-btn:hover{border-color:var(--bd2);}
+.date-btn:focus-visible{outline:none;border-color:var(--bd3);box-shadow:0 0 0 3px var(--surf3);}
+.date-btn>.ti-calendar-event{font-size:15px;color:var(--mut);flex:none;}
+/* класс НЕ `empty`: в приложении есть глобальный `.empty i` — кружок 62×62 для заглушек
+   пустого состояния, и кнопка без срока раздувала строку панели до 88 px */
+.date-btn.nodate{color:var(--mut);}
+.date-btn.over{color:var(--warn);}
+.date-btn.over>.ti-calendar-event{color:var(--warn);}
+.db-txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums;}
+/* «завтра» / «просрочено 3д» — подсказка второй строкой смысла, а не цифрой: цифру человек и так видит */
+.db-rel{flex:none;font-size:11px;color:var(--mut);border:0.5px solid var(--bd);border-radius:999px;padding:1px 7px;}
+.date-btn.over .db-rel{color:var(--warn);border-color:var(--warn);}
+.db-x{flex:none;font-size:14px;color:var(--mut2);border-radius:5px;padding:1px;}
+.db-x:hover{color:var(--warn);background:var(--surf3);}
+/* в правой панели поле уже (165 px) — там подписи «завтра» места нет */
+/* В панели поле срока — такая же строка, как соседние списки: те же 165 px, тот же отступ и
+   высота. Кнопка тут не должна выглядеть кнопкой, иначе строка «Срок» выпадает из столбика. */
+#aside .date-ctl{width:165px;max-width:100%;flex:none;}
+#aside .date-btn{padding:3px 6px;font-size:13px;line-height:20px;gap:6px;border-color:transparent;background:transparent;border-radius:7px;}
+/* иконку календаря внутри кнопки прячем: в строке панели свой слот иконки уже занят той же */
+#aside .date-btn>.ti-calendar-event{display:none;}
+#aside .date-btn:hover{border-color:var(--bd);background:var(--surf2);}
+#aside .db-rel{display:none;}
+
+.dp{position:fixed;z-index:220;width:252px;background:var(--surf2);border:0.5px solid var(--bd2);
+  border-radius:var(--r-m);box-shadow:0 12px 34px var(--sh),0 0 20px var(--glow);
+  padding:10px;outline:none;animation:dpIn .13s cubic-bezier(.2,.8,.2,1) both;}
+@keyframes dpIn{from{opacity:0;transform:translateY(-4px) scale(.98);}to{opacity:1;transform:none;}}
+.dp-head{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:6px;}
+.dp-ttl{font-size:12.5px;color:var(--tx);text-transform:capitalize;letter-spacing:.02em;}
+.dp-nav{width:26px;height:26px;border-radius:7px;color:var(--mut);display:flex;align-items:center;
+  justify-content:center;font-size:15px;}
+.dp-nav:hover{color:var(--tx);background:var(--surf3);}
+.dp-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;}
+.dp-wd{font-size:10px;color:var(--mut2);text-align:center;padding-bottom:4px;text-transform:uppercase;letter-spacing:.05em;}
+.dp-d{position:relative;height:30px;border-radius:8px;font-size:12.5px;color:var(--tx);
+  display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums;transition:.1s;}
+.dp-d.off{visibility:hidden;}
+.dp-d.wknd{color:var(--mut);}
+.dp-d:hover{background:var(--surf3);}
+/* сегодня — тонкое кольцо, выбранный день — заливка: два разных признака не должны спорить */
+.dp-d.tod{box-shadow:inset 0 0 0 1px var(--bd3);}
+.dp-d.cur{box-shadow:inset 0 0 0 1px var(--bd2);}      /* день под клавишами-стрелками */
+.dp-d.sel{background:var(--acc);color:var(--bg);box-shadow:0 0 12px var(--glow);}
+.dp-d.sel .dp-dot{background:var(--bg);}
+/* точка = на этот день уже стоят задачи: видно занятые дни, не выходя из окна */
+.dp-dot{position:absolute;bottom:4px;left:50%;transform:translateX(-50%);width:3px;height:3px;
+  border-radius:50%;background:var(--mut);}
+.dp-quick{display:flex;align-items:center;gap:4px;margin-top:8px;padding-top:8px;border-top:0.5px solid var(--bd);}
+.dp-quick button{flex:1;padding:5px 6px;border:0.5px solid var(--bd);border-radius:7px;font-size:11.5px;
+  color:var(--mut);background:var(--surf2);}
+.dp-quick button:hover{color:var(--tx);border-color:var(--bd2);}
+.dp-quick .dp-clear{flex:0 0 28px;display:flex;align-items:center;justify-content:center;font-size:13px;}
+.dp-quick .dp-clear:hover{color:var(--warn);border-color:var(--warn);}
 .row2{display:flex;gap:12px;}
 .row2 .field{flex:1;}
 .seg{display:flex;gap:6px;flex-wrap:wrap;}
@@ -826,7 +936,12 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .seg button.on{background:var(--acc);color:var(--bg);border-color:var(--acc);box-shadow:0 0 12px var(--glow);}
 .seg button:hover{color:var(--tx);}
 .seg button.on:hover{color:var(--bg);}
-.modal-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:8px;}
+/* Подвал ЛИПКИЙ. Окно прокручивается (max-height:88vh), и в длинных окнах — настройки графа,
+   менеджеры областей и тегов — кнопки «Готово» и «Отмена» оказывались ниже видимой части:
+   человек прокручивал до конца, чтобы просто закрыть окно. Фон свой, иначе содержимое
+   просвечивает под кнопками; отрицательный bottom съедает нижний паддинг окна. */
+.modal-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:8px;
+  position:sticky;bottom:-20px;background:var(--surf);padding:10px 0;margin-bottom:-10px;}
 .modal-foot .right{display:flex;gap:9px;margin-left:auto;}
 /* строка отчёта: «Цель» + поле + кнопка «Собрать через ИИ» на одной линии */
 .rep-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
@@ -878,11 +993,15 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 /* ===== command palette ===== */
 #palette{position:absolute;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-start;justify-content:center;padding-top:14vh;z-index:200;}
 .light #palette{background:rgba(0,0,0,.28);}
-.pal-box{width:560px;max-width:92vw;background:var(--surf);border:0.5px solid var(--bd2);border-radius:var(--r-l);box-shadow:0 24px 70px rgba(0,0,0,.6),0 0 30px var(--glow);overflow:hidden;}
+.pal-box{width:560px;max-width:92vw;background:var(--surf);border:0.5px solid var(--bd2);border-radius:var(--r-l);box-shadow:0 24px 70px var(--sh-strong),0 0 30px var(--glow);overflow:hidden;}
 .pal-in{width:100%;height:52px;padding:0 18px;background:none;border:none;border-bottom:0.5px solid var(--bd);font-size:16px;outline:none;}
 .pal-list{max-height:46vh;overflow-y:auto;padding:7px;}
 .pal-it{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:9px;font-size:13.5px;cursor:pointer;}
-.pal-it i{font-size:17px;width:20px;text-align:center;color:var(--mut);}
+.pal-it i{font-size:17px;width:20px;text-align:center;color:var(--mut);flex:none;}
+/* Название результата — одной строкой: длинный заголовок ноды рвал строку палитры на три, подпись
+   с областью повисала по центру, и в список высотой 46vh помещалось вдвое меньше результатов. */
+.pal-it>span:not(.pal-sub){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pal-it .pal-sub{flex:none;white-space:nowrap;}
 .pal-it.on{background:var(--surf2);}
 .pal-it.on i{color:var(--tx);}
 .pal-it .pal-sub{margin-left:auto;font-size:11px;color:var(--mut);}
@@ -894,7 +1013,7 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
    Стоит СПРАВА ВНИЗУ, а не по центру: центр занят тостами, и они перекрывали бы друг друга. */
 .upd-banner{position:fixed;right:18px;bottom:18px;z-index:340;display:flex;align-items:center;gap:10px;
   max-width:min(520px,92vw);padding:12px 14px;border-radius:12px;background:var(--surf3);
-  border:0.5px solid var(--bd2);box-shadow:0 10px 34px rgba(0,0,0,.5),0 0 24px var(--glow);
+  border:0.5px solid var(--bd2);box-shadow:0 10px 34px var(--sh),0 0 24px var(--glow);
   opacity:0;transform:translateY(14px);transition:opacity .22s,transform .22s;}
 .upd-banner.show{opacity:1;transform:none;}
 .upd-banner .upd-ico{font-size:20px;color:var(--acc);flex:none;}
@@ -969,7 +1088,7 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 
 /* доска — карточка «поднимается» при перетягивании + подсветка места сброса */
 .kbc:active{cursor:grabbing;}
-.kbc.dragging{opacity:.55;transform:scale(.97) rotate(-.5deg);box-shadow:0 10px 26px rgba(0,0,0,.5),0 0 18px var(--glow);}
+.kbc.dragging{opacity:.55;transform:scale(.97) rotate(-.5deg);box-shadow:0 10px 26px var(--sh),0 0 18px var(--glow);}
 .col.drag .col-h{box-shadow:inset 0 -2px 0 var(--acc);}
 /* поле переименования колонки растягивается по ширине (раньше фикс 90px обрезал длинные имена) */
 .col-h input{width:auto;flex:1;min-width:0;}
@@ -1002,7 +1121,9 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .toast-act:hover{background:var(--acc);color:var(--bg);}
 
 /* предпросмотр быстрого захвата — плавающие чипы под полем ввода */
-#cap-preview{position:absolute;top:calc(100% + 7px);left:0;display:none;gap:6px;flex-wrap:wrap;z-index:50;}
+/* мышь предпросмотр не ловит: он свисает над телом, а нажимать в нём нечего — иначе перекрывал бы
+   клики по верхней кромке графа, пока в строке захвата есть текст */
+#cap-preview{position:absolute;top:calc(100% + 7px);left:0;display:none;gap:6px;flex-wrap:wrap;z-index:50;pointer-events:none;}
 #cap-preview.show{display:flex;}
 .cap-chip{font-size:11px;padding:3px 9px;border-radius:7px;background:var(--surf3);border:0.5px solid var(--bd2);
   color:var(--tx);display:inline-flex;align-items:center;gap:5px;box-shadow:0 6px 18px rgba(0,0,0,.35);}
@@ -1029,6 +1150,12 @@ button:disabled,.btn:disabled,input:disabled,select:disabled,textarea:disabled,
 input[type=range]:disabled,[aria-disabled="true"]{
   opacity:.45;cursor:not-allowed;box-shadow:none;}
 button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:var(--bd2);box-shadow:none;transform:none;}
+/* Заблокированная кнопка-акцент обязана остаться акцентной. Правило выше меняет ей ФОН, но не
+   цвет текста, и надпись var(--bg) оказывалась на var(--surf): «Скачиваю…» на кнопке обновления
+   становилось чёрным по чёрному в тёмной теме и белым по белому в светлой — кнопка выглядела
+   погасшей ровно в тот момент, когда идёт двадцатимегабайтная загрузка. Приглушает её opacity. */
+.btn.primary:disabled,.btn.primary:disabled:hover{background:var(--acc);color:var(--bg);border-color:var(--acc);}
+.btn.danger:disabled,.btn.danger:disabled:hover{background:var(--warn);color:#fff;border-color:var(--warn);}
 
 /* выделение текста (в полях/contenteditable) — мягкая брендовая подсветка вместо системной синей */
 ::selection{background:var(--bd3);color:var(--tx);}
@@ -1044,7 +1171,10 @@ button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:va
 .set-val{margin-left:6px;color:var(--mut);font-weight:400;font-variant-numeric:tabular-nums;}
 .upd-notes{margin:2px 0 4px;padding:9px 11px;max-height:120px;overflow:auto;background:var(--surf2);border:0.5px solid var(--bd);border-radius:8px;font-size:12px;line-height:1.5;color:var(--mut);white-space:pre-wrap;}
 /* вкладки настроек */
-.set-tabs{display:flex;gap:2px;margin:2px 0 14px;border-bottom:0.5px solid var(--bd);}
+/* Вкладки настроек липнут к верху: страница «Граф» длиной больше экрана, и, прокрутив её,
+   человек терял и заголовок, и переключатель разделов — приходилось мотать обратно наверх. */
+.set-tabs{display:flex;gap:2px;margin:2px 0 14px;border-bottom:0.5px solid var(--bd);
+  position:sticky;top:-20px;background:var(--surf);z-index:1;padding-top:10px;}
 .set-tab{display:flex;align-items:center;gap:5px;padding:8px 11px;background:none;border:none;border-bottom:2px solid transparent;color:var(--mut);font-size:12.5px;cursor:pointer;transition:color .15s,border-color .15s;margin-bottom:-0.5px;}
 .set-tab:hover{color:var(--tx);}
 .set-tab.on{color:var(--tx);border-bottom-color:var(--acc);}
@@ -1087,7 +1217,7 @@ button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:va
 .np-len{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
 .np-len-in{flex:1;accent-color:var(--acc);cursor:pointer;}
 /* инлайн-ввод названия новой ноды прямо на холсте графа (поток мысли не рвётся) */
-.g-inline{position:absolute;transform:translate(-50%,-50%);z-index:8;width:152px;background:var(--surf2);border:1px solid var(--acc);border-radius:7px;padding:5px 9px;font-size:13px;color:var(--tx);outline:none;box-shadow:0 4px 18px rgba(0,0,0,.45),0 0 14px var(--glow);text-align:center;}
+.g-inline{position:absolute;transform:translate(-50%,-50%);z-index:8;width:152px;background:var(--surf2);border:1px solid var(--acc);border-radius:7px;padding:5px 9px;font-size:13px;color:var(--tx);outline:none;box-shadow:0 4px 18px var(--sh),0 0 14px var(--glow);text-align:center;}
 .g-inline::placeholder{color:var(--mut2);}
 /* метка «с опозданием» у выполненной задачи (вместо «просрочено») */
 .due.late{color:var(--mut);font-style:italic;}
@@ -1125,7 +1255,7 @@ kbd{display:inline-block;font-family:var(--font);font-size:11px;line-height:1;pa
 .sc-keys{flex:none;min-width:168px;display:flex;align-items:center;gap:3px;flex-wrap:wrap;color:var(--mut);font-size:12px;}
 .sc-desc{color:var(--tx);font-size:13px;}
 /* поиск ноды в графе */
-.graph-search{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:6;display:flex;align-items:center;gap:8px;background:var(--surf2);border:0.5px solid var(--bd2);border-radius:10px;padding:7px 12px;box-shadow:0 8px 24px rgba(0,0,0,.4),0 0 16px var(--glow);}
+.graph-search{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:6;display:flex;align-items:center;gap:8px;background:var(--surf2);border:0.5px solid var(--bd2);border-radius:10px;padding:7px 12px;box-shadow:0 8px 24px var(--sh),0 0 16px var(--glow);}
 .graph-search>i{color:var(--mut);font-size:16px;}
 .graph-search input{background:none;border:none;outline:none;color:var(--tx);font-size:13px;width:200px;}
 .graph-search input::placeholder{color:var(--mut2);}
@@ -1142,8 +1272,16 @@ kbd{display:inline-block;font-family:var(--font);font-size:11px;line-height:1;pa
 .hh-phrase{font-size:13px;color:var(--mut);font-style:italic;}
 
 .home-grid{display:grid;gap:12px;}
-.home-grid.g2{grid-template-columns:1.2fr 1fr;}
-.home-card{padding:16px 18px;cursor:default;}   /* карточки-контейнеры не кликаются целиком — курсор обычный (кликабельны лишь конкретные элементы внутри: rs-link/area-bar/карточки задач) */
+/* minmax(0,…), а не голые доли: у элемента сетки min-width по умолчанию равен его содержимому,
+   и одно длинное слово в названии задачи раздувало колонку, а с ней и всю страницу «Сегодня» —
+   замер показывал почти 900 лишних пикселей и карточки, уехавшие за край экрана. */
+.home-grid>*{min-width:0;}
+/* СТОЛБИК, А НЕ СТРОКА. Карточка-контейнер несёт класс .card, а тот — flex-строка (это про
+   карточку ЗАДАЧИ: галочка слева, текст справа). Из-за наследования список «Фокуса дня» вставал
+   в РЯД: четыре задачи по ~240 px в блоке шириной 313, и содержимое уезжало за карточку почти
+   на 700 px. Кольцу дня строка нужна — ему правило вернули отдельно. */
+.home-card{display:block;padding:16px 18px;cursor:default;}   /* карточки-контейнеры не кликаются целиком — курсор обычный (кликабельны лишь конкретные элементы внутри: rs-link/area-bar/карточки задач) */
+.home-card.ring-card{display:flex;}
 .hc-title{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin-bottom:12px;display:flex;align-items:center;gap:6px;}
 .hc-title i{font-size:14px;}
 
@@ -1180,7 +1318,7 @@ kbd{display:inline-block;font-family:var(--font);font-size:11px;line-height:1;pa
 .embers-foot{font-size:12px;color:var(--mut);margin-top:10px;}
 
 /* баланс областей */
-.areas-card{display:flex;flex-direction:column;gap:9px;}
+.home-card.areas-card{display:flex;flex-direction:column;gap:9px;}
 .area-bar{display:flex;align-items:center;gap:9px;cursor:pointer;padding:2px 0;}
 .area-bar i{font-size:15px;width:18px;text-align:center;color:var(--mut);flex:none;}
 .area-bar.lead i{color:var(--tx);}
@@ -1196,7 +1334,10 @@ kbd{display:inline-block;font-family:var(--font);font-size:11px;line-height:1;pa
 .home-foot{width:100%;background:none;border:0.5px dashed var(--bd);border-radius:var(--r-m);padding:11px 16px;color:var(--mut);font-size:12.5px;display:flex;align-items:center;gap:7px;cursor:pointer;transition:.14s;}
 .home-foot:hover{color:var(--tx);border-color:var(--bd3);background:var(--surf);}
 .home-foot i{font-size:14px;}
-@media(max-width:720px){ .home-grid.g2{grid-template-columns:1fr;} }
+/* Сетка сворачивается по СВОЕЙ ширине, а не по ширине окна: на широком экране с растянутой
+   правой панелью колонка сжималась до ~110 px, и кольцо дня с процентами переставало помещаться,
+   а медиазапрос по окну этого не замечал. auto-fit сам решает, во сколько колонок вставать. */
+.home-grid.g2{grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));}
 /* ===========================================================
    DRAW — доска ноды-полотна (Excalidraw), на весь экран
    =========================================================== */
@@ -1276,7 +1417,7 @@ body.fld-grip-drag{user-select:none;cursor:row-resize;}
 /* поднятая плитка: не ловит курсор (под ним ищется цель) и едет за рукой без переходов.
    Приподнятость показываем тенью и лёгкой прозрачностью — под ней должно быть видно, куда
    встанет линия вставки. */
-.fld.тащим{z-index:6;opacity:.82;box-shadow:0 18px 40px rgba(0,0,0,.55);border-color:var(--acc);
+.fld.тащим{z-index:6;opacity:.82;box-shadow:0 18px 40px var(--sh);border-color:var(--acc);
   pointer-events:none;transition:none;}
 body.fld-drag{user-select:none;cursor:grabbing;}
 /* Куда встанет плитка: ЛИНИЯ на границе, а не подсветка всей плитки. Полоска сбоку — новая
@@ -1314,6 +1455,9 @@ body.fld-drag{user-select:none;cursor:grabbing;}
 .fld-b{width:24px;height:24px;border-radius:6px;color:var(--mut);font-size:13px;flex:none;display:inline-flex;align-items:center;justify-content:center;}
 .fld-b:hover{background:var(--surf3);color:var(--tx);}
 .fld-b[data-fa="del"]:hover{color:var(--warn);}
+/* включённый режим «высота под картинку»: кнопка обязана читаться как нажатая — иначе непонятно,
+   почему плитка не слушается ручки высоты */
+.fld-b.on{background:var(--surf3);color:var(--acc);}
 .flds .fld-text{display:block;width:100%;flex:1;min-height:0;background:transparent;border:none;border-radius:0;padding:8px 10px;font-size:13.5px;line-height:1.55;color:var(--tx);outline:none;resize:none;overflow:hidden;}
 .flds .fld-text:focus{background:var(--surf2);box-shadow:none;}
 /* Пока текст только для чтения, он НЕ ловит мышь: иначе поле ввода перехватывает нажатие,

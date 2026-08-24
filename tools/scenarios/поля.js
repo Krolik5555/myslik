@@ -226,15 +226,30 @@ t.push({имя:"плитки получили доли строки и высо�
     заголовок.dispatchEvent(new Event("input",{bubbles:true}));
   }
 
-  // курсор ушёл со врезки — вставка больше не должна попадать в поле
+  /* Курсор мимо врезок, но окно ноды открыто: картинка обязана завести СЕБЕ поле. Ради этого
+     жеста и убраны два лишних действия — нажать «картинка» и потом целиться в неё курсором.
+     Уже заполненная врезка при этом не трогается: вставка ничего не затирает. */
   document.dispatchEvent(new PointerEvent("pointermove",{bubbles:true, clientX:2, clientY:2}));
+  const былоПлиток=блоки().length;
   const dt2=new DataTransfer(); dt2.items.add(new File([бин],"мимо.png",{type:"image/png"}));
   const мимо=new ClipboardEvent("paste",{bubbles:true, cancelable:true, clipboardData:dt2});
   document.body.dispatchEvent(мимо);
-  await ж(300);
-  const послеSrc=([...document.querySelectorAll("#f-fields .fld")][1].querySelector(".fld-img")||{}).src||"";
-  t.push({имя:"без наведения вставка в поле не уходит",
-          ок: !мимо.defaultPrevented && послеSrc===сталSrc, факт:"перехвачено: "+мимо.defaultPrevented});
+  await ж(900);
+  const плитки=[...document.querySelectorAll("#f-fields .fld")];
+  const новая=плитки[плитки.length-1];
+  const новSrc=((новая&&новая.querySelector(".fld-img"))||{}).src||"";
+  const староеЦело=((плитки[1]&&плитки[1].querySelector(".fld-img"))||{}).src===сталSrc;
+  t.push({имя:"Ctrl+V мимо врезок заводит новое поле-картинку",
+          ок: мимо.defaultPrevented && плитки.length===былоПлиток+1
+              && новSrc.indexOf("data:image/")===0 && староеЦело,
+          факт:"плиток "+былоПлиток+" → "+плитки.length+"; в новой картинка: "+(новSrc?"есть":"нет")+
+               "; старая цела: "+староеЦело});
+  // убираем добавленное: дальше сценарий считает, что полей три
+  if(плитки.length===былоПлиток+1 && новая.querySelector('[data-fa="del"]')){
+    новая.querySelector('[data-fa="del"]').click();
+    await ж(250);
+    if(document.querySelector("#cf-yes")){ document.querySelector("#cf-yes").click(); await ж(350); }
+  }
 }
 
 // клик по врезке картинки НЕ должен открывать системный диалог — иначе приложение зависало бы
@@ -606,6 +621,117 @@ await ж(150);
 t.push({имя:"без шаблона нода создаётся как раньше",
         ок: блоки().length===0 && !!$("#f-body"), факт: "блоков полей: "+блоки().length});
 closeOverlays();
+
+/* ---------- размер плитки под картинку ----------
+   Высоту считаем от ширины ПЛИТКИ. Раньше мерили узел `.fld-grid`, которого в панели нет со
+   времён переезда на строки и колонки: подгонка молча не срабатывала, и вставленная картинка
+   висела в плитке прежней высоты. Плюс режим «всегда по размеру» — высота едет за шириной. */
+{
+  closeOverlays();
+  const холст=(w,h)=>{ const c=document.createElement("canvas"); c.width=w; c.height=h;
+    const g=c.getContext("2d"); g.fillStyle="#888"; g.fillRect(0,0,w,h); return c.toDataURL("image/png"); };
+  const широкая=холст(400,100);                 // ровно 4:1 — высоту легко посчитать на бумаге
+  const кар=addItem({kind:"note", title:"Картинка по размеру"});
+  кар.fields=[fieldMake("image","Скрин")];
+  кар.fields[0].media=fieldMediaPut(широкая);
+  persist();
+  openNoteReader(кар); await ж(600);
+  const host=document.querySelector("#nr-fields");
+  const плитка=()=>host.querySelector('[data-fid="'+кар.fields[0].id+'"]');
+  const ш1=плитка().getBoundingClientRect().width;
+  /* Высота — по КАРТИНКЕ, а не по ширине плитки. Картинка не растягивается сверх своего размера
+     (max-width в styles.css), поэтому в широкой плитке она лежит по центру своей натуральной
+     ширины: высота, посчитанная от ширины плитки, оставляла бы над ней и под ней пустые поля. */
+  const ждём=ш=>fieldHeight(Math.round(Math.min(ш,400)*0.25)+FIELD_BAR_H);
+  await fieldFitImage(host, кар.fields[0], широкая);
+  t.push({имя:"высота плитки считается по показанной картинке, без пустых полей сверху и снизу",
+          ок: кар.fields[0].gh===ждём(ш1),
+          факт:"плитка шириной "+Math.round(ш1)+", картинка 400×100 → высота "+кар.fields[0].gh+
+               " (ждали "+ждём(ш1)+")"});
+
+  /* Режим «по размеру» ВКЛЮЧЁН ПО УМОЛЧАНИЮ, и хранится в данных именно отказ от него (nofit):
+     иначе поля, вставленные до появления кнопки, навсегда остались бы с пустотами вокруг картинки. */
+  const включено=кар.fields[0].nofit===undefined && !!host.querySelector('[data-fa="fit"].on');
+  const gh1=кар.fields[0].gh;
+  кар.fields[0].gw=6; кар.fields[0].gwm=true;      // ужали колонку вдвое
+  host._fieldsDraw(); await ж(700);
+  const ш2=плитка().getBoundingClientRect().width, gh2=кар.fields[0].gh;
+  t.push({имя:"«по размеру» включено по умолчанию и пересчитывает высоту при смене ширины",
+          ок: включено && gh2<gh1 && gh2===ждём(ш2),
+          факт:"включено сразу: "+включено+"; ширина "+Math.round(ш1)+"→"+Math.round(ш2)+
+               ", высота "+gh1+"→"+gh2});
+
+  // кнопкой режим выключают — и тогда высоту задаёт человек
+  host.querySelector('[data-fa="fit"]').click();
+  await ж(400);
+  t.push({имя:"кнопка выключает авто-высоту, и это видно по самой кнопке",
+          ок: кар.fields[0].nofit===true && !host.querySelector('[data-fa="fit"].on'),
+          факт:"отказ записан: "+(кар.fields[0].nofit===true)+
+               ", кнопка нажата: "+!!host.querySelector('[data-fa="fit"].on')});
+  host.querySelector('[data-fa="fit"]').click(); await ж(500);   // возвращаем режим для проверки ручки
+
+  /* Потянули ручку — режим снимается. Иначе высота тут же возвращалась бы расчётной, и жест
+     выглядел бы сломанным. */
+  const руч=плитка().querySelector(".fld-grip");
+  const r=руч.getBoundingClientRect();
+  руч.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true,cancelable:true,clientX:r.left+20,clientY:r.top+2,button:0,pointerId:21}));
+  window.dispatchEvent(new PointerEvent("pointermove",{clientX:r.left+20,clientY:r.top+2+80,pointerId:21}));
+  await ж(60);
+  window.dispatchEvent(new PointerEvent("pointerup",{clientX:r.left+20,clientY:r.top+2+80,pointerId:21}));
+  await ж(600);
+  t.push({имя:"протяжка ручки высоты снимает «всегда по размеру»",
+          ок: кар.fields[0].nofit===true && кар.fields[0].gh>gh2,
+          факт:"режим: "+(кар.fields[0].nofit===true?"снят":"остался")+"; высота "+gh2+" → "+кар.fields[0].gh});
+
+  const почищено=sanitizeState({items:[{id:"ff", kind:"note", fields:[
+                                  {id:"f1", type:"image", media:"m1", nofit:true},
+                                  {id:"f2", type:"image", media:"m1"}]}],
+                                media:{m1:PNG}});
+  t.push({имя:"отказ от авто-высоты переживает чистку, а поле без него остаётся авто",
+          ок: почищено.items[0].fields[0].nofit===true && почищено.items[0].fields[1].nofit===undefined,
+          факт:"после чистки: "+JSON.stringify(почищено.items[0].fields.map(f=>f.nofit))});
+  closeOverlays(); hardDeleteItem(кар.id);
+}
+
+/* Правая панель ловит вставку С ЛЮБОГО своего места, а не только с полоски «Добавить поле»:
+   у ноды без полей та полоска высотой в строку, и целиться в неё курсором — задание на меткость.
+   Наводимся на ШАПКУ панели (заголовок ноды) — картинка обязана приехать полем. */
+{
+  closeOverlays(); view="notes"; render(); await ж(300);
+  const пан=addItem({kind:"task", title:"Панельная"});
+  persist(); render(); await ж(300);
+  asideSelect(пан.id); await ж(500);
+  const a=document.querySelector("#aside");
+  const шапка=(a && a.querySelector(".as-head")) || a;
+  const r=шапка.getBoundingClientRect();
+  document.dispatchEvent(new PointerEvent("pointermove",{bubbles:true,
+    clientX:Math.round(r.left+r.width/2), clientY:Math.round(r.top+r.height/2)}));
+  const бин=Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="), c=>c.charCodeAt(0));
+  const dt=new DataTransfer(); dt.items.add(new File([бин],"панель.png",{type:"image/png"}));
+  const ev=new ClipboardEvent("paste",{bubbles:true, cancelable:true, clipboardData:dt});
+  document.body.dispatchEvent(ev);
+  await ж(900);
+  const пп=пан.fields||[];
+  t.push({имя:"в правой панели вставка ловится с любого её места, не только с полосы полей",
+          ок: ev.defaultPrevented && пп.length===1 && пп[0].type==="image" && !!(пп[0].media && S.media[пп[0].media]),
+          факт:"перехвачено: "+ev.defaultPrevented+"; полей у ноды: "+пп.length+
+               (пп.length?" ("+пп[0].type+", картинка: "+(пп[0].media&&S.media[пп[0].media]?"есть":"нет")+")":"")});
+  hardDeleteItem(пан.id); render(); await ж(200);
+}
+
+/* Вне панели полей вставка — не наше дело: на холсте графа Ctrl+V вставляет скопированные ноды,
+   и перехват вслепую отнял бы её. */
+{
+  closeOverlays(); view="notes"; render(); await ж(300);
+  document.dispatchEvent(new PointerEvent("pointermove",{bubbles:true, clientX:2, clientY:2}));
+  const бин=Uint8Array.from(atob(PNG.split(",")[1]), c=>c.charCodeAt(0));
+  const dt=new DataTransfer(); dt.items.add(new File([бин],"холст.png",{type:"image/png"}));
+  const мимо=new ClipboardEvent("paste",{bubbles:true, cancelable:true, clipboardData:dt});
+  document.body.dispatchEvent(мимо);
+  await ж(300);
+  t.push({имя:"вне панели полей вставка не перехватывается",
+          ок: !мимо.defaultPrevented, факт:"перехвачено: "+мимо.defaultPrevented});
+}
 
 /* ---------- убираем за собой ---------- */
 S.templates = S.templates.filter(x=>x.id!=="tpl_проверка");

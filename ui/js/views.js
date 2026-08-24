@@ -180,9 +180,16 @@ function asideMany(ids){
    С 748 холст выходил 700 px и приезжала мобильная раскладка. */
 const BOARD_MIN = 790;
 
-// Тот же предел, что и в asideApplyWidth: панели нельзя занять последние 420 px — там живёт
-// левая часть. Если и в этом пределе доска не помещается, врезку не показываем вовсе.
-const asideMaxW = ()=> Math.max(320, window.innerWidth - 420);
+/* Предел ширины панели считаем от ФАКТИЧЕСКОЙ левой части, а не от круглого числа. Константа 420
+   была посчитана под свёрнутую полосу (56 px); с подписями полоса занимает 188, и панель,
+   растянутая до упора, вылезала за правый край окна ровно на эту разницу — пропадали её рамка и
+   скруглённый угол, а содержимое обрезалось краем экрана.
+   Слагаемые: полоса + разделитель 14 + минимум левой части 280 (#view в styles.css) + правый
+   отступ панели 18. Если и в этом пределе доска не помещается, врезку не показываем вовсе. */
+const asideMaxW = ()=>{
+  const полоса = ($("#side") ? $("#side").offsetWidth : 56) || 56;
+  return Math.max(320, window.innerWidth - (полоса + 14 + 280 + 18));
+};
 function asideBoardFits(){ return asideMaxW() >= BOARD_MIN; }
 
 function asideApplyWidth(){
@@ -338,9 +345,9 @@ function asideCard(it){
          <option value="paused" ${ст==="paused"?"selected":""}>На паузе</option>
          <option value="done"  ${ст==="done" ?"selected":""}>Готово</option>
        </select>`));
-    стр.push(строка("Срок", ["ti-calendar"],
-      `<input class="as-inp" type="date" data-f="due" value="${esc(it.due||"")}">
-       ${it.due?`<button class="as-x" data-clear="due" title="Убрать срок"><i class="ti ti-x"></i></button>`:""}`));
+    // срок — свой календарь (см. dueControlHtml в overlays.js): нативный пикер открывал
+    // системное окно WebView2, чужое всему остальному интерфейсу
+    стр.push(строка("Срок", ["ti-calendar"], dueControlHtml(it.due, {data:"due"})));
     стр.push(строка("Приоритет", ["ti-flag"],
       `<select class="as-sel" data-f="priority">
          ${["—","низкий","средний","высокий"].map((n,p)=>`<option value="${p}" ${(it.priority||0)===p?"selected":""}>${n}</option>`).join("")}
@@ -367,7 +374,7 @@ function asideCard(it){
   if(!холст) стр.push(строка("Теги", null,
     `<span class="as-tags">${(it.tags||[]).map(t=>{
         const ст = tagStyle(t);
-        return `<span class="as-chip as-tag" ${ст&&ст.color?`style="color:${ст.color};border-color:${ст.color}"`:""}>
+        return `<span class="as-chip as-tag" ${ст&&ст.color?tagInk(ст.color):""}>
           ${ст&&ст.icon?`<i class="ti ${esc(ст.icon)}"></i>`:""}${esc(t)}<button data-untag="${esc(t)}" title="Убрать"><i class="ti ti-x"></i></button></span>`;
       }).join("")}
       <button class="as-chip as-add" data-addtag="1" title="Добавить тег"><i class="ti ti-plus"></i></button>
@@ -514,7 +521,7 @@ function wireAside(it){
     };
   });
 
-  b("[data-clear=due]", ()=>{ it.due=null; обновить(); });
+  wireDateControls(a);   // срок: своя кнопка с календарём, крестик внутри неё снимает дату
 
   // теги: снять крестиком, добавить плюсом
   a.querySelectorAll("[data-untag]").forEach(el=>{
@@ -606,17 +613,17 @@ function wireSplitter(){
 }
 
 function head(title, sub, actions){
-  // подпись вида убрана из разметки (место в верхней полосе дороже), но вызовы head() её
-  // по-прежнему передают — молча игнорируем, чтобы не переписывать все виды
-  const t=$("#main-title"); if(t) t.textContent=title;
-  const s=$("#main-sub");   if(s) s.innerHTML=sub||"";
+  /* Название вида и подпись убраны из разметки: где ты находишься, показывает подсвеченный
+     значок в левой полосе, а место в верхней полосе дороже повторения того же слова. Вызовы
+     head() их по-прежнему передают — молча игнорируем, чтобы не переписывать все виды.
+     Дело у head() осталось одно: кнопки справа (переключатель графа, навигация календаря). */
   const a=$("#head-actions"); if(a) a.innerHTML=actions||"";
 }
 
 function taskCard(it, opts){
   opts=opts||{};
   const dl=dueBadge(it);
-  const tags=(it.tags||[]).map(t=>{ const ts=tagStyle(t); return `<span class="tag hash" data-tag="${esc(t)}" title="Фильтр по тегу" ${ts&&ts.color?`style="border-color:${ts.color};color:${ts.color}"`:""}><i class="ti ${ts&&ts.icon?ts.icon:"ti-hash"}"></i>${esc(t)}</span>`; }).join("");
+  const tags=(it.tags||[]).map(t=>{ const ts=tagStyle(t); return `<span class="tag hash" data-tag="${esc(t)}" title="Фильтр по тегу" ${ts&&ts.color?tagInk(ts.color):""}><i class="ti ${ts&&ts.icon?ts.icon:"ti-hash"}"></i>${esc(t)}</span>`; }).join("");
   return `<div class="card ${it.done?"done":""} pri-${it.priority||0}" data-id="${it.id}">
     <button class="chk ${it.done?"done":""}" data-chk="${it.id}"><i class="ti ti-check"></i></button>
     <div class="card-body">
@@ -798,7 +805,7 @@ function renderTasks(v){
      <button class="btn" data-new="task"><i class="ti ti-plus"></i>Задача</button>`);
   const ts=tagFilter?tagStyle(tagFilter):null;
   const chips=`<div class="tf-chips">`+
-    (tagFilter?`<button class="tf-chip on tf-tag" data-cleartag="1" title="Снять фильтр по тегу" ${ts&&ts.color?`style="border-color:${ts.color};color:${ts.color}"`:""}><i class="ti ${ts&&ts.icon?ts.icon:"ti-hash"}"></i>${esc(tagFilter)}<i class="ti ti-x" style="font-size:13px;margin-left:2px;"></i></button>`:"")+
+    (tagFilter?`<button class="tf-chip on tf-tag" data-cleartag="1" title="Снять фильтр по тегу" ${ts&&ts.color?tagInk(ts.color):""}><i class="ti ${ts&&ts.icon?ts.icon:"ti-hash"}"></i>${esc(tagFilter)}<i class="ti ti-x" style="font-size:13px;margin-left:2px;"></i></button>`:"")+
     [["all","Все"],["today","Сегодня"],["week","Неделя"],["nodue","Без срока"]]
       .map(([k,l])=>`<button class="tf-chip ${taskFilter===k?"on":""}" data-tf="${k}">${l}</button>`).join("")+
     `<span class="list-find"><i class="ti ti-search"></i><input id="list-filter" type="text" placeholder="Фильтр…" value="${esc(listQuery)}" spellcheck="false"></span>`+
@@ -954,9 +961,18 @@ function renderCal(v){
   for(let d=1;d<=days;d++){
     const ds=ymd(new Date(y,m,d));
     const ev=S.items.filter(it=>!it.deleted&&it.due===ds && it.kind==="task");
+    /* Показываем ПЕРВЫЕ ЧЕТЫРЕ, остальное сворачиваем в «ещё N». Ячейка растёт по содержимому, а
+       строка сетки тянет за собой всю неделю: один загруженный день раздувал шесть соседних
+       пустых квадратов до его высоты, и месяц переставал помещаться на экран. */
+    const ПОКАЗ=4;
+    const прив=ev.map(it=>{ const over=parseYmd(ds)<today()&&!it.done;
+      return `<div class="ev ${it.done?"done":""} ${over?"over":""}" draggable="true" data-ev="${it.id}" data-edit="${it.id}" title="${esc(it.title)} · тащи на другой день">${esc(it.title)}</div>`; });
+    const тени=(ghosts[ds]||[]).map(it=>`<div class="ev ghost" data-edit="${it.id}" title="Повтор: ${esc(it.title)} (${REPEAT[it.repeat]})"><i class="ti ti-repeat"></i>${esc(it.title)}</div>`);
+    const все=[...прив, ...тени];
+    const лишку=все.length-ПОКАЗ;
     cells+=`<div class="cd ${ds===todayStr?"tod":""}" data-day="${ds}" title="Добавить задачу на этот день">`+`<div class="cd-n">${d}</div>`+
-      ev.map(it=>{ const over=parseYmd(ds)<today()&&!it.done; return `<div class="ev ${it.done?"done":""} ${over?"over":""}" draggable="true" data-ev="${it.id}" data-edit="${it.id}" title="${esc(it.title)} · тащи на другой день">${esc(it.title)}</div>`; }).join("")+
-      (ghosts[ds]?ghosts[ds].map(it=>`<div class="ev ghost" data-edit="${it.id}" title="Повтор: ${esc(it.title)} (${REPEAT[it.repeat]})"><i class="ti ti-repeat"></i>${esc(it.title)}</div>`).join(""):"")+`</div>`;
+      все.slice(0,ПОКАЗ).join("")+
+      (лишку>0?`<div class="ev more" data-day-more="${ds}" title="Показать этот день в задачах">ещё ${лишку}</div>`:"")+`</div>`;
   }
   v.innerHTML=`<div class="cal">${cells}</div>`;
   // drag-and-drop: перетащить задачу на другой день = перенести срок
@@ -969,6 +985,12 @@ function renderCal(v){
       it.due=cell.dataset.day; touch(it); persist(); render();
       toast("Перенесено: "+((dueLabel(it.due)||{}).txt||it.due),{icon:"ti-calendar-event"});
     };
+  });
+  /* «ещё N» уводит в «Задачи» с фильтром на этот день: раскрывать ячейку на месте нельзя —
+     она снова растянет всю неделю, ради чего список и свернули. */
+  $$("[data-day-more]",v).forEach(el=>el.onclick=e=>{
+    e.stopPropagation();
+    view="tasks"; taskFilter="today"; render();
   });
 }
 

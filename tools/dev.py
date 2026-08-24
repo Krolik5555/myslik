@@ -6,6 +6,7 @@
     python tools/dev.py run              все сценарии из tools/scenarios/
     python tools/dev.py run полотно      один сценарий
     python tools/dev.py map              карта символов (кто где определён)
+    python tools/dev.py где картинка     адрес по слову: карта + символы + селекторы стилей
     python tools/dev.py shot [окно|панель]  снимок для визуальных вопросов
 
 Сценарии — обычные JS-файлы в tools/scenarios/. Каждый выполняется ВНУТРИ приложения,
@@ -137,11 +138,113 @@ def _check_data():
     ]
 
 
+def _символы_кода():
+    """Все имена, определённые во фронте и в питоне, — чтобы сверять с ними карту."""
+    имена = set()
+    for f in ("core.js", "model.js", "views.js", "graph.js", "overlays.js", "draw.js",
+              "fields.js", "ai.js", "report.js", "main.js"):
+        s = _read("ui/js/" + f)
+        for a, b, c in re.findall(r'^(?:async\s+)?function\s+([A-Za-zА-Яа-я_$][\w$]*)'
+                                  r'|^\s*class\s+([A-Za-z_$][\w$]*)'
+                                  r'|^(?:const|let|var)\s+([A-Za-zА-Яа-я_$][\w$]*)\s*=', s, re.M):
+            имена.add(a or b or c)
+        # методы класса и объявления внутри функций карта тоже цитирует (_tick, _hover, build)
+        for m in re.findall(r'^\s{2,}(?:async\s+)?([A-Za-zА-Яа-я_$][\w$]*)\s*\([^)]*\)\s*\{', s, re.M):
+            имена.add(m)
+        # объявления внутри функций, включая множественные: const ореолы=[], навед=[]
+        for стр in re.findall(r'^\s+(?:const|let)\s+(.+)$', s, re.M):
+            for m in re.findall(r'([A-Za-zА-Яа-я_$][\w$]*)\s*=', стр):
+                имена.add(m)
+        # свойства-функции в объектах настроек (onLinkOpen: …) — карта их тоже цитирует
+        for m in re.findall(r'([A-Za-zА-Яа-я_$][\w$]*)\s*:\s*(?:function|async|\()', s):
+            имена.add(m)
+        # поля объекта: карта цитирует и их (this._glCache, this.drag)
+        for m in re.findall(r'this\.([A-Za-zА-Яа-я_$][\w$]*)\s*=', s):
+            имена.add(m)
+    for f in ("app.py", "ai.py"):
+        s = _read(f)
+        for a, b in re.findall(r'^(?:class|def)\s+(\w+)|^\s+def\s+(\w+)', s, re.M):
+            имена.add(a or b)
+        # константы модуля (_REPORT_INSTRUCT и подобные) — карта на них ссылается
+        for m in re.findall(r'^([A-Za-z_][\w]*)\s*=', s, re.M):
+            имена.add(m)
+    return имена
+
+
+# Слова в обратных кавычках, которые НЕ являются символами кода: ключи данных, значения
+# настроек, названия файлов и команд. Проверять их бессмысленно — карта описывает ими формат.
+КАРТА_НЕ_СИМВОЛЫ = {
+    "v", "id", "kind", "task", "note", "flow", "title", "body", "area", "status", "due", "repeat",
+    "priority", "tags", "created", "updated", "done", "x", "y", "pin", "parent", "color", "type",
+    "name", "value", "media", "gw", "gh", "br", "st", "gwm", "off", "nofit", "text", "image",
+    "board", "elements", "files", "appState", "fromFlow", "fields", "items", "areas", "links",
+    "boards", "settings", "templates", "template", "prose", "list", "available", "reason",
+    "inbound", "outbound", "map", "check", "run", "status", "где", "shot", "python", "main",
+    "hub_", "fld_", "arealen", "lenMul", "restLen", "max", "parse_partial",
+    # инструменты, которыми работают, а не код проекта
+    "Edit", "Grep", "Read", "search_graph", "trace_path", "get_code_snippet", "get_architecture",
+    "check_index_coverage", "index_status", "index_repository", "detect_changes", "codebase-memory",
+}
+# не селекторы, хотя выглядят как они: расширения файлов и служебные суффиксы
+КАРТА_НЕ_СЕЛЕКТОРЫ = {".part", ".js", ".py", ".css", ".md", ".ps1", ".json"}
+
+
+def _check_карта():
+    """Карта обязана совпадать с кодом: иначе она молча превращается во вредный справочник.
+
+    Проверяем три вещи, которые устаревают первыми: упомянутые файлы существуют, упомянутые
+    символы определены, упомянутые селекторы встречаются в стилях.
+    """
+    карта = _read("docs/КАРТА.md")
+    if not карта:
+        return [("карта кода на месте", False, "docs/КАРТА.md не читается")]
+    токены = re.findall(r'`([^`\n]+)`', карта)
+    символы = _символы_кода()
+    css = _read("ui/styles.css")
+
+    нет_файлов, нет_символов, нет_селекторов = [], [], []
+    проверено = 0
+    for t in токены:
+        t = t.strip()
+        # файл или путь. Карта называет модули коротко («main.js»), поэтому ищем и по
+        # обычным каталогам проекта, а не только от корня
+        if re.match(r'^[\w./-]+\.(js|py|css|html|json|md)$', t) or (t.count("/") and re.match(r'^[\w./-]+$', t)):
+            проверено += 1
+            где = ["", "ui/js/", "ui/", "tools/", "tools/scenarios/", "docs/"]
+            if not any(os.path.exists(os.path.join(ROOT, п + t)) for п in где):
+                нет_файлов.append(t)
+            continue
+        # селектор стилей
+        if re.match(r'^[.#][\w-]+$', t):
+            if t in КАРТА_НЕ_СЕЛЕКТОРЫ:
+                continue
+            проверено += 1
+            if t.rstrip("*") not in css:
+                нет_селекторов.append(t)
+            continue
+        # имя символа (в карте они бывают через слэш: fieldsLayout/fieldsFromLayout)
+        for часть in t.split("/"):
+            часть = часть.strip().rstrip("()")
+            if not re.match(r'^[A-Za-zА-Яа-я_$][\w$]*$', часть):
+                continue
+            if часть in КАРТА_НЕ_СИМВОЛЫ:
+                continue
+            проверено += 1
+            if часть not in символы:
+                нет_символов.append(часть)
+
+    плохо = нет_файлов + нет_селекторов + sorted(set(нет_символов))
+    факт = ("проверено %d упоминаний" % проверено) if not плохо else \
+           ("не найдено: " + ", ".join(плохо[:8]) + (" …" if len(плохо) > 8 else ""))
+    return [("карта кода не разошлась с кодом", not плохо, факт)]
+
+
 def cmd_check():
     rows = []
     rows += _check_versions()
     rows += _check_assets_version()
     rows += _check_python()
+    rows += _check_карта()
     rows += _check_data()
     # синтаксис фронта — внутри приложения (нужен движок), отдельным сценарием
     js = run_scenarios(["модули"], quiet=True)
@@ -297,6 +400,68 @@ def cmd_map():
     return 0
 
 
+# ---------------------------------------------------------------- где
+
+def cmd_где(слово=None):
+    """Адрес по слову: строки карты, символы кода и селекторы стилей.
+
+    Первый ход по любой задаче: запрос звучит как «календарь всрато», а не именем функции, и
+    отсюда за один прогон видно, в какой файл идти. Читать код целиком после этого не нужно.
+    """
+    if not слово:
+        print("нужно слово: python tools/dev.py где картинка")
+        return 1
+    igl = слово.lower()
+    печатали = False
+
+    карта = _read("docs/КАРТА.md")
+    строки = [(n, s.strip()) for n, s in enumerate(карта.splitlines(), 1) if igl in s.lower()]
+    if строки:
+        печатали = True
+        print("\ndocs/КАРТА.md")
+        for n, s in строки[:12]:
+            print("  %-5d %s" % (n, s[:150]))
+
+    # символы кода: где определено имя, содержащее слово
+    JS = ("core.js", "model.js", "views.js", "graph.js", "overlays.js", "draw.js", "fields.js",
+          "ai.js", "report.js", "main.js")
+    найдено = []
+    for f in JS:
+        s = _read("ui/js/" + f)
+        for m in re.finditer(r'^(?:async\s+)?function\s+([A-Za-zА-Яа-я_$][\w$]*)'
+                             r'|^class\s+([A-Za-z_$][\w$]*)'
+                             r'|^(?:const|let)\s+([A-Za-zА-Яа-я_$][\w$]*)\s*=', s, re.M):
+            имя = m.group(1) or m.group(2) or m.group(3)
+            if igl in имя.lower():
+                найдено.append((f, имя, s[:m.start()].count("\n") + 1))
+    if найдено:
+        печатали = True
+        print("\nсимволы кода")
+        for f, имя, n in найдено[:20]:
+            print("  ui/js/%-12s %-28s строка %d" % (f, имя, n))
+
+    # селекторы стилей: правила, в чьём селекторе есть слово
+    css = _read("ui/styles.css")
+    сел = []
+    for n, s in enumerate(css.splitlines(), 1):
+        s = s.strip()
+        if not s or s.startswith(("/*", "*", "--")) or "{" not in s:
+            continue
+        селектор = s.split("{", 1)[0].strip()
+        if igl in селектор.lower():
+            сел.append((n, селектор))
+    if сел:
+        печатали = True
+        print("\nстили")
+        for n, s in сел[:20]:
+            print("  styles.css:%-5d %s" % (n, s[:120]))
+
+    if not печатали:
+        print("«%s» не встречается ни в карте, ни в именах символов, ни в селекторах." % слово)
+        print("Значит это текст интерфейса или комментарий — искать Grep'ом по ui/.")
+    return 0
+
+
 # ---------------------------------------------------------------- shot
 
 def cmd_shot(what="панель"):
@@ -360,6 +525,8 @@ def main(argv):
         return _report("run", rows)
     if cmd == "map":
         return cmd_map()
+    if cmd in ("где", "where"):
+        return cmd_где(argv[2] if len(argv) > 2 else None)
     if cmd == "shot":
         return cmd_shot(argv[2] if len(argv) > 2 else "панель")
     print(__doc__)
