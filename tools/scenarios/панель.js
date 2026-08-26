@@ -565,5 +565,57 @@ hardDeleteItem(нота.id); renderAside(); await ж(100);
 t.push({имя:"удалённый элемент уходит из панели", ок: !!document.querySelector(".aside-empty"),
         факт: document.querySelector(".as-title") ? "остался" : "панель пуста"});
 
+/* ===== папка броском из проводника =====
+   Жест держится на трёх звеньях сразу: подсветка цели, отправка FileList в WebView2 и
+   забор пути мостом. Отвалиться любое из них может молча — бросок просто «не сработает»,
+   и человек решит, что промахнулся. Подставляем мост приложения и проверяем всю цепочку. */
+{
+  const зад = addItem({kind:"task", title:"Нода для броска папки"});
+  asideSelect(зад.id); await ж(200);
+
+  const бросок = (тип) => {
+    const кн = document.querySelector('#aside [data-folder]');
+    const строка = кн && кн.closest(".as-row");
+    if (!строка) return null;
+    const dt = new DataTransfer();
+    dt.items.add(new File(["x"], "кадр.exr"));
+    строка.dispatchEvent(new DragEvent(тип, {bubbles:true, cancelable:true, dataTransfer:dt}));
+    return строка;
+  };
+
+  const строка = бросок("dragover");
+  t.push({имя:"строка папки подсвечивается под брошенным файлом",
+          ок: !!строка && строка.classList.contains("fdrop"),
+          факт: строка ? строка.className : "строки папки нет"});
+  строка.dispatchEvent(new DragEvent("dragleave", {bubbles:true, cancelable:true, dataTransfer:new DataTransfer()}));
+  t.push({имя:"подсветка снимается, когда курсор ушёл",
+          ок: !строка.classList.contains("fdrop"), факт: строка.className});
+
+  // подставной мост: chrome.webview принимает FileList, python отдаёт путь
+  const былоPy = window.pywebview, былоChrome = window.chrome;
+  let послано = null;
+  window.chrome = {webview: {postMessageWithAdditionalObjects: (m, f) => { послано = m + ":" + f.length; }}};
+  window.pywebview = {api: {load: () => {}, take_drop_folder: async () => послано ? "E:\\Проект\\SQ01\\SH010" : ""}};
+
+  бросок("drop"); await ж(500);
+  t.push({имя:"брошенная папка привязывается к ноде",
+          ок: послано === "FilesDropped:1" && зад.folder === "E:\\Проект\\SQ01\\SH010",
+          факт: "в WebView2 ушло «" + послано + "», в ноде: " + (зад.folder || "пусто")});
+  t.push({имя:"привязанный путь сразу виден в панели",
+          ок: /SH010/.test((document.querySelector("#aside .as-path") || {}).textContent || ""),
+          факт: (document.querySelector("#aside .as-path") || {}).textContent || "пути в панели нет"});
+
+  // мимо приложения (браузер) жест обязан ЧЕСТНО отказать, а не молча съесть бросок
+  зад.folder = undefined; renderAside(); await ж(150);
+  window.chrome = былоChrome; window.pywebview = былоPy;
+  бросок("drop"); await ж(300);
+  t.push({имя:"без моста приложения бросок не выдумывает путь",
+          ок: !зад.folder, факт: "в ноде: " + (зад.folder || "пусто")});
+
+  if (былоPy === undefined) delete window.pywebview; else window.pywebview = былоPy;
+  if (былоChrome === undefined) delete window.chrome; else window.chrome = былоChrome;
+  hardDeleteItem(зад.id); asideSelect(null); await ж(100);
+}
+
 hardDeleteItem(пол.id); asideId = null; render();
 return t;

@@ -203,11 +203,71 @@ function swatchRow(current){
   ).join("");
 }
 
+// записать папку в ноду — общая точка для выбора диалогом и для броска из проводника
+function setItemFolder(it, p, after){
+  if(!it || !p) return;
+  it.folder=p; touch(it); persist();
+  if(after) after();
+  toast("Папка привязана",{icon:"ti-folder-check"});
+}
 // привязать папку к ноде (выбор через системный диалог; только в приложении)
 async function pickItemFolder(it, after){
   if(!HasPy()){ toast("Привязка папки доступна только в приложении",{icon:"ti-folder"}); return; }
-  try{ const p=await window.pywebview.api.pick_folder(); if(p){ it.folder=p; touch(it); persist(); if(after) after(); toast("Папка привязана",{icon:"ti-folder-check"}); } }
+  try{ const p=await window.pywebview.api.pick_folder(); if(p) setItemFolder(it, p, after); }
   catch(e){ toast("Не удалось выбрать папку"); }
+}
+
+/* ---------- привязка папки БРОСКОМ из проводника ----------
+   Полного пути у брошенного объекта в вебвью нет и быть не может: File несёт только имя,
+   File System Access — только ручку. Путь знает НАТИВНАЯ сторона: WebView2 кладёт в сообщение
+   postMessageWithAdditionalObjects настоящие CoreWebView2File, pywebview складывает их пути
+   у себя, а мы забираем их мостом (take_drop_folder в app.py). Сообщение идёт своим каналом,
+   поэтому спрашиваем несколько раз подряд, а не один.
+   Брошенный ФАЙЛ привязывает СВОЮ папку: в проводнике проще попасть мышью по файлу, чем по
+   нужной папке, а нужна всё равно она (папку считает Python — путь разбирает та сторона). */
+function dropHasFiles(e){
+  const dt=e&&e.dataTransfer; if(!dt) return false;
+  if(dt.items&&dt.items.length) return [...dt.items].some(i=>i.kind==="file");
+  return !!(dt.files&&dt.files.length);
+}
+function dropBridgeReady(){
+  return HasPy() && !!(window.chrome&&window.chrome.webview&&window.chrome.webview.postMessageWithAdditionalObjects);
+}
+async function folderFromDrop(e){
+  const dt=e&&e.dataTransfer, files=dt&&dt.files;
+  if(!files||!files.length) return "";
+  try{ window.chrome.webview.postMessageWithAdditionalObjects("FilesDropped", files); }
+  catch(err){ return ""; }
+  for(let i=0;i<12;i++){
+    try{ const p=await window.pywebview.api.take_drop_folder(); if(p) return p; }catch(err){}
+    await new Promise(r=>setTimeout(r,60));
+  }
+  return "";
+}
+/* Навесить приём броска на узел цели. apply(путь) — куда писать: нода панели или черновик
+   окна правки. Подсветку снимаем по dragleave только НАРУЖУ (relatedTarget вне узла): иначе
+   она мигала бы на каждом переходе между кнопками внутри строки. */
+function wireFolderDrop(el, apply){
+  if(!el||typeof apply!=="function"||el.__folderDrop) return;
+  el.__folderDrop=true;
+  el.addEventListener("dragover", e=>{
+    if(!dropHasFiles(e)) return;
+    e.preventDefault(); e.stopPropagation();
+    try{ e.dataTransfer.dropEffect="link"; }catch(err){}
+    el.classList.add("fdrop");
+  });
+  el.addEventListener("dragleave", e=>{ if(el.contains(e.relatedTarget)) return; el.classList.remove("fdrop"); });
+  el.addEventListener("drop", async e=>{
+    if(!dropHasFiles(e)) return;
+    e.preventDefault(); e.stopPropagation();
+    el.classList.remove("fdrop");
+    if(!dropBridgeReady()){ toast("Привязка папки доступна только в приложении",{icon:"ti-folder"}); return; }
+    el.classList.add("fwait");
+    let p="";
+    try{ p=await folderFromDrop(e); } finally{ el.classList.remove("fwait"); }
+    if(p) apply(p);
+    else toast("Путь не пришёл — брось файл из этой папки или выбери кнопкой",{icon:"ti-alert-triangle"});
+  });
 }
 // открыть привязанную папку в проводнике
 function openItemFolder(it){
@@ -275,6 +335,11 @@ function defaultState(){
          Замер: честный кадр 0.641 мс, кадр картинкой 0.001 мс. Плата — пока крутят колесо,
          картинка масштабируется и слегка мылит (пересъём при растяжении больше чем на четверть). */
       graphFastZoom:true,
+      /* ДОМ НОДЫ — «держать раскладку». Выключено по умолчанию намеренно: пока переключатель
+         не нажали, физика ведёт себя ровно как прежде, и обновление приложения не переставляет
+         человеку граф. Дом хранится в самой ноде (hx/hy, смещение от владельца), поэтому
+         повторное включение возвращает прежнюю форму, а не назначает её заново. */
+      graphHome:false,
       asideW:420, asideFrac:0.34, asideOn:true,   // правая панель: доля от ширины окна и показана ли
       sideHidden:false,            // левая полоса: свёрнута ли до кромки
       template:null,               // шаблон новых нод по умолчанию (id из S.templates); null — как раньше, одно описание
@@ -660,6 +725,22 @@ function _sanitizeGraph(s, seen, seenF, okColor){
       if(it && !it.area && areaIds.has(aid)) it.area=aid;      // область ещё не проставлена — берём из связи
       return false;                                            // саму связь не храним
     }); }
+  /* ДОМ НОДЫ (hx/hy) — смещение от ВЛАДЕЛЬЦА в мировых единицах: владелец это родитель, а без
+     него хаб своей области. Хранится смещением, а не точкой, поэтому дом едет за владельцем сам.
+     Проверяем ПОСЛЕ чистки parent и переноса членства в область: до них владелец ещё не известен,
+     и дом у живой ноды сняли бы зря. Ключей нет вовсе, пока дом не задан (как у fields) — файл
+     не тяжелеет у тех, кто «Держать раскладку» не включал.
+     Предел ±20000 отсекает мусор из чужого json: дальше этого граф не раскладывают, а вбитая
+     туда нода утащила бы за собой пружиной весь остров. */
+  { const areaIds=new Set(s.areas.map(a=>a.id));
+    s.items.forEach(it=>{
+      if(it.hx===undefined && it.hy===undefined) return;
+      const hx=+it.hx, hy=+it.hy;
+      const есть=!!it.parent || (it.area && areaIds.has(it.area));   // владельца нет — дому не от чего считаться
+      if(есть && Number.isFinite(hx) && Number.isFinite(hy) && Math.abs(hx)<=20000 && Math.abs(hy)<=20000){
+        it.hx=Math.round(hx); it.hy=Math.round(hy);
+      } else { delete it.hx; delete it.hy; }
+    }); }
   return s;
 }
 
@@ -681,7 +762,20 @@ function _scheduleWrite(cb, мс){
   clearTimeout(saveTimer);
   saveTimer=setTimeout(()=>{ saveTimer=null; cb(); }, мс==null?250:мс);
 }
-function persist(quiet){
+/* ЖЕСТЫ РАСКЛАДКИ ПИШУТСЯ С БОЛЬШИМ ДЕБАУНСОМ. Одна запись гонит через мост pywebview весь
+   граф целиком (доски исключены отдельно, картинки полей — нет; на живых данных это мегабайты),
+   и на обычных 250 мс она попадала ровно в промежуток между жестами: отпустил ноду — через
+   четверть секунды улетает файл — а рука в этот момент уже хватает снова. КРОЛИК: «беру, тащу,
+   отпускаю и сразу беру эту же ноду — в этот момент может быть фриз». В дев-режиме этого не
+   видно вовсе: там запись идёт в localStorage, а не через мост, потому замерами и не ловилось.
+   Полторы секунды подобраны из смысла жеста, а не из вкуса: пока человек возит ноды, паузы
+   между жестами короче, таймер всё время сбрасывается, и вся серия пишется ОДИН раз — когда
+   рука остановилась. Данные при этом не рискуют: закрытие окна зовёт flushSave, а он дописывает
+   всё немедленно (см. appRequestClose и beforeunload в main.js).
+   ПОБОЧНОЕ СЛЕДСТВИЕ, И ОНО ЖЕЛАЕМОЕ: окно отката держится столько же, поэтому серия
+   перетаскиваний схлопывается в ОДИН шаг Ctrl+Z, а не в пять. */
+const ЗАПИСЬ_ЖЕСТ_МС=1500;
+function persist(quiet, мс){
   // Снимок кладём в момент, когда окно дебаунса ОТКРЫВАЕТСЯ. Это и есть граница действия:
   // пока человек тянет ползунок или пока одно «создать ноду» дёргает persist четыре раза
   // подряд, таймер каждый раз сбрасывается и окно не закрывается — значит снимок будет один.
@@ -702,7 +796,7 @@ function persist(quiet){
     if(_saveЧеловек){ _undoWindow=false; _undoLast=_undoSnap(); _undoKeyLast=_undoKey(); }
     _saveЧеловек=false;
     writeNow();
-  });
+  }, мс);
 }
 let _saveЧеловек=false;   // была ли в текущем окне дебаунса запись от действия человека
 

@@ -2724,5 +2724,128 @@ t.push({имя:"возврат на вкладку пересобирает гр
   recomputeHierarchy(); graph.build();
 }
 
+/* ЗАХВАТ НОДЫ НЕ ПЕРЕРИСОВЫВАЕТ ПРАВУЮ ПАНЕЛЬ. Две жалобы КРОЛИКА с одной причиной: «ноду
+   хватаю, микрофризы ощущаются» и «иногда мышка слетает, когда тяну ноду». asideSelect стоял
+   прямо в pointerdown, то есть панель собиралась синхронно в самом начале жеста — а если она
+   была закрыта, то ещё и ОТКРЫВАЛАСЬ, сужая холст с 1178 до 711 px. Точка под курсором
+   уезжала на 233 px, и нода выпрыгивала из-под руки (замер). При открытой панели ширина не
+   менялась — отсюда «иногда».
+   Проверяем причину, а не следствие: считаем вызовы renderAside по фазам жеста. Порог по
+   миллисекундам был бы машинозависимым, а счётчик вызовов — нет. */
+{
+  S.settings.graphRender = "canvas";
+  view = "notes"; notesMode = "graph"; render(); await ж(250);
+  const g = graph, svg = g.svg;
+  S.settings.asideOn = false; asideSelect(null); renderAside(); g._onResize(); await ж(120);
+  const узел = g.nodes.find(n => n.ref);
+  g.zoom = 1; g.tx = g.W / 2 - узел.x; g.ty = g.H / 2 - узел.y; g._tick(true);
+  const rc = () => svg.getBoundingClientRect();
+  // экранную точку ноды считаем ТАК ЖЕ, как её рисует граф
+  const экр = () => ({x: rc().left + (узел.x * g.zoom + g.tx) / g.W * rc().width,
+                      y: rc().top + (узел.y * g.zoom + g.ty) / g.H * rc().height});
+  const p = экр();
+  const родной = renderAside;
+  let наЗахвате = 0, наОтпускании = 0, фаза = "захват";
+  renderAside = function (...а) { if (фаза === "захват") наЗахвате++; else наОтпускании++; return родной.apply(this, а); };
+  try {
+    svg.dispatchEvent(new PointerEvent("pointerdown", {button: 0, clientX: p.x, clientY: p.y, bubbles: true, cancelable: true}));
+    const скачок = Math.hypot(экр().x - p.x, экр().y - p.y);
+    let слёт = 0;
+    for (let i = 1; i <= 30; i++) { const e = {clientX: p.x + i * 6, clientY: p.y + i * 2};
+      svg.dispatchEvent(new PointerEvent("pointermove", {buttons: 1, ...e, bubbles: true, cancelable: true}));
+      g._tick(true);
+      слёт = Math.max(слёт, Math.hypot(экр().x - e.clientX, экр().y - e.clientY)); }
+    фаза = "отпускание";
+    svg.dispatchEvent(new PointerEvent("pointerup", {button: 0, clientX: p.x + 180, clientY: p.y + 60, bubbles: true, cancelable: true}));
+    const встык = наОтпускании;          // сразу после отпускания панель ещё не должна собираться
+    await ж(220);                        // ...а через паузу — обязана (см. _syncAsideПотом)
+    t.push({имя: "жест не собирает правую панель", ок: наЗахвате === 0 && встык === 0 && наОтпускании > 0,
+            факт: "renderAside: на нажатии " + наЗахвате + ", встык к отпусканию " + встык +
+                  ", через паузу " + наОтпускании});
+    t.push({имя: "нода не выпрыгивает из-под курсора при захвате", ок: скачок < 3,
+            факт: "скачок " + скачок.toFixed(1) + " px (панель открывалась: холст стал " + Math.round(rc().width) + " px)"});
+    t.push({имя: "нода держится под курсором всю протяжку", ок: слёт < 3,
+            факт: "макс расхождение " + слёт.toFixed(1) + " px"});
+    t.push({имя: "после отпускания панель показывает эту ноду", ок: asideId === узел.ref.id,
+            факт: "в панели " + (asideId === узел.ref.id ? "она" : String(asideId))});
+    /* СЕРИЯ ЖЕСТОВ ПО ОДНОЙ НОДЕ — ровно то, на чём КРОЛИК ловил фриз: «тащу, отпускаю, сразу
+       снова хватаю». Панель уже показывает эту ноду, значит пересобирать её нечего ни разу. */
+    наОтпускании = 0;
+    for (let к = 0; к < 4; к++) {
+      // позицию берём ЗАНОВО: между жестами ноду уводит физика, и клик по старым координатам
+      // попал бы в пустоту — то есть в рамку выделения, а она панель как раз сбрасывает
+      const т = экр();
+      svg.dispatchEvent(new PointerEvent("pointerdown", {button: 0, clientX: т.x, clientY: т.y, bubbles: true, cancelable: true}));
+      svg.dispatchEvent(new PointerEvent("pointermove", {buttons: 1, clientX: т.x + 60, clientY: т.y + 30, bubbles: true, cancelable: true}));
+      svg.dispatchEvent(new PointerEvent("pointerup", {button: 0, clientX: т.x + 60, clientY: т.y + 30, bubbles: true, cancelable: true}));
+      await ж(40);
+    }
+    await ж(220);
+    t.push({имя: "повторные жесты по той же ноде панель не пересобирают", ок: наОтпускании === 0,
+            факт: "четыре жеста подряд — renderAside " + наОтпускании + " раз"});
+    /* ЗАПИСЬ НА ДИСК НЕ ДОЛЖНА ПАДАТЬ В ПРОМЕЖУТОК МЕЖДУ ЖЕСТАМИ. Одна запись гонит через мост
+       весь граф целиком, и на прежних 250 мс она приходилась ровно на момент, когда рука уже
+       хватает ноду снова. Здесь, в деве, запись идёт в localStorage и стоит копейки — поэтому
+       проверяем не цену, а МОМЕНТ: сразу после жеста записи быть не должно, после паузы — должна. */
+    {
+      const былWriteNow = window.writeNow;
+      let записей = 0;
+      window.writeNow = function (...а) { записей++; return былWriteNow.apply(this, а); };
+      try {
+        const т = экр();
+        svg.dispatchEvent(new PointerEvent("pointerdown", {button: 0, clientX: т.x, clientY: т.y, bubbles: true, cancelable: true}));
+        svg.dispatchEvent(new PointerEvent("pointermove", {buttons: 1, clientX: т.x + 70, clientY: т.y + 20, bubbles: true, cancelable: true}));
+        svg.dispatchEvent(new PointerEvent("pointerup", {button: 0, clientX: т.x + 70, clientY: т.y + 20, bubbles: true, cancelable: true}));
+        await ж(400);
+        const сразу = записей;
+        /* Дожидаться полутора секунд не станем — сценарий и так у потолка в 60 с. Зовём flushSave:
+           он и есть тот путь, которым запись уходит при закрытии окна, то есть проверка заодно
+           отвечает на главный вопрос отложенной записи — не теряются ли данные. */
+        await flushSave();
+        t.push({имя: "перетаскивание не пишет на диск встык к жесту", ок: сразу === 0 && записей > 0,
+                факт: "записей за 400 мс после жеста " + сразу + ", после flushSave " + записей});
+      } finally { window.writeNow = былWriteNow; }
+    }
+  } finally {
+    renderAside = родной;
+    /* Прибираем ЗА СОБОЙ: сборка панели теперь отложенная, и оставленный таймер сработал бы уже
+       посреди следующего сценария, подменив ему выделение (на этом «панель» и падала). */
+    clearTimeout(g._asideT); g._asideT = null;
+    g.selNodes.clear(); g._paintSel(); asideSelect(null);
+  }
+}
+
+/* ПАУЗА ГЛУШИТ САМОХОДНЫЙ ЦИКЛ, НО НЕ ЖЕСТ. Окно потеряло фокус — граф встаёт на паузу, чтобы
+   не жечь процессор в фоне. Но `_schedule` при этом не планировал НИЧЕГО, поэтому колесо над
+   неактивным окном меняло камеру втихую: КРОЛИК крутил зум, ничего не менялось, и картинка
+   догоняла только после клика по окну. Проверяем обе половины сразу — иначе починка одной
+   тихо ломает другую: жест на паузе обязан дать кадр, но НЕ обязан завести вечный цикл. */
+{
+  const g = graph, svg = g.svg, rc = svg.getBoundingClientRect();
+  let кадров = 0;
+  const род = g._tick.bind(g);
+  g._tick = function (f) { кадров++; return род(f); };
+  try {
+    g.pause();
+    await ж(150);
+    const вПокое = кадров;                       // на паузе без жестов кадров быть не должно
+    const зумБыл = g.zoom;
+    svg.dispatchEvent(new WheelEvent("wheel", {clientX: rc.left + rc.width / 2, clientY: rc.top + rc.height / 2,
+                                               deltaY: -120, bubbles: true, cancelable: true}));
+    await ж(150);
+    const послеЖеста = кадров;
+    await ж(250);                                // и убеждаемся, что цикл не завёлся сам
+    const потом = кадров;
+    t.push({имя: "на паузе жест рисует кадр", ок: послеЖеста > вПокое && g.zoom !== зумБыл,
+            факт: "кадров после колеса " + (послеЖеста - вПокое) + ", зум " + зумБыл.toFixed(2) + " → " + g.zoom.toFixed(2)});
+    t.push({имя: "но вечный цикл на паузе не заводится", ок: потом - послеЖеста <= 1,
+            факт: "за 250 мс после жеста ещё " + (потом - послеЖеста) + " кадр(ов)"});
+    // один кадр допустим: он мог быть запланирован ДО паузы и уже стоять в очереди rAF.
+    // Ловим мы цикл, а не единичный хвост — при живом цикле за 150 мс их были бы десятки.
+    t.push({имя: "и без жестов пауза молчит", ок: вПокое <= 1,
+            факт: "кадров за 150 мс паузы: " + вПокое});
+  } finally { g._tick = род; g.resume(); }
+}
+
 hardDeleteItem(мысль.id); render();
 return t;

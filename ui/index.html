@@ -8,8 +8,8 @@
 <meta http-equiv="Expires" content="0">
 <title>Мыслик</title>
 <link rel="icon" type="image/png" href="icon.png">
-<link rel="stylesheet" href="vendor/tabler-icons.min.css?v=482">
-<link rel="stylesheet" href="styles.css?v=482">
+<link rel="stylesheet" href="vendor/tabler-icons.min.css?v=496">
+<link rel="stylesheet" href="styles.css?v=496">
 </head>
 <body>
 <div id="app">
@@ -58,7 +58,7 @@
         <button class="foot-btn" id="f-settings" title="Настройки"><i class="ti ti-settings"></i></button>
       </div>
       <div class="side-ver">
-        <span class="sv-t" title="версия">Мыслик 2.0.3 <span>beta</span></span>
+        <span class="sv-t" title="версия">Мыслик 2.0.4 <span>beta</span></span>
         <button class="sv-fb" id="f-feedback"><i class="ti ti-message-report"></i>Сообщить о проблеме</button>
       </div>
     </div>
@@ -82,19 +82,19 @@
 <!-- модули загружаются как классические скрипты (общая глобальная область),
      порядок важен: core → model → views → graph → overlays → main.
      ES-модули НЕ используем: реальный аппа грузится по file://, где import блокируется CORS. -->
-<script src="js/core.js?v=482"></script>
-<script src="js/model.js?v=482"></script>
-<script src="js/views.js?v=482"></script>
-<script src="js/graph.js?v=482"></script>
-<script src="js/overlays.js?v=482"></script>
+<script src="js/core.js?v=496"></script>
+<script src="js/model.js?v=496"></script>
+<script src="js/views.js?v=496"></script>
+<script src="js/graph.js?v=496"></script>
+<script src="js/overlays.js?v=496"></script>
 <!-- доска (Excalidraw); сам вендор подгружается лениво, при первом заходе на вкладку -->
-<script src="js/draw.js?v=482"></script>
+<script src="js/draw.js?v=496"></script>
 <!-- поля ноды (текст/картинка/доска) и шаблоны нод; зовётся из окон и панели, поэтому после них -->
-<script src="js/fields.js?v=482"></script>
+<script src="js/fields.js?v=496"></script>
 <!-- локальный ИИ (умный захват) — опционально; нет движка/модели → молчит -->
-<script src="js/ai.js?v=482"></script>
+<script src="js/ai.js?v=496"></script>
 <!-- отчёт из выделенного (простой + через ИИ) -->
-<script src="js/report.js?v=482"></script>
-<script src="js/main.js?v=482"></script>
+<script src="js/report.js?v=496"></script>
+<script src="js/main.js?v=496"></script>
 </body>
 </html>

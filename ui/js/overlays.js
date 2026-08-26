@@ -425,7 +425,7 @@ function openItemEditor(existing, defaultKind, presetDue, seed){
     folderRow.innerHTML=`<i class="ti ti-folder"></i>`+
       (folder?`<span class="folder-path" title="${esc(folder)}">${esc(folder)}</span>`:`<span class="folder-path folder-empty">не привязана</span>`)+
       (folder?`<button type="button" class="folder-btn" data-ff="open" title="Открыть в проводнике"><i class="ti ti-external-link"></i></button>`:``)+
-      `<button type="button" class="folder-btn" data-ff="pick" title="${folder?"Сменить папку":"Выбрать папку"}"><i class="ti ti-folder-search"></i></button>`+
+      `<button type="button" class="folder-btn" data-ff="pick" title="${folder?"Сменить папку":"Выбрать папку"} — или брось её сюда из проводника"><i class="ti ti-folder-search"></i></button>`+
       (folder?`<button type="button" class="folder-btn" data-ff="clear" title="Убрать"><i class="ti ti-x"></i></button>`:``);
     $$("[data-ff]",folderRow).forEach(b=>b.onclick=()=>{ const a=b.dataset.ff;
       if(a==="pick"){ if(!HasPy()){ toast("Привязка папки — только в приложении",{icon:"ti-folder"}); return; }
@@ -434,6 +434,10 @@ function openItemEditor(existing, defaultKind, presetDue, seed){
       else if(a==="clear"){ folder=null; redrawFolder(); } });
   };
   redrawFolder();
+  /* Бросок папки из проводника — в ту же строку. Пишем в ЧЕРНОВИК (локальную folder), как и
+     выбор кнопкой: окно правки сохраняет разом по «Готово», и «Отмена» обязана отменить и это.
+     Вешаем ОДИН раз, снаружи redrawFolder: узел строки один и переживает перерисовку. */
+  wireFolderDrop(folderRow, p=>{ folder=p; redrawFolder(); });
 
   $("#f-cancel",m).onclick=()=>ov.remove();
   if($("#f-delete",m)) $("#f-delete",m).onclick=()=>{ const пакет=deletePack([it.id]); ov.remove(); render(); toast("Удалено",{icon:"ti-trash",label:"Вернуть",onAction:()=>{ restorePack(пакет); render(); }}); };

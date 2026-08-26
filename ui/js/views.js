@@ -367,9 +367,9 @@ function asideCard(it){
   if(!холст) стр.push(строка("Папка", ["ti-folder"], it.folder
     ? `<button class="as-path" data-folder="open" title="Открыть в проводнике:\n${esc(it.folder)}">${esc(asidePathShort(it.folder))}</button>
        <button class="as-x" data-folder="copy" title="Скопировать путь для передачи (без локального начала)"><i class="ti ti-copy"></i></button>
-       <button class="as-x" data-folder="pick" title="Сменить папку"><i class="ti ti-folder-cog"></i></button>
+       <button class="as-x" data-folder="pick" title="Сменить папку (или брось новую сюда из проводника)"><i class="ti ti-folder-cog"></i></button>
        <button class="as-x" data-folder="clear" title="Отвязать папку"><i class="ti ti-x"></i></button>`
-    : `<button class="as-link as-thin" data-folder="pick"><i class="ti ti-folder-search"></i><span>Привязать папку</span></button>`));
+    : `<button class="as-link as-thin" data-folder="pick" title="Выбрать папку — или просто перетащи её сюда из проводника"><i class="ti ti-folder-search"></i><span>Привязать папку</span></button>`));
 
   if(!холст) стр.push(строка("Теги", null,
     `<span class="as-tags">${(it.tags||[]).map(t=>{
@@ -470,6 +470,11 @@ function wireAside(it){
     }
     else { it.folder=undefined; touch(it); persist(); renderAside(); toast("Папка отвязана",{icon:"ti-folder-off"}); }
   });
+  /* Папку можно не выбирать диалогом, а бросить из проводника (см. wireFolderDrop в core.js).
+     Цель — ВСЯ строка панели, а не кнопка: у ноды с папкой кнопка «сменить» размером с иконку,
+     попасть в неё с зажатой папкой — задание на меткость. */
+  { const кн=a.querySelector("[data-folder]");
+    if(кн) wireFolderDrop(кн.closest(".as-row")||кн, p=>setItemFolder(it, p, ()=>renderAside())); }
   b("[data-open]",  ()=>openBoard(it));
   b("[data-full]",  ()=>openBoard(it));   // из врезки — развернуть ту же доску на весь экран
   // переход по связанной ноде не только меняет карточку, но и выделяет её в паутине
@@ -930,7 +935,12 @@ function renderFolders(v){
   v.innerHTML=body;
   $$("[data-collapse]",v).forEach(elm=>elm.onclick=e=>{ e.stopPropagation(); toggleCollapse(elm.dataset.collapse); render(); });
   $$("[data-opennode]",v).forEach(b=>b.onclick=e=>{ e.stopPropagation(); const it=S.items.find(i=>i.id===b.dataset.opennode); if(it) openItemSmart(it); });
-  $$("[data-foldpick]",v).forEach(b=>b.onclick=e=>{ e.stopPropagation(); const it=S.items.find(i=>i.id===b.dataset.foldpick); if(it) pickItemFolder(it,()=>render()); });
+  // смена папки: кнопкой или броском новой на строку — вкладка ровно про папки, жест тут ожидаем
+  $$("[data-foldpick]",v).forEach(b=>{
+    const it=S.items.find(i=>i.id===b.dataset.foldpick);
+    b.onclick=e=>{ e.stopPropagation(); if(it) pickItemFolder(it,()=>render()); };
+    if(it) wireFolderDrop(b.closest(".fld-row")||b, p=>setItemFolder(it, p, ()=>render()));
+  });
   $$(".note-card",v).forEach(card=>card.onclick=e=>{
     if(e.target.closest("[data-collapse]")||e.target.closest("[data-opennode]")||e.target.closest("[data-foldpick]")||e.target.closest("[data-tag]")) return;
     const id=card.dataset.nid||card.dataset.tid; const it=S.items.find(i=>i.id===id); if(!it) return;

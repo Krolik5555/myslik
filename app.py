@@ -101,7 +101,7 @@ TRACE = os.environ.get("PLANNER_TRACE") == "1"
 
 # ---- авто-обновление с GitHub Releases ----
 # Единый источник версии для сравнения с релизом. Теги релизов: vX.Y.Z (напр. v1.3.0).
-APP_VERSION = "2.0.3"
+APP_VERSION = "2.0.4"
 APP_ID = "krolik.planner"   # идентификатор приложения для панели задач (группировка + иконка)
 # owner/repo публичного репозитория (заполнится после gh auth login — owner = твой GitHub-логин)
 GH_REPO_SLUG = "Krolik5555/myslik"
@@ -445,6 +445,33 @@ class Api:
             return path or ""
         except Exception as e:
             print("pick_folder error:", e)
+            return ""
+
+    def take_drop_folder(self):
+        """Папка последнего броска из проводника — и сразу очистить буфер.
+
+        Пути брошенных объектов знает ТОЛЬКО нативная сторона: WebView2 кладёт в сообщение
+        CoreWebView2File, а pywebview копит их у себя (webview.dom._dnd_state) — фронт
+        сообщение шлёт, но путь оттуда не видит (см. folderFromDrop в core.js).
+        Брошенный ФАЙЛ отдаёт свою папку: разбирать путь — дело этой стороны, не фронта.
+        """
+        try:
+            from webview.dom import _dnd_state
+            пути = list(_dnd_state.get("paths") or [])
+            if not пути:
+                return ""
+            _dnd_state["paths"].clear()   # чтобы прошлый бросок не выстрелил на следующем
+            сырой = пути[0][1] if isinstance(пути[0], (tuple, list)) else str(пути[0])
+            if os.path.isdir(сырой):
+                trace("take_drop_folder() ->", сырой)
+                return сырой
+            if os.path.isfile(сырой):
+                папка = os.path.dirname(сырой)
+                trace("take_drop_folder() файл ->", папка)
+                return папка
+            return ""
+        except Exception as e:
+            print("take_drop_folder error:", e)
             return ""
 
     def open_path(self, path):
@@ -1974,6 +2001,16 @@ def main():
         text_select=False,
     )
     _WINDOW = window
+
+    # Приём брошенных из проводника папок. pywebview складывает пути от WebView2 только тогда,
+    # когда на drop кто-то подписан (edgechromium.on_script_notify), — но своих DOM-подписок мы
+    # не заводим: они гоняют КАЖДОЕ событие через мост в Python, а нам нужен один путь по
+    # запросу фронта (take_drop_folder). Поэтому признак поднимаем руками.
+    try:
+        from webview.dom import _dnd_state
+        _dnd_state["num_listeners"] += 1
+    except Exception as e:
+        print("drop paths enable error:", e)
 
     # иконка окна (панель задач / Alt-Tab) — в фоне, как только окно появится
     win_icon = os.path.join(_UI_BASE, "icon.ico")

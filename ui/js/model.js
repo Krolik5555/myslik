@@ -174,6 +174,30 @@ function noteParentChain(id){
   while(cur && !guard.has(cur)){ guard.add(cur); chain.unshift(cur); const p=S.items.find(i=>i.id===cur); cur=p&&p.parent?p.parent:null; }
   return chain;
 }
+/* ДОМ НОДЫ — точка, к которой её мягко тянет физика графа, когда включено «Держать раскладку»
+   (S.settings.graphHome). Хранится СМЕЩЕНИЕМ от владельца (it.hx/it.hy), а не абсолютной точкой:
+   так дом едет вслед за владельцем сам, без единой дополнительной строки в физике — сдвинули хаб
+   области, и вся её ветка переехала формой.
+   Владелец не хранится, а ВЫЧИСЛЯЕТСЯ: родитель ноды → хаб её области → никто. Хранить его
+   отдельно значило бы держать третью копию иерархии (parent и так кэш от recomputeHierarchy),
+   и она разошлась бы с остальными при первой же перестановке связи.
+   Главное правило: дом меняет только человек своим жестом. Физика дом не пишет НИКОГДА —
+   отсюда и то, что форма не может уплыть сама. */
+function homeOwner(it, byId){
+  if(!it) return null;
+  if(it.parent){ const p=byId?byId.get(it.parent):S.items.find(i=>i.id===it.parent); if(p) return p; }
+  if(it.area){ const a=areaById(it.area); if(a) return a; }
+  return null;
+}
+// мировая точка дома (или null, если дома нет либо у владельца ещё нет координат)
+function homeWorld(it, byId){
+  if(!it || it.hx==null || it.hy==null) return null;
+  const o=homeOwner(it, byId); if(!o || o.x==null || o.y==null) return null;
+  return {x:o.x+it.hx, y:o.y+it.hy};
+}
+/* ЗАПИСЫВАЕТ дом не этот файл, а граф (Graph._домЖест): считать смещение надо от ЖИВОЙ позиции
+   владельца, а на диск раскладка уезжает только по остыванию физики — в данных у владельца почти
+   всегда лежит вчерашняя точка. Здесь дом только ЧИТАЕТСЯ и переносится за сменой владельца. */
 // Иерархия заметок ВЫВОДИТСЯ из графа: корень — область, направление — ОТ области наружу,
 // независимо от того, в какую сторону тянули связь. Пишем результат в поле parent (кэш для списка/ридера/пружины графа).
 function recomputeHierarchy(){
@@ -211,10 +235,18 @@ function recomputeHierarchy(){
   });
 
   let changed=false;
+  // индекс на время прохода: homeOwner иначе ищет родителя перебором S.items, и на дереве
+  // в сотни узлов пересчёт домов стал бы квадратичным — а зовут его на каждую перерисовку
+  const _byId=new Map(S.items.map(i=>[i.id,i]));
   notes.forEach(n=>{
     const p=pred[n.id];
     // предшественник-область → верхний уровень (parent=null); предшественник-заметка → она родитель
     const np=(p && p.indexOf("A:")!==0) ? p : null;
+    /* ВЛАДЕЛЬЦА ДОМА ЗАПОМИНАЕМ ДО ПЕРЕСТАНОВКИ. Дом хранится смещением, то есть привязан к
+       точке отсчёта; смена родителя или области меняет точку отсчёта молча — и нода прыгнула бы
+       к новому владельцу ровно на разницу их координат. Пересчёт ниже эту разницу и снимает. */
+    const владелецБыл = (n.hx!=null && n.hy!=null) ? homeOwner(n, _byId) : null;
+    const мирБыл = владелецБыл ? {x:владелецБыл.x, y:владелецБыл.y} : null;
     if((n.parent||null)!==(np||null)){ n.parent=np; changed=true; }
     // область: трогаем только унаследованную или пустую
     if(!n.area || n.areaAuto===true){
@@ -222,6 +254,16 @@ function recomputeHierarchy(){
       if((n.area||null)!==нов){ n.area=нов; changed=true; }
       const авто = !!нов;
       if(!!n.areaAuto!==авто){ if(авто) n.areaAuto=true; else delete n.areaAuto; changed=true; }
+    }
+    if(владелецБыл){
+      const стал=homeOwner(n, _byId);
+      if(стал!==владелецБыл){
+        // мировое место дома обязано остаться прежним — иначе смена иерархии двигала бы форму
+        if(стал && стал.x!=null && стал.y!=null && мирБыл.x!=null && мирБыл.y!=null){
+          n.hx=Math.round(мирБыл.x+n.hx-стал.x); n.hy=Math.round(мирБыл.y+n.hy-стал.y);
+        } else { delete n.hx; delete n.hy; }   // владельца не стало — дому не от чего считаться
+        changed=true;
+      }
     }
   });
   if(changed) persist();
