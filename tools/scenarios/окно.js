@@ -59,6 +59,21 @@ S.settings.theme = былаТема; applySettings();
   t.push({имя:"плашка обновления появляется", ок: !!пл() && /9\.9\.9\.9/.test(пл().textContent),
           факт: пл() ? пл().textContent.replace(/\s+/g," ").trim() : "нет плашки"});
 
+  /* МЕСТО ПЛАШКИ — снизу по центру. В правом нижнем углу её закрывали правая панель и лоток
+     «неразобранного», а на широком окне туда просто не смотрят. Проверяем заодно, что она не
+     садится на тост: тот живёт у самого низа и появляется в любой момент. */
+  {
+    const r = пл().getBoundingClientRect();
+    const тост = document.querySelector("#toast");
+    const rt = тост ? тост.getBoundingClientRect() : null;
+    t.push({имя:"плашка обновления стоит снизу по центру",
+            ок: Math.abs((r.left + r.width/2) - innerWidth/2) < 4 && innerHeight - r.bottom < 120 && r.top > innerHeight/2,
+            факт:"центр по X "+Math.round(r.left+r.width/2)+" при центре окна "+Math.round(innerWidth/2)+
+                 ", до низа окна "+Math.round(innerHeight-r.bottom)+" px"});
+    t.push({имя:"плашка обновления не наезжает на тост", ок: !rt || r.bottom <= rt.top + 1,
+            факт: rt ? "низ плашки "+Math.round(r.bottom)+", верх тоста "+Math.round(rt.top) : "тоста нет"});
+  }
+
   // тосты живут 1.8–5 с и перетирают друг друга; плашка обязана пережить и их, и время
   toast("что-то произошло"); toast("и ещё раз");
   await ж(6200);

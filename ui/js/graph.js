@@ -99,6 +99,9 @@ function renderNotes(v){
       <button class="gm-it" id="g-refit"><i class="ti ti-arrows-shuffle"></i>Перераскладка</button>
       <button class="gm-it" id="g-tags"><i class="ti ti-tags"></i>Теги со стилем</button>
       <button class="gm-it" id="g-hint-on"><i class="ti ti-help-circle"></i>Показать подсказку</button>
+      <!-- Тур про домик показывается сам ОДИН раз после обновления. Отсюда его можно открыть
+           снова: иначе посмотреть второй раз можно было только правкой файла данных. -->
+      <button class="gm-it" id="g-tour"><i class="ti ti-home"></i>Что нового: дом</button>
       <!-- счётчик кадров пунктом меню, а не только клавишей: горячее сочетание может забрать
            себе системная утилита (у КРОЛИКА так делал PowerToys с Shift-сочетаниями) -->
       <button class="gm-it" id="g-fps-on"><i class="ti ti-activity"></i>${S.settings.graphFps?"Скрыть счётчик кадров":"Счётчик кадров"}</button>
@@ -164,6 +167,8 @@ function renderNotes(v){
   // подсказка по управлению: закрывается крестиком, возвращается отсюда
   if($("#g-hint-x")) $("#g-hint-x").onclick=()=>{ S.settings.graphHint=false; persist(); $("#g-hint").classList.add("off"); };
   $("#g-hint-on").onclick=()=>{ closeMore(); S.settings.graphHint=true; persist(); $("#g-hint").classList.remove("off"); };
+  // тур живёт в main.js и грузится последним — к моменту клика он на месте
+  if($("#g-tour")) $("#g-tour").onclick=()=>{ closeMore(); if(typeof turStep==="function") turStep(0); };
   /* Счётчик кадров: показывает цену кадра в ЖИВОМ приложении и на своих данных. Замерочный
      стенд всегда мягче — в нём нет ни движений мыши, ни правой панели, ни моста на диск. */
   if($("#g-fps-on")) $("#g-fps-on").onclick=()=>{ closeMore();

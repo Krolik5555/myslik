@@ -1022,11 +1022,15 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
    Не тост: тост живёт секунды и стирается следующим сообщением, а про новую версию человек
    обязан узнать, даже если отошёл от компьютера. Висит, пока не обновится или не закроет сам.
    Стоит СПРАВА ВНИЗУ, а не по центру: центр занят тостами, и они перекрывали бы друг друга. */
-.upd-banner{position:fixed;right:18px;bottom:18px;z-index:340;display:flex;align-items:center;gap:10px;
+/* ОБЕ ПЛАШКИ — СНИЗУ ПО ЦЕНТРУ. В правом нижнем углу их закрывала правая панель и лоток
+   «неразобранного», а на широком окне туда просто не смотрят. Центр внизу — то место, куда
+   взгляд возвращается сам.
+   bottom:64, а не 18: у самого низа сидит тост, и висящая плашка его перекрывала бы. */
+.upd-banner{position:fixed;left:50%;bottom:64px;z-index:340;display:flex;align-items:center;gap:10px;
   max-width:min(520px,92vw);padding:12px 14px;border-radius:12px;background:var(--surf3);
   border:0.5px solid var(--bd2);box-shadow:0 10px 34px var(--sh),0 0 24px var(--glow);
-  opacity:0;transform:translateY(14px);transition:opacity .22s,transform .22s;}
-.upd-banner.show{opacity:1;transform:none;}
+  opacity:0;transform:translateX(-50%) translateY(14px);transition:opacity .22s,transform .22s;}
+.upd-banner.show{opacity:1;transform:translateX(-50%);}
 .upd-banner .upd-ico{font-size:20px;color:var(--acc);flex:none;}
 .upd-banner .upd-txt{display:flex;flex-direction:column;min-width:0;margin-right:4px;}
 .upd-banner .upd-txt b{font-size:13px;color:var(--tx);}
@@ -1036,6 +1040,75 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
   display:flex;align-items:center;justify-content:center;border:0.5px solid transparent;}
 .upd-banner .upd-x:hover{background:var(--surf2);color:var(--tx);}
 .upd-banner .spinning{animation:footSpin .8s linear infinite;}
+/* ПЛАШКА ПОСЛЕ ОБНОВЛЕНИЯ — предложение, а не сама демонстрация (разбор — у turBanner).
+   Вид и место намеренно те же, что у плашки «вышла новая версия»: человек только что нажал
+   в ней «Обновить», и ответ логично встречать там же, в том же углу. */
+.tour-banner{position:fixed;left:50%;bottom:64px;z-index:340;display:flex;align-items:center;gap:11px;
+  max-width:min(560px,92vw);padding:12px 14px;border-radius:12px;background:var(--surf3);
+  border:0.5px solid var(--bd2);box-shadow:0 10px 34px var(--sh),0 0 24px var(--glow);
+  opacity:0;transform:translateX(-50%) translateY(14px);transition:opacity .22s,transform .22s;}
+.tour-banner.show{opacity:1;transform:translateX(-50%);}
+.tour-banner .tb-ico{font-size:20px;color:var(--acc);flex:none;}
+.tour-banner .tb-txt{display:flex;flex-direction:column;min-width:0;margin-right:4px;}
+.tour-banner .tb-txt b{font-size:13px;color:var(--tx);}
+.tour-banner .tb-sub{font-size:11.5px;color:var(--mut2);}
+.tour-banner .btn{flex:none;}
+.tour-banner .tb-x{flex:none;width:26px;height:26px;border-radius:7px;color:var(--mut2);
+  display:flex;align-items:center;justify-content:center;border:0.5px solid transparent;}
+.tour-banner .tb-x:hover{background:var(--surf2);color:var(--tx);}
+/* ===== тур «что нового» ===== */
+/* Выноску позиционирует JS (turPlace): она привязана к живой кнопке, а та живёт в потоке и
+   переезжает при любом изменении окна. Здесь только вид и хвостик. */
+.tour-pop{position:fixed;z-index:360;width:min(340px,90vw);padding:13px 14px 11px;border-radius:12px;
+  background:var(--surf3);border:0.5px solid var(--bd2);box-shadow:0 14px 40px var(--sh),0 0 26px var(--glow);
+  opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s;}
+.tour-pop.show{opacity:1;transform:none;}
+/* Шаг со сравнением — ЗАМЕТНО шире прочих: в 480 px записи ужимались до 208 px, и разглядеть
+   в них отдельные ноды было нельзя. Высоту не задаём числом — её выводит aspect-ratio окошка
+   из пропорций самого клипа (440×310), поэтому при любой ширине окна кадр не обрезается. */
+.tour-pop.wide{width:min(820px,94vw);}
+/* Если окно низкое, подсказка прокручивается, а не вылезает за экран верхом. */
+.tour-pop{max-height:92vh;overflow:auto;}
+/* Без цели — карточка по центру, но центр считает JS через left/top, а НЕ translate(-50%,-50%):
+   иначе при переходе «по центру → к кнопке» доигрывающий transform складывался с уже новой
+   позицией, и выноска на полкадра улетала за край окна. Один способ позиционирования на оба
+   режима — и складывать нечего. */
+.tour-pop.mid .tour-tail{display:none;}
+.tour-tail{position:absolute;top:-7px;width:12px;height:12px;margin-left:-6px;background:var(--surf3);
+  border-left:0.5px solid var(--bd2);border-top:0.5px solid var(--bd2);transform:rotate(45deg);}
+.tour-pop.up .tour-tail{top:auto;bottom:-7px;transform:rotate(225deg);}
+.tour-head{display:flex;align-items:center;gap:8px;margin-bottom:7px;}
+.tour-head i{font-size:17px;color:var(--acc);flex:none;}
+.tour-head b{font-size:13.5px;color:var(--tx);flex:1;min-width:0;}
+.tour-x{flex:none;width:24px;height:24px;border-radius:7px;color:var(--mut2);
+  display:flex;align-items:center;justify-content:center;}
+.tour-x:hover{background:var(--surf2);color:var(--tx);}
+.tour-txt{font-size:12.5px;line-height:1.5;color:var(--mut);}
+.tour-foot{display:flex;align-items:center;gap:10px;margin-top:11px;}
+.tour-dots{display:flex;gap:5px;flex:1;}
+.tour-dots i{width:5px;height:5px;border-radius:50%;background:var(--bd2);}
+.tour-dots i.on{background:var(--acc);}
+/* ДЕМОНСТРАЦИЯ «БЕЗ ДОМА / С ДОМОМ» — два окошка с настоящими записями графа (разбор — у
+   ТУР_ДЕМО в main.js). Высота подобрана под пропорции клипа (440×310): при близком соотношении
+   object-fit:cover срезает по краям считанные пиксели, а не половину звезды.
+   Подпись лежит ПОВЕРХ видео на градиенте: вынести её под окошко значило отдать ей строку
+   высоты, которой в подсказке и так впритык. */
+.tour-demo{display:flex;align-items:stretch;gap:9px;margin:2px 0 11px;}
+.td-one{position:relative;flex:1;aspect-ratio:44/31;border-radius:10px;background:var(--surf2);
+  border:0.5px solid var(--bd2);overflow:hidden;}
+.td-one.good{border-color:var(--acc);}
+.td-vid{display:block;width:100%;height:100%;object-fit:cover;}
+.td-vs{display:flex;align-items:center;color:var(--mut2);font-size:16px;flex:none;}
+.td-lbl{position:absolute;left:0;right:0;bottom:0;padding:18px 6px 8px;text-align:center;
+  font-size:12px;color:var(--mut);letter-spacing:.02em;
+  background:linear-gradient(to top,var(--surf2),transparent);}
+.td-one.good .td-lbl{color:var(--acc);}
+/* ПОДСВЕТКА ЦЕЛИ — кольцом снаружи, а не рамкой: рамка сдвинула бы кнопку в потоке, и
+   выноска, посчитанная по её прежнему месту, показала бы мимо. */
+.tour-lit{position:relative;z-index:361;box-shadow:0 0 0 2px var(--acc),0 0 18px var(--glow)!important;
+  border-radius:9px;animation:tourPulse 1.6s ease-in-out infinite;}
+@keyframes tourPulse{0%,100%{box-shadow:0 0 0 2px var(--acc),0 0 14px var(--glow);}
+                     50%{box-shadow:0 0 0 3px var(--acc),0 0 26px var(--glow);}}
 /* ===== toast ===== */
 #toast{position:absolute;bottom:18px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--surf3);border:0.5px solid var(--bd2);border-radius:10px;padding:10px 18px;font-size:13px;opacity:0;transition:.25s;z-index:300;box-shadow:0 0 20px var(--glow);pointer-events:none;}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}

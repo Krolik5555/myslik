@@ -101,7 +101,7 @@ TRACE = os.environ.get("PLANNER_TRACE") == "1"
 
 # ---- авто-обновление с GitHub Releases ----
 # Единый источник версии для сравнения с релизом. Теги релизов: vX.Y.Z (напр. v1.3.0).
-APP_VERSION = "2.0.4"
+APP_VERSION = "2.0.4.1"
 APP_ID = "krolik.planner"   # идентификатор приложения для панели задач (группировка + иконка)
 # owner/repo публичного репозитория (заполнится после gh auth login — owner = твой GitHub-логин)
 GH_REPO_SLUG = "Krolik5555/myslik"
@@ -1568,15 +1568,23 @@ def _limit_maximize():
 
 
 def _allow_snap(hwnd):
-    """Разрешить окну участвовать в Aero Snap.
+    """Вернуть безрамочному окну стили, по которым Windows судит о его возможностях.
 
     Windows показывает зоны привязки только окнам, которые МОЖНО развернуть и изменить в
     размере: нужны стили WS_MAXIMIZEBOX и WS_THICKFRAME. У безрамочной формы (FormBorderStyle.None)
     их нет — поэтому окно исправно таскалось нативно, но к верху экрана не разворачивалось.
-    Видимой рамки эти стили не добавляют: неклиентскую область мы и так не рисуем."""
+    Видимой рамки эти стили не добавляют: неклиентскую область мы и так не рисуем.
+
+    ПО ТОЙ ЖЕ ПРИЧИНЕ ТУТ WS_MINIMIZEBOX (плюс WS_SYSMENU, без которого он не действует).
+    Повторный клик по кнопке в панели задач сворачивает окно только тогда, когда система
+    считает его СВОРАЧИВАЕМЫМ, а судит она ровно по этому стилю. Без него окно разворачивалось
+    по клику и больше не реагировало (КРОЛИК: «кликаю по Мыслику — разворачивается, ещё раз —
+    не сворачивается»). Своя кнопка сворачивания работала и раньше: она зовёт win_min напрямую,
+    мимо решения системы, — потому и не было заметно, что стиля нет."""
     try:
         GWL_STYLE = -16
         WS_MAXIMIZEBOX, WS_THICKFRAME = 0x00010000, 0x00040000
+        WS_MINIMIZEBOX, WS_SYSMENU = 0x00020000, 0x00080000
         # СВОЙ экземпляр user32, а не ctypes.windll.user32: там объекты функций общие на весь
         # процесс, и _enable_frameless_resize уже перенастроил SetWindowLongPtrW под подмену
         # оконной процедуры (argtypes с WNDPROC). Чужие настройки ломают наш вызов с числом.
@@ -1588,15 +1596,22 @@ def _allow_snap(hwnd):
         setl.restype = ctypes.c_ssize_t
         setl.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_ssize_t]
         style = getl(hwnd, GWL_STYLE)
-        need = WS_MAXIMIZEBOX | WS_THICKFRAME
+        need = WS_MAXIMIZEBOX | WS_THICKFRAME | WS_MINIMIZEBOX | WS_SYSMENU
         # print только ASCII: перенаправленный stdout тут в системной кодировке
-        print("[snap] styles: maximizebox=%s thickframe=%s"
-              % (bool(style & WS_MAXIMIZEBOX), bool(style & WS_THICKFRAME)))
+        print("[snap] styles: maximizebox=%s thickframe=%s minimizebox=%s sysmenu=%s"
+              % (bool(style & WS_MAXIMIZEBOX), bool(style & WS_THICKFRAME),
+                 bool(style & WS_MINIMIZEBOX), bool(style & WS_SYSMENU)))
         if style & need != need:
             setl(hwnd, GWL_STYLE, style | need)
             # SetWindowPos с SWP_FRAMECHANGED — чтобы система перечитала стили
             u32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
-            print("[snap] styles added for Aero Snap")
+            # ПЕРЕЧИТЫВАЕМ И ПЕЧАТАЕМ: строка выше показывает состояние ДО, и по ней нельзя
+            # понять, применилось ли. Форма достраивается асинхронно и стили иногда сбрасывает
+            # (ровно поэтому ниже стоит повтор _hide_window_border) — проверять надо по факту.
+            after = getl(hwnd, GWL_STYLE)
+            print("[snap] styles now: maximizebox=%s thickframe=%s minimizebox=%s sysmenu=%s"
+                  % (bool(after & WS_MAXIMIZEBOX), bool(after & WS_THICKFRAME),
+                     bool(after & WS_MINIMIZEBOX), bool(after & WS_SYSMENU)))
         # Повторяем: при первом показе окна атрибут иногда не применяется (окно ещё
         # достраивается), и рамка видна до первого ресайза — ровно то, что наблюдалось.
         _hide_window_border(hwnd)
