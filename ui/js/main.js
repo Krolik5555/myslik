@@ -375,6 +375,30 @@ function wireGlobal(){
     if((e.ctrlKey||e.metaKey) && view==="notes" && graph){
       if(e.code==="KeyC" && graph.selNodes.size){ e.preventDefault(); graph.copySelection(); return; }
       if(e.code==="KeyV"){ e.preventDefault(); graph.pasteClip(); return; }
+      /* «ЧТО ГОРИТ» — Ctrl+G, следующая горящая — Ctrl+Shift+G. Одиночная клавиша тут не годится
+         по той же причине, по которой убраны цифры видов и «N»: слишком легко срабатывает мимо
+         поля ввода. Shift проверяем ПЕРВЫМ: иначе Ctrl+G съел бы и сочетание с Shift. */
+      if(e.code==="KeyG" && e.shiftKey){ e.preventDefault(); graph.жарNext(); return; }
+      if(e.code==="KeyG"){ e.preventDefault(); graph.toggleЖар(); return; }
+    }
+    /* СТАТУС ВЫДЕЛЕНИЮ — Alt+1…6, по порядку из реестра СТАТУСЫ (core.js). Это ускоритель поверх
+       ряда иконок в поповере, а не замена ему: механика без видимой поверхности не запоминается.
+       Подпись «Alt+1…6» стоит над рядом в поповере — так про сочетание однажды узнают. */
+    if(e.altKey && !e.ctrlKey && !e.metaKey && view==="notes" && graph && graph.selNodes && graph.selNodes.size){
+      const цифра=/^Digit([1-9])$/.exec(e.code);
+      if(цифра){
+        const id=[...graph.selNodes].find(x=>x.indexOf("hub_")!==0);
+        const it=id && S.items.find(x=>x.id===id);
+        if(it){
+          const список=статусыДляВида(it.kind), k=список[+цифра[1]-1];
+          const у=graph.byId[id];
+          if(k && у){
+            e.preventDefault();
+            if(k==="done") graph._setDone(у); else graph._setStatus(у, k===нейтральныйСтатус(it.kind)?"__neutral__":k);
+          }
+        }
+        return;
+      }
     }
     /* Клавиши «N» (новая нода) больше НЕТ: одиночная буква без модификатора слишком легко
        срабатывает мимо поля ввода, а создавать ноды и так есть чем — строка захвата, ПКМ по

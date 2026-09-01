@@ -12,8 +12,39 @@ import shutil
 import threading
 import datetime
 import ctypes
+import logging
+import traceback
+import tempfile
+
+# Уровень лога pywebview задаём ДО импорта: свой логгер он настраивает в момент импорта
+# (webview/__init__.py, _setup_logger) и переменную больше не перечитывает. Нужен он вот зачем:
+# guilib.py ловит ЛЮБОЙ ImportError оконного слоя и подменяет его одной фразой «You must have
+# pythonnet installed», а настоящее исключение уходит только в этот логгер.
+os.environ.setdefault("PYWEBVIEW_LOG", "DEBUG")
 
 import webview
+
+
+class _LogGrab(logging.Handler):
+    """Держит записи pywebview в памяти — чтобы приложить их к отчёту, если старт не удался.
+
+    В файл писать постоянно нельзя: при обычной работе это лишняя запись на диск, а нужен
+    лог ровно один раз — в момент отказа."""
+
+    def __init__(self):
+        super().__init__()
+        self.lines = []
+
+    def emit(self, record):
+        try:
+            self.lines.append(self.format(record))
+        except Exception:
+            pass
+
+
+_PWLOG = _LogGrab()
+_PWLOG.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+logging.getLogger("pywebview").addHandler(_PWLOG)
 
 # tray icon (optional — gracefully skip if missing)
 try:
@@ -98,6 +129,124 @@ _AI_DL_LOCK = threading.Lock()
 TG_FILE = os.path.join(DATA_DIR, "telegram.json")
 
 TRACE = os.environ.get("PLANNER_TRACE") == "1"
+
+# Отчёт о неудачном старте — РЯДОМ с приложением, как и «дрожь-отчёт.txt»: это не данные,
+# а разовый замер, который человек просто передаёт целиком. Файл нужен потому, что окно
+# собрано без консоли (console=False в Myslik.spec): на чужой машине traceback идти некуда,
+# а сообщение pywebview обезличено и причину не называет.
+STARTUP_LOG = os.path.join(_DATA_BASE, "запуск-ошибка.txt")
+
+
+def _reg_value(path, name, wow64=False):
+    """Значение из HKLM или пометка о его отсутствии. Строкой — отчёт читают глазами."""
+    try:
+        import winreg
+        flags = winreg.KEY_READ | (winreg.KEY_WOW64_32KEY if wow64 else 0)
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path, 0, flags) as k:
+            return str(winreg.QueryValueEx(k, name)[0])
+    except FileNotFoundError:
+        return "НЕТ (раздела реестра не существует)"
+    except Exception as e:
+        return "НЕТ (%s: %s)" % (e.__class__.__name__, e)
+
+
+def _startup_report(exc_text):
+    """Собрать всё, что отличает сломанную машину от рабочей, одним куском текста.
+
+    Пробные импорты повторяют путь pywebview вручную (clr → System.Windows.Forms →
+    winforms), но БЕЗ его перехвата — только так видно настоящее исключение."""
+    import platform
+    import importlib
+
+    L = ["Мыслик %s — окно не открылось" % APP_VERSION,
+         "Время: %s" % datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+         "",
+         "== Система ==",
+         "ОС: %s" % platform.platform(),
+         "Разрядность: %s, процессор: %s" % (platform.architecture()[0], platform.machine()),
+         "Python: %s" % sys.version.replace("\n", " "),
+         "Запущено из: %s" % sys.executable,
+         "frozen: %s" % bool(getattr(sys, "frozen", False)),
+         "",
+         "== Компоненты Windows ==",
+         ".NET Framework v4\\Full Release: %s   (нужно >= 461808)"
+         % _reg_value(r"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full", "Release"),
+         "WebView2 Runtime: %s"
+         % _reg_value(r"SOFTWARE\Microsoft\EdgeUpdate\Clients"
+                      r"\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}", "pv", wow64=True),
+         "",
+         "== Переменные окружения =="]
+    for v in ("PYTHONNET_RUNTIME", "PYTHONHOME", "PYTHONPATH", "PYTHONNET_PYDLL",
+              "DOTNET_ROOT", "PYWEBVIEW_GUI", "PYWEBVIEW_LOG"):
+        L.append("%s = %s" % (v, os.environ.get(v, "(не задана)")))
+
+    L += ["", "== Файлы сборки =="]
+    root = os.path.join(os.path.dirname(sys.executable), "_internal")
+    if not getattr(sys, "frozen", False):
+        L.append("(запуск из исходников — папки _internal нет, проверка неприменима)")
+        root = None
+    for rel in () if root is None else (r"pythonnet\runtime\Python.Runtime.dll",
+                r"clr_loader\ffi\dlls\amd64\ClrLoader.dll",
+                r"webview\lib\Microsoft.Web.WebView2.Core.dll",
+                r"webview\lib\Microsoft.Web.WebView2.WinForms.dll",
+                "VCRUNTIME140.dll"):
+        p = os.path.join(root, rel)
+        try:
+            L.append("%s — %s" % (rel, ("%d байт" % os.path.getsize(p))
+                                  if os.path.isfile(p) else "ОТСУТСТВУЕТ"))
+        except Exception as e:
+            L.append("%s — ошибка проверки: %s" % (rel, e))
+
+    L += ["", "== Пробные импорты =="]
+
+    def шаг(имя, fn):
+        """Шаги идут ПО ПОРЯДКУ и повторяют путь pywebview: голый `import System.Windows.Forms`
+        падает и на исправной машине — сборка появляется только после clr.AddReference."""
+        try:
+            fn()
+            L.append("%s — ок" % имя)
+            return True
+        except Exception:
+            L.append("%s — ОТКАЗ:\n%s" % (имя, traceback.format_exc()))
+            return False
+
+    if шаг("import clr (старт .NET)", lambda: importlib.import_module("clr")):
+        import clr
+        if шаг("clr.AddReference('System.Windows.Forms')",
+               lambda: clr.AddReference("System.Windows.Forms")):
+            шаг("import System.Windows.Forms",
+                lambda: importlib.import_module("System.Windows.Forms"))
+    шаг("import webview.platforms.winforms (то, что падает у pywebview)",
+        lambda: importlib.import_module("webview.platforms.winforms"))
+
+    L += ["", "== Лог pywebview =="]
+    L += _PWLOG.lines or ["(пусто)"]
+    L += ["", "== Исключение ==", exc_text]
+    return "\n".join(L)
+
+
+def _startup_failed(exc_text):
+    """Записать отчёт рядом с exe и сказать человеку, какой файл прислать."""
+    where = STARTUP_LOG
+    try:
+        with open(STARTUP_LOG, "w", encoding="utf-8") as f:
+            f.write(_startup_report(exc_text))
+    except Exception:
+        # Папка рядом с exe может быть недоступна на запись (Program Files) — тогда во временную.
+        try:
+            where = os.path.join(tempfile.gettempdir(), "myslik-запуск-ошибка.txt")
+            with open(where, "w", encoding="utf-8") as f:
+                f.write(_startup_report(exc_text))
+        except Exception:
+            where = None
+    msg = ("Мыслик не смог открыть окно.\n\n"
+           "Подробности записаны в файл:\n%s\n\n"
+           "Пришлите этот файл — в нём видно причину." % where) if where else \
+          ("Мыслик не смог открыть окно, и записать отчёт тоже не удалось.\n\n" + exc_text[-800:])
+    try:
+        ctypes.windll.user32.MessageBoxW(0, msg, "Мыслик — ошибка запуска", 0x10)
+    except Exception:
+        pass
 
 # ---- авто-обновление с GitHub Releases ----
 # Единый источник версии для сравнения с релизом. Теги релизов: vX.Y.Z (напр. v1.3.0).
@@ -2106,4 +2255,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Падение старта обязано оставлять след: без консоли traceback уходит в никуда, а окно
+    # PyInstaller показывает голое исключение, по которому причину не восстановить.
+    try:
+        main()
+    except Exception:
+        _startup_failed(traceback.format_exc())
+        sys.exit(1)

@@ -329,16 +329,53 @@ asideSelect(зад.id); await ж(150);
 
 // ===== смена типа ноды прямо в панели =====
 {
+  /* СМЕНА ВИДА БОЛЬШЕ НЕ ГАСИТ СОВМЕСТИМЫЙ СТАТУС (2026-09-01). Раньше задача, ставшая заметкой,
+     безусловно получала "note" — и «в работе» слетало от одного движения селектом. Теперь
+     переставляется только несовместимое: «Готово» заметке нельзя, а «в работе» и «ждёт» — можно
+     (у КРОЛИКА заметками живут целые этапы, и статус на них осмысленный). */
   asideSelect(зад.id); await ж(150);
+  сменить("status", "waiting"); await ж(150);
   сменить("kind", "note"); await ж(200);
-  t.push({имя:"тип меняется из панели", ок: зад.kind === "note" && зад.status === "note",
+  t.push({имя:"заметка сохраняет совместимый статус при смене вида",
+          ок: зад.kind === "note" && зад.status === "waiting",
           факт: "kind: " + зад.kind + ", status: " + зад.status});
   asideSelect(зад.id); await ж(150);
-  t.push({имя:"у заметки нет полей задачи", ок: !document.querySelector('#aside [data-f="due"]'),
+  t.push({имя:"у заметки нет полей задачи, но строка статуса есть",
+          ок: !document.querySelector('#aside [data-f="due"]') && !!document.querySelector('#aside [data-f="status"]'),
           факт: "полей: " + [...document.querySelectorAll("#aside [data-f]")].map(e=>e.dataset.f).join(",")});
+  t.push({имя:"в списке статусов заметки нет «Готово»",
+          ок: ![...document.querySelectorAll('#aside [data-f="status"] option')].some(o=>o.value==="done"),
+          факт: [...document.querySelectorAll('#aside [data-f="status"] option')].map(o=>o.value).join(",")});
   сменить("kind", "task"); await ж(200);
   t.push({имя:"обратно в задачу — поля вернулись", ок: зад.kind === "task" && зад.status !== "note",
           факт: "kind: " + зад.kind + ", status: " + зад.status});
+  /* ГРУППОВАЯ СМЕНА СТАТУСА. Закрывают и переводят работу пачками (сдал шот — десять его
+     рендеров меняются разом), а до этого группой можно было сменить только вид и область. */
+  {
+    const б1=addItem({kind:"task", title:"пачка-1"}), б2=addItem({kind:"task", title:"пачка-2"});
+    asideMany([б1.id, б2.id]); await ж(200);
+    const сел=document.querySelector('#aside [data-all="status"]');
+    if(сел){ сел.value="waiting"; сел.dispatchEvent(new Event("change")); }
+    await ж(250);
+    t.push({имя:"статус меняется на всю пачку из панели",
+            ок: !!сел && б1.status==="waiting" && б2.status==="waiting",
+            факт: сел ? (б1.status+", "+б2.status) : "селекта нет"});
+    /* Срок на пачку: дедлайн у шота общий для всех его этапов. Проверяем и простановку, и
+       снятие — «×» рядом с кнопками, чтобы не открывать календарь ради пустого значения. */
+    asideMany([б1.id, б2.id]); await ж(200);
+    const пт=document.querySelector('#aside [data-alldue="пт"]');
+    if(пт) пт.click(); await ж(200);
+    const деньПт = б1.due ? parseYmd(б1.due).getDay() : null;
+    t.push({имя:"срок «пятница» ставится на всю пачку и это правда пятница",
+            ок: !!пт && б1.due===б2.due && деньПт===5,
+            факт: "б1="+б1.due+", б2="+б2.due+", день недели "+деньПт});
+    asideMany([б1.id, б2.id]); await ж(200);
+    const снять=document.querySelector('#aside [data-alldue="__none__"]');
+    if(снять) снять.click(); await ж(200);
+    t.push({имя:"срок снимается у всей пачки", ок: б1.due===null && б2.due===null,
+            факт: "б1="+б1.due+", б2="+б2.due});
+    [б1,б2].forEach(x=>hardDeleteItem(x.id)); render(); await ж(150);
+  }
 }
 
 // ===== действия внизу карточки =====

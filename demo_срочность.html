@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Мыслик — демо срочности</title>
+<style>
+  /* Переменные — КОПИЯ из ui/styles.css. Новое — только шкала срочности. */
+  :root{
+    --bg:#000; --surf:#0c0c0e; --surf2:#161618; --surf3:#1f1f22;
+    --bd:rgba(255,255,255,.13); --bd2:rgba(255,255,255,.26); --bd3:rgba(255,255,255,.40);
+    --tx:#f4f4f5; --mut:#86868c; --mut2:#5b5b61;
+    --acc:#ffffff; --warn:#e0625a;
+    --pri1:#5fb98e; --pri2:#e8a14b; --pri3:#e0625a;
+    --glow:rgba(255,255,255,.30);
+    /* НОВОЕ. Срочность — не четвёртый уровень приоритета, поэтому шкала своя и НЕ зелёная:
+       горит или не горит, промежуточного «спокойно-зелёного» состояния у неё нет. */
+    --ur1:#b9a06a;   /* тлеет */
+    --ur2:#d98b46;   /* греется */
+    --ur3:#e0625a;   /* горит */
+  }
+  .light{
+    --bg:#ffffff; --surf:#fafafa; --surf2:#f0f0f0; --surf3:#e7e7e7;
+    --bd:rgba(0,0,0,.12); --bd2:rgba(0,0,0,.24); --bd3:rgba(0,0,0,.40);
+    --tx:#111114; --mut:#666; --mut2:#9a9a9f;
+    --acc:#000; --warn:#cc4b43;
+    --pri1:#3f9e72; --pri2:#c8821f; --pri3:#cc4b43;
+    --glow:rgba(0,0,0,.18);
+    --ur1:#8a7430; --ur2:#b56a20; --ur3:#cc4b43;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;}
+  body{display:flex;flex-direction:column;overflow:hidden;}
+  header{padding:12px 20px 10px;border-bottom:0.5px solid var(--bd);flex:none;}
+  h1{margin:0;font-size:15px;font-weight:600;} h1 b{color:var(--ur3);font-weight:600;}
+  .sub{margin:5px 0 0;font-size:12.5px;color:var(--mut);max-width:104ch;line-height:1.55;}
+  .bar{display:flex;flex-wrap:wrap;align-items:center;gap:9px 18px;padding:8px 20px;
+    border-bottom:0.5px solid var(--bd);font-size:12.5px;color:var(--mut);background:var(--surf);flex:none;}
+  .bar label{display:inline-flex;align-items:center;gap:7px;cursor:pointer;user-select:none;white-space:nowrap;}
+  .bar input[type=checkbox]{accent-color:var(--ur2);width:15px;height:15px;}
+  .bar input[type=range]{width:130px;accent-color:var(--ur2);}
+  .seg{display:inline-flex;border:0.5px solid var(--bd2);border-radius:8px;overflow:hidden;}
+  .seg button{background:transparent;border:0;color:var(--mut);font:inherit;font-size:12px;padding:5px 10px;cursor:pointer;}
+  .seg button.on{background:var(--acc);color:var(--bg);}
+  .scroll{flex:1;min-height:0;overflow:auto;}
+  .wrap{position:relative;margin:0 auto;}
+  .wrap canvas{position:absolute;inset:0;width:100%;height:100%;}
+  footer{padding:9px 20px;border-top:0.5px solid var(--bd);background:var(--surf);
+    font-size:12px;color:var(--mut);line-height:1.6;flex:none;max-height:24vh;overflow:auto;}
+  footer b{color:var(--tx);font-weight:600;}
+  footer .row{margin-bottom:6px;}
+  code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--tx);}
+</style>
+</head>
+<body>
+<header>
+  <h1>Мысл<b>ик</b> · срочность: что горит прямо сейчас</h1>
+  <p class="sub">Срочность не берётся из поля — она <b>вычисляется</b>: приоритет проставлен у 9 живых задач из 34, срок у 2. Отбор — <b>топ-N по баллу</b>, а не порог: порог даёт то ноль нод, то сорок. Здесь пять вариантов оформления горящей ноды, сцена из 20 нод с 3 горящими, режим гашения непричастного и указатели на краю экрана. Всё на <code>&lt;canvas&gt;</code> теми же примитивами, что <code>_drawMain</code>.</p>
+</header>
+
+<div class="bar">
+  <label>Тема <span class="seg" id="theme"><button data-v="dark" class="on">тёмная</button><button data-v="light">светлая</button></span></label>
+  <label><input type="checkbox" id="dim"> режим «показать горящее» (гашение непричастного)</label>
+  <label><input type="checkbox" id="edge" checked> указатели на краю экрана</label>
+  <label>Камера <input type="range" id="cam" min="-200" max="200" value="0"> <span id="camv" style="min-width:64px;display:inline-block">по центру</span></label>
+  <label><input type="checkbox" id="bw"> ч/б</label>
+  <label><input type="checkbox" id="pri" checked> дужка приоритета</label>
+</div>
+
+<div class="scroll" id="scroll"><div class="wrap" id="wrap"><canvas id="glowc"></canvas><canvas id="mainc"></canvas></div></div>
+<footer id="foot"></footer>
+
+<script>
+"use strict";
+/* ===== примитивы — копии из ui/js/graph.js ===== */
+const кэшЦвета=new Map();
+function rgb(c){ if(кэшЦвета.has(c)) return кэшЦвета.get(c);
+  let r=[230,230,230]; const s=String(c||"").trim();
+  if(s[0]==="#"){ let h=s.slice(1); if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+    const n=parseInt(h,16); if(!isNaN(n)) r=[(n>>16)&255,(n>>8)&255,n&255]; }
+  else { const m=s.match(/(\d+)[,\s]+(\d+)[,\s]+(\d+)/); if(m) r=[+m[1],+m[2],+m[3]]; }
+  кэшЦвета.set(c,r); return r; }
+function смесь(a,b,k){ const A=rgb(a),B=rgb(b);
+  return "rgb("+Math.round(A[0]*k+B[0]*(1-k))+","+Math.round(A[1]*k+B[1]*(1-k))+","+Math.round(A[2]*k+B[2]*(1-k))+")"; }
+function серый(c){ const [r,g,b]=rgb(c); const y=Math.round(0.2126*r+0.7152*g+0.0722*b); return `rgb(${y},${y},${y})`; }
+let ЧБ=false; const Ц=c=>ЧБ?серый(c):c;
+function путьФормы(ctx,форма,x,y,r){ if(форма==="square"){ ctx.rect(x-r,y-r,r*2,r*2); return; }
+  ctx.moveTo(x+r,y); ctx.arc(x,y,r,0,6.283); }
+function палитра(){ const cs=getComputedStyle(document.body), в=(и,з)=>(cs.getPropertyValue(и).trim()||з);
+  return { узел:в("--acc","#fff"), текст:в("--tx","#f4f4f5"), подпись:в("--mut","#86868c"),
+    подпись2:в("--mut2","#5b5b61"), фонУзла:в("--surf","#141414"), фон:в("--bg","#000"),
+    кольцо:в("--mut","#8a8a8a"), связь:в("--bd3","#3a3a3a"), тусклая:в("--bd2","#2c2c2c"),
+    при:[в("--pri1","#5fb98e"),в("--pri2","#e8a14b"),в("--pri3","#e0625a")],
+    жар:[в("--ur1","#b9a06a"),в("--ur2","#d98b46"),в("--ur3","#e0625a")] }; }
+
+/* ===== ПЯТЬ ВАРИАНТОВ ОФОРМЛЕНИЯ ГОРЯЩЕЙ НОДЫ ===== */
+const ВАРИАНТЫ=[
+  {id:"halo", имя:"A · внешний ореол", подпись:"тонкое кольцо на r+14z, толщина по уровню",
+   цена:"+1 список, +1 проход, 1 stroke на все горящие. shadowBlur НЕ нужен. r+14z — самое дальнее кольцо: внутри статус (r+5z), булавка (r+8z), бейдж срока (r+9…10z)."},
+  {id:"link", имя:"B · свои связи горят", подпись:"линии от горящей ноды толще и ярче",
+   цена:"+1 проход по связям (их всегда меньше, чем нод). Единственный канал, который никем не занят вовсе."},
+  {id:"rank", имя:"C · номер в очереди", подпись:"цифра 1..N в ЛЕВОМ НИЖНЕМ углу — порядок захода",
+   цена:"+1 список, +1 проход fillText. Левый ВЕРХ занят левым концом дужки приоритета (−144°), поэтому цифра идёт вниз-влево."},
+  {id:"glow", имя:"D · свечение (переосмысление)", подпись:"свечение = «требует внимания», работа и пауза уходят на кольца",
+   цена:"слой уже есть, новых проходов НОЛЬ — но это КРУПНОЕ решение: меняется смысл главного канала графа."},
+  {id:"edge2",имя:"E · двойной контур фигуры", подпись:"вторая обводка снаружи самой формы, без свечения",
+   цена:"+1 список, +1 проход, 1 stroke. Рискует спутаться с выделением (там обводка 4.5 и свечение)."},
+];
+
+/* ===== ФОРМУЛА СРОЧНОСТИ (та же, что в docs/СРОЧНОСТЬ.md) ===== */
+const W_СРОК=0.55, W_ПРИОР=0.25, W_ЗАСТОЙ=0.12, W_ТЯНЕТ=0.08;
+const СТАТУС={doing:0.10, next:0.08, todo:0, waiting:-0.12, paused:-0.15, someday:-0.20};
+const ПОРОГ=0.20, ПРЕДЕЛ=8;
+function вкладСрока(дн){ if(дн===null||дн===undefined) return 0;
+  if(дн<0) return 0.75+0.25*Math.min(1,-дн/14);
+  if(дн===0) return 0.75; if(дн===1) return 0.60;
+  return дн<=3?0.45:дн<=7?0.30:дн<=14?0.15:0.05; }
+function вкладЗастоя(сут){ if(!сут) return 0; if(сут<7) return 0;
+  return сут<30 ? (сут-7)/23*0.6 : Math.min(1, 0.6+(сут-30)/30*0.4); }
+function срочность(n){
+  if(n.done) return 0;
+  const u = W_СРОК*вкладСрока(n.дн) + W_ПРИОР*((n.pri||0)/3) + W_ЗАСТОЙ*вкладЗастоя(n.застой||0)
+          + W_ТЯНЕТ*Math.min(1,(n.детей||0)/8) + (СТАТУС[n.ст]||0);
+  return Math.max(0, Math.min(1, u));
+}
+function уровень(u){ return u>=0.45?3 : u>=0.30?2 : u>=ПОРОГ?1 : 0; }
+
+/* ===== СЦЕНА: 20 нод, из них 3 горящие ===== */
+const ПАЛИТРА_НОД=["#5b9bd6","#e8a14b","#5fb98e","#9b7fd6"];
+const СЦЕНА=[
+  {t:"Forest Project", ц:2,r:14,x:0.14,y:0.62,pri:1,дн:-6,ст:"paused",детей:1,застой:7},
+  {t:"Team Presentation",ц:1,r:18,x:0.62,y:0.22,pri:2,дн:null,ст:"todo",детей:11,застой:33},
+  {t:"057_GK_CUP",   ц:1,r:16,x:0.80,y:0.13,pri:2,дн:null,ст:"todo",детей:1,застой:34},
+  {t:"076_GKC_Announce",ц:0,r:17,x:0.13,y:0.24,pri:2,дн:null,ст:"todo",детей:1,застой:33},
+  {t:"SH070",        ц:0,r:14,x:0.27,y:0.17,дн:null,ст:"doing",детей:2,застой:1},
+  {t:"Рендер",       ц:0,r:11,x:0.39,y:0.11,дн:null,ст:"waiting",детей:0,застой:1},
+  {t:"Анимация",     ц:0,r:10,x:0.38,y:0.28,дн:null,ст:"todo",детей:0,застой:12,форма:"square"},
+  {t:"Локация",      ц:0,r:9, x:0.49,y:0.33,дн:null,ст:"note",детей:0,застой:12,форма:"square"},
+  {t:"Сборка",       ц:0,r:10,x:0.28,y:0.38,done:true},
+  {t:"Jett",         ц:1,r:12,x:0.74,y:0.35,дн:null,ст:"paused",детей:4,застой:1},
+  {t:"Sage",         ц:1,r:12,x:0.88,y:0.28,дн:null,ст:"todo",детей:4,застой:2},
+  {t:"VFX",          ц:1,r:9, x:0.94,y:0.42,done:true},
+  {t:"Tree Model",   ц:2,r:10,x:0.26,y:0.72,дн:null,ст:"paused",детей:0,застой:26},
+  {t:"Разработка персонажа",ц:2,r:12,x:0.40,y:0.68,дн:null,ст:"todo",детей:1,застой:30},
+  {t:"Концепт",      ц:2,r:10,x:0.50,y:0.76,дн:null,ст:"todo",детей:1,застой:30},
+  {t:"Мыслик DEV",   ц:3,r:12,x:0.63,y:0.63,дн:null,ст:"note",детей:0,застой:20,форма:"square"},
+  {t:"Добавить поля",ц:3,r:10,x:0.74,y:0.72,дн:null,ст:"todo",детей:0,застой:14},
+  {t:"Показания счётчиков",ц:1,r:10,x:0.90,y:0.60,pri:2,дн:23,ст:"todo",детей:0,застой:0},
+  {t:"Krolik Character",ц:2,r:11,x:0.14,y:0.86,pri:1,дн:null,ст:"todo",детей:0,застой:20},
+  {t:"Правка света", ц:0,r:10,x:0.56,y:0.46,pri:3,дн:0,ст:"doing",детей:0,застой:0},
+];
+const СВЯЗИ=[[3,4],[4,5],[4,6],[4,8],[6,7],[1,9],[1,10],[10,11],[0,12],[13,14],[15,16],[3,1],[2,1],[18,13],[4,19]];
+
+const wrap=document.getElementById("wrap"), mainc=document.getElementById("mainc"), glowc=document.getElementById("glowc");
+const S={гашение:false, края:true, чб:false, приор:true, кам:0, вариант:"halo"};
+const РАЗМЕРЫ=[18,12,7], ЗУМЫ=[1.4,1.0,0.5];
+
+/* Кто горит: топ-N по баллу с отсечкой значимости. НЕ порог сам по себе —
+   порог даёт то ноль нод, то сорок; и не топ-N сам по себе — иначе в пустом графе
+   подсветятся пять случайных нод, ничем друг от друга не отличающихся. */
+function горящие(ноды){
+  const с=ноды.filter(n=>!n.done).map(n=>({n, u:срочность(n)})).filter(x=>x.u>=ПОРОГ).sort((a,b)=>b.u-a.u);
+  if(!с.length) return [];
+  const верх=с.slice(0, ПРЕДЕЛ);
+  // вырожденный случай: все верхние равны — отбирать нечего, честно не подсвечиваем ничего
+  if(верх.length>1 && (верх[0].u-верх[верх.length-1].u)<0.02) return [];
+  return верх;
+}
+
+function размеры(){
+  const w=Math.max(1150, wrap.parentElement.clientWidth-2);
+  const h=104 + ВАРИАНТЫ.length*104 + 60 + 470 + 40;
+  wrap.style.width=w+"px"; wrap.style.height=h+"px"; return {w,h};
+}
+function рисовать(){
+  ЧБ=S.чб;
+  const {w,h}=размеры(), dpr=Math.min(window.devicePixelRatio||1,2);
+  for(const cv of [mainc,glowc]) if(cv.width!==Math.round(w*dpr)){ cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr); }
+  const ctx=mainc.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
+  const gtx=glowc.getContext("2d"); gtx.setTransform(dpr,0,0,dpr,0,0); gtx.clearRect(0,0,w,h);
+  const пал=палитра(), блобы=[];
+
+  ctx.textBaseline="middle"; ctx.textAlign="left";
+  ctx.font="600 12.5px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.текст);
+  ctx.fillText("Матрица: вариант × уровень жара × размер ноды", 20, 24);
+  ctx.font="11.5px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.подпись);
+  ctx.fillText("уровни: 1 «тлеет» (U≥0.20) · 2 «греется» (U≥0.30) · 3 «горит» (U≥0.45). В живом файле максимум U=0.41 — то есть уровня 3 там нет ни у одной задачи.", 20, 42);
+
+  const левое=176, колонка=(w-левое-24)/3, верх=104;
+  [1,2,3].forEach((ур,i)=>{
+    const cx=левое+колонка*i+колонка/2; ctx.textAlign="center";
+    ctx.font="600 12px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.жар[ур-1]);
+    ctx.fillText(["тлеет","греется","ГОРИТ"][ур-1], cx, верх-30);
+    ctx.font="10.5px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.подпись2);
+    ctx.fillText("уровень "+ур, cx, верх-15);
+  });
+  ВАРИАНТЫ.forEach((v,ri)=>{
+    const y=верх+ri*104+34;
+    ctx.textAlign="left"; ctx.font="600 12.5px system-ui, -apple-system, Segoe UI, sans-serif";
+    ctx.fillStyle=Ц(v.id===S.вариант?пал.текст:пал.подпись); ctx.fillText(v.имя, 20, y-16);
+    ctx.font="10.5px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.подпись2);
+    строки(ctx, v.подпись, 150).forEach((с,j)=>ctx.fillText(с, 20, y+1+j*13));
+    ctx.strokeStyle=Ц(пал.тусклая); ctx.globalAlpha=0.3; ctx.lineWidth=0.5;
+    ctx.beginPath(); ctx.moveTo(20,y+52); ctx.lineTo(w-24,y+52); ctx.stroke(); ctx.globalAlpha=1;
+    [1,2,3].forEach((ур,ci)=>{
+      const cx=левое+колонка*ci+колонка/2; let dx=cx-52;
+      РАЗМЕРЫ.forEach((r,si)=>{
+        const z=ЗУМЫ[si];
+        if(v.id==="glow") блобы.push({x:dx,y,цвет:пал.жар[ур-1],сила:0.10+0.09*ур,R:38});
+        рисоватьНоду(ctx, пал, {x:dx,y,r,z, свой:ПАЛИТРА_НОД[0], вариант:v.id, жар:ур, ранг:ур,
+          pri:(S.приор&&si===0)?2:0, тень:1});
+        dx += (si===0?46:36);
+      });
+    });
+  });
+
+  const сцY=верх+ВАРИАНТЫ.length*104+46;
+  подзаг(ctx,пал,20,сцY-14,"Сцена: 20 нод, горящих — "+горящие(СЦЕНА).length,
+    "тумблер «показать горящее» гасит непричастное (это уже написано: заметен() и множитель тень в _drawMain), ползунок «Камера» уводит часть графа за кадр — смотрите указатели на краю");
+  сцена(ctx,пал,блобы,{x:20,y:сцY+14,w:w-44,h:430});
+
+  if(блобы.length){
+    gtx.save(); gtx.filter="blur(24px)";
+    for(const б of блобы){ const c=rgb(Ц(б.цвет));
+      const g=gtx.createRadialGradient(б.x,б.y,0,б.x,б.y,б.R);
+      g.addColorStop(0,`rgba(${c[0]},${c[1]},${c[2]},${б.сила})`); g.addColorStop(1,`rgba(${c[0]},${c[1]},${c[2]},0)`);
+      gtx.fillStyle=g; gtx.beginPath(); gtx.arc(б.x,б.y,б.R,0,6.283); gtx.fill(); }
+    gtx.restore();
+  }
+}
+
+function рисоватьНоду(ctx, пал, o){
+  const {x,y,r,z,свой,вариант,жар,ранг,pri,тень,done,форма}=o;
+  const толщ=w=>Math.max(0.75, w*z);
+  const детали=r>=4.5, подписьВидна=(r>=6.5 && z>=0.45);
+  const A=(a)=>ctx.globalAlpha=a*(тень==null?1:тень);
+
+  // E — двойной контур рисуется ДО фигуры, чтобы фигура легла поверх и контур не съел её обводку
+  if(вариант==="edge2" && жар){
+    A(0.85); ctx.strokeStyle=Ц(пал.жар[жар-1]); ctx.lineWidth=толщ(1+жар*0.7);
+    ctx.beginPath(); путьФормы(ctx, форма||"circle", x, y, r+2.5*z); ctx.stroke();
+  }
+  A(1); ctx.fillStyle=Ц(done?свой:пал.фонУзла); ctx.strokeStyle=Ц(свой); ctx.lineWidth=толщ(1.7);
+  ctx.beginPath(); путьФормы(ctx, форма||"circle", x, y, r); ctx.fill(); ctx.stroke();
+  if(done){ ctx.strokeStyle=Ц(пал.фон); ctx.lineWidth=толщ(1.6); ctx.lineJoin="round"; ctx.beginPath();
+    ctx.moveTo(x-3.2*z,y+0.3*z); ctx.lineTo(x-1*z,y+2.7*z); ctx.lineTo(x+3.2*z,y-2.3*z); ctx.stroke(); }
+  if(!детали){ ctx.globalAlpha=1; return; }
+
+  if(pri){ A(1); ctx.lineCap="round"; ctx.lineWidth=толщ(1.2); ctx.strokeStyle=Ц(пал.при[pri-1]);
+    ctx.beginPath(); ctx.arc(x,y,r+5.5*z, Math.PI*-0.8, Math.PI*-0.2); ctx.stroke(); }
+
+  if(жар){
+    const цв=Ц(пал.жар[жар-1]);
+    if(вариант==="halo"){
+      /* Ореол на r+14z — САМОЕ ДАЛЬНЕЕ кольцо: внутри него кольцо статуса (r+5z), булавка (r+8z)
+         и бейдж срока (r+9…10z). Толщина растёт с уровнем: это единственный признак, который
+         читается и в ч/б, и на мелкой ноде. */
+      A(0.30+0.22*жар); ctx.strokeStyle=цв; ctx.lineWidth=толщ(0.9+жар*0.6);
+      ctx.beginPath(); ctx.arc(x,y,r+14*z,0,6.283); ctx.stroke();
+    }
+    else if(вариант==="rank" && подписьВидна){
+      /* ЛЕВЫЙ НИЖНИЙ угол, а НЕ левый верхний. Верхний слева занят: дужка приоритета идёт от
+         −0.8π до −0.2π, то есть от −144° до −36°, и цифра под −135° легла бы прямо на её левый
+         конец. Внизу слева пусто: справа сверху бейдж срока, справа снизу значок статуса,
+         по центру снизу подпись — она начинается ниже (y+r+12z) и с цифрой не пересекается. */
+      /* Угол 160°, а не 135°: по диагонали цифра почти касалась подписи под нодой (она идёт
+         с y+r+12z). Почти горизонтально влево и чуть вниз — и от подписи далеко, и от левого
+         конца дужки приоритета (−144°) далеко. */
+      const R=r+8*z, a=Math.PI*160/180, кегль=11;
+      A(1); ctx.fillStyle=цв; ctx.textAlign="center"; ctx.textBaseline="middle";
+      ctx.font="600 "+кегль+"px system-ui, -apple-system, Segoe UI, sans-serif";
+      ctx.fillText(String(ранг), x+Math.cos(a)*R, y+Math.sin(a)*R);
+    }
+    else if(вариант==="glow"){ /* пятно рисуется на слое свечения, здесь ничего */ }
+  }
+  ctx.globalAlpha=1;
+}
+function подзаг(ctx,пал,x,y,т,п){ ctx.textAlign="left"; ctx.textBaseline="middle";
+  ctx.font="600 12.5px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.текст); ctx.fillText(т,x,y);
+  ctx.font="11.5px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.подпись);
+  ctx.fillText(п,x,y+17); }
+function строки(ctx,текст,ширина){ const сл=String(текст).split(" "), из=[]; let т="";
+  for(const с of сл){ const п=т?т+" "+с:с;
+    if(ctx.measureText(п).width>ширина && т){ из.push(т); т=с; } else т=п; }
+  if(т) из.push(т); return из.slice(0,3); }
+
+function сцена(ctx,пал,блобы,o){
+  const {x,y,w,h}=o;
+  ctx.save(); ctx.strokeStyle=Ц(пал.тусклая); ctx.globalAlpha=0.4; ctx.lineWidth=0.5;
+  ctx.strokeRect(x,y,w,h); ctx.globalAlpha=1;
+  ctx.beginPath(); ctx.rect(x,y,w,h); ctx.clip();          // за рамку не рисуем — это «кадр»
+
+  const гор=горящие(СЦЕНА), горIds=new Map(гор.map((г,i)=>[г.n, i+1]));
+  const см=S.кам;                                           // сдвиг камеры по горизонтали
+  const px=i=>x+СЦЕНА[i].x*w+см, py=i=>y+СЦЕНА[i].y*h;
+  /* ГАШЕНИЕ. Формула ровно та же, что в _drawMain: тень=1-(1-ГАСН)*доля, ГАСН=0.85 —
+     непричастному остаётся 85% яркости. Для режима «показать горящее» этого мало:
+     там гасить надо ощутимее, поэтому вторая константа. Обе показаны переключателем. */
+  const ГАСН=0.55;
+  const тень=n=>(!S.гашение || горIds.has(n)) ? 1 : ГАСН;
+
+  // связи. Вариант B: связи горящей ноды рисуются толще и цветом жара
+  ctx.lineCap="round";
+  for(const [a,b] of СВЯЗИ){
+    const na=СЦЕНА[a], nb=СЦЕНА[b];
+    const горА=горIds.get(na), горБ=горIds.get(nb);
+    const своя=(S.вариант==="link") && (горА||горБ);
+    ctx.globalAlpha=своя?0.9:0.55*Math.max(тень(na),тень(nb));
+    ctx.strokeStyle=своя ? Ц(пал.жар[(уровень(срочность(горА?na:nb))||1)-1]) : Ц(пал.связь);
+    ctx.lineWidth=своя?2.2:1;
+    ctx.beginPath(); ctx.moveTo(px(a),py(a)); ctx.lineTo(px(b),py(b)); ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+
+  СЦЕНА.forEach((n,i)=>{
+    const u=срочность(n), ур=горIds.has(n)?уровеньИлиЕдиница(u):0;
+    if(S.вариант==="glow" && ур) блобы.push({x:px(i),y:py(i),цвет:палитра().жар[ур-1],сила:0.10+0.09*ур,R:100});
+    рисоватьНоду(ctx,пал,{x:px(i),y:py(i),r:n.r,z:1,свой:ПАЛИТРА_НОД[n.ц],вариант:S.вариант,
+      жар:ур, ранг:горIds.get(n)||0, pri:(S.приор&&n.pri)?n.pri:0, тень:тень(n), done:!!n.done, форма:n.форма});
+    ctx.globalAlpha=тень(n); ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.font="12px system-ui, -apple-system, Segoe UI, sans-serif";
+    ctx.fillStyle=Ц(ур?пал.текст:пал.подпись);
+    ctx.fillText(n.t, px(i), py(i)+n.r+12); ctx.globalAlpha=1;
+  });
+
+  // ---- указатели на краю кадра: горящая нода часто просто ЗА кадром ----
+  if(S.края){
+    const поле=14;
+    гор.forEach((г,i)=>{
+      const idx=СЦЕНА.indexOf(г.n), сx=px(idx), сy=py(idx);
+      const внутри = сx>=x+поле && сx<=x+w-поле && сy>=y+поле && сy<=y+h-поле;
+      if(внутри) return;
+      const цx=Math.max(x+поле, Math.min(x+w-поле, сx)), цy=Math.max(y+поле, Math.min(y+h-поле, сy));
+      const ур=уровень(г.u)||1, цв=Ц(пал.жар[ур-1]);
+      const ang=Math.atan2(сy-цy, сx-цx);
+      ctx.save(); ctx.translate(цx,цy); ctx.rotate(ang);
+      ctx.fillStyle=цв; ctx.beginPath(); ctx.moveTo(9,0); ctx.lineTo(-5,6); ctx.lineTo(-5,-6); ctx.closePath(); ctx.fill();
+      ctx.restore();
+      ctx.fillStyle=цв; ctx.textAlign=сx>x+w/2?"right":"left"; ctx.textBaseline="middle";
+      ctx.font="600 11px system-ui, -apple-system, Segoe UI, sans-serif";
+      ctx.fillText((i+1)+" · "+г.n.t, цx+(сx>x+w/2?-14:14), цy);
+    });
+    // счётчик в углу кадра — то же число, что предлагается вывести в титлбар
+    const скрытых=гор.filter(г=>{ const i=СЦЕНА.indexOf(г.n), сx=px(i), сy=py(i);
+      return !(сx>=x+поле&&сx<=x+w-поле&&сy>=y+поле&&сy<=y+h-поле); }).length;
+    ctx.textAlign="left"; ctx.textBaseline="middle"; ctx.font="600 11.5px system-ui, -apple-system, Segoe UI, sans-serif";
+    ctx.fillStyle=Ц(гор.length?пал.жар[2]:пал.подпись2);
+    ctx.fillText(гор.length ? ("горит: "+гор.length+(скрытых?"  ·  за кадром: "+скрытых:"")) : "горящих нет", x+12, y+16);
+  }
+  ctx.restore();
+}
+function уровеньИлиЕдиница(u){ return уровень(u)||1; }
+
+/* ---- панель ---- */
+document.getElementById("theme").onclick=e=>{ const b=e.target.closest("button"); if(!b) return;
+  document.querySelectorAll("#theme button").forEach(x=>x.classList.toggle("on",x===b));
+  document.body.classList.toggle("light", b.dataset.v==="light"); рисовать(); };
+document.getElementById("dim").onchange=e=>{ S.гашение=e.target.checked; рисовать(); };
+document.getElementById("edge").onchange=e=>{ S.края=e.target.checked; рисовать(); };
+document.getElementById("bw").onchange=e=>{ S.чб=e.target.checked; рисовать(); };
+document.getElementById("pri").onchange=e=>{ S.приор=e.target.checked; рисовать(); };
+document.getElementById("cam").oninput=e=>{ S.кам=+e.target.value;
+  document.getElementById("camv").textContent = S.кам===0?"по центру":(S.кам>0?"вправо "+S.кам:"влево "+(-S.кам));
+  рисовать(); };
+
+function подвал(){
+  const f=document.getElementById("foot"); const гор=горящие(СЦЕНА);
+  f.innerHTML =
+    `<div class="row"><b>Сцена рисуется вариантом:</b> `+
+    ВАРИАНТЫ.map(v=>`<button class="btn-v" data-v="${v.id}" style="border:0.5px solid var(--bd2);border-radius:7px;font:inherit;font-size:11.5px;padding:3px 9px;cursor:pointer;margin-right:5px;color:${v.id===S.вариант?"var(--bg)":"var(--mut)"};background:${v.id===S.вариант?"var(--acc)":"transparent"};">${v.имя}</button>`).join("")+`</div>`+
+    ВАРИАНТЫ.map(v=>`<div class="row"><b>${v.имя}</b> — ${v.подпись}. <b>Цена:</b> ${v.цена}</div>`).join("")+
+    `<div class="row"><b>Кто горит в этой сцене (${гор.length} из 20):</b> `+
+      гор.map((г,i)=>`${i+1}. ${г.n.t} — U=${г.u.toFixed(2)}`).join(" · ")+`</div>`+
+    `<div class="row"><b>Предел:</b> не больше ${ПРЕДЕЛ} горящих одновременно, и только те, у кого U ≥ ${ПОРОГ}. Если верхушка списка неотличима по баллу (разброс меньше 0.02) — не подсвечивается <b>ничего</b>: это случай импорта, где у всех задач одинаковые нули.</div>`+
+    `<div class="row"><b>Занятые каналы:</b> свечение — doing/paused · зелёный→жёлтый→красный дужкой сверху — приоритет · кольцо на r+5z — статус · пунктирное кольцо r+8z — булавка · верхний правый угол — срок · нижний правый — значок статуса · подпись снизу. <b>Свободны и взяты здесь:</b> радиус r+14z (вариант A), оформление своих связей (B), левый НИЖНИЙ угол (C) — левый верхний занят левым концом дужки приоритета.</div>`;
+  f.querySelectorAll(".btn-v").forEach(b=>b.onclick=()=>{ S.вариант=b.dataset.v; подвал(); рисовать(); });
+}
+подвал(); рисовать();
+window.addEventListener("resize", рисовать);
+</script>
+</body>
+</html>

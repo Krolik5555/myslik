@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Мыслик — демо визуального языка статусов</title>
+<link rel="stylesheet" href="ui/vendor/tabler-icons.min.css">
+<style>
+  /* Переменные — КОПИЯ из ui/styles.css (:root и .light), а не выдуманные:
+     галерея обязана врать о цвете ровно столько же, сколько врёт приложение. */
+  :root{
+    --bg:#000; --surf:#0c0c0e; --surf2:#161618; --surf3:#1f1f22;
+    --bd:rgba(255,255,255,.13); --bd2:rgba(255,255,255,.26); --bd3:rgba(255,255,255,.40);
+    --tx:#f4f4f5; --mut:#86868c; --mut2:#5b5b61;
+    --acc:#ffffff; --warn:#e0625a;
+    --pri1:#5fb98e; --pri2:#e8a14b; --pri3:#e0625a;
+    --glow:rgba(255,255,255,.30);
+    /* НОВОЕ, предлагается завести в ui/styles.css. Разбор — в docs/СТАТУСЫ-ВИЗУАЛ.md.
+       Цвет статуса НЕ участвует в различении (см. тумблер «ч/б»), он только смягчает метку. */
+    --st-mark:#86868c;      /* метка статуса по умолчанию — тот же тон, что подпись */
+    --st-wait:#7f9fbf;      /* «ждёт»: холодный, чтобы не спорить со шкалой приоритета */
+  }
+  .light{
+    --bg:#ffffff; --surf:#fafafa; --surf2:#f0f0f0; --surf3:#e7e7e7;
+    --bd:rgba(0,0,0,.12); --bd2:rgba(0,0,0,.24); --bd3:rgba(0,0,0,.40);
+    --tx:#111114; --mut:#666; --mut2:#9a9a9f;
+    --acc:#000; --warn:#cc4b43;
+    --pri1:#3f9e72; --pri2:#c8821f; --pri3:#cc4b43;
+    --glow:rgba(0,0,0,.18);
+    --st-mark:#666666;
+    --st-wait:#4a6f92;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;}
+  body{display:flex;flex-direction:column;overflow:hidden;}
+  header{padding:13px 20px 11px;border-bottom:0.5px solid var(--bd);flex:none;}
+  h1{margin:0;font-size:15px;font-weight:600;}
+  h1 b{color:var(--pri2);font-weight:600;}
+  .sub{margin:5px 0 0;font-size:12.5px;color:var(--mut);max-width:96ch;line-height:1.55;}
+  .bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 20px;padding:9px 20px;
+    border-bottom:0.5px solid var(--bd);font-size:12.5px;color:var(--mut);background:var(--surf);flex:none;}
+  .bar label{display:inline-flex;align-items:center;gap:7px;cursor:pointer;user-select:none;white-space:nowrap;}
+  .bar input[type=checkbox]{accent-color:var(--pri1);width:15px;height:15px;}
+  .seg{display:inline-flex;border:0.5px solid var(--bd2);border-radius:8px;overflow:hidden;}
+  .seg button{background:transparent;border:0;color:var(--mut);font:inherit;font-size:12px;padding:5px 11px;cursor:pointer;}
+  .seg button.on{background:var(--acc);color:var(--bg);}
+  .scroll{flex:1;min-height:0;overflow:auto;}
+  .wrap{position:relative;margin:0 auto;}
+  .wrap canvas{position:absolute;inset:0;width:100%;height:100%;}
+  footer{padding:10px 20px;border-top:0.5px solid var(--bd);background:var(--surf);
+    font-size:12px;color:var(--mut);line-height:1.6;flex:none;max-height:22vh;overflow:auto;}
+  footer b{color:var(--tx);font-weight:600;}
+  footer .row{margin-bottom:7px;}
+  code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--tx);}
+  .warnc{color:var(--warn);}
+  .okc{color:var(--pri1);}
+</style>
+</head>
+<body>
+<header>
+  <h1>Мысл<b>ик</b> · визуальный язык новых статусов</h1>
+  <p class="sub">Пять систем кодирования, одиннадцать статусов, три размера ноды, обе темы. Рисуется на <code>&lt;canvas&gt;</code> теми же примитивами, что <code>_drawMain</code>: <code>arc</code>, <code>moveTo/lineTo</code>, <code>setLineDash</code>, <code>fillText</code> шрифтом <code>tabler-icons</code>, смешение цветов своей функцией <code>смесь()</code> (копия <code>_смесь</code>). Ни одна метка статуса не использует <code>shadowBlur</code>. Тумблер <b>ч/б</b> — главная проверка: если различие пропало, вариант отклоняется.</p>
+</header>
+
+<div class="bar">
+  <label>Тема
+    <span class="seg" id="theme">
+      <button data-v="dark" class="on">тёмная</button>
+      <button data-v="light">светлая</button>
+    </span>
+  </label>
+  <label><input type="checkbox" id="bw"> ч/б (проверка требования «читается без цвета»)</label>
+  <label><input type="checkbox" id="pri" checked> дужка приоритета (проверка конфликта сверху)</label>
+  <label><input type="checkbox" id="glow" checked> свечение doing/paused</label>
+  <label><input type="checkbox" id="tag"> глиф тега внутри ноды</label>
+  <label>Зум сцены
+    <span class="seg" id="zoom">
+      <button data-v="0.5">0.5 — общий вид</button>
+      <button data-v="1" class="on">1</button>
+      <button data-v="1.6">1.6</button>
+    </span>
+  </label>
+</div>
+
+<div class="scroll" id="scroll">
+  <div class="wrap" id="wrap">
+    <canvas id="glowc"></canvas>
+    <canvas id="mainc"></canvas>
+  </div>
+</div>
+
+<footer id="foot"></footer>
+
+<script>
+"use strict";
+/* ============================================================================
+   ПРИМИТИВЫ — копии из ui/js/graph.js, чтобы галерея считала ровно то же самое.
+   ============================================================================ */
+const кэшЦвета=new Map();
+function rgb(c){
+  if(кэшЦвета.has(c)) return кэшЦвета.get(c);
+  let r=[230,230,230]; const s=String(c||"").trim();
+  if(s[0]==="#"){ let h=s.slice(1); if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+    const n=parseInt(h,16); if(!isNaN(n)) r=[(n>>16)&255,(n>>8)&255,n&255]; }
+  else { const m=s.match(/(\d+)[,\s]+(\d+)[,\s]+(\d+)/); if(m) r=[+m[1],+m[2],+m[3]]; }
+  кэшЦвета.set(c,r); return r;
+}
+function смесь(a,b,доля){
+  const A=rgb(a), B=rgb(b), k=доля;
+  return "rgb("+Math.round(A[0]*k+B[0]*(1-k))+","+Math.round(A[1]*k+B[1]*(1-k))+","+Math.round(A[2]*k+B[2]*(1-k))+")";
+}
+/* Обесцвечивание — НЕ ctx.filter:"grayscale", а честный пересчёт яркости по тем же
+   коэффициентам, что использует глаз. Фильтр холста стоил бы кадра и в приложении
+   всё равно не появится, а нам нужен только ответ «различимо ли без цвета». */
+function серый(c){ const [r,g,b]=rgb(c); const y=Math.round(0.2126*r+0.7152*g+0.0722*b); return `rgb(${y},${y},${y})`; }
+let ЧБ=false;
+const Ц=c=>ЧБ?серый(c):c;
+
+/* Глиф шрифта Tabler — тем же способом, что iconGlyph в core.js:443:
+   создаём <i class="ti ti-…">, читаем content у ::before. Своей таблицы кодов не держим. */
+const кэшГлифов={};
+function глиф(имя){
+  if(!имя) return "";
+  const ключ=String(имя).replace(/^ti-/,"");
+  if(кэшГлифов[ключ]!==undefined) return кэшГлифов[ключ];
+  let c="";
+  try{ const i=document.createElement("i"); i.className="ti ti-"+ключ;
+    i.style.cssText="position:absolute;left:-9999px;visibility:hidden;";
+    document.body.appendChild(i);
+    const raw=getComputedStyle(i,"::before").content; document.body.removeChild(i);
+    if(raw && raw!=="none") c=raw.replace(/^["']|["']$/g,"");
+  }catch(e){}
+  кэшГлифов[ключ]=c; return c;
+}
+function путьФормы(ctx, форма, x, y, r){
+  if(форма==="square"){ ctx.rect(x-r,y-r,r*2,r*2); return; }
+  if(форма==="diamond"){ ctx.moveTo(x,y-r*1.41); ctx.lineTo(x+r*1.41,y); ctx.lineTo(x,y+r*1.41); ctx.lineTo(x-r*1.41,y); ctx.closePath(); return; }
+  ctx.moveTo(x+r,y); ctx.arc(x,y,r,0,6.283);
+}
+function палитра(){
+  const cs=getComputedStyle(document.body), в=(и,з)=>(cs.getPropertyValue(и).trim()||з);
+  return {
+    связь:в("--bd3","#3a3a3a"), тусклая:в("--bd2","#2c2c2c"), узел:в("--acc","#e6e6e6"),
+    текст:в("--tx","#f4f4f5"), подпись:в("--mut","#86868c"), подпись2:в("--mut2","#5b5b61"),
+    фонУзла:в("--surf","#141414"), фон:в("--bg","#0d0d0f"), кольцо:в("--mut","#8a8a8a"),
+    при:[в("--pri1","#5fb98e"), в("--pri2","#e8a14b"), в("--pri3","#e0625a")],
+    метка:в("--st-mark","#86868c"), ждёт:в("--st-wait","#7f9fbf"),
+  };
+}
+
+/* ============================================================================
+   СЛОВАРЬ. Задачные статусы + заметочные. Порядок — как в docs/СТАТУСЫ.md.
+   `новый:true` — то, чего в приложении сегодня нет.
+   ============================================================================ */
+const СТАТУСЫ=[
+  {k:"todo",    имя:"Не начато",  вид:"task", новый:false, гл:"circle"},
+  {k:"next",    имя:"На очереди", вид:"task", новый:true,  гл:"player-track-next"},
+  {k:"doing",   имя:"В работе",   вид:"task", новый:false, гл:"player-play"},
+  {k:"waiting", имя:"Ждёт",       вид:"task", новый:true,  гл:"hourglass-low"},
+  {k:"review",  имя:"На проверке",вид:"task", новый:true,  гл:"eye"},
+  {k:"paused",  имя:"На паузе",   вид:"task", новый:false, гл:"player-pause"},
+  {k:"someday", имя:"Когда-нибудь",вид:"task",новый:true,  гл:"moon"},
+  {k:"done",    имя:"Готово",     вид:"task", новый:false, гл:"check"},
+  {k:"note",    имя:"Заметка",    вид:"note", новый:false, гл:""},
+  {k:"ref",     имя:"Справка",    вид:"note", новый:true,  гл:"book"},
+  {k:"idea",    имя:"Мысль",      вид:"note", новый:true,  гл:"bulb"},
+];
+
+/* ============================================================================
+   ПЯТЬ СИСТЕМ КОДИРОВАНИЯ. Каждая — функция, которая по статусу кладёт свою
+   мелочь в СВОЙ список. Ровно так же это ляжет в _drawMain: список + один проход.
+   ============================================================================ */
+const ВАРИАНТЫ=[
+  {
+    id:"arc", имя:"A · разомкнутое кольцо",
+    подпись:"дуга на радиусе r+5z, разная длина и положение",
+    цена:"+1 список, +1 проход, 1 stroke на все ноды кадра. shadowBlur не нужен.",
+    // [начало, конец] в радианах, 0 = вправо, по часовой; несколько пар = несколько дуг
+    дуги:{
+      next:   [[-0.30*Math.PI, 1.40*Math.PI]],                      // почти кольцо, разрыв сверху
+      waiting:[[-0.17*Math.PI, 0.17*Math.PI],[0.83*Math.PI, 1.17*Math.PI]],  // две риски по бокам
+      review: [[1.05*Math.PI, 1.95*Math.PI]],                       // верхняя дуга
+      someday:[[0.20*Math.PI, 0.80*Math.PI]],                       // нижняя дуга
+      paused: [[0, 2*Math.PI]],                                     // как сейчас: полное кольцо
+      ref:    [[0.05*Math.PI, 0.95*Math.PI]],                       // нижняя половина
+      idea:   [[1.38*Math.PI, 1.62*Math.PI]],                       // короткий штрих сверху
+    },
+  },
+  {
+    id:"ring", имя:"B · двойное кольцо",
+    подпись:"число и плотность концентрических колец",
+    цена:"+1 список, +1 проход, 1 stroke. Второе кольцо = ещё одна дуга в том же пути.",
+    кольца:{
+      next:   [{d:4, lw:1.1, a:0.55}],
+      waiting:[{d:4, lw:1.1, a:0.55},{d:7.5, lw:1.0, a:0.40}],
+      review: [{d:4, lw:1.9, a:0.60},{d:8,   lw:0.9, a:0.35}],
+      someday:[{d:5, lw:1.0, a:0.22}],
+      paused: [{d:5, lw:1.1, a:0.45}],
+      ref:    [{d:7.5,lw:1.0, a:0.45}],
+      idea:   [{d:3, lw:1.0, a:0.45},{d:5.5, lw:1.0, a:0.45}],
+    },
+  },
+  {
+    id:"cor", имя:"C · угловой значок",
+    подпись:"глиф Tabler в НИЖНЕМ правом углу (верхний занят приоритетом)",
+    цена:"+1 список, +1 проход fillText. LOD обязателен: r&gt;=6.5, иначе на общем виде каша.",
+  },
+  {
+    id:"chev", имя:"D · шеврон-подчёркивание",
+    подпись:"метка под нодой, между фигурой и подписью",
+    цена:"+1 список, +1 проход, 1 stroke. Двигает подпись на 5z вниз.",
+  },
+  {
+    id:"sat", имя:"E · спутник-точка",
+    подпись:"точка на орбите, положение по циферблату = статус",
+    цена:"+1 список, +1 проход fill. Самый дешёвый и самый неразличимый на мелком.",
+  },
+];
+
+/* ============================================================================
+   ОТРИСОВКА ОДНОЙ НОДЫ. Повторяет порядок _drawMain: сначала базовый вид
+   (заливка/обводка/пунктир/альфа по статусу), потом мелочь отдельными проходами.
+   ============================================================================ */
+function базовыйВид(ст, пал, свой){
+  let зал=пал.фонУзла, обв=свой, лw=1.7, пункт=false, альфа=1;
+  if(ст==="done"){ зал=свой; }
+  if(ст==="doing"){ зал=смесь(свой, пал.фонУзла, 0.15); }
+  if(ст==="paused"){ зал=смесь(свой, пал.фонУзла, 0.16); обв=смесь(свой, пал.кольцо, 0.55); лw=1.6; пункт=true; альфа=0.72; }
+  return {зал, обв, лw, пункт, альфа};
+}
+function рисоватьНоду(ctx, пал, o){
+  const {x, y, r, z, ст, свой, вариант, приор, тег} = o;
+  const толщ=w=>Math.max(0.75, w*z);
+  const детали=r>=4.5, подписьВидна=(r>=6.5 && z>=0.45);
+  const в=базовыйВид(ст, пал, свой);
+  const форма = o.форма || (ст==="note"||ст==="ref"||ст==="idea" ? "square" : "circle");
+
+  // 1. сама фигура
+  ctx.globalAlpha=в.альфа; ctx.fillStyle=Ц(в.зал); ctx.strokeStyle=Ц(в.обв); ctx.lineWidth=толщ(в.лw);
+  ctx.setLineDash(в.пункт?[3.4,2.6]:[]);
+  ctx.beginPath(); путьФормы(ctx, форма, x, y, r); ctx.fill(); ctx.stroke();
+  ctx.setLineDash([]); ctx.globalAlpha=1;
+
+  // 2. галочка внутри done — как в _drawMain, цветом фона
+  if(ст==="done"){
+    ctx.strokeStyle=Ц(пал.фон); ctx.lineWidth=толщ(1.6); ctx.lineJoin="round"; ctx.beginPath();
+    const s=z; ctx.moveTo(x-3.2*s, y+0.3*s); ctx.lineTo(x-1*s, y+2.7*s); ctx.lineTo(x+3.2*s, y-2.3*s); ctx.stroke();
+  }
+  if(!детали) return;
+
+  // 3. дужка приоритета — рисуем ТОЙ ЖЕ дугой, что _drawMain, чтобы конфликт сверху был виден
+  if(приор){
+    ctx.globalAlpha=1; ctx.lineWidth=толщ(1.2); ctx.lineCap="round";
+    ctx.strokeStyle=Ц(пал.при[приор-1]||пал.при[0]);
+    ctx.beginPath(); ctx.arc(x, y, r+5.5*z, Math.PI*-0.8, Math.PI*-0.2); ctx.stroke();
+  }
+  // 4. глиф тега внутри ноды (проверка, что метка статуса с ним не спорит)
+  if(тег){
+    const г=глиф(тег);
+    if(г){ ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillStyle=Ц(пал.текст);
+      ctx.font=Math.max(8, r*1.25).toFixed(1)+'px "tabler-icons"'; ctx.fillText(г, x, y); }
+  }
+
+  // 5. МЕТКА СТАТУСА — то, ради чего галерея
+  const мет=Ц(ст==="waiting" ? пал.ждёт : пал.метка);
+  if(вариант==="arc"){
+    const д=ВАРИАНТЫ[0].дуги[ст]; if(!д) return;
+    /* Альфа 0.8, а не 0.6: на тонкой дуге в один пиксель прозрачность съедает признак целиком,
+       и на мелкой ноде метка исчезает раньше, чем сработает LOD. */
+    ctx.globalAlpha=0.8; ctx.strokeStyle=мет; ctx.lineWidth=толщ(1.4); ctx.lineCap="butt";
+    ctx.beginPath();
+    for(const [a1,a2] of д){ ctx.moveTo(x+Math.cos(a1)*(r+5*z), y+Math.sin(a1)*(r+5*z)); ctx.arc(x, y, r+5*z, a1, a2); }
+    ctx.stroke(); ctx.globalAlpha=1;
+  }
+  else if(вариант==="ring"){
+    const к=ВАРИАНТЫ[1].кольца[ст]; if(!к) return;
+    ctx.strokeStyle=мет;
+    for(const с of к){ ctx.globalAlpha=с.a; ctx.lineWidth=толщ(с.lw);
+      ctx.beginPath(); ctx.arc(x, y, r+с.d*z, 0, 6.283); ctx.stroke(); }
+    ctx.globalAlpha=1;
+  }
+  else if(вариант==="cor"){
+    if(!подписьВидна) return;                       // тот же порог, что у подписей: иначе каша
+    const с=СТАТУСЫ.find(s=>s.k===ст); if(!с||!с.новый) return;
+    const d=(r+3.5*z)*0.707;                        // низ-право по диагонали
+    const г=глиф(с.гл);
+    if(г){
+      ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillStyle=мет;
+      ctx.globalAlpha=0.9; ctx.font=Math.max(8, r*0.85).toFixed(1)+'px "tabler-icons"';
+      ctx.fillText(г, x+d, y+d); ctx.globalAlpha=1;
+    } else {
+      /* Шрифт иконок не подгрузился (страницу открыли не из корня репозитория, откуда виден
+         ui/vendor/). Рисуем ту же метку примитивами — иначе вариант C выглядел бы сломанным,
+         хотя дело не в нём. Заодно это честный ответ на вопрос «а если шрифт не приехал». */
+      запаснойЗначок(ctx, ст, x+d, y+d, Math.max(3, r*0.42), мет, z);
+    }
+  }
+  else if(вариант==="chev"){
+    const y0=y+r+4.5*z, w=r*0.85;
+    ctx.strokeStyle=мет; ctx.lineWidth=толщ(1.5); ctx.lineCap="round"; ctx.lineJoin="round";
+    ctx.globalAlpha=0.75; ctx.beginPath();
+    if(ст==="next"){ ctx.moveTo(x-w,y0); ctx.lineTo(x+w,y0); }
+    else if(ст==="waiting"){ ctx.moveTo(x-w,y0); ctx.lineTo(x+w,y0); ctx.moveTo(x-w*0.6,y0+2.6*z); ctx.lineTo(x+w*0.6,y0+2.6*z); }
+    else if(ст==="review"){ ctx.moveTo(x-w,y0+1.8*z); ctx.lineTo(x,y0-1.4*z); ctx.lineTo(x+w,y0+1.8*z); }
+    else if(ст==="someday"){ ctx.moveTo(x-w,y0-1.4*z); ctx.lineTo(x,y0+1.8*z); ctx.lineTo(x+w,y0-1.4*z); }
+    else if(ст==="paused"){ ctx.moveTo(x-w*0.35,y0-1.5*z); ctx.lineTo(x-w*0.35,y0+1.9*z); ctx.moveTo(x+w*0.35,y0-1.5*z); ctx.lineTo(x+w*0.35,y0+1.9*z); }
+    else if(ст==="ref"){ ctx.setLineDash([2.2*z,1.8*z]); ctx.moveTo(x-w,y0); ctx.lineTo(x+w,y0); }
+    else if(ст==="idea"){ ctx.moveTo(x-w*0.25,y0); ctx.lineTo(x+w*0.25,y0); }
+    else { ctx.globalAlpha=1; return; }
+    ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1;
+  }
+  else if(вариант==="sat"){
+    const углы={next:-Math.PI*0.30, waiting:0, review:Math.PI*0.25, someday:Math.PI*0.5,
+                paused:Math.PI*0.75, ref:Math.PI*1.25, idea:Math.PI*1.45};
+    const a=углы[ст]; if(a===undefined) return;
+    const R=r+5*z, rr=Math.max(1.5, r*0.20);
+    ctx.fillStyle=мет; ctx.globalAlpha=0.85;
+    ctx.beginPath(); ctx.arc(x+Math.cos(a)*R, y+Math.sin(a)*R, rr, 0, 6.283); ctx.fill();
+    ctx.globalAlpha=1;
+  }
+}
+
+/* Запасные значки — на случай, когда шрифт Tabler недоступен. Те же смыслы, но
+   геометрией: стрелка «дальше», песочные часы, глаз, месяц, книга, лампа. */
+function запаснойЗначок(ctx, ст, x, y, s, цвет, z){
+  ctx.save(); ctx.strokeStyle=цвет; ctx.fillStyle=цвет;
+  ctx.lineWidth=Math.max(0.75, 1.1*z); ctx.lineJoin="round"; ctx.lineCap="round";
+  ctx.globalAlpha=0.9; ctx.beginPath();
+  if(ст==="next"){ ctx.moveTo(x-s*0.7,y-s); ctx.lineTo(x+s*0.4,y); ctx.lineTo(x-s*0.7,y+s); ctx.stroke(); }
+  else if(ст==="waiting"){ ctx.moveTo(x-s,y-s); ctx.lineTo(x+s,y-s); ctx.lineTo(x-s,y+s); ctx.lineTo(x+s,y+s); ctx.closePath(); ctx.stroke(); }
+  else if(ст==="review"){ ctx.ellipse(x,y,s,s*0.62,0,0,6.283); ctx.stroke(); ctx.beginPath(); ctx.arc(x,y,s*0.26,0,6.283); ctx.fill(); }
+  else if(ст==="someday"){ ctx.arc(x,y,s,Math.PI*0.35,Math.PI*1.65); ctx.stroke(); }
+  else if(ст==="ref"){ ctx.rect(x-s*0.85,y-s*0.7,s*1.7,s*1.4); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x,y-s*0.7); ctx.lineTo(x,y+s*0.7); ctx.stroke(); }
+  else if(ст==="idea"){ ctx.arc(x,y-s*0.2,s*0.7,0,6.283); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x-s*0.35,y+s*0.75); ctx.lineTo(x+s*0.35,y+s*0.75); ctx.stroke(); }
+  ctx.restore();
+}
+
+/* ============================================================================
+   СЦЕНА И МАТРИЦА
+   ============================================================================ */
+const ПАЛИТРА_НОД=["#5b9bd6","#e8a14b","#5fb98e","#9b7fd6","#d67fb0","#8a8f98"];
+// 15 нод: пропорции взяты с живого графа (много todo и done, немного doing/waiting)
+const СЦЕНА=[
+  {t:"076_GKC_Announce", ст:"todo",    ц:0, r:19, x:0.13, y:0.28, pri:2},
+  {t:"SH070",            ст:"doing",   ц:0, r:15, x:0.28, y:0.20},
+  {t:"Рендер",           ст:"waiting", ц:0, r:12, x:0.41, y:0.13},
+  {t:"Анимация",         ст:"note",    ц:0, r:11, x:0.40, y:0.31},
+  {t:"Локация",          ст:"ref",     ц:0, r:10, x:0.52, y:0.36},
+  {t:"Сборка",           ст:"done",    ц:0, r:11, x:0.29, y:0.42},
+  {t:"Team Presentation",ст:"next",    ц:1, r:17, x:0.65, y:0.24, pri:2},
+  {t:"Jett",             ст:"paused",  ц:1, r:13, x:0.78, y:0.16},
+  {t:"Sage",             ст:"review",  ц:1, r:13, x:0.79, y:0.34},
+  {t:"VFX",              ст:"done",    ц:1, r:10, x:0.90, y:0.27},
+  {t:"Forest Project",   ст:"someday", ц:2, r:14, x:0.16, y:0.66, pri:1},
+  {t:"Tree Model",       ст:"someday", ц:2, r:10, x:0.29, y:0.74},
+  {t:"Мыслик DEV",       ст:"note",    ц:3, r:13, x:0.50, y:0.68},
+  {t:"Добавить поля",    ст:"doing",   ц:3, r:11, x:0.63, y:0.75},
+  {t:"ИИ музыка?",       ст:"idea",    ц:3, r:10, x:0.76, y:0.66},
+];
+const СВЯЗИ=[[0,1],[1,2],[1,3],[1,5],[3,4],[6,7],[6,8],[8,9],[10,11],[12,13],[12,14],[0,6]];
+
+const wrap=document.getElementById("wrap"), mainc=document.getElementById("mainc"), glowc=document.getElementById("glowc");
+const S={тема:"dark", чб:false, приор:true, свеч:true, тег:false, зум:1};
+const РАЗМЕРЫ=[18, 12, 7];      // крупная / рабочая / мелкая (r в экранных пикселях)
+const ЗУМЫ   =[1.4, 1.0, 0.5];  // зум, соответствующий каждому размеру
+
+function размеры(){
+  // 1240 — минимум, при котором пять колонок вмещают три ноды и подпись колонки в две строки.
+  // Уже этого страница даёт горизонтальную прокрутку, а не кашу из наехавших подписей.
+  const w=Math.max(1240, wrap.parentElement.clientWidth-2);
+  const строк=СТАТУСЫ.length;
+  const hМатрица=84 + строк*76 + 30;
+  const hСцена=430;
+  const h=hМатрица + 46 + hСцена + 46 + 300;   // + вторая сцена мелким зумом
+  wrap.style.width=w+"px"; wrap.style.height=h+"px";
+  return {w,h};
+}
+function рисовать(){
+  ЧБ=S.чб;
+  const {w,h}=размеры();
+  const dpr=Math.min(window.devicePixelRatio||1, 2);
+  for(const cv of [mainc, glowc]){
+    if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){ cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr); }
+  }
+  const ctx=mainc.getContext("2d"), gtx=glowc.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0); gtx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h); gtx.clearRect(0,0,w,h);
+  const пал=палитра();
+
+  // ---- слой свечения: точная копия _drawGlow (радиальный градиент + blur фильтром слоя) ----
+  const блобы=[];
+  const блоб=(x,y,цвет,сила,R)=>блобы.push({x,y,цвет,сила,R});
+
+  // ================= МАТРИЦА =================
+  const левое=168, колонка=(w-левое-24)/ВАРИАНТЫ.length, верх=84;
+  ctx.textBaseline="middle";
+  ctx.font="600 12.5px system-ui, -apple-system, Segoe UI, sans-serif";
+  ctx.fillStyle=Ц(пал.текст); ctx.textAlign="left";
+  ctx.fillText("Матрица: статус × система кодирования × размер ноды", 20, 26);
+  ctx.font="11.5px system-ui, -apple-system, Segoe UI, sans-serif";
+  ctx.fillStyle=Ц(пал.подпись);
+  ctx.fillText("в каждой ячейке три размера: r=18 (зум 1.4) · r=12 (зум 1.0) · r=7 (зум 0.5 — общий вид)", 20, 44);
+
+  // заголовки колонок. Подпись переносим по словам в ширину колонки: одной строкой
+  // соседние подписи наезжали друг на друга и читались как одна каша.
+  ВАРИАНТЫ.forEach((v,i)=>{
+    const cx=левое+центрКолонки(i);
+    ctx.textAlign="center";
+    ctx.font="600 12px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.текст);
+    ctx.fillText(v.имя, cx, верх-30);
+    ctx.font="10.5px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.подпись2);
+    строки(ctx, v.подпись, колонка-18).forEach((с,j)=>ctx.fillText(с, cx, верх-14+j*13));
+  });
+  function центрКолонки(i){ return колонка*i + колонка/2; }
+
+  СТАТУСЫ.forEach((с,ri)=>{
+    const y=верх + 24 + ri*76 + 26;
+    // подпись строки
+    ctx.textAlign="left"; ctx.textBaseline="middle";
+    ctx.font="600 12.5px system-ui, -apple-system, Segoe UI, sans-serif";
+    ctx.fillStyle=Ц(с.новый?пал.текст:пал.подпись);
+    ctx.fillText(с.имя, 20, y-6);
+    ctx.font="11px ui-monospace, Consolas, monospace";
+    ctx.fillStyle=Ц(пал.подпись2);
+    ctx.fillText(с.k + (с.новый?"  · НОВЫЙ":"  · есть сейчас"), 20, y+10);
+    // разделитель
+    ctx.strokeStyle=Ц(пал.тусклая); ctx.globalAlpha=0.35; ctx.lineWidth=0.5;
+    ctx.beginPath(); ctx.moveTo(20, y+34); ctx.lineTo(w-24, y+34); ctx.stroke(); ctx.globalAlpha=1;
+
+    ВАРИАНТЫ.forEach((v,ci)=>{
+      const cx=левое+центрКолонки(ci);
+      let dx=cx-58;
+      РАЗМЕРЫ.forEach((r,si)=>{
+        const z=ЗУМЫ[si], свой=ПАЛИТРА_НОД[0];
+        if(S.свеч && с.k==="doing") блоб(dx, y, свой, 0.30, 40);
+        if(S.свеч && с.k==="paused") блоб(dx, y, пал.кольцо, 0.16, 36);
+        рисоватьНоду(ctx, пал, {x:dx, y, r, z, ст:с.k, свой, вариант:v.id,
+          приор:(S.приор && с.вид==="task" && si===0)?2:0, тег:S.тег?"ti-video":""});
+        dx += (si===0? 48 : 38);
+      });
+    });
+  });
+
+  // ================= СЦЕНА 1: рабочий зум =================
+  const сцY=верх + 24 + СТАТУСЫ.length*76 + 40;
+  подзаголовок(ctx, пал, 20, сцY-8, "Сцена: 15 нод вперемешку — не стал ли граф ёлкой",
+    "тот же набор статусов, что в живом файле: много todo/done, немного doing и waiting");
+  сцена(ctx, пал, блоб, {x:20, y:сцY+12, w:w-44, h:390, z:1, вариант:текущийВариант()});
+
+  // ================= СЦЕНА 2: мелкий зум =================
+  const сц2=сцY+12+390+46;
+  подзаголовок(ctx, пал, 20, сц2-8, "Та же сцена на общем виде (зум 0.5)",
+    "порог деталей r>=4.5 и подписей r>=6.5 — здесь видно, что выживает, а что превращается в грязь");
+  сцена(ctx, пал, блоб, {x:20, y:сц2+12, w:w-44, h:250, z:0.5, вариант:текущийВариант()});
+
+  // ---- рисуем свечение ПОД нодами (отдельный слой, как в приложении) ----
+  if(блобы.length){
+    gtx.save(); gtx.filter="blur(24px)";
+    for(const б of блобы){
+      const c=rgb(Ц(б.цвет));
+      const g=gtx.createRadialGradient(б.x,б.y,0,б.x,б.y,б.R);
+      g.addColorStop(0,`rgba(${c[0]},${c[1]},${c[2]},${б.сила})`);
+      g.addColorStop(1,`rgba(${c[0]},${c[1]},${c[2]},0)`);
+      gtx.fillStyle=g; gtx.beginPath(); gtx.arc(б.x,б.y,б.R,0,6.283); gtx.fill();
+    }
+    gtx.restore();
+  }
+}
+/* Перенос по словам под ширину колонки. Своя, потому что на холсте нет ни переноса,
+   ни многострочного fillText — только measureText. */
+function строки(ctx, текст, ширина){
+  const сл=String(текст).split(" "), из=[]; let тек="";
+  for(const с of сл){
+    const проба=тек?тек+" "+с:с;
+    if(ctx.measureText(проба).width>ширина && тек){ из.push(тек); тек=с; } else тек=проба;
+  }
+  if(тек) из.push(тек);
+  return из.slice(0,2);
+}
+function подзаголовок(ctx, пал, x, y, т, п){
+  ctx.textAlign="left"; ctx.textBaseline="middle";
+  ctx.font="600 12.5px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.текст);
+  ctx.fillText(т, x, y);
+  ctx.font="11.5px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.подпись);
+  ctx.fillText(п, x, y+18);
+}
+let вариантСцены="arc";
+function текущийВариант(){ return вариантСцены; }
+
+function сцена(ctx, пал, блоб, o){
+  const {x, y, w, h, z}=o;
+  ctx.save();
+  ctx.strokeStyle=Ц(пал.тусклая); ctx.globalAlpha=0.4; ctx.lineWidth=0.5;
+  ctx.strokeRect(x, y, w, h); ctx.globalAlpha=1;
+  const px=n=>x + СЦЕНА[n].x*w, py=n=>y + СЦЕНА[n].y*h;
+  // связи — как в _drawMain: тонкая линия цветом --bd3
+  ctx.strokeStyle=Ц(пал.связь); ctx.lineWidth=Math.max(0.75, 1*z); ctx.globalAlpha=0.55;
+  ctx.beginPath();
+  for(const [a,b] of СВЯЗИ){ ctx.moveTo(px(a),py(a)); ctx.lineTo(px(b),py(b)); }
+  ctx.stroke(); ctx.globalAlpha=1;
+  // ноды
+  СЦЕНА.forEach((n,i)=>{
+    const r=n.r*z, свой=ПАЛИТРА_НОД[n.ц];
+    if(S.свеч && n.ст==="doing") блоб(px(i), py(i), свой, 0.30, 110*z);
+    if(S.свеч && n.ст==="paused") блоб(px(i), py(i), пал.кольцо, 0.155, 99*z);
+    рисоватьНоду(ctx, пал, {x:px(i), y:py(i), r, z, ст:n.ст, свой, вариант:o.вариант,
+      приор:(S.приор && n.pri)?n.pri:0, тег:""});
+    if(r>=6.5 && z>=0.45){
+      ctx.textAlign="center"; ctx.textBaseline="middle";
+      ctx.font=(12*Math.min(1,z*1.2)).toFixed(1)+"px system-ui, -apple-system, Segoe UI, sans-serif";
+      ctx.fillStyle=Ц(n.ст==="paused"?пал.подпись2:пал.подпись);
+      ctx.fillText(n.t, px(i), py(i)+r+ (o.вариант==="chev"?16*z:12*z));
+    }
+  });
+  ctx.restore();
+}
+
+/* ---- панель ---- */
+document.getElementById("theme").onclick=e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  document.querySelectorAll("#theme button").forEach(x=>x.classList.toggle("on",x===b));
+  S.тема=b.dataset.v; document.body.classList.toggle("light", S.тема==="light"); рисовать();
+};
+document.getElementById("zoom").onclick=e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  document.querySelectorAll("#zoom button").forEach(x=>x.classList.toggle("on",x===b));
+  S.зум=+b.dataset.v; рисовать();
+};
+document.getElementById("bw").onchange=e=>{ S.чб=e.target.checked; рисовать(); };
+document.getElementById("pri").onchange=e=>{ S.приор=e.target.checked; рисовать(); };
+document.getElementById("glow").onchange=e=>{ S.свеч=e.target.checked; рисовать(); };
+document.getElementById("tag").onchange=e=>{ S.тег=e.target.checked; рисовать(); };
+
+/* ---- подвал: цена каждого варианта в кадре + переключатель варианта для сцены ---- */
+function подвал(){
+  const f=document.getElementById("foot");
+  f.innerHTML =
+    `<div class="row"><b>Сцена рисуется вариантом:</b> `+
+    ВАРИАНТЫ.map(v=>`<button class="btn-v" data-v="${v.id}" style="background:transparent;border:0.5px solid var(--bd2);border-radius:7px;color:${v.id===вариантСцены?"var(--bg)":"var(--mut)"};background:${v.id===вариантСцены?"var(--acc)":"transparent"};font:inherit;font-size:11.5px;padding:3px 9px;cursor:pointer;margin-right:5px;">${v.имя}</button>`).join("")+
+    `</div>`+
+    ВАРИАНТЫ.map(v=>`<div class="row"><b>${v.имя}</b> — ${v.подпись}. <span class="okc">Цена:</span> ${v.цена}</div>`).join("")+
+    `<div class="row"><b>Занятое, куда лезть нельзя:</b> свечение (doing/paused) · зелёный→жёлтый→красный (приоритет) · пунктирная обводка фигуры (пауза) · пунктирное кольцо на r+8z (булавка) · тонкое кольцо-ореол (область) · заливка своим цветом + галочка (done) · альфа 0.32 (потухшее).</div>`+
+    `<div class="row"><b>Конфликт сверху:</b> дужка приоритета занимает сектор от −0.8π до −0.2π (это верхние ~108°). Варианты <b>A</b> (дуга «review» сверху), <b>B</b> (кольца пересекают дужку) и <b>E</b> (спутник около 12 часов) в него упираются — включите тумблер «дужка приоритета» и посмотрите на крупной ноде. Свободный угол — <b>нижний правый</b>, там и стоит вариант C.</div>`+
+    `<div class="row"><b>Проверка ч/б:</b> включите тумблер и пройдите глазами по столбцу. Вариант, который в ч/б перестал различаться, отклоняется по правилу 2 — граф КРОЛИКА раскрашен по областям, и статус, заданный оттенком, в этой раскраске утонет.</div>`;
+  f.querySelectorAll(".btn-v").forEach(b=>b.onclick=()=>{ вариантСцены=b.dataset.v; подвал(); рисовать(); });
+}
+
+/* Шрифт иконок грузится асинхронно: без ожидания первый кадр нарисовал бы пустые квадраты
+   вместо глифов, и вариант C выглядел бы сломанным. */
+(document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve())
+  .then(()=>{ подвал(); рисовать(); });
+window.addEventListener("resize", рисовать);
+</script>
+</body>
+</html>

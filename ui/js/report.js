@@ -8,13 +8,14 @@
    Отчёт можно скопировать или сохранить как заметку.
    =========================================================== */
 
-// статус задачи для отчёта: done / doing / todo (заметки/схемы → null)
+/* Статус для отчёта. Значения берём из общего реестра (СТАТУСЫ в core.js), а не перечисляем
+   заново: раньше здесь была лесенка из if, и каждый новый статус пришлось бы дописывать в
+   четырёх местах этого файла — маркер, мета, сводка и сам разбор. Заметки и схемы отчёт по
+   статусу не разбирает: у них он вспомогательный, в тексте они идут обычным буллетом. */
 function reportStatusOf(it){
   if(!it || it.kind!=="task") return null;
   if(it.done) return "done";
-  if(it.status==="doing") return "doing";
-  if(it.status==="paused") return "paused";
-  return "todo";
+  return (typeof СТАТУСЫ!=="undefined" && СТАТУСЫ[it.status] && it.status!=="note") ? it.status : "todo";
 }
 
 // человекочитаемая дата timestamp → «дд.мм.гггг»
@@ -23,11 +24,7 @@ function _repTs(ts){ try{ return new Date(ts).toLocaleDateString("ru"); }catch(e
 // маркер пункта: • заметка · ✓/►/○ задача по статусу
 function _reportMarker(it){
   const st=reportStatusOf(it);
-  if(st==="done") return "✓";
-  if(st==="doing") return "►";
-  if(st==="paused") return "‖";
-  if(st==="todo") return "○";
-  return "•";
+  return (st && СТАТУСЫ[st] && СТАТУСЫ[st].маркер) || "•";
 }
 function _reportMeta(it){
   const st=reportStatusOf(it), meta=[];
@@ -55,7 +52,14 @@ function buildReportText(items, opts){
   const tasks=items.filter(i=>i.kind==="task");
   if(tasks.length){
     const cnt=s=>tasks.filter(t=>reportStatusOf(t)===s).length;
-    const p=[]; if(cnt("done"))p.push("✓ "+cnt("done")+" выполнено"); if(cnt("doing"))p.push("► "+cnt("doing")+" в работе"); if(cnt("paused"))p.push("‖ "+cnt("paused")+" на паузе"); if(cnt("todo"))p.push("○ "+cnt("todo")+" не начато");
+    /* Сводка идёт ЦИКЛОМ по реестру, а не четырьмя парами if: каждая пара звала cnt() дважды и
+       требовала правки на каждый новый статус — как раз то место, про которое забывают. */
+    const p=[];
+    ["done","doing","review","waiting","next","paused","todo"].forEach(k=>{
+      const n=cnt(k); if(!n || !СТАТУСЫ[k]) return;
+      p.push(СТАТУСЫ[k].маркер+" "+n+" "+({done:"выполнено", doing:"в работе", review:"на проверке",
+             waiting:"ждёт", next:"на очереди", paused:"на паузе", todo:"не начато"}[k]||СТАТУСЫ[k].имя.toLowerCase()));
+    });
     L.push("Задачи: "+tasks.length+(p.length?" — "+p.join(", "):""));
   }
   if(withFolders){ const n=items.filter(i=>i.folder).length; if(n) L.push("Папок: "+n); }

@@ -83,6 +83,17 @@ function dueButtonText(due){
 }
 /* Разметка контрола. Крестик рисуем ВНУТРИ кнопки, а не рядом: строка правой панели узкая
    (165 px на всё поле), и отдельная кнопка съедала бы место у самой даты. */
+/* БЫСТРЫЕ КНОПКИ СРОКА (2026-09-01). Замер, из-за которого они появились: срок стоял у 2 живых
+   задач из 34, а бейдж на ноде виден ровно у тех, у кого срок есть — то есть визуал без дешёвого
+   ввода остаётся украшением. Открыть календарь, найти число, попасть по нему — три движения ради
+   «завтра»; здесь это одно. Набор выбран по тому, как ставят срок на практике: сегодня, завтра,
+   через три дня и ближайшая пятница (конец рабочей недели — типовой дедлайн сдачи). */
+const БЫСТРЫЙ_СРОК=[
+  {к:"сег", т:"Сегодня",          дн:()=>0},
+  {к:"зв",  т:"Завтра",           дн:()=>1},
+  {к:"+3",  т:"Через три дня",    дн:()=>3},
+  {к:"пт",  т:"Ближайшая пятница",дн:()=>{ const d=today().getDay(); return ((5-d)+7)%7 || 7; }},
+];
 function dueControlHtml(due, opts){
   opts=opts||{};
   const п=dueLabel(due);
@@ -94,6 +105,7 @@ function dueControlHtml(due, opts){
       ${п&&п.txt&&п.cls!==""?`<span class="db-rel">${esc(п.txt)}</span>`:""}
       ${due?`<i class="ti ti-x db-x" data-dateclear title="Убрать срок"></i>`:""}
     </button>
+    <div class="date-fast">${БЫСТРЫЙ_СРОК.map(б=>`<button type="button" data-fast="${б.к}" title="${esc(б.т)}">${б.к}</button>`).join("")}</div>
   </div>`;
 }
 // сколько задач уже стоит на день — точкой под числом: видно занятые дни, не открывая календарь
@@ -235,6 +247,18 @@ function wireDateControls(root){
       if(e.target.closest("[data-dateclear]")){ e.preventDefault(); e.stopPropagation(); записать(""); return; }
       e.preventDefault();
       openDatePicker(кн, вход.value||"", записать);
+    });
+    /* Быстрые кнопки пишут в ТО ЖЕ скрытое поле и через ту же `записать`, что и календарь:
+       поэтому ни `wireAside`, ни окно правки, ни проверки о них ничего не знают — для них это
+       обычная смена срока. Повторный клик по той же кнопке снимает срок: поставил «пт», понял,
+       что рано, — снял тем же движением, не целясь в крестик. */
+    ctl.querySelectorAll("[data-fast]").forEach(b=>{
+      b.addEventListener("click", e=>{
+        e.preventDefault(); e.stopPropagation();
+        const б=БЫСТРЫЙ_СРОК.find(x=>x.к===b.dataset.fast); if(!б) return;
+        const дата=ymd(addDays(today(), б.дн()));
+        записать(вход.value===дата ? "" : дата);
+      });
     });
   });
 }
@@ -458,10 +482,11 @@ function openItemEditor(existing, defaultKind, presetDue, seed){
     else {
       Object.assign(it,data);
       if(!fields.length) delete it.fields;   // все поля убрали — не оставлять пустой массив в ноде
-      if(kind==="note"){ it.status="note"; it.done=false; }
-      else {
-        if(it.status==="note") it.status="todo";        // заметку переключили в задачу
-      }
+      /* Статус чиним только там, где он новому виду не подходит (формула одна на всё приложение:
+         статусыДляВида/нейтральныйСтатус в core.js). Раньше здесь безусловно ставилось "note",
+         и заметка, которую вели как «ждёт», теряла статус от одного сохранения окна правки. */
+      if(kind==="note") it.done=false;
+      if(статусыДляВида(kind).indexOf(it.status)<0) it.status=нейтральныйСтатус(kind);
       touch(it); persist();
     }
     ov.remove(); render();

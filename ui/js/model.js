@@ -83,7 +83,11 @@ function addItem(data){
     status:"todo", due:null, repeat:"none", priority:0, tags:[],
     created:Date.now(), updated:Date.now(), done:false, x:null, y:null, pin:false, parent:null, deleted:false, deletedAt:null
   }, data);
-  if(it.kind==="note" || it.kind==="flow"){ it.status="note"; }
+  /* Вид решает статус, но ТОЛЬКО когда переданный статус этому виду не подходит. Раньше здесь
+     стояло безусловное it.status="note", и вставка скопированной заметки со статусом «в работе»
+     (graph.js pasteClip передаёт status) молча теряла его. Теперь чиним лишь несовместимое:
+     заметке нельзя «Готово», задаче нельзя «Заметка» — остальное проходит как есть. */
+  if(статусыДляВида(it.kind).indexOf(it.status)<0) it.status=нейтральныйСтатус(it.kind);
   if(it.kind==="flow") ensureFlow(it);
   S.items.unshift(it); persist(); return it;
 }
@@ -127,6 +131,8 @@ function restorePack(pack){
 function toggleDone(it){
   if(it.kind!=="task") return;
   if(!it.done){
+    // прежний статус помним — из него задача вернётся, если галочку снимут (см. ветку else ниже)
+    if(it.status && it.status!=="done") it.prevStatus=it.status;
     it.done=true; it.status="done"; it.doneAt=Date.now(); touch(it);   // фиксируем дату выполнения (для метки опоздания)
     if(it.repeat && it.repeat!=="none"){
       const nd=nextRepeat(it.due,it.repeat);   // nextRepeat сам берёт today() если due пуст
@@ -138,9 +144,17 @@ function toggleDone(it){
       persist();
       toast("Повтор создан: "+(dueLabel(nd)?.txt||""));
     }
-  // Снятая галочка возвращает задачу в работу — и всё. Раньше бессрочная уезжала при этом
-  // в инбокс, то есть ИСЧЕЗАЛА из «Задач» (их вид инбокс прятал). Падать больше некуда.
-  } else { it.done=false; it.status="todo"; it.doneAt=null; touch(it); }
+  /* Снятая галочка возвращает задачу в работу — и всё. Раньше бессрочная уезжала при этом
+     в инбокс, то есть ИСЧЕЗАЛА из «Задач» (их вид инбокс прятал). Падать больше некуда.
+     Возвращаем В ТОТ СТАТУС, ИЗ КОТОРОГО ЗАВЕРШИЛИ (prevStatus пишется выше): при четырёх
+     значениях потеря была незаметна, при шести «вернул из готового» стирало бы «ждёт ферму»
+     или «на очереди» и заставляло ставить статус заново. Нет запомненного — нейтраль. */
+  } else {
+    const назад=it.prevStatus;
+    it.done=false;
+    it.status=(назад && статусыДляВида(it.kind).indexOf(назад)>=0 && назад!=="done") ? назад : нейтральныйСтатус(it.kind);
+    it.doneAt=null; delete it.prevStatus; touch(it);
+  }
   persist();
 }
 function linkExists(a,b){ return S.links.some(l=>(l[0]===a&&l[1]===b)||(l[0]===b&&l[1]===a)); }

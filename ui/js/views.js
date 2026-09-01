@@ -107,8 +107,11 @@ function asideSelect(id){
 function applyKind(it, kind){
   if(!it || it.kind===kind) return false;
   it.kind = kind;
-  if(kind==="task"){ if(it.status==="note") it.status = it.done ? "done" : "todo"; }
-  else { it.status="note"; it.done=false; it.doneAt=null; it.due=null; it.repeat="none"; it.priority=0; }
+  /* Статус переставляем ТОЛЬКО если он новому виду не подходит: задача, ставшая заметкой, теряет
+     «Готово», но «в работе» и «ждёт» заметке разрешены и должны пережить смену вида. Формула
+     одна на всё приложение — статусыДляВида/нейтральныйСтатус в core.js. */
+  if(kind!=="task"){ it.done=false; it.doneAt=null; it.due=null; it.repeat="none"; it.priority=0; }
+  if(статусыДляВида(kind).indexOf(it.status)<0) it.status = (kind==="task" && it.done) ? "done" : нейтральныйСтатус(kind);
   touch(it);
   return true;
 }
@@ -249,6 +252,25 @@ function renderAside(){
             <option value="__none__">Без области</option>
             ${S.areas.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("")}
           </select></span></div>
+        ${/* СТАТУС НА ВСЮ ПАЧКУ. Раньше группой можно было сменить только вид и область, а
+             закрывают и переводят работу как раз пачками — сдал шот, и десять его рендеров
+             меняют статус разом. С графа это делает _setStatus, но при выделении рамкой панель
+             открывается принудительно и оказывается ближе руки, чем поповер. */""}
+        <div class="as-row"><span class="as-k">Статус</span><span class="as-ico"><i class="ti ti-circle-dot"></i></span><span class="as-v">
+          <select class="as-sel" data-all="status">
+            <option value="">— оставить —</option>
+            ${Object.keys(СТАТУСЫ).filter(k=>k!=="note").map(k=>`<option value="${k}">${esc(СТАТУСЫ[k].имя)}</option>`).join("")}
+            <option value="__neutral__">Снять статус</option>
+          </select></span></div>
+        ${/* СРОК НА ВСЮ ПАЧКУ. Дедлайн у шота общий для всех его этапов, и проставлять его по
+             одной задаче никто не станет — при сроке у 2 живых задач из 34 это и видно. Тот же
+             набор кнопок, что в карточке одной ноды, плюс «снять»: календарь для группы не
+             открываем, у пачки редко бывает произвольная дата, а не «к пятнице». */""}
+        <div class="as-row"><span class="as-k">Срок</span><span class="as-ico"><i class="ti ti-calendar"></i></span><span class="as-v">
+          <div class="date-fast">
+            ${(typeof БЫСТРЫЙ_СРОК!=="undefined" ? БЫСТРЫЙ_СРОК : []).map(б=>`<button type="button" data-alldue="${б.к}" title="${esc(б.т)} — всей пачке">${б.к}</button>`).join("")}
+            <button type="button" data-alldue="__none__" title="Снять срок у всей пачки">×</button>
+          </div></span></div>
       </div>
       <div class="as-sec">Ноды</div>
       <div class="as-links">${asideTreeRows(ноды, 30).map(r=>asideNodeRow(r.n, r.lvl, "")).join("")}</div>
@@ -261,11 +283,36 @@ function renderAside(){
     a.querySelectorAll("[data-go]").forEach(el=>{ el.onclick=()=>{ asideSelect(el.dataset.go); if(graph) graph.focusNode(el.dataset.go); }; });
 
     // групповые правки: меняем у всех разом и сразу перерисовываем паутину
+    /* Быстрый срок на выделение. Отдельно от селектов [data-all] — это кнопки, а не поле со
+       значением; заметкам срок не ставим вовсе (у них его нет, applyKind его же и обнуляет). */
+    a.querySelectorAll("[data-alldue]").forEach(кн=>{
+      кн.onclick=()=>{
+        const к=кн.dataset.alldue;
+        const дата = (к==="__none__") ? null
+                   : ymd(addDays(today(), (БЫСТРЫЙ_СРОК.find(x=>x.к===к)||{дн:()=>0}).дн()));
+        let тронуто=0;
+        ноды.forEach(n=>{ if(n.kind!=="task" || n.done) return; n.due=дата; touch(n); тронуто++; });
+        if(!тронуто){ toast("В выделении нет живых задач",{icon:"ti-calendar-off"}); return; }
+        persist(); if(graph) graph.build(); renderAside();
+        toast((дата?("Срок · "+(dueLabel(дата)||{txt:дата}).txt):"Срок снят")+" · задач: "+тронуто,{icon:"ti-calendar-event"});
+      };
+    });
     a.querySelectorAll("[data-all]").forEach(поле=>{
       поле.onchange = ()=>{
         const v = поле.value; if(!v) return;
         let тронуто = 0;
         if(поле.dataset.all==="kind") ноды.forEach(n=>{ if(applyKind(n, v)) тронуто++; });
+        else if(поле.dataset.all==="status") ноды.forEach(n=>{
+          /* «Готово» пропускаем через toggleDone: он ставит дату выполнения и порождает
+             следующий повтор — прямая запись status="done" всё это потеряла бы. Значение,
+             не подходящее виду ноды (заметке «Готово»), просто пропускаем: молча превращать
+             его в нейтраль здесь было бы хуже, чем не тронуть. */
+          const цель = (v==="__neutral__") ? нейтральныйСтатус(n.kind) : v;
+          if(статусыДляВида(n.kind).indexOf(цель)<0) return;
+          if(цель==="done"){ if(!n.done){ toggleDone(n); тронуто++; } return; }
+          if(n.done){ n.done=false; n.doneAt=null; }
+          n.status=цель; touch(n); тронуто++;
+        });
         else{
           const area = v==="__none__" ? null : v;
           ноды.forEach(n=>{ n.area=area; if(area) n.areaAuto=false; else delete n.areaAuto; touch(n); тронуто++; });
@@ -336,15 +383,18 @@ function asideCard(it){
        <option value="">Без области</option>
        ${S.areas.map(a=>`<option value="${esc(a.id)}" ${it.area===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}
      </select>${it.areaAuto ? `<span class="as-note" title="Область взята у родительской ноды">наследуется</span>` : ""}`));
-  if(it.kind==="task"){
-    const ст = it.done ? "done" : (it.status==="doing" ? "doing" : (it.status==="paused" ? "paused" : "todo"));
+  /* СТАТУС ПОКАЗЫВАЕМ И ЗАМЕТКЕ (2026-09-01). Раньше строка рисовалась только у задачи, а в живом
+     файле 20 заметок носили задачные статусы — поменять их в панели было нечем вовсе. Список
+     значений берётся из общего реестра (core.js), а не переписывается здесь: тернарник на четыре
+     значения был одним из четырёх мест, где набор статусов жил своей копией. */
+  if(it.kind!=="flow"){
+    const ст = it.done ? "done" : (СТАТУСЫ[it.status] ? it.status : нейтральныйСтатус(it.kind));
     стр.push(строка("Статус", ["ti-circle-dot"],
       `<select class="as-sel" data-f="status">
-         <option value="todo"  ${ст==="todo" ?"selected":""}>Не начато</option>
-         <option value="doing" ${ст==="doing"?"selected":""}>В работе</option>
-         <option value="paused" ${ст==="paused"?"selected":""}>На паузе</option>
-         <option value="done"  ${ст==="done" ?"selected":""}>Готово</option>
+         ${статусыДляВида(it.kind).map(k=>`<option value="${k}" ${ст===k?"selected":""}>${esc(СТАТУСЫ[k].имя)}</option>`).join("")}
        </select>`));
+  }
+  if(it.kind==="task"){
     // срок — свой календарь (см. dueControlHtml в overlays.js): нативный пикер открывал
     // системное окно WebView2, чужое всему остальному интерфейсу
     стр.push(строка("Срок", ["ti-calendar"], dueControlHtml(it.due, {data:"due"})));
@@ -748,7 +798,18 @@ function renderToday(v){
   const areaBars=S.areas.map(a=>{ const tasks=S.items.filter(it=>isT(it)&&it.area===a.id); const open=tasks.filter(it=>!it.done).length; const p=tasks.length?Math.round(tasks.filter(it=>it.done).length/tasks.length*100):0;
     return `<div class="area-bar${tasks.length&&p>=80?' lead':''}" data-area="${a.id}"><i class="ti ${a.icon}" ${a.color?`style="color:${a.color}"`:''}></i><span class="ab-name">${esc(a.name)}</span><span class="ab-track"><span class="ab-fill" style="width:${p}%${a.color?`;background:${a.color}`:''}"></span></span><span class="ab-meta">${open} · ${tasks.length?p+'%':'—'}</span></div>`; }).join("");
   const lag=S.areas.map(a=>{ const tasks=S.items.filter(it=>isT(it)&&it.area===a.id); const open=tasks.filter(it=>!it.done).length; const p=tasks.length?tasks.filter(it=>it.done).length/tasks.length:1; return {a,open,p}; }).filter(x=>x.open>0).sort((x,y)=>x.p-y.p).slice(0,2).map(x=>x.a.name);
-  const focus=[...over.map(it=>({it,o:true})), ...todayAll.filter(it=>!it.done).map(it=>({it,o:false}))].sort((a,b)=>(b.it.priority||0)-(a.it.priority||0)).slice(0,6);
+  /* «ФОКУС ДНЯ» БЕРЁТ И СТАТУС «НА ОЧЕРЕДИ» (2026-09-01). Раньше он строился только по сроку, а
+     срок в живом файле стоял у 2 задач из 34 — то есть главный экран почти всегда показывал
+     «На сегодня дел нет» при трёх десятках незакрытых задач. Теперь то, что человек сам взял на
+     ближайший заход, попадает сюда без сроков; дубли отсекаем по id (взятая задача может быть
+     ещё и просроченной). В кольце дня статус НЕ участвует: кольцо считает выполнение дневного
+     плана по срокам, смешивать две шкалы в одном числе нельзя. */
+  const взятые=S.items.filter(it=>isT(it)&&!it.done&&it.status==="next");
+  const _видел=new Set();
+  const focus=[...over.map(it=>({it,o:true})), ...todayAll.filter(it=>!it.done).map(it=>({it,o:false})),
+               ...взятые.map(it=>({it,o:false}))]
+    .filter(x=>{ if(_видел.has(x.it.id)) return false; _видел.add(x.it.id); return true; })
+    .sort((a,b)=>(b.it.priority||0)-(a.it.priority||0)).slice(0,6);
   const focusHtml=focus.length?focus.map(f=>taskCard(f.it,{today:f.o})).join(""):emptyBox("ti-checks","На сегодня дел нет. Выдохни ✨");
   v.innerHTML=`<div class="home">
     <div class="home-head"><div class="hh-greet">${greet}, КРОЛИК</div>${streak>0?`<div class="hh-streak"><i class="ti ti-flame"></i>${streak} ${plural(streak,"день","дня","дней")} подряд</div>`:""}</div>

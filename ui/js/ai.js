@@ -451,7 +451,10 @@ function aiApply(it, prop, auto){
   if(prop.body!==undefined) it.body=prop.body;
   if(prop.due!==undefined) it.due=prop.due;
   if(prop.priority!==undefined) it.priority=prop.priority;
-  if(prop.kind){ it.kind=prop.kind; it.status = prop.kind==="note" ? "note" : (it.done?"done":"todo"); }
+  /* Смена вида ИИ-захватом не должна гасить статус: раньше здесь безусловно ставилось note/todo,
+     и «в работе» слетало от одного применения предложения. Чиним только несовместимое. */
+  if(prop.kind){ it.kind=prop.kind;
+    if(статусыДляВида(it.kind).indexOf(it.status)<0) it.status = it.done ? "done" : нейтральныйСтатус(it.kind); }
   touch(it); persist(); render();
   toast(auto ? "ИИ поправил заголовок" : "Применено", {icon:"ti-sparkles"});
 }

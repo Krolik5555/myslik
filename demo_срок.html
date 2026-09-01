@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Мыслик — демо срока на ноде</title>
+<link rel="stylesheet" href="ui/vendor/tabler-icons.min.css">
+<style>
+  /* Переменные — КОПИЯ из ui/styles.css (:root и .light). Новые — только шкала времени. */
+  :root{
+    --bg:#000; --surf:#0c0c0e; --surf2:#161618; --surf3:#1f1f22;
+    --bd:rgba(255,255,255,.13); --bd2:rgba(255,255,255,.26); --bd3:rgba(255,255,255,.40);
+    --tx:#f4f4f5; --mut:#86868c; --mut2:#5b5b61;
+    --acc:#ffffff; --warn:#e0625a;
+    --pri1:#5fb98e; --pri2:#e8a14b; --pri3:#e0625a;
+    --glow:rgba(255,255,255,.30);
+    /* НОВОЕ — шкала ВРЕМЕНИ, холодный → горячий. Намеренно НЕ повторяет --pri1/2/3:
+       у приоритета своя тропа зелёный→красный, и две одинаковые шкалы на одной ноде
+       сделали бы нечитаемыми обе. Начало шкалы холодное — там, где приоритета нет вовсе. */
+    --tm-far:#5f7f9e;      /* больше двух недель */
+    --tm-week:#7b8794;     /* неделя */
+    --tm-soon:#9a9a92;     /* два-три дня */
+    --tm-near:#d8b04a;     /* завтра */
+    --tm-today:#e0873c;    /* сегодня */
+    --tm-over:#e0625a;     /* просрочено */
+  }
+  .light{
+    --bg:#ffffff; --surf:#fafafa; --surf2:#f0f0f0; --surf3:#e7e7e7;
+    --bd:rgba(0,0,0,.12); --bd2:rgba(0,0,0,.24); --bd3:rgba(0,0,0,.40);
+    --tx:#111114; --mut:#666; --mut2:#9a9a9f;
+    --acc:#000; --warn:#cc4b43;
+    --pri1:#3f9e72; --pri2:#c8821f; --pri3:#cc4b43;
+    --glow:rgba(0,0,0,.18);
+    --tm-far:#436a8c; --tm-week:#5d6b7a; --tm-soon:#7d7d74;
+    --tm-near:#b8891f; --tm-today:#c4691f; --tm-over:#cc4b43;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;}
+  body{display:flex;flex-direction:column;overflow:hidden;}
+  header{padding:12px 20px 10px;border-bottom:0.5px solid var(--bd);flex:none;}
+  h1{margin:0;font-size:15px;font-weight:600;}
+  h1 b{color:var(--tm-today);font-weight:600;}
+  .sub{margin:5px 0 0;font-size:12.5px;color:var(--mut);max-width:100ch;line-height:1.55;}
+  .bar{display:flex;flex-wrap:wrap;align-items:center;gap:9px 20px;padding:8px 20px;
+    border-bottom:0.5px solid var(--bd);font-size:12.5px;color:var(--mut);background:var(--surf);flex:none;}
+  .bar label{display:inline-flex;align-items:center;gap:7px;cursor:pointer;user-select:none;white-space:nowrap;}
+  .bar input[type=checkbox]{accent-color:var(--tm-near);width:15px;height:15px;}
+  .seg{display:inline-flex;border:0.5px solid var(--bd2);border-radius:8px;overflow:hidden;}
+  .seg button{background:transparent;border:0;color:var(--mut);font:inherit;font-size:12px;padding:5px 11px;cursor:pointer;}
+  .seg button.on{background:var(--acc);color:var(--bg);}
+  .scroll{flex:1;min-height:0;overflow:auto;}
+  .wrap{position:relative;margin:0 auto;}
+  .wrap canvas{position:absolute;inset:0;width:100%;height:100%;}
+  footer{padding:9px 20px;border-top:0.5px solid var(--bd);background:var(--surf);
+    font-size:12px;color:var(--mut);line-height:1.6;flex:none;max-height:22vh;overflow:auto;}
+  footer b{color:var(--tx);font-weight:600;}
+  footer .row{margin-bottom:6px;}
+  code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--tx);}
+</style>
+</head>
+<body>
+<header>
+  <h1>Мысл<b>ик</b> · срок на ноде в паутине</h1>
+  <p class="sub">Четыре способа показать дедлайн, шкала <code>−5 · −1 · 0 · +1 · +3 · +7 · +30 · без срока</code>, три размера ноды, обе темы. Всё на <code>&lt;canvas&gt;</code> теми же примитивами, что <code>_drawMain</code>. <b>Главный вопрос страницы — переключатель «шкала»:</b> зелёный→жёлтый→красный уже занят приоритетом, и вторая такая же шкала на той же ноде сделает нечитаемыми обе.</p>
+</header>
+
+<div class="bar">
+  <label>Тема
+    <span class="seg" id="theme"><button data-v="dark" class="on">тёмная</button><button data-v="light">светлая</button></span>
+  </label>
+  <label>Шкала
+    <span class="seg" id="scale">
+      <button data-v="B" class="on">B · время холодный→горячий, приоритет как был</button>
+      <button data-v="A">A · цвет времени, приоритет формой</button>
+    </span>
+  </label>
+  <label><input type="checkbox" id="pri" checked> дужка приоритета</label>
+  <label><input type="checkbox" id="bw"> ч/б</label>
+</div>
+
+<div class="scroll" id="scroll">
+  <div class="wrap" id="wrap"><canvas id="glowc"></canvas><canvas id="mainc"></canvas></div>
+</div>
+
+<footer id="foot"></footer>
+
+<script>
+"use strict";
+/* ===== примитивы — копии из ui/js/graph.js ===== */
+const кэшЦвета=new Map();
+function rgb(c){
+  if(кэшЦвета.has(c)) return кэшЦвета.get(c);
+  let r=[230,230,230]; const s=String(c||"").trim();
+  if(s[0]==="#"){ let h=s.slice(1); if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+    const n=parseInt(h,16); if(!isNaN(n)) r=[(n>>16)&255,(n>>8)&255,n&255]; }
+  else { const m=s.match(/(\d+)[,\s]+(\d+)[,\s]+(\d+)/); if(m) r=[+m[1],+m[2],+m[3]]; }
+  кэшЦвета.set(c,r); return r;
+}
+function смесь(a,b,k){ const A=rgb(a),B=rgb(b);
+  return "rgb("+Math.round(A[0]*k+B[0]*(1-k))+","+Math.round(A[1]*k+B[1]*(1-k))+","+Math.round(A[2]*k+B[2]*(1-k))+")"; }
+function серый(c){ const [r,g,b]=rgb(c); const y=Math.round(0.2126*r+0.7152*g+0.0722*b); return `rgb(${y},${y},${y})`; }
+let ЧБ=false; const Ц=c=>ЧБ?серый(c):c;
+function путьФормы(ctx,форма,x,y,r){
+  if(форма==="square"){ ctx.rect(x-r,y-r,r*2,r*2); return; }
+  ctx.moveTo(x+r,y); ctx.arc(x,y,r,0,6.283);
+}
+function палитра(){
+  const cs=getComputedStyle(document.body), в=(и,з)=>(cs.getPropertyValue(и).trim()||з);
+  return { узел:в("--acc","#fff"), текст:в("--tx","#f4f4f5"), подпись:в("--mut","#86868c"),
+    подпись2:в("--mut2","#5b5b61"), фонУзла:в("--surf","#141414"), фон:в("--bg","#000"),
+    кольцо:в("--mut","#8a8a8a"), связь:в("--bd3","#3a3a3a"), тусклая:в("--bd2","#2c2c2c"),
+    при:[в("--pri1","#5fb98e"),в("--pri2","#e8a14b"),в("--pri3","#e0625a")],
+    время:{ far:в("--tm-far","#5f7f9e"), week:в("--tm-week","#7b8794"), soon:в("--tm-soon","#9a9a92"),
+            near:в("--tm-near","#d8b04a"), today:в("--tm-today","#e0873c"), over:в("--tm-over","#e0625a") } };
+}
+
+/* ===== СРОК: короткая подпись и цвет =====
+   Текст берём из той же логики, что dueLabel (core.js:88), но КОРОЧЕ: на ноде нет места
+   под «просрочено 5д», там помещается 2-3 знака. Полная формулировка остаётся в списках
+   и в правой панели — на ноде нужен только сигнал «сколько осталось». */
+function короткийСрок(d){
+  if(d===null) return null;
+  if(d<0) return (d<=-99?"-99":String(d));      // «-5»
+  if(d===0) return "сег";
+  if(d===1) return "зв";
+  if(d<=99) return String(d);                    // «3», «7», «30»
+  return "99+";
+}
+function цветСрока(d, пал, шкала){
+  const в=пал.время;
+  if(d===null) return null;
+  if(шкала==="A"){                                // цвет отдан ВРЕМЕНИ по шкале приоритета
+    if(d<0) return пал.при[2];
+    if(d<=1) return пал.при[2];
+    if(d<=3) return пал.при[1];
+    if(d<=7) return пал.при[1];
+    return пал.при[0];
+  }
+  if(d<0) return в.over;
+  if(d===0) return в.today;
+  if(d===1) return в.near;
+  if(d<=3) return в.soon;
+  if(d<=7) return в.week;
+  return в.far;
+}
+/* Доля «сколько времени осталось» для дуги и полоски. Горизонт 14 дней: дальше отличать
+   30 от 60 бессмысленно — обе даты одинаково «не сегодня». */
+const ГОРИЗОНТ=14;
+function остаток(d){ if(d===null) return 0; if(d<0) return 1; return Math.max(0, Math.min(1, 1-d/ГОРИЗОНТ)); }
+
+/* ===== ЧЕТЫРЕ ВАРИАНТА ===== */
+const ВАРИАНТЫ=[
+  {id:"num",  имя:"1 · цифры в углу", подпись:"идея КРОЛИКА: «3», «зв», «сег», «−2» в верхнем правом",
+   цена:"+1 список, +1 проход fillText. Кегль в ЭКРАННЫХ пикселях. Просрочка = залитая плашка под текстом (форма, а не только цвет)."},
+  {id:"arc",  имя:"2 · дуга-остаток", подпись:"сектор вокруг ноды тает по мере приближения срока",
+   цена:"+1 список, +1 проход, 1 stroke. Цвет меняется по ноде → пакет рвётся: группировать по цвету или красить один раз."},
+  {id:"bar",  имя:"3 · полоска под нодой", подпись:"длина и цвет от остатка",
+   цена:"+1 список, +1 проход, 1 stroke. Двигает подпись вниз на 5z."},
+  {id:"pill", имя:"4 · плашка-пилюля", подпись:"число дней в скруглённой плашке, залитая при просрочке",
+   цена:"+1 список, +2 прохода (плашка + текст). Самый заметный и самый дорогой по площади."},
+];
+const ДНИ=[-5,-1,0,1,3,7,30,null];
+
+/* ===== отрисовка ноды со сроком ===== */
+function рисоватьНоду(ctx, пал, o){
+  const {x,y,r,z,d,вариант,шкала,pri,done,форма}=o;
+  const толщ=w=>Math.max(0.75, w*z);
+  const детали=r>=4.5, подписьВидна=(r>=6.5 && z>=0.45);
+  const свой=o.свой||"#5b9bd6";
+
+  // фигура
+  ctx.globalAlpha=1; ctx.fillStyle=Ц(done?свой:пал.фонУзла); ctx.strokeStyle=Ц(свой); ctx.lineWidth=толщ(1.7);
+  ctx.beginPath(); путьФормы(ctx, форма||"circle", x, y, r); ctx.fill(); ctx.stroke();
+  if(done){
+    ctx.strokeStyle=Ц(пал.фон); ctx.lineWidth=толщ(1.6); ctx.lineJoin="round"; ctx.beginPath();
+    ctx.moveTo(x-3.2*z,y+0.3*z); ctx.lineTo(x-1*z,y+2.7*z); ctx.lineTo(x+3.2*z,y-2.3*z); ctx.stroke();
+  }
+  if(!детали) return;
+
+  // приоритет: в шкале B — цветом (как сейчас), в шкале A — серым и ЧИСЛОМ сегментов
+  if(pri){
+    ctx.lineCap="round"; ctx.lineWidth=толщ(шкала==="A"?1.6:1.2);
+    if(шкала==="B"){
+      ctx.strokeStyle=Ц(пал.при[pri-1]);
+      ctx.beginPath(); ctx.arc(x,y,r+5.5*z, Math.PI*-0.8, Math.PI*-0.2); ctx.stroke();
+    } else {
+      /* Шкала A: цвет у времени, приоритету остаётся ФОРМА — дужка дробится на pri сегментов.
+         Три коротких штриха читаются как «три», не требуя цвета вовсе. */
+      ctx.strokeStyle=Ц(пал.подпись);
+      const a0=Math.PI*-0.8, a1=Math.PI*-0.2, шаг=(a1-a0)/pri, зазор=шаг*0.22;
+      for(let i=0;i<pri;i++){ ctx.beginPath(); ctx.arc(x,y,r+5.5*z, a0+шаг*i+зазор/2, a0+шаг*(i+1)-зазор/2); ctx.stroke(); }
+    }
+  }
+  if(done || d===null) return;                    // done — бейджа нет (см. dueBadge)
+  if(!подписьВидна) return;                       // LOD: не мельче подписей
+
+  /* УГОЛ БЕЙДЖА. Ровно −45° (правый верхний по диагонали) НЕ годится: дужка приоритета идёт
+     от −0.8π до −0.2π, то есть до −36°, и на крупной ноде с приоритетом бейдж наезжал на её
+     конец — проверено на «076_GKC_Announce» в сцене. Ставим −0.14π (−25°): правее и ниже
+     конца дужки, зазор ~11°, при этом угол всё ещё читается как «верхний правый». */
+  const УГОЛ=-Math.PI*0.14, КОС=Math.cos(УГОЛ), СИН=Math.sin(УГОЛ);
+  const цв=Ц(цветСрока(d, пал, шкала)), т=короткийСрок(d), прос=d<0;
+  const кегль=Math.max(9, Math.min(12, 11));      // ЭКРАННЫЕ пиксели, не мировые
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+
+  if(вариант==="num"){
+    /* РАДИУС r+9z, а не r+8z: ровно на r+8z проходит пунктирное кольцо булавки, и у закреплённой
+       ноды цифры оказывались бы прямо на нём. Залитая плашка просрочки его перекрыла бы, а голые
+       цифры будущего срока — нет: пунктир прошёл бы сквозь текст. */
+    const bx=x+(r+9*z)*КОС, by=y+(r+9*z)*СИН;
+    if(прос){                                     // просрочка — ЗАЛИТАЯ плашка: форма, а не только цвет
+      ctx.font=кегль+"px system-ui, -apple-system, Segoe UI, sans-serif";
+      const ww=Math.max(13, ctx.measureText(т).width+7), hh=кегль+3;
+      ctx.fillStyle=цв; скруглённый(ctx, bx-ww/2, by-hh/2, ww, hh, hh/2); ctx.fill();
+      ctx.fillStyle=Ц(пал.фон);
+    } else ctx.fillStyle=цв;
+    ctx.font=(прос?"600 ":"")+кегль+"px system-ui, -apple-system, Segoe UI, sans-serif";
+    ctx.fillText(т, bx, by);
+  }
+  else if(вариант==="arc"){
+    const доля=остаток(d), R=r+4.5*z;
+    ctx.strokeStyle=цв; ctx.lineCap="butt";
+    ctx.lineWidth=толщ(прос?2.4:1.6);
+    const a0=-Math.PI/2;
+    ctx.beginPath(); ctx.arc(x,y,R, a0, a0+6.283*(прос?1:доля)); ctx.stroke();
+    if(прос){ ctx.globalAlpha=0.35; ctx.lineWidth=толщ(1); ctx.beginPath(); ctx.arc(x,y,R+2.6*z,0,6.283); ctx.stroke(); ctx.globalAlpha=1; }
+  }
+  else if(вариант==="bar"){
+    const доля=остаток(d), w=r*1.15, y0=y+r+4.5*z;
+    ctx.strokeStyle=Ц(пал.тусклая); ctx.lineWidth=толщ(1); ctx.globalAlpha=0.5;
+    ctx.beginPath(); ctx.moveTo(x-w,y0); ctx.lineTo(x+w,y0); ctx.stroke(); ctx.globalAlpha=1;
+    ctx.strokeStyle=цв; ctx.lineWidth=толщ(прос?3:2); ctx.lineCap="round";
+    ctx.beginPath(); ctx.moveTo(x-w,y0); ctx.lineTo(x-w+2*w*Math.max(0.12,доля),y0); ctx.stroke();
+  }
+  else if(вариант==="pill"){
+    ctx.font=(прос?"600 ":"")+кегль+"px system-ui, -apple-system, Segoe UI, sans-serif";
+    const ww=Math.max(15, ctx.measureText(т).width+9), hh=кегль+4;
+    const bx=x+(r+10*z)*КОС, by=y+(r+10*z)*СИН;
+    if(прос){ ctx.fillStyle=цв; скруглённый(ctx,bx-ww/2,by-hh/2,ww,hh,hh/2); ctx.fill(); ctx.fillStyle=Ц(пал.фон); }
+    else { ctx.strokeStyle=цв; ctx.lineWidth=толщ(1); ctx.fillStyle=Ц(пал.фон);
+      скруглённый(ctx,bx-ww/2,by-hh/2,ww,hh,hh/2); ctx.fill(); ctx.stroke(); ctx.fillStyle=цв; }
+    ctx.fillText(т, bx, by);
+  }
+}
+function скруглённый(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+}
+
+/* ===== сцена ===== */
+const ПАЛИТРА_НОД=["#5b9bd6","#e8a14b","#5fb98e","#9b7fd6"];
+const СЦЕНА=[
+  {t:"076_GKC_Announce",ц:0,r:19,x:0.13,y:0.30,pri:2,d:null,d2:12},
+  {t:"SH070",           ц:0,r:15,x:0.28,y:0.20,d:null,d2:3},
+  {t:"Рендер",          ц:0,r:12,x:0.41,y:0.13,d:null,d2:1},
+  {t:"Анимация",        ц:0,r:11,x:0.40,y:0.32,d:null,d2:0,форма:"square"},
+  {t:"Локация",         ц:0,r:10,x:0.52,y:0.37,d:null,d2:null,форма:"square"},
+  {t:"Сборка",          ц:0,r:11,x:0.29,y:0.43,done:true,d:null,d2:-2},
+  {t:"Team Presentation",ц:1,r:17,x:0.65,y:0.24,pri:2,d:null,d2:7},
+  {t:"Jett",            ц:1,r:13,x:0.78,y:0.16,d:null,d2:5},
+  {t:"Sage",            ц:1,r:13,x:0.79,y:0.35,d:null,d2:2},
+  {t:"VFX",             ц:1,r:10,x:0.90,y:0.27,done:true,d:null,d2:-1},
+  {t:"Forest Project",  ц:2,r:14,x:0.16,y:0.68,pri:1,d:-6,d2:-6},
+  {t:"Tree Model",      ц:2,r:10,x:0.29,y:0.76,d:null,d2:30},
+  {t:"Мыслик DEV",      ц:3,r:13,x:0.50,y:0.70,d:null,d2:null,форма:"square"},
+  {t:"Добавить поля",   ц:3,r:11,x:0.63,y:0.77,d:null,d2:4},
+  {t:"Счётчики",        ц:3,r:10,x:0.76,y:0.68,d:23,d2:23},
+];
+const СВЯЗИ=[[0,1],[1,2],[1,3],[1,5],[3,4],[6,7],[6,8],[8,9],[10,11],[12,13],[12,14],[0,6]];
+
+const wrap=document.getElementById("wrap"), mainc=document.getElementById("mainc"), glowc=document.getElementById("glowc");
+const S={шкала:"B", приор:true, чб:false};
+const РАЗМЕРЫ=[18,12,7], ЗУМЫ=[1.4,1.0,0.5];
+
+function размеры(){
+  const w=Math.max(1180, wrap.parentElement.clientWidth-2);
+  const h=96 + ВАРИАНТЫ.length*118 + 60 + 400 + 60 + 400 + 40;
+  wrap.style.width=w+"px"; wrap.style.height=h+"px";
+  return {w,h};
+}
+function рисовать(){
+  ЧБ=S.чб;
+  const {w,h}=размеры();
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  for(const cv of [mainc,glowc]) if(cv.width!==Math.round(w*dpr)){ cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr); }
+  const ctx=mainc.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
+  const gtx=glowc.getContext("2d"); gtx.setTransform(dpr,0,0,dpr,0,0); gtx.clearRect(0,0,w,h);
+  const пал=палитра();
+
+  ctx.textBaseline="middle"; ctx.textAlign="left";
+  ctx.font="600 12.5px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.текст);
+  ctx.fillText("Матрица: вариант × дни до срока × размер ноды", 20, 24);
+  ctx.font="11.5px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.подпись);
+  ctx.fillText("в каждой ячейке три размера: r=18 (зум 1.4) · r=12 (зум 1.0) · r=7 (зум 0.5 — ХУДШИЙ случай, ровно на пороге r>=6.5 && z>=0.45; всё, что мельче, бейджа не получает вовсе)", 20, 42);
+
+  const левое=150, колонка=(w-левое-24)/ДНИ.length, верх=96;
+  // шапка колонок
+  ДНИ.forEach((d,i)=>{
+    const cx=левое+колонка*i+колонка/2;
+    ctx.textAlign="center";
+    ctx.font="600 12px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.текст);
+    ctx.fillText(d===null?"без срока":(d<0?d+" дн":"+"+d+" дн"), cx, верх-34);
+    ctx.font="10.5px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.подпись2);
+    ctx.fillText(d===null?"—":(d<0?"просрочено":d===0?"сегодня":d===1?"завтра":"через "+d), cx, верх-20);
+  });
+
+  ВАРИАНТЫ.forEach((v,ri)=>{
+    const y=верх+ri*118+40;
+    ctx.textAlign="left"; ctx.font="600 12.5px system-ui, -apple-system, Segoe UI, sans-serif";
+    ctx.fillStyle=Ц(пал.текст); ctx.fillText(v.имя, 20, y-14);
+    ctx.font="10.5px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.подпись2);
+    строки(ctx, v.подпись, 124).forEach((с,j)=>ctx.fillText(с, 20, y+2+j*13));
+    ctx.strokeStyle=Ц(пал.тусклая); ctx.globalAlpha=0.3; ctx.lineWidth=0.5;
+    ctx.beginPath(); ctx.moveTo(20,y+58); ctx.lineTo(w-24,y+58); ctx.stroke(); ctx.globalAlpha=1;
+
+    ДНИ.forEach((d,ci)=>{
+      const cx=левое+колонка*ci+колонка/2;
+      let dx=cx-46;
+      РАЗМЕРЫ.forEach((r,si)=>{
+        рисоватьНоду(ctx, пал, {x:dx, y, r, z:ЗУМЫ[si], d, вариант:v.id, шкала:S.шкала,
+          pri:(S.приор&&si===0)?2:0, done:false, свой:ПАЛИТРА_НОД[0]});
+        dx += (si===0?44:34);
+      });
+    });
+  });
+
+  // ---- сцена 1: как в жизни (2 срока из 15) ----
+  const с1=верх+ВАРИАНТЫ.length*118+50;
+  подзаг(ctx,пал,20,с1-12,"Сцена как в жизни: срок стоит у 2 нод из 15",
+    "ровно та пропорция, что в живом файле — срок у 2 живых задач из 34. Бейдж есть, но замечать нечего");
+  сцена(ctx,пал,{x:20,y:с1+8,w:w-44,h:360,ключ:"d"});
+
+  // ---- сцена 2: если сроки начнут ставить ----
+  const с2=с1+8+360+56;
+  подзаг(ctx,пал,20,с2-12,"Сцена, если сроки начнут ставить: срок у 13 нод из 15",
+    "проверка на мусор — не превращается ли граф в табло с цифрами");
+  сцена(ctx,пал,{x:20,y:с2+8,w:w-44,h:360,ключ:"d2"});
+}
+function подзаг(ctx,пал,x,y,т,п){
+  ctx.textAlign="left"; ctx.textBaseline="middle";
+  ctx.font="600 12.5px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.текст); ctx.fillText(т,x,y);
+  ctx.font="11.5px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.подпись); ctx.fillText(п,x,y+17);
+}
+function строки(ctx,текст,ширина){
+  const сл=String(текст).split(" "), из=[]; let тек="";
+  for(const с of сл){ const п=тек?тек+" "+с:с;
+    if(ctx.measureText(п).width>ширина && тек){ из.push(тек); тек=с; } else тек=п; }
+  if(тек) из.push(тек); return из.slice(0,3);
+}
+let вариантСцены="num";
+function сцена(ctx,пал,o){
+  const {x,y,w,h,ключ}=o;
+  ctx.save();
+  ctx.strokeStyle=Ц(пал.тусклая); ctx.globalAlpha=0.4; ctx.lineWidth=0.5; ctx.strokeRect(x,y,w,h); ctx.globalAlpha=1;
+  const px=i=>x+СЦЕНА[i].x*w, py=i=>y+СЦЕНА[i].y*h;
+  ctx.strokeStyle=Ц(пал.связь); ctx.lineWidth=1; ctx.globalAlpha=0.55; ctx.beginPath();
+  for(const [a,b] of СВЯЗИ){ ctx.moveTo(px(a),py(a)); ctx.lineTo(px(b),py(b)); }
+  ctx.stroke(); ctx.globalAlpha=1;
+  СЦЕНА.forEach((n,i)=>{
+    рисоватьНоду(ctx,пал,{x:px(i), y:py(i), r:n.r, z:1, d:(n.done?null:n[ключ]), вариант:вариантСцены,
+      шкала:S.шкала, pri:(S.приор&&n.pri)?n.pri:0, done:!!n.done, свой:ПАЛИТРА_НОД[n.ц], форма:n.форма});
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.font="12px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillStyle=Ц(пал.подпись);
+    ctx.fillText(n.t, px(i), py(i)+n.r+(вариантСцены==="bar"?16:12));
+  });
+  ctx.restore();
+}
+
+document.getElementById("theme").onclick=e=>{ const b=e.target.closest("button"); if(!b) return;
+  document.querySelectorAll("#theme button").forEach(x=>x.classList.toggle("on",x===b));
+  document.body.classList.toggle("light", b.dataset.v==="light"); рисовать(); };
+document.getElementById("scale").onclick=e=>{ const b=e.target.closest("button"); if(!b) return;
+  document.querySelectorAll("#scale button").forEach(x=>x.classList.toggle("on",x===b));
+  S.шкала=b.dataset.v; рисовать(); подвал(); };
+document.getElementById("pri").onchange=e=>{ S.приор=e.target.checked; рисовать(); };
+document.getElementById("bw").onchange=e=>{ S.чб=e.target.checked; рисовать(); };
+
+function подвал(){
+  const f=document.getElementById("foot");
+  f.innerHTML =
+    `<div class="row"><b>Сцены рисуются вариантом:</b> `+
+    ВАРИАНТЫ.map(v=>`<button class="btn-v" data-v="${v.id}" style="border:0.5px solid var(--bd2);border-radius:7px;font:inherit;font-size:11.5px;padding:3px 9px;cursor:pointer;margin-right:5px;color:${v.id===вариантСцены?"var(--bg)":"var(--mut)"};background:${v.id===вариантСцены?"var(--acc)":"transparent"};">${v.имя}</button>`).join("")+`</div>`+
+    ВАРИАНТЫ.map(v=>`<div class="row"><b>${v.имя}</b> — ${v.подпись}. <b>Цена:</b> ${v.цена}</div>`).join("")+
+    (S.шкала==="B"
+      ? `<div class="row"><b>Шкала B (сейчас включена):</b> у времени своя тропа — голубой (далеко) → серый → жёлтый (завтра) → оранжевый (сегодня) → красный (просрочено). Приоритет остаётся зелёный→красный дужкой сверху. Пересечение только в красном конце, и там просрочка отличается ФОРМОЙ: залитая плашка против контурной.</div>`
+      : `<div class="row"><b>Шкала A (сейчас включена):</b> цвет целиком отдан времени по шкале приоритета (зелёный→жёлтый→красный), а приоритет уходит на форму — дужка дробится на 1/2/3 сегмента и рисуется серым. Смотрите на ноду «076_GKC_Announce» в сцене: приоритет теперь читается счётом штрихов, а не цветом.</div>`)+
+    `<div class="row"><b>Занятое:</b> дужка приоритета сверху (сектор −0.8π…−0.2π на r+5.5z) · подпись под нодой (y+r+12z) · глиф тега внутри · кольцо паузы на r+5z · пунктирное кольцо булавки на r+8z · свечение (doing/paused). Бейдж срока садится в ВЕРХНИЙ ПРАВЫЙ угол на радиусе r+7…8z — дальше дужки приоритета, поэтому они не сталкиваются. Нижний правый угол оставлен под значок статуса (см. demo_статусы.html).</div>`+
+    `<div class="row"><b>LOD:</b> бейдж не рисуется мельче порога подписей (<code>r&gt;=6.5 &amp;&amp; z&gt;=0.45</code>) — иначе на общем виде 245 нод дадут 245 огрызков цифр. На r=7 в матрице бейджа нет намеренно.</div>`+
+    `<div class="row"><b>Выполненные:</b> бейджа нет вовсе — как в <code>dueBadge</code> (core.js:100): вовремя → ничего, позже срока → «с опозданием Nд» в списках. На ноде опоздание показывать нечем и незачем: она уже потухла.</div>`;
+  f.querySelectorAll(".btn-v").forEach(b=>b.onclick=()=>{ вариантСцены=b.dataset.v; подвал(); рисовать(); });
+}
+подвал(); рисовать();
+window.addEventListener("resize", рисовать);
+</script>
+</body>
+</html>

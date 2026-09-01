@@ -5,6 +5,18 @@
   --acc:#ffffff; --warn:#e0625a;
   --pri1:#5fb98e; --pri2:#e8a14b; --pri3:#e0625a;
   --glow:rgba(255,255,255,.30);
+  /* Метка статуса, шкала времени и жар срочности. Читает их _палитра() в graph.js — на холсте
+     нет ни CSS-переменных, ни color-mix, поэтому цвет обязан приходить отсюда, иначе светлая
+     тема сломается (в коде рисования его хардкодить нельзя). Шкала времени НЕ повторяет
+     --pri1/2/3: две одинаковые зелёный→красный на одной ноде делают нечитаемыми обе, поэтому
+     у времени своя тропа — холодный→горячий, и начинается она там, где приоритета нет вовсе. */
+  --st-mark:#86868c; --st-wait:#7f9fbf; --st-next:#dcdce2; --st-review:#a98fd0;
+  /* Цвета СВЕЧЕНИЯ у «ждёт» и «на проверке» — темнее самих меток: свет размывается на 30 px
+     и светлый тон превращается в белёсое пятно, спорящее с цветным свечением работы. */
+  --st-wait-glow:#3f5f8f; --st-review-glow:#8f3f42;
+  --tm-far:#5f7f9e; --tm-week:#7b8794; --tm-soon:#9a9a92;
+  --tm-near:#d8b04a; --tm-today:#e0873c; --tm-over:#e0625a;
+  --ur1:#b9a06a; --ur2:#d98b46; --ur3:#e0625a;
   --dot:rgba(255,255,255,.08); --halo:rgba(255,255,255,.05);
   /* тень окон и меню: в тёмной теме густая, в светлой — мягкая, иначе на белом фоне
      вокруг каждой модалки лежит грязное чёрное пятно вместо подъёма над плоскостью */
@@ -20,6 +32,13 @@
   --acc:#000; --warn:#cc4b43;
   --pri1:#3f9e72; --pri2:#c8821f; --pri3:#cc4b43;
   --glow:rgba(0,0,0,.18);
+  /* те же роли, но подобраны под белый фон: на светлой теме холодные тона надо темнее, иначе
+     тонкая дуга в один пиксель исчезает */
+  --st-mark:#666666; --st-wait:#4a6f92; --st-next:#2b2b33; --st-review:#7a55b8;
+  --st-wait-glow:#5c7fae; --st-review-glow:#b05a5d;
+  --tm-far:#436a8c; --tm-week:#5d6b7a; --tm-soon:#7d7d74;
+  --tm-near:#b8891f; --tm-today:#c4691f; --tm-over:#cc4b43;
+  --ur1:#8a7430; --ur2:#b56a20; --ur3:#cc4b43;
   --dot:rgba(0,0,0,.07); --halo:rgba(0,0,0,.035);
   --sh:rgba(0,0,0,.13); --sh-strong:rgba(0,0,0,.17);
 }
@@ -809,6 +828,22 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 #node-pop .swatch{width:24px;height:24px;}
 #node-pop .np-ttl{font-size:13.5px;font-weight:500;line-height:1.35;margin-bottom:6px;}
 #node-pop .np-meta{font-size:11px;color:var(--mut);margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+/* Статус в карточке списка — обычный тег, но со своим тоном: «в работе» и «на очереди» ярче
+   подписи (это живая работа), «ждёт» холодным цветом шкалы, «на паузе» приглушённо. Цвет здесь
+   вторичен: рядом всегда стоит значок, так что признак читается и без него. */
+.note-card .tag.st-doing,.note-card .tag.st-next{color:var(--tx);}
+.note-card .tag.st-waiting{color:var(--st-wait);}
+.note-card .tag.st-review{color:var(--st-review);}
+.note-card .tag.st-paused{color:var(--mut2);font-style:italic;}
+/* Ряд статусов в поповере: подпись с напоминанием про Alt-цифры и сам ряд иконок.
+   Кнопки в нём — только значок: при шести значениях на каждую приходится 39,8 px (288 − 24
+   padding − 5×5 gap), в такую ширину подпись не влезает ни при какой вёрстке. Имя статуса
+   живёт в title, так что оно доступно по наведению. */
+#node-pop .np-stat-lbl{display:flex;justify-content:space-between;align-items:baseline;
+  font-size:11px;color:var(--mut);margin-bottom:4px;}
+#node-pop .np-stat-lbl span{font-size:10px;color:var(--mut2);}
+#node-pop .np-stat .btn{padding:0;gap:0;}
+#node-pop .np-stat .btn i{font-size:15px;}
 #node-pop .np-row{display:flex;gap:5px;}
 #node-pop .np-row .btn{flex:1;min-width:0;height:30px;justify-content:center;padding:0 6px;font-size:11.5px;gap:4px;white-space:nowrap;overflow:hidden;}
 #node-pop .np-row .btn i{flex:none;}
@@ -881,6 +916,12 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
    акценты Chromium посреди монохромного интерфейса). Кнопка сделана по образцу полей формы:
    те же поверхность, рамка и радиус, чтобы строка «Срок» читалась как поле, а не как кнопка. */
 .date-ctl{width:100%;}
+/* Быстрые кнопки срока: узкий ряд под кнопкой календаря. Мелкие и тихие намеренно — это
+   ускоритель, а не главный элемент строки; календарь остаётся на месте и не сдвигается. */
+.date-fast{display:flex;gap:4px;margin-top:4px;}
+.date-fast button{flex:1;min-width:0;height:22px;padding:0 4px;font:inherit;font-size:11px;
+  color:var(--mut);background:transparent;border:0.5px solid var(--bd);border-radius:6px;cursor:pointer;transition:.12s;}
+.date-fast button:hover{color:var(--tx);border-color:var(--bd2);background:var(--surf2);}
 /* line-height задан явно: у кнопки его считает содержимое, и без этого поле «Срок» вставало на
    два пикселя ниже соседнего «Повтора» — в строке из двух полей это видно сразу */
 .date-btn{display:flex;align-items:center;gap:8px;width:100%;background:var(--surf2);
