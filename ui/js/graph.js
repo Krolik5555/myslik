@@ -187,7 +187,8 @@ function renderNotes(v){
   if($("#g-hint-x")) $("#g-hint-x").onclick=()=>{ S.settings.graphHint=false; persist(); $("#g-hint").classList.add("off"); };
   $("#g-hint-on").onclick=()=>{ closeMore(); S.settings.graphHint=true; persist(); $("#g-hint").classList.remove("off"); };
   // тур живёт в main.js и грузится последним — к моменту клика он на месте
-  if($("#g-tour")) $("#g-tour").onclick=()=>{ closeMore(); if(typeof turStep==="function") turStep(0); };
+  // из меню открываем ВЕСЬ тур (turOpen(true)), а не только новые шаги: сюда человек лезет сам
+  if($("#g-tour")) $("#g-tour").onclick=()=>{ closeMore(); if(typeof turOpen==="function") turOpen(true); else if(typeof turStep==="function") turStep(0); };
   /* Счётчик кадров: показывает цену кадра в ЖИВОМ приложении и на своих данных. Замерочный
      стенд всегда мягче — в нём нет ни движений мыши, ни правой панели, ни моста на диск. */
   if($("#g-fps-on")) $("#g-fps-on").onclick=()=>{ closeMore();

@@ -35,7 +35,9 @@ turBanner(); await ж(150);
           ок: !!пл && пл.querySelector("b").textContent.includes(ТУР_ID),
           факт: "заголовок: «" + (пл ? пл.querySelector("b").textContent : "—") + "»"});
   t.push({имя: "в плашке коротко сказано, что нового, и есть кнопка",
-          ок: !!пл && /напоминани/i.test(пл.textContent) && !!document.querySelector("#tb-go"),
+          // подпись теперь собирается из непоказанных шагов (см. turBanner), поэтому проверяем
+          // не конкретную фразу — она меняется каждый релиз, — а что она есть и не пустая
+          ок: !!пл && (пл.querySelector(".tb-sub").textContent || "").trim().length > 10 && !!document.querySelector("#tb-go"),
           факт: пл ? "«" + пл.querySelector(".tb-sub").textContent.slice(0, 60) + "…» + кнопка «" +
                      document.querySelector("#tb-go").textContent + "»" : "—"});
   /* МЕСТО ПЛАШКИ — снизу по центру, а не в углу: в правом нижнем её закрывали правая панель и
@@ -64,8 +66,8 @@ t.push({имя: "кнопка открывает демонстрацию и у�
 
 // ================== ШАГ 0: СТАТУСЫ, БЕЗ ЦЕЛИ, ПО ЦЕНТРУ ==================
 const p0 = document.querySelector("#tour-pop");
-t.push({имя: "тур открывается и знает свои шаги (их пять)",
-        ок: !!p0 && p0.querySelectorAll(".tour-dots i").length === ТУР.length && ТУР.length === 5,
+t.push({имя: "тур открывается и знает свои шаги (их шесть)",
+        ок: !!p0 && p0.querySelectorAll(".tour-dots i").length === ТУР.length && ТУР.length === 6,
         факт: p0 ? "шагов " + ТУР.length + ", заголовок «" + p0.querySelector(".tour-head b").textContent + "»" : "выноски нет"});
 {
   const r = p0.getBoundingClientRect();
@@ -151,14 +153,21 @@ document.querySelector("#tour-next").click(); await ж(200); доиграть();
           факт: "класс mid: " + p.classList.contains("mid")});
 }
 
-// ================== ШАГ 4: ТОСТ, БЕЗ ЦЕЛИ, ПОСЛЕДНИЙ ==================
+// ================== ШАГ 4: ТОСТ, БЕЗ ЦЕЛИ ==================
+document.querySelector("#tour-next").click(); await ж(200); доиграть();
+t.push({имя: "шаг про тост несёт копию тоста вместо видео",
+        ок: /уведомлен/i.test(document.querySelector(".tour-head b").textContent) &&
+            !!document.querySelector("#tour-pop .tm-toast-card") &&
+            document.querySelector("#tour-pop #tour-next").textContent === "Дальше",
+        факт: "заголовок «" + document.querySelector(".tour-head b").textContent + "», копия тоста: " +
+              !!document.querySelector("#tour-pop .tm-toast-card")});
+
+// ================== ШАГ 5: ГРУППОВОЕ ПЕРЕТАСКИВАНИЕ, ПОСЛЕДНИЙ ==================
 document.querySelector("#tour-next").click(); await ж(200); доиграть();
 const последняя = document.querySelector("#tour-pop #tour-next").textContent;
-t.push({имя: "последний шаг — про тост-уведомление, кнопка «Понятно», с копией тоста вместо видео",
-        ок: /уведомлен/i.test(document.querySelector(".tour-head b").textContent) &&
-            последняя === "Понятно" && !!document.querySelector("#tour-pop .tm-toast-card"),
-        факт: "заголовок «" + document.querySelector(".tour-head b").textContent + "», кнопка «" + последняя +
-              "», копия тоста: " + !!document.querySelector("#tour-pop .tm-toast-card")});
+t.push({имя: "последний шаг — про перетаскивание группы, кнопка «Понятно»",
+        ок: /тащи|перетаск/i.test(document.querySelector(".tour-head b").textContent) && последняя === "Понятно",
+        факт: "заголовок «" + document.querySelector(".tour-head b").textContent + "», кнопка «" + последняя + "»"});
 document.querySelector("#tour-next").click(); await ж(150);
 t.push({имя: "«Понятно» закрывает тур", ок: последняя === "Понятно" && !document.querySelector("#tour-pop"),
         факт: "кнопка «" + последняя + "», выноска убрана: " + !document.querySelector("#tour-pop")});
@@ -204,6 +213,46 @@ t.push({имя: "Escape закрывает и запоминает", ок: S.set
   t.push({имя: "и меню при этом закрывается",
           ок: document.querySelector("#g-more-menu").style.display === "none",
           факт: "меню: " + (document.querySelector("#g-more-menu").style.display || "видно")});
+}
+
+/* ================== СЛОЁНЫЙ ТУР ==================
+   Обновившийся с прошлой версии не должен заново листать то, что уже читал, а пришедший
+   с более старой — обязан увидеть всё. Отдельно держим сравнение версий: строкой "2.0.10"
+   меньше "2.0.9", и на десятом патче тур молча перестал бы показываться. */
+{
+  turDone();
+  const всего = ТУР.length, новых = ТУР.filter(ш => ш.v === ТУР_ID).length;
+
+  S.settings.tourSeen = "2.0.5";
+  const сПрошлой = turNewSteps();
+  t.push({имя:"обновился с прошлой версии — только новые шаги",
+          ок: сПрошлой.length === новых && сПрошлой.every(ш => ш.v === ТУР_ID),
+          факт: "показали " + сПрошлой.length + " из " + всего + " (новых в релизе " + новых + ")"});
+
+  S.settings.tourSeen = "2.0.4";
+  t.push({имя:"обновился с более старой — тур целиком",
+          ок: turNewSteps().length === всего,
+          факт: "показали " + turNewSteps().length + " из " + всего});
+
+  S.settings.tourSeen = ТУР_ID;
+  t.push({имя:"уже видел эту версию — плашка молчит",
+          ок: turNewSteps().length === 0 && turMaybeShow() === false,
+          факт: "новых шагов " + turNewSteps().length});
+
+  t.push({имя:"версии сравниваются числами, а не строками",
+          ок: turVerNewer("2.0.10","2.0.9") && !turVerNewer("2.0.9","2.0.10")
+              && turVerNewer("2.0.5.1","2.0.5") && !turVerNewer("2.0.5","2.0.5.1")
+              && turVerNewer("2.0.5", null),
+          факт: '"2.0.10">"2.0.9": ' + turVerNewer("2.0.10","2.0.9")
+              + ', "2.0.5.1">"2.0.5": ' + turVerNewer("2.0.5.1","2.0.5")});
+
+  // из меню «Что нового» человек лезет сам — там тур обязан быть полным, даже если отметка свежая
+  S.settings.tourSeen = ТУР_ID;
+  turOpen(true);
+  const точек = document.querySelectorAll(".tour-dots i").length;
+  turDone();
+  t.push({имя:"меню «Что нового» открывает весь тур, а не только новинки",
+          ок: точек === всего, факт: "точек в шкале " + точек + " из " + всего});
 }
 
 // ================== УБОРКА ==================
