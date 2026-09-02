@@ -200,7 +200,7 @@ def _startup_report(exc_text):
 
     L += ["", "== Пробные импорты =="]
 
-    def шаг(имя, fn):
+    def step(имя, fn):
         """Шаги идут ПО ПОРЯДКУ и повторяют путь pywebview: голый `import System.Windows.Forms`
         падает и на исправной машине — сборка появляется только после clr.AddReference."""
         try:
@@ -211,13 +211,13 @@ def _startup_report(exc_text):
             L.append("%s — ОТКАЗ:\n%s" % (имя, traceback.format_exc()))
             return False
 
-    if шаг("import clr (старт .NET)", lambda: importlib.import_module("clr")):
+    if step("import clr (старт .NET)", lambda: importlib.import_module("clr")):
         import clr
-        if шаг("clr.AddReference('System.Windows.Forms')",
+        if step("clr.AddReference('System.Windows.Forms')",
                lambda: clr.AddReference("System.Windows.Forms")):
-            шаг("import System.Windows.Forms",
+            step("import System.Windows.Forms",
                 lambda: importlib.import_module("System.Windows.Forms"))
-    шаг("import webview.platforms.winforms (то, что падает у pywebview)",
+    step("import webview.platforms.winforms (то, что падает у pywebview)",
         lambda: importlib.import_module("webview.platforms.winforms"))
 
     L += ["", "== Лог pywebview =="]
@@ -1532,7 +1532,7 @@ def _build_titlebar(form):
 
     state = {"hover": None, "down": None}
 
-    def кнопки():
+    def buttons():
         """Прямоугольники трёх кнопок справа налево: закрыть, развернуть, свернуть."""
         pad = int(round(6 * scale))
         y = (H - BTN_H) // 2
@@ -1589,7 +1589,7 @@ def _build_titlebar(form):
         f.Dispose()
 
         # --- кнопки окна
-        for name, r in кнопки():
+        for name, r in buttons():
             fg = mut
             if state["hover"] == name:
                 hb = ColorTranslator.FromHtml(c["warn"] if name == "close" else c["hover"])
@@ -1623,7 +1623,7 @@ def _build_titlebar(form):
         brush_tx.Dispose()
 
     def hit(x, y):
-        for name, r in кнопки():
+        for name, r in buttons():
             if r.Contains(x, y):
                 return name
         return None

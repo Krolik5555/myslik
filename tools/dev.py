@@ -138,7 +138,7 @@ def _check_data():
     ]
 
 
-def _символы_кода():
+def _code_symbols():
     """Все имена, определённые во фронте и в питоне, — чтобы сверять с ними карту."""
     имена = set()
     for f in ("core.js", "model.js", "notify.js", "views.js", "graph.js", "overlays.js", "draw.js",
@@ -191,7 +191,7 @@ def _символы_кода():
 КАРТА_НЕ_СЕЛЕКТОРЫ = {".part", ".js", ".py", ".css", ".md", ".ps1", ".json"}
 
 
-def _check_карта():
+def _check_map():
     """Карта обязана совпадать с кодом: иначе она молча превращается во вредный справочник.
 
     Проверяем три вещи, которые устаревают первыми: упомянутые файлы существуют, упомянутые
@@ -201,7 +201,7 @@ def _check_карта():
     if not карта:
         return [("карта кода на месте", False, "docs/КАРТА.md не читается")]
     токены = re.findall(r'`([^`\n]+)`', карта)
-    символы = _символы_кода()
+    символы = _code_symbols()
     css = _read("ui/styles.css")
 
     нет_файлов, нет_символов, нет_селекторов = [], [], []
@@ -246,7 +246,7 @@ def cmd_check():
     rows += _check_versions()
     rows += _check_assets_version()
     rows += _check_python()
-    rows += _check_карта()
+    rows += _check_map()
     rows += _check_data()
     # синтаксис фронта — внутри приложения (нужен движок), отдельным сценарием
     js = run_scenarios(["модули"], quiet=True)
@@ -404,7 +404,7 @@ def cmd_map():
 
 # ---------------------------------------------------------------- где
 
-def cmd_где(слово=None):
+def cmd_where(слово=None):
     """Адрес по слову: строки карты, символы кода и селекторы стилей.
 
     Первый ход по любой задаче: запрос звучит как «календарь всрато», а не именем функции, и
@@ -528,7 +528,7 @@ def main(argv):
     if cmd == "map":
         return cmd_map()
     if cmd in ("где", "where"):
-        return cmd_где(argv[2] if len(argv) > 2 else None)
+        return cmd_where(argv[2] if len(argv) > 2 else None)
     if cmd == "shot":
         return cmd_shot(argv[2] if len(argv) > 2 else "панель")
     print(__doc__)

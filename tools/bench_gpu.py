@@ -79,7 +79,7 @@ def _ps(команда, timeout=60):
     return p.stdout.decode("utf-8", "replace")
 
 
-def _дерево(корень):
+def _tree(корень):
     """pid'ы всего дерева процессов: питон, окно WebView2 и все его дети (GPU-процесс в том числе).
        Считать по имени msedgewebview2 нельзя: у КРОЛИКА параллельно живут чужие WebView2."""
     out = _ps("Get-CimInstance Win32_Process | ForEach-Object { \"$($_.ProcessId);$($_.ParentProcessId);$($_.Name)\" }")
@@ -99,7 +99,7 @@ def _дерево(корень):
     return sorted(свои), имя
 
 
-def старт_логгера(pids):
+def start_logger(pids):
     """Фоновый PowerShell: каждые ~120 мс строка «мс,gpu%,cpu_сек,по движкам».
        Счётчик спрашиваем ТОЧЕЧНО по нашим pid: перечисление всех инстансов стоит 2.3 с."""
     сп = ",".join(str(p) for p in pids)
@@ -123,7 +123,7 @@ def старт_логгера(pids):
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def старт_нвидиа():
+def start_nvidia():
     """Вторая колонка правды: загрузка, частота и ватты всей видеокарты."""
     код = ("$sw=New-Object IO.StreamWriter('%s',$false);"
            "while($true){"
@@ -136,7 +136,7 @@ def старт_нвидиа():
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def _читать(путь, разд):
+def _read(путь, разд):
     строки = []
     try:
         for s in io.open(путь, encoding="utf-8", errors="replace"):
@@ -149,9 +149,9 @@ def _читать(путь, разд):
     return строки
 
 
-def свод(t0, t1):
+def summary(t0, t1):
     окно = []
-    for мс, c in _читать(ЛОГ, ","):
+    for мс, c in _read(ЛОГ, ","):
         if t0 <= мс <= t1:
             try:
                 окно.append((мс, float(c[0].replace(",", ".")), float((c[1] or "0").replace(",", "."))))
@@ -164,9 +164,9 @@ def свод(t0, t1):
     return {"gpu": sum(g) / len(g), "gpuмакс": max(g), "cpu": cpu}
 
 
-def сводНВ(t0, t1):
+def summary_nv(t0, t1):
     окно = []
-    for мс, c in _читать(НВ, ";"):
+    for мс, c in _read(НВ, ";"):
         if not (t0 <= мс <= t1):
             continue
         ч = [x for x in re.split(r"[,\s]+", (c[0] or "").strip()) if x]
@@ -183,7 +183,7 @@ def сводНВ(t0, t1):
             "вт": sum(x[2] for x in окно) / n}
 
 
-def фазы(a):
+def phases(a):
     """Каждая строка: имя и JS, который включает режим. gb.стоп() зовётся перед каждой."""
     if a.итог:
         сп = []
@@ -308,11 +308,11 @@ def main(argv):
                         print("%-8s %11s %9.3f %11d" % ("%.2f" % z, м, r.get("мс", 0), r.get("вСек", 0)))
                 return
 
-            pids, имена = _дерево(os.getpid())
-            логгер = старт_логгера(pids)
-            нв = старт_нвидиа()
+            pids, имена = _tree(os.getpid())
+            логгер = start_logger(pids)
+            нв = start_nvidia()
             time.sleep(3.5)            # запуск powershell + первый замер
-            for имя, js in фазы(a):
+            for имя, js in phases(a):
                 window.evaluate_js("window.__gb.стоп();" + js)
                 time.sleep(ОСЕСТЬ_С)
                 window.evaluate_js("window.__gb.метрика();")
@@ -352,8 +352,8 @@ def main(argv):
     print("\n%-38s %6s %6s %6s %6s %6s %6s %6s"
           % ("фаза", "GPU%", "CPU%", "кадр/с", "JSмс", "картаU", "МГц", "Вт"))
     for r in итог["строки"]:
-        s = свод(r["t0"], r["t1"])
-        n = сводНВ(r["t0"], r["t1"]) or {}
+        s = summary(r["t0"], r["t1"])
+        n = summary_nv(r["t0"], r["t1"]) or {}
         м = r["м"] or {}
         кс = (м.get("кадров") or 0) / max(0.001, r["t1"] - r["t0"])
         js = (м.get("мс") or 0) / max(1, м.get("кадров") or 1)
