@@ -2913,5 +2913,91 @@ t.push({имя:"возврат на вкладку пересобирает гр
   } finally { g._tick = род; g.resume(); }
 }
 
+/* ГРУППОВОЕ ПЕРЕТАСКИВАНИЕ. Тащишь одну из выделенных — едут все выделенные, и форма группы
+   не плывёт. Проверяем и обратные условия: невыделенный сосед за группой не увязывается, хват
+   НЕвыделенной ноды группу не цепляет вовсе, а признак хвата снимается со ВСЕХ — забытый флаг
+   навсегда выключает физику для ноды, и заметно это станет далеко от места правки.
+   Ноды берём с владельцем (родитель или область): без владельца дом не от чего считать, и
+   _домЖест такую ноду законно пропускает — проверять на ней назначение дома нечего. */
+{
+  // фикстура своя: детям нужен ВЛАДЕЛЕЦ (родитель или область), иначе дому не от чего считаться
+  // и _домЖест такую ноду законно пропустит — проверять на ней было бы нечего
+  const было = S.items.length;
+  // жест меряем по SVG-элементам, значит режим задаём явно: предыдущие блоки могли оставить canvas
+  const рендерБыл = S.settings.graphRender; S.settings.graphRender = "svg";
+  /* Корень привязываем к ОБЛАСТИ: иерархию recomputeHierarchy считает обходом от областей, и
+     ветка, не дотянутая до области, родителей не получает вовсе — а без владельца дом не
+     назначается (см. _домЖест), и проверка ниже мерила бы пустоту. */
+  const корень = addItem({kind:"task", title:"группа: корень"}); корень.x = 0; корень.y = 0;
+  if (S.areas[0]) { корень.area = S.areas[0].id; корень.areaAuto = false; }
+  const дети = [];
+  // владельца задаём СВЯЗЬЮ, а не полем parent: иерархию пересчитывает recomputeHierarchy по связям,
+  // и проставленный руками parent она тут же затрёт — дом тогда не назначится никому
+  for (let i = 0; i < 3; i++){ const д = addItem({kind:"task", title:"группа "+i}); д.x = 140+i*70; д.y = 90; дети.push(д); S.links.push([корень.id, д.id, 1]); }
+  const внеВыделения = addItem({kind:"task", title:"группа: вне выделения"}); внеВыделения.x = 140; внеВыделения.y = 420;
+  S.links.push([корень.id, внеВыделения.id, 1]);
+  recomputeHierarchy(); render(); await ж(200);
+
+  try {
+  const svg = graph.svg, rc = svg.getBoundingClientRect();
+  const экр = (wx, wy) => ({x: rc.left + (wx*graph.zoom + graph.tx)/graph.W*rc.width,
+                            y: rc.top  + (wy*graph.zoom + graph.ty)/graph.H*rc.height});
+  const эл = id => svg.querySelector('.g-node[data-id="' + id + '"]');
+  const группа = дети.map(д => graph.byId[д.id]), чужой = graph.byId[внеВыделения.id];
+  if (группа.every(Boolean) && чужой && эл(дети[0].id) && эл(внеВыделения.id)) {
+    const домБыл = S.settings.graphHome;
+    S.settings.graphHome = true;                    // жест нужен прежде всего при «Держать раскладку»
+    группа.forEach(n => { delete n.ref.hx; delete n.ref.hy; });
+    graph.selNodes = new Set(группа.map(n => n.id)); graph._paintSel();
+
+    // сколько мировых px даёт сдвиг курсора на 80 экранных — зависит от зума, поэтому считаем, а не гадаем
+    const ожид = 80*graph.W/(rc.width*graph.zoom);
+    const p = экр(группа[0].x, группа[0].y);
+    const было = группа.map(n => ({x:n.x, y:n.y})), чужБыл = {x:чужой.x, y:чужой.y};
+    эл(дети[0].id).dispatchEvent(new PointerEvent("pointerdown", {button:0, clientX:p.x, clientY:p.y, bubbles:true, cancelable:true}));
+    svg.dispatchEvent(new PointerEvent("pointermove", {buttons:1, clientX:p.x+80, clientY:p.y+40, bubbles:true, cancelable:true}));
+    const дельты = группа.map((n,i) => ({dx: n.x-было[i].x, dy: n.y-было[i].y}));
+    const разброс = Math.max(...дельты.map(d => Math.abs(d.dx-дельты[0].dx) + Math.abs(d.dy-дельты[0].dy)));
+    t.push({имя:"группа едет за ведущей нодой", ок: дельты.every(d => Math.abs(d.dx) > ожид*0.5),
+            факт: "сдвиги по x: " + дельты.map(d => Math.round(d.dx)).join(", ") + " при ожидаемых ~" + Math.round(ожид)});
+    t.push({имя:"форма группы не плывёт", ок: разброс < 0.5,
+            факт: "расхождение " + разброс.toFixed(2) + " px"});
+    svg.dispatchEvent(new PointerEvent("pointerup", {button:0, clientX:p.x+80, clientY:p.y+40, bubbles:true, cancelable:true}));
+
+    t.push({имя:"невыделенная нода за группой не едет",
+            ок: Math.abs(чужой.x-чужБыл.x) < 1 && Math.abs(чужой.y-чужБыл.y) < 1,
+            факт: "сместилась на " + Math.round(Math.abs(чужой.x-чужБыл.x)) + " px"});
+    t.push({имя:"дом назначен всей группе, а не одной ведущей",
+            ок: группа.every(n => n.ref.hx != null && n.ref.hy != null),
+            факт: "с домом " + группа.filter(n => n.ref.hx != null).length + " из 3"
+                + " | владельцы: " + группа.map(n => n.ref.parent ? "parent" : (n.ref.area ? "area" : "нет")).join(",")
+                + " | режим дома " + S.settings.graphHome});
+    t.push({имя:"признак хвата снят со всей группы",
+            ок: группа.every(n => !n._grabbed) && !graph.dragMates,
+            факт: "в руке остались " + группа.filter(n => n._grabbed).length + ", dragMates " + (graph.dragMates ? "жив" : "пуст")});
+
+    // хват НЕвыделенной ноды при живом выделении: она едет одна, группа остаётся на месте
+    const p2 = экр(чужой.x, чужой.y), гБыло = группа.map(n => n.x);
+    эл(внеВыделения.id).dispatchEvent(new PointerEvent("pointerdown", {button:0, clientX:p2.x, clientY:p2.y, bubbles:true, cancelable:true}));
+    svg.dispatchEvent(new PointerEvent("pointermove", {buttons:1, clientX:p2.x+70, clientY:p2.y, bubbles:true, cancelable:true}));
+    const дёрнулась = группа.some((n,i) => Math.abs(n.x - гБыло[i]) > 1);
+    svg.dispatchEvent(new PointerEvent("pointerup", {button:0, clientX:p2.x+70, clientY:p2.y, bubbles:true, cancelable:true}));
+    t.push({имя:"хват невыделенной ноды группу не тащит", ок: !дёрнулась,
+            факт: дёрнулась ? "группа поехала следом" : "группа стоит"});
+
+    S.settings.graphHome = домБыл; graph.selNodes.clear(); graph._paintSel();
+  } else {
+    t.push({имя:"групповое перетаскивание: фикстура собралась", ок:false,
+            факт:"нод в графе " + группа.filter(Boolean).length + " из 3, элементы " + (эл(дети[0].id) ? "есть" : "НЕТ")});
+  }
+  } catch(e) {
+    // без перехвата исключение обрывает весь сценарий, и раннер сообщает «таймаут» вместо причины
+    t.push({имя:"групповое перетаскивание: жест отработал без исключений", ок:false, факт:String((e && e.message) || e)});
+  }
+  S.items.slice(было).map(i => i.id).forEach(id => hardDeleteItem(id));
+  S.settings.graphRender = рендерБыл;
+  recomputeHierarchy(); render(); await ж(120);
+}
+
 hardDeleteItem(мысль.id); render();
 return t;

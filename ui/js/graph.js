@@ -364,7 +364,7 @@ class Graph{
     this.svg=svg; this.W=svg.clientWidth||900; this.H=svg.clientHeight||500;
     this.nodes=[]; this.links=[]; this.byId={};
     this._lcId=null; this._lcT=0;
-    this.alpha=1; this.drag=null; this.linkFrom=null; this.sel=null;
+    this.alpha=1; this.drag=null; this.dragMates=null; this._dragHollowAreas=null; this.linkFrom=null; this.sel=null;
     // режим «что горит» переживает и пересборку вида, и перезапуск приложения — состояние в S.settings, не на экземпляре
     this._показатьЖар=!!S.settings.graphShowHeat;
     this._dbg = _дрожьВкл ? this._dbgNew() : null;   // диагностика дрожи — только по выключателю (см. дрожь())
@@ -1395,6 +1395,26 @@ class Graph{
         // перетаскивания прыгала центром под курсор — схватил за край, а она дёрнулась.
         this.drag=n; n._moved=false; this._dragFrom={x:e.clientX,y:e.clientY};
         { const p0=this._pt(e); this._grab={dx:n.x-p0.x, dy:n.y-p0.y}; }
+        /* ГРУППОВОЙ ХВАТ: схватили одну из выделенных — едут все выделенные. Смещения снимаем
+           ОДИН раз здесь, чтобы в кадре осталось только сложение: перебирать selNodes на каждое
+           движение мыши значило бы платить за выделение из 50 нод на каждом кадре жеста.
+           Клик по уже выделенной ноде выделение НЕ чистит (условие выше), поэтому группа
+           доживает до pointerdown в целости.
+           Признак хвата держим ФЛАГОМ НА НОДЕ (`_grabbed`, у ведущей тоже): физика в двух местах
+           спрашивает «эта нода в руке?», и сравнения `n===this.drag` ей больше не хватает. */
+        this.dragMates=null; n._grabbed=true;
+        if(this.selNodes.size>1 && this.selNodes.has(n.id)){
+          const мест=[];
+          this.selNodes.forEach(id=>{ const m=this.byId[id];
+            if(m && m!==n){ m._grabbed=true; мест.push({n:m, dx:m.x-n.x, dy:m.y-n.y}); } });
+          if(мест.length) this.dragMates=мест;
+        }
+        /* Области пустышек, которые сейчас в руке: якоря им переоцениваются каждый кадр
+           (см. _tick). Список собираем на старте — в кадре перебирать всю группу незачем. */
+        this._dragHollowAreas=null;
+        { const обл=new Set(); if(n.hollow) обл.add(n.area);
+          if(this.dragMates) this.dragMates.forEach(m=>{ if(m.n.hollow) обл.add(m.n.area); });
+          if(обл.size) this._dragHollowAreas=[...обл]; }
         svg.setPointerCapture(e.pointerId);
         return;
       }
@@ -1431,6 +1451,13 @@ class Graph{
         // тянем за ТУ ЖЕ точку, за которую взялись (см. _grab) — нода не прыгает центром под курсор
         const p=this._pt(e), g=this._grab||{dx:0,dy:0};
         this.drag.x=p.x+g.dx; this.drag.y=p.y+g.dy; this.drag.vx=0; this.drag.vy=0;
+        /* Пассажиры едут ЖЁСТКО за ведущей, а не тянутся резинкой: группа держит форму, и по ней
+           видно, куда её кладут. Стоимость кадра — одно сложение на ноду поверх готовых смещений;
+           координаты в DOM/холст пишет тот же цикл _tick, что и всегда, поэтому плавность
+           одиночного перетаскивания не меняется. */
+        const М=this.dragMates;
+        if(М) for(let i=0;i<М.length;i++){ const м=М[i], q=м.n;
+          q.x=this.drag.x+м.dx; q.y=this.drag.y+м.dy; q.vx=0; q.vy=0; }
         this.alpha=Math.max(this.alpha,.4); this._wake(); return;
       }
       /* ПАН СЧИТАЕТСЯ ПРИРАЩЕНИЯМИ, а не от точки нажатия. Раньше tx/ty каждый раз пересчитывались
@@ -1486,15 +1513,21 @@ class Graph{
         const n=this.drag;
         if(n._moved){   // позиции пишем ТОЛЬКО после настоящего перетаскивания — клик не должен трогать файл
           // соседи разъезжаются физикой и сохранятся, когда раскладка остынет (см. _tick)
-          if(n.ref){ n.ref.x=n.x; n.ref.y=n.y;
-            /* ЖЕСТ ЗАДАЁТ ДОМ — и это единственное место, где дом переписывается после протяжки.
-               Физика дом не пишет никогда, поэтому соседи, которых сейчас растолкало, вернутся
-               на свои места сами: их дома не тронуты.
-               Хабу области дом не нужен вовсе: его x/y И ЕСТЬ дом, а дома детей — смещения от
-               него, и за хабом они едут сами, без единой дополнительной строки. */
-            if(S.settings.graphHome) this._домЖест(n.ref);
-          }
-          else if(n.hubArea){ n.hubArea.x=n.x; n.hubArea.y=n.y; }                        // позиция области
+          /* ГРУППА ЗАПИСЫВАЕТСЯ В ДВА ПРОХОДА, и порядок здесь принципиален. Дом ребёнка —
+             СМЕЩЕНИЕ ОТ ВЛАДЕЛЬЦА (см. _домЖест), поэтому сперва на диск уезжают позиции всей
+             группы и только потом считаются дома: если владелец ехал в той же группе, дом,
+             посчитанный до его записи, промахнулся бы ровно на длину жеста. */
+          const группа=[n]; if(this.dragMates) this.dragMates.forEach(м=>группа.push(м.n));
+          группа.forEach(q=>{
+            if(q.ref){ q.ref.x=q.x; q.ref.y=q.y; }
+            else if(q.hubArea){ q.hubArea.x=q.x; q.hubArea.y=q.y; }                      // позиция области
+          });
+          /* ЖЕСТ ЗАДАЁТ ДОМ — и это единственное место, где дом переписывается после протяжки.
+             Физика дом не пишет никогда, поэтому соседи, которых сейчас растолкало, вернутся
+             на свои места сами: их дома не тронуты.
+             Хабу области дом не нужен вовсе: его x/y И ЕСТЬ дом, а дома детей — смещения от
+             него, и за хабом они едут сами, без единой дополнительной строки. */
+          if(S.settings.graphHome) группа.forEach(q=>{ if(q.ref) this._домЖест(q.ref); });
           // с БОЛЬШИМ дебаунсом: серия «тащу — отпускаю — снова тащу» обязана уехать на диск
           // одной записью после того, как рука остановилась (разбор — у ЗАПИСЬ_ЖЕСТ_МС в core.js)
           persist(false, ЗАПИСЬ_ЖЕСТ_МС);
@@ -1523,6 +1556,11 @@ class Graph{
            клика: выделение сменилось в обоих случаях. Хаб своей карточки не имеет —
            _syncAside его отфильтрует сам. */
         this._syncAsideПотом();
+        /* Признак хвата снимаем СО ВСЕЙ группы. Забыть его на пассажире — значит навсегда
+           выключить для него физику: в _tick такая нода вечно стоит с нулевой скоростью. */
+        n._grabbed=false;
+        if(this.dragMates){ this.dragMates.forEach(м=>{ м.n._grabbed=false; }); this.dragMates=null; }
+        this._dragHollowAreas=null;
         this.drag=null;
       }
       this.panning=null;
@@ -2456,7 +2494,7 @@ class Graph{
     }
     D.кадров++;
     for(const n of this.nodes){
-      if(n===тащим) continue;                      // ноду под курсором ведёт рука, а не физика
+      if(n===тащим || n._grabbed) continue;        // ноды в руке ведёт жест, а не физика — в замер дрожи они не идут
       const r=D.зап(n);
       const vx=n.x+(n._ix||0), vy=n.y+(n._iy||0);  // ВИДИМАЯ позиция: дрожь человек видит в ней
       if(r.пx!=null){
@@ -3090,7 +3128,9 @@ class Graph{
        рукой (дёшево: узлов в одной области немного), и РЕЖЕ (раз в ~0.4 с) для всего графа —
        на случай, если пустышка отъехала физикой, а не рукой. */
     if(this._естьПустышки){
-      if(this.drag && this.drag.hollow) this._переоценитьЯкоря(this.drag.area);
+      // в руке может быть сразу несколько пустышек (групповой хват) — области собраны на старте жеста
+      if(this._dragHollowAreas){ for(let i=0;i<this._dragHollowAreas.length;i++) this._переоценитьЯкоря(this._dragHollowAreas[i]); }
+      else if(this.drag && this.drag.hollow) this._переоценитьЯкоря(this.drag.area);
       this._ппТик=((this._ппТик||0)+1)%24;
       if(this._ппТик===0) this._переоценитьЯкоря();
     }
@@ -3458,7 +3498,7 @@ class Graph{
         const ширина=наружу==null ? 6.283185307 : Math.min(5.0, 1.1+0.42*k);
         const шаг=ширина/k;
         for(let i=0;i<k;i++){
-          const n=this.byId[спис[i]]; if(!n || n===this.drag || n.fixed) continue;
+          const n=this.byId[спис[i]]; if(!n || n===this.drag || n._grabbed || n.fixed) continue;
           const dx=n.x-p.x, dy=n.y-p.y, r2=dx*dx+dy*dy; if(r2<400) continue;
           const r=Math.sqrt(r2);
           const серединаВеера=(наружу==null) ? Math.atan2(dy,dx)-(i-(k-1)/2)*шаг : наружу;
@@ -3613,7 +3653,7 @@ class Graph{
           const rдx=nдx-(aдx+eдx*tд), rдy=nдy-(aдy+eдy*tд);
           DBG.зазор(n, need-d, need-Math.sqrt(rдx*rдx+rдy*rдy));
           // связь ТАЩИМОЙ ноды прошла к этой ближе зазора — это и есть «жертва руки»
-          if(a===this.drag || b===this.drag) DBG.жертва(n, (a.label||a.id)+" → "+(b.label||b.id), d);
+          if(a===this.drag || b===this.drag || a._grabbed || b._grabbed) DBG.жертва(n, (a.label||a.id)+" → "+(b.label||b.id), d);
         }
       }
     }
@@ -3708,7 +3748,9 @@ class Graph{
        уходит на сотни пикселей, а ветка догоняет по шесть. Подняли до 16 вместе с жёсткостью
        пружин и трением (см. ниже) — быстрее, но без рывков и без раскачки. */
     const MX=16;
-    N.forEach(n=>{ if(n===this.drag||n.fixed){ n.vx=0; n.vy=0; return; }
+    // `_grabbed` — вся группа в руке, а не одна ведущая нода (см. onpointerdown): позиции
+    // пассажирам задаёт жест, и физике их двигать нельзя, иначе группа расползётся под рукой
+    N.forEach(n=>{ if(n===this.drag||n._grabbed||n.fixed){ n.vx=0; n.vy=0; return; }
       /* Пока ноду тащат, соседи двигаются ВЯЗЧЕ, и тем сильнее, чем больше у них связей.
          Давишь соседней нодой на связь — крупный узел на её конце получает толчки каждый кадр
          и мелко трясётся: шаг маленький, но направление меняется десятки раз за проход.
