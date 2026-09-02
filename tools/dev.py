@@ -141,7 +141,7 @@ def _check_data():
 def _символы_кода():
     """Все имена, определённые во фронте и в питоне, — чтобы сверять с ними карту."""
     имена = set()
-    for f in ("core.js", "model.js", "views.js", "graph.js", "overlays.js", "draw.js",
+    for f in ("core.js", "model.js", "notify.js", "views.js", "graph.js", "overlays.js", "draw.js",
               "fields.js", "ai.js", "report.js", "main.js"):
         s = _read("ui/js/" + f)
         for a, b, c in re.findall(r'^(?:async\s+)?function\s+([A-Za-zА-Яа-я_$][\w$]*)'
@@ -180,7 +180,9 @@ def _символы_кода():
     "board", "elements", "files", "appState", "fromFlow", "fields", "items", "areas", "links",
     "boards", "settings", "templates", "template", "prose", "list", "available", "reason",
     "inbound", "outbound", "map", "check", "run", "status", "где", "shot", "python", "main",
-    "hub_", "fld_", "arealen", "lenMul", "restLen", "max", "parse_partial",
+    "hub_", "fld_", "arealen", "lenMul", "restLen", "max", "parse_partial", "prevStatus",
+    # событие DOM, а не объявленное имя; подписи быстрых кнопок срока (БЫСТРЫЙ_СРОК), не символы
+    "keydown", "зв", "пт", "сег",
     # инструменты, которыми работают, а не код проекта
     "Edit", "Grep", "Read", "search_graph", "trace_path", "get_code_snippet", "get_architecture",
     "check_index_coverage", "index_status", "index_repository", "detect_changes", "codebase-memory",
