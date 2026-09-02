@@ -19,7 +19,7 @@ await ж(400);
 
 const ctx = graph.mainCtx, cv = graph.mainCanvas;
 const W = graph.W, H = graph.H;
-const пал = graph._палитра();
+const пал = graph._palette();
 
 /* ---- то, что рисуем: реальные ноды в экранных координатах текущей камеры ---- */
 function собрать() {
@@ -28,7 +28,7 @@ function собрать() {
     const x = n.x * graph.zoom + graph.tx, y = n.y * graph.zoom + graph.ty;
     const r = Math.max(2, n.r * graph.zoom);
     if (x + r < -40 || x - r > W + 40 || y + r < -40 || y - r > H + 40) continue;
-    сп.push({x, y, r, форма: graph._форма(n), цвет: n.color || пал.узел,
+    сп.push({x, y, r, форма: graph._shape(n), цвет: n.color || пал.узел,
              зал: n.done ? (n.color || пал.узел) : пал.фонУзла,
              подпись: (n.label || "").slice(0, 22)});
   }
@@ -51,7 +51,7 @@ function путями() {
   гр.forEach(g => {
     ctx.fillStyle = g.n.зал; ctx.strokeStyle = g.n.цвет; ctx.lineWidth = 1.7;
     ctx.beginPath();
-    for (const n of g.точки) graph._путьФормы(ctx, n.форма, n.x, n.y, n.r);
+    for (const n of g.точки) graph._shapePath(ctx, n.форма, n.x, n.y, n.r);
     ctx.fill(); ctx.stroke(); вызовов += 2;
   });
   return вызовов;
@@ -72,7 +72,7 @@ function спрайт(n, корзина) {
   s = document.createElement("canvas"); s.width = размер; s.height = размер;
   const c = s.getContext("2d");
   c.fillStyle = n.зал; c.strokeStyle = n.цвет; c.lineWidth = 1.7;
-  c.beginPath(); graph._путьФормы(c, n.форма, размер / 2, размер / 2, r);
+  c.beginPath(); graph._shapePath(c, n.форма, размер / 2, размер / 2, r);
   c.fill(); c.stroke();
   АТЛАС.set(к, s);
   return s;

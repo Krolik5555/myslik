@@ -153,7 +153,7 @@ function renderNotes(v){
   $("#g-search").onclick=()=>{ const box=$("#g-search-box"); if(box && box.style.display!=="none") graph.closeSearch(); else graph.openSearch(); };
   $("#g-focus").onclick=()=>graph._fitView();
   if($("#g-home")) $("#g-home").onclick=()=>graph.toggleHome();
-  if($("#g-heat")) $("#g-heat").onclick=()=>graph.toggleЖар();
+  if($("#g-heat")) $("#g-heat").onclick=()=>graph.toggleHeat();
   // меню «Ещё»: редко используемые действия убраны из тулбара, чтобы не перегружать (зум — колесом)
   const moreMenu=$("#g-more-menu");
   function onDocMore(ev){ if(!document.body.contains(moreMenu)){ document.removeEventListener("pointerdown",onDocMore,true); return; }   // граф пересоздан — снять висячий слушатель
@@ -429,7 +429,7 @@ class Graph{
   _schedule(пауза){
     if(this._paused){ this.raf=null; return; }
     this._idle=false;
-    this._снятьКадр();
+    this._cancelFrame();
     const пот=(S.settings && S.settings.graphFpsCap!=null) ? +S.settings.graphFpsCap : 0;
     const мин=(пот>0) ? 1000/пот : 0;
     const ждать=Math.max(пауза||0, мин ? мин-(performance.now()-(this._прКадр||0)) : 0);
@@ -442,8 +442,8 @@ class Graph{
   }
   // «кадр запланирован» — это ЛИБО rAF, ЛИБО таймер ожидания. Проверять одно this.raf больше
   // нельзя: пока идёт пауза между кадрами, он пуст, и старая проверка завела бы второй цикл.
-  _ждётКадр(){ return !!(this.raf || this._кадрТаймер); }
-  _снятьКадр(){ if(this.raf){ cancelAnimationFrame(this.raf); this.raf=null; }
+  _frameWaiting(){ return !!(this.raf || this._кадрТаймер); }
+  _cancelFrame(){ if(this.raf){ cancelAnimationFrame(this.raf); this.raf=null; }
                 if(this._кадрТаймер){ clearTimeout(this._кадрТаймер); this._кадрТаймер=null; } }
   /* Разбудить цикл, если он остановился в покое. Зовут все, кто меняет картинку: жесты,
      зум, выделение, перестройка. Дешевле, чем крутить пустые кадры «на всякий случай».
@@ -473,7 +473,7 @@ class Graph{
     this.svg.setAttribute("viewBox",`0 0 ${w} ${h}`);
     this.tx=w/2-wx*this.zoom; this.ty=h/2-wy*this.zoom;                       // она же остаётся в центре
     this._applyTransform();
-    if(!this._paused){ this._снятьКадр(); this._tick(true); }   // перерисовать сразу: в покое кадр мог бы быть пропущен
+    if(!this._paused){ this._cancelFrame(); this._tick(true); }   // перерисовать сразу: в покое кадр мог бы быть пропущен
     return true;
   }
   _paintSel(){
@@ -535,10 +535,10 @@ class Graph{
      момент, когда человек уже тянет снова (КРОЛИК: «отпускаю и сразу беру ноду — фриз»). Таймер
      сбрасывается каждым новым жестом, поэтому за всю серию панель соберётся ОДИН раз, в конце.
      Пока жест идёт, сборку откладываем дальше: в панель всё равно не смотрят, пока тянут. */
-  _syncAsideПотом(){
+  _syncAsideLater(){
     clearTimeout(this._asideT);
     this._asideT=setTimeout(()=>{ this._asideT=null;
-      if(this.drag || this.marq || this.connectDrag){ this._syncAsideПотом(); return; }
+      if(this.drag || this.marq || this.connectDrag){ this._syncAsideLater(); return; }
       this._syncAside();
     }, 140);
   }
@@ -647,7 +647,7 @@ class Graph{
      кадром: на 245 нодах в кадр попадает малая часть. Поэтому режим делает две вещи сразу:
      гасит непричастное (см. _drawMain) и по повторному нажатию перелетает к следующей горящей
      ноде — тем же _flyTo, что у поиска, чтобы камера вела себя одинаково. */
-  toggleЖар(){
+  toggleHeat(){
     const включаем=!this._показатьЖар;
     this._показатьЖар=включаем;
     this._жарИдx=-1;
@@ -669,7 +669,7 @@ class Graph{
     toast(this._показатьЖар ? ("Горит: "+n+" · Ctrl+Shift+G — к следующей") : "Показываю всё",
           {icon:this._показатьЖар?"ti-flame":"ti-eye"});
   }
-  жарNext(){
+  heatNext(){
     const m=this._горящие; if(!m||!m.length) return;
     this._жарИдx=((this._жарИдx==null?-1:this._жарИдx)+1)%m.length;
     const у=m[this._жарИдx]; if(у) this._flyTo(у);
@@ -737,7 +737,7 @@ class Graph{
     { const свои=new Set(newIds);
       пары.forEach(({d,it})=>{
         if(d.hx!=null && d.hy!=null && it.parent && свои.has(it.parent)){ it.hx=d.hx; it.hy=d.hy; }
-        else if(S.settings.graphHome) this._домЖест(it);
+        else if(S.settings.graphHome) this._homeFromDrag(it);
       }); }
     this.selNodes=new Set(newIds); this.build(); this._paintSel();
     toast("Вставлено: "+newIds.length,{icon:"ti-clipboard-check"});
@@ -767,7 +767,7 @@ class Graph{
     recomputeHierarchy();
     /* Дом там, где создали. Считаем ПОСЛЕ пересчёта иерархии: до него у новой ноды нет ни
        родителя, ни унаследованной области — то есть нет владельца, от которого меряется дом. */
-    if(S.settings.graphHome && this._домЖест(it)) persist();
+    if(S.settings.graphHome && this._homeFromDrag(it)) persist();
     this.build();
     // полотно тоже сразу переименовывается на месте, а не выдёргивает в фулскрин доски —
     // доска открывается только по явному открытию ноды (двойной клик и т.п.)
@@ -852,7 +852,7 @@ class Graph{
   build(){
     const NS="http://www.w3.org/2000/svg";
     // отменяем прошлый цикл анимации, иначе каждый build() плодит новый rAF-цикл → лаги
-    this._снятьКадр();
+    this._cancelFrame();
     this._hovId=null;   // элементы пересоздаются, классов наведения на них нет (см. _hover)
     this.W=this.svg.clientWidth||900; this.H=this.svg.clientHeight||500;
     this.svg.setAttribute("viewBox",`0 0 ${this.W} ${this.H}`);
@@ -1025,7 +1025,7 @@ class Graph{
       if(pairs.has(it.id+"|"+hub)) return;                       // ручная связь с хабом уже есть
       const я=this.byId[it.id]; if(!я || я.hollow===true){
         /* Пустышка крепится к ХАБУ, если только не создана явно ИЗ ДРУГОЙ ПУСТЫШКИ (см.
-           _создатьПустышку — hollowParent) — тогда цепляется К НЕЙ, образуя цепочку. Это
+           _createHollow — hollowParent) — тогда цепляется К НЕЙ, образуя цепочку. Это
            ЯВНОЕ поле, не выбор по расстоянию: решение принято человеком в момент создания и
            не должно съезжать оттого, что облако узлов вокруг чуть сдвинулось физикой.
            Родитель мог исчезнуть (удалили) — тогда откатываемся на хаб, как раньше.
@@ -1047,7 +1047,7 @@ class Graph{
       якорь[it.id]=цель;
     });
     this._якорь=якорь;
-    /* Сохраняем то, чем пользуется живая переоценка якорей (_переоценитьЯкоря) между сборками:
+    /* Сохраняем то, чем пользуется живая переоценка якорей (_reevaluateAnchors) между сборками:
        список пустышек по областям, ручные пары (чтобы не спорить с явной связью человека) и
        флаг «есть ли вообще пустышки» — без него _tick тратил бы время на проверку каждый кадр
        на графах, где эта возможность не используется вовсе. */
@@ -1067,7 +1067,7 @@ class Graph{
        всему графу (см. _tick), иначе два никак не связанных дерева медленно ехали друг к другу
        и слипались в кучу, сколько их ни разводи руками.
        Пересчитываем в build, а не каждый кадр: между сборками состав связей не меняется —
-       живая переоценка якорей (_переоценитьЯкоря) только перецепляет узел с хаба на пустышку
+       живая переоценка якорей (_reevaluateAnchors) только перецепляет узел с хаба на пустышку
        ТОЙ ЖЕ области, то есть внутри своего острова. */
     const остров={}; let островов=0;
     for(let i=0;i<this.nodes.length;i++){
@@ -1211,7 +1211,7 @@ class Graph{
       if(n.paused){ const кп=document.createElementNS(NS,"circle"); кп.setAttribute("class","g-halo-pause");
         кп.setAttribute("r", (n.type==="square"||n.type==="task") ? n.r*1.41+4 : n.r+4); g.appendChild(кп); }
       // форма: из тега (если задана), иначе по типу ноды
-      const shapeKind = this._форма(n);
+      const shapeKind = this._shape(n);
       // Невидимый круг вокруг ноды — попадать мышкой в кружок радиусом 7 px неудобно.
       // Кладём ПОД фигуру: по центру события ловит сама фигура, по кайме — этот круг, и оба
       // всё равно всплывают до .g-node.
@@ -1283,7 +1283,7 @@ class Graph{
     // а осевшая раскладка сохраняется (см. _moved) → следующее открытие статично, без повторного «взрыва».
     const freshN=this.nodes.filter(n=>n._fresh).length, placedN=this.nodes.length-freshN;
     this.alpha = placedN>0 ? (freshN>0 ? 0.12 : 0) : (this.nodes.length>1 ? 0.4 : 0);
-    this._пересчётВеса();  // вес веток — от него зависит длина связей (см. физику)
+    this._recalcWeight();  // вес веток — от него зависит длина связей (см. физику)
     this._recalcBends();  // сразу знаем, каким связям гнуться: иначе первый кадр рисует их прямыми
     this._renderTray();   // лоток всегда в такт с холстом: нода ушла на холст — исчезла из лотка
     this._tick(true);     // ОБЯЗАТЕЛЬНО рисуем: фигуры выше созданы без координат, пропуск кадра оставил бы граф пустым
@@ -1370,8 +1370,8 @@ class Graph{
       // двигаются приращениями (см. onpointermove), иначе зум колесом во время пана спорит с ним.
       if(e.button===1){ e.preventDefault(); this.panning={x:e.clientX,y:e.clientY}; svg.setPointerCapture(e.pointerId); this._closePop(); return; }
       if(e.button!==0) return;   // ПКМ обрабатывает oncontextmenu
-      // кого схватили — спрашиваем у графа, а не у DOM: на холсте элементов нет (см. _хитУзел)
-      const попал=this._хитУзел(e);
+      // кого схватили — спрашиваем у графа, а не у DOM: на холсте элементов нет (см. _hitNode)
+      const попал=this._hitNode(e);
       if(попал){
         const n=this.byId[попал];
         if(this.linkFrom){ this._finishLink(n); return; }
@@ -1418,7 +1418,7 @@ class Graph{
         svg.setPointerCapture(e.pointerId);
         return;
       }
-      const li=this.canvasMode ? this._хитСвязь(e)
+      const li=this.canvasMode ? this._hitLink(e)
                                : (e.target.closest(".g-hit") ? +e.target.closest(".g-hit").dataset.li : -1);
       if(li>=0 && !this.linkFrom){ this._openLinkPop(this.links[li], e); return; }
       // ЛКМ по пустому — рамка выделения (пан теперь средней кнопкой)
@@ -1436,7 +1436,7 @@ class Graph{
     svg.onpointermove=(e)=>{
       if(this.connectDrag){ const f=this.byId[this.connectDrag], p=this._pt(e);
         this.tempLine.setAttribute("x1",f.x); this.tempLine.setAttribute("y1",f.y); this.tempLine.setAttribute("x2",p.x); this.tempLine.setAttribute("y2",p.y);
-        const цель=this._хитУзел(e); this._hover(цель&&цель!==this.connectDrag?цель:null); this._wake(); return; }
+        const цель=this._hitNode(e); this._hover(цель&&цель!==this.connectDrag?цель:null); this._wake(); return; }
       if(this.marq){ this._updateMarquee(e); this._wake(); return; }
       if(this.drag){
         // Порог 4 px (системная константа Windows SM_CXDRAG): пока мышь не ушла дальше — это КЛИК,
@@ -1476,7 +1476,7 @@ class Graph{
         graphBgPan.x=this.bgPanX; graphBgPan.y=this.bgPanY;     // переживёт пересоздание графа (см. конструктор)
         this._applyTransform(); this._wake(); return; }
       if(this.linkFrom){ const p=this._pt(e); const f=this.byId[this.linkFrom]; this.tempLine.style.display=""; this.tempLine.setAttribute("x1",f.x); this.tempLine.setAttribute("y1",f.y); this.tempLine.setAttribute("x2",p.x); this.tempLine.setAttribute("y2",p.y); return; }
-      const наведено=this._хитУзел(e);
+      const наведено=this._hitNode(e);
       this._hover(наведено);
       // курсор-рука над узлом: на SVG это делал CSS по .g-node, на холсте курсор ставим сами
       if(this.canvasMode) svg.style.cursor = наведено ? "pointer" : "default";
@@ -1494,7 +1494,7 @@ class Graph{
     };
     svg.onpointerup=(e)=>{
       if(this.connectDrag){ const from=this.connectDrag; this.connectDrag=null; this.tempLine.style.display="none"; this._hover(null);
-        const цель=this._хитУзел(e);
+        const цель=this._hitNode(e);
         if(цель){ const msg=this._linkTo(from, цель); if(msg){ recomputeHierarchy(); this.build(); toast(msg); } }   // бросок на область назначает её (см. _linkTo)
         else {
           // отпустил на пустом → новая заметка + связь. Но ТОЛЬКО если отпустил над холстом:
@@ -1514,7 +1514,7 @@ class Graph{
         if(n._moved){   // позиции пишем ТОЛЬКО после настоящего перетаскивания — клик не должен трогать файл
           // соседи разъезжаются физикой и сохранятся, когда раскладка остынет (см. _tick)
           /* ГРУППА ЗАПИСЫВАЕТСЯ В ДВА ПРОХОДА, и порядок здесь принципиален. Дом ребёнка —
-             СМЕЩЕНИЕ ОТ ВЛАДЕЛЬЦА (см. _домЖест), поэтому сперва на диск уезжают позиции всей
+             СМЕЩЕНИЕ ОТ ВЛАДЕЛЬЦА (см. _homeFromDrag), поэтому сперва на диск уезжают позиции всей
              группы и только потом считаются дома: если владелец ехал в той же группе, дом,
              посчитанный до его записи, промахнулся бы ровно на длину жеста. */
           const группа=[n]; if(this.dragMates) this.dragMates.forEach(м=>группа.push(м.n));
@@ -1527,7 +1527,7 @@ class Graph{
              на свои места сами: их дома не тронуты.
              Хабу области дом не нужен вовсе: его x/y И ЕСТЬ дом, а дома детей — смещения от
              него, и за хабом они едут сами, без единой дополнительной строки. */
-          if(S.settings.graphHome) группа.forEach(q=>{ if(q.ref) this._домЖест(q.ref); });
+          if(S.settings.graphHome) группа.forEach(q=>{ if(q.ref) this._homeFromDrag(q.ref); });
           // с БОЛЬШИМ дебаунсом: серия «тащу — отпускаю — снова тащу» обязана уехать на диск
           // одной записью после того, как рука остановилась (разбор — у ЗАПИСЬ_ЖЕСТ_МС в core.js)
           persist(false, ЗАПИСЬ_ЖЕСТ_МС);
@@ -1552,10 +1552,10 @@ class Graph{
           }
         }
         /* Панель догоняет выделение ПОСЛЕ жеста, а не в его начале (разбор у pointerdown) и
-           не встык к отпусканию (разбор у _syncAsideПотом). Зовём и после протяжки, и после
+           не встык к отпусканию (разбор у _syncAsideLater). Зовём и после протяжки, и после
            клика: выделение сменилось в обоих случаях. Хаб своей карточки не имеет —
            _syncAside его отфильтрует сам. */
-        this._syncAsideПотом();
+        this._syncAsideLater();
         /* Признак хвата снимаем СО ВСЕЙ группы. Забыть его на пассажире — значит навсегда
            выключить для него физику: в _tick такая нода вечно стоит с нулевой скоростью. */
         n._grabbed=false;
@@ -1569,9 +1569,9 @@ class Graph{
     svg.oncontextmenu=(e)=>{
       e.preventDefault();
       if(this.linkFrom){ this.cancelLink(); return; }
-      const попал=this._хитУзел(e);
+      const попал=this._hitNode(e);
       if(попал){ this._openPop(this.byId[попал], e); return; }
-      const li=this.canvasMode ? this._хитСвязь(e)
+      const li=this.canvasMode ? this._hitLink(e)
                                : (e.target.closest(".g-hit") ? +e.target.closest(".g-hit").dataset.li : -1);
       if(li>=0){ this._openLinkPop(this.links[li], e); return; }
       this._openCreateMenu(e);   // ПКМ по пустому — меню «Создать» (заметка/задача/схема), вместо двойного клика
@@ -2002,7 +2002,7 @@ class Graph{
      сами: обход в ширину от хабов областей, затем от оставшихся узлов. Получаем родителя
      обхода и список детей — на них держатся и вес ветки, и перенос ветки целиком.
      Считаем ОДИН раз за перестройку: в кадре это было бы дороже всей физики. */
-  _остов(){
+  _skeleton(){
     const родитель={}, дети=new Map(), видели=new Set();
     /* Соседство считаем ТОЛЬКО по связям между нодами. Хаб области связан со ВСЕМИ её нодами
        (членство рисуется лучом), и если пустить обход через него, вся область окажется его
@@ -2041,8 +2041,8 @@ class Graph{
   /* ВЕС ВЕТКИ — сколько узлов висит на этом узле вниз по остову, включая его самого. Нужен,
      чтобы длина связи зависела от величины проекта: у области с десятком веток все они раньше
      отходили на одну длину, и крупные лезли друг на друга — в центре была толкучка. */
-  _пересчётВеса(){
-    this._остов();
+  _recalcWeight(){
+    this._skeleton();
     const вес={}; this.nodes.forEach(n=>{ вес[n.id]=1; });
     const порядок=this._порядок||[];
     for(let i=порядок.length-1;i>=0;i--){
@@ -2078,12 +2078,12 @@ class Graph{
       ветвь[id]=(p==null||p===undefined) ? null : (ветвь[p]==null ? id : ветвь[p]);
     }
     this._ветвь=ветвь; this._корень=корни;
-    this._пересчётСекторов();
+    this._recalcSectors();
   }
   /* Ширина и место сектора зависят от того, ГДЕ ветка сейчас лежит и насколько разрослась,
      поэтому считать их один раз при сборке нельзя: в этот момент узлы ещё свалены в кучу.
      Пересчитываем по ходу раскладки — это один проход по узлам, дешевле любой силы в кадре. */
-  _пересчётСекторов(){
+  _recalcSectors(){
     const ветвь=this._ветвь, корни=this._корень, вес=this._вес||{};
     if(!ветвь||!корни) return;
     const по={};                                    // корень → список его веток
@@ -2146,7 +2146,7 @@ class Graph{
      оказалась бы его прямыми детьми) — поэтому веткой области считаем её ноды: сперва те, что
      сами лежат в области, а следом их поддеревья. Без этого область уезжала одна, растягивая
      лучи через пол-экрана, а ноды не двигались вовсе. */
-  _ветка(узел){
+  _branch(узел){
     const out=[], видели=new Set([узел.id]);
     const добавить=(n,гл)=>{ if(!n || видели.has(n.id)) return; видели.add(n.id); out.push({n, гл}); };
     let корни=[];
@@ -2170,7 +2170,7 @@ class Graph{
     return out;
   }
   /* Поддерево узла по остову — всё, что висит на нём ниже. Ветку тащат целиком. */
-  _поддерево(id){
+  _subtree(id){
     const out=[], дети=this._дети;
     if(!дети) return out;
     let слой=(дети.get(id)||[]).slice(), seen=new Set([id]);
@@ -2398,7 +2398,7 @@ class Graph{
          раз в 160 мс. Замер: 168 кадров/с под курсором против 6 кадров/с сразу после ухода. */
       this._навЕдет=true; this._wake(); return;
     }
-    const родня=id?this._родня(id):null;   // у области и пустышки это вся их область (см. _родня)
+    const родня=id?this._kin(id):null;   // у области и пустышки это вся их область (см. _kin)
     this.nodeEls.forEach(o=>{ const nid=o.n.id; const focus=!!id&&nid===id, nbr=!!id&&!!родня&&родня.has(nid);
       o.g.classList.toggle("dim", !!id && !focus && !nbr);
       o.g.classList.toggle("hl", focus||nbr);
@@ -2600,14 +2600,14 @@ class Graph{
   /* Область узла, если КОНЕЦ связи — хаб или пустышка; иначе null. Обе точки означают одно
      и то же действие («сделать область своей»), и должны определяться ОДНИМ способом — иначе
      хаб и пустышка снова разъедутся в поведении, как уже было (см. историю ниже). */
-  _областьКонца(id, it){
+  _endArea(id, it){
     if(id.indexOf("hub_")===0) return id.slice(4);
     return (it && it.hollow && it.area) ? it.area : null;
   }
   _linkTo(from, to){
     if(to===from) return null;
     const итA=S.items.find(x=>x.id===from), итB=S.items.find(x=>x.id===to);
-    const обА=this._областьКонца(from,итA), обБ=this._областьКонца(to,итB);
+    const обА=this._endArea(from,итA), обБ=this._endArea(to,итB);
     if(обА!=null && обБ!=null){
       /* ОБЕ СТОРОНЫ — ХАБ ИЛИ ПУСТЫШКА. Разных областей — точно не связываем (нет смысла).
          Внутри ОДНОЙ — тут ПУСТЫШКУ можно протяжкой прицепить к другой пустышке или к хабу,
@@ -2646,7 +2646,7 @@ class Graph{
          к ТОЙ САМОЙ пустышке и переставала участвовать в выборе по расстоянию: подвинь
          пустышку в сторону — нода всё равно тянулась следом, хотя рядом мог оказаться хаб или
          другая пустышка ближе (КРОЛИК: «не может перескакивать на другую пустышку»).
-         own-area делает её равноправным участником автовыбора (см. build/_переоценитьЯкоря) —
+         own-area делает её равноправным участником автовыбора (см. build/_reevaluateAnchors) —
          эта точка ей достаётся потому, что она ближе СЕЙЧАС, а не потому что зашита навсегда. */
       it.area=aid; it.areaAuto=false;
       touch(it); persist();
@@ -2662,7 +2662,7 @@ class Graph{
      Область СВОЯ (areaAuto=false) — это не мелочь: наследование идёт по связям от того, у кого
      область задана руками, и унаследованная пустышка порвала бы цепочку до хаба (первая версия
      так и сделала, проверка поймала). Связывание НЕ включаем: ноды теперь сами находят
-     ближайшую точку крепления по расстоянию (см. build/_переоценитьЯкоря), и навязанный режим
+     ближайшую точку крепления по расстоянию (см. build/_reevaluateAnchors), и навязанный режим
      «клик по второй ноде» только мешал бы — КРОЛИК так и сказал.
      ЦЕПОЧКА ПУСТЫШЕК: если создали ИЗ ПОПАПА ДРУГОЙ ПУСТЫШКИ (рядом.hollow), новая крепится
      К НЕЙ, а не к хабу напрямую — «жму ПКМ по пустышке и добавляю ещё, она должна цепляться к
@@ -2673,7 +2673,7 @@ class Graph{
      и должна читаться так с первого взгляда, а не значиться безликим «Узел». Подпись при этом
      живая (см. build(): label узла-пустышки берётся из areaName() каждый раз), это лишь
      стартовое значение title. */
-  _создатьПустышку(areaId, рядом){
+  _createHollow(areaId, рядом){
     const обл=areaById(areaId);
     const пуст=addItem({kind:"note", title:(обл&&обл.name)||"Пустышка", area:areaId});
     пуст.hollow=true; пуст.areaAuto=false;
@@ -2688,7 +2688,7 @@ class Graph{
      привязки идут через _linkTo и own-area сразу, отдельного «открепления» не просят вовсе.
      Без этого метода открепление старой связи оставляло бы ноду вовсе без области: сняли
      развилку — потеряли принадлежность. */
-  _отЖивогоУзла(from, to){
+  _fromLiveNode(from, to){
     const a=S.items.find(x=>x.id===from), b=S.items.find(x=>x.id===to);
     if(!a||!b) return;
     for(const [пуст, нода] of [[a,b],[b,a]]){
@@ -2711,7 +2711,7 @@ class Graph{
      областью И ПУСТЫШКАМИ в этой области»). Уходить глубже (родня пустышек ИХ пустышек и так
      далее) не нужно: цепочки пустышка-от-пустышки — редкий, глубоко вложенный случай, а хаб
      должен показывать общую картину области, а не разворачивать её целиком до последнего листа. */
-  _родня(id){
+  _kin(id){
     const n=this.byId[id];
     if(n && n.type==="hub" && this._пустышкиПоОбласти){
       const обл=id.slice(4), s=new Set(this.adj[id]||[]);
@@ -2728,7 +2728,7 @@ class Graph{
      перетаскивания конкретной пустышки); без аргумента считается весь граф.
      Пустышки в пересчёте НЕ участвуют: они сами всегда крепятся к хабу — так задумано, чтобы
      дерево не расползалось на пустышки, цепляющиеся друг за друга. */
-  _переоценитьЯкоря(область){
+  _reevaluateAnchors(область){
     if(!this._якорь) return;
     const пустышки=this._пустышкиПоОбласти||{}, pairs=this._ручныеПары||new Set();
     for(const id in this._якорь){
@@ -2758,9 +2758,9 @@ class Graph{
   /* Форма узла: задаётся стилем тега, иначе выводится из типа. Считают её и отрисовка, и
      попадание мышью, поэтому правило живёт в одном месте — разъехавшись, они дали бы «клик
      мимо угла квадрата». */
-  _форма(n){ return (n.tagStyle&&n.tagStyle.shape) ? n.tagStyle.shape
+  _shape(n){ return (n.tagStyle&&n.tagStyle.shape) ? n.tagStyle.shape
                   : (n.type==="task"?"square" : n.type==="flow"?"diamond" : "circle"); }
-  _nodeAt(e){ return this._хитУзел(e); }
+  _nodeAt(e){ return this._hitNode(e); }
   /* ПОПАДАНИЕ ПО КООРДИНАТАМ. На SVG за это отвечал сам браузер: у каждой ноды невидимый круг
      захвата (см. HIT_PAD), и хватало e.target.closest(".g-node"). На холсте элементов нет —
      ищем ближайший узел сами, по тем же правилам: та же кайма в мировых единицах и та же
@@ -2768,13 +2768,13 @@ class Graph{
      Перебор идёт по всем узлам, но это одно сравнение на узел (на 654 узлах — сотые доли
      миллисекунды), и жест обязан отвечать точно, а не приблизительно.
      Ближайший, а не первый попавшийся: узлы перекрываются, и брать надо тот, что сверху. */
-  _хитУзел(e){
+  _hitNode(e){
     if(!this.canvasMode){ const g=e.target&&e.target.closest?e.target.closest(".g-node"):null; return g?g.dataset.id:null; }
     const p=this._pt(e);
     let лучший=null, лучшее=Infinity;
     for(let i=0;i<this.nodes.length;i++){
       const n=this.nodes[i], nx=n.x+(n._ix||0), ny=n.y+(n._iy||0);
-      const ф=this._форма(n), far=(ф==="square"||ф==="diamond")?n.r*1.41:n.r;
+      const ф=this._shape(n), far=(ф==="square"||ф==="diamond")?n.r*1.41:n.r;
       const R=far+(n.type==="hub"?0:HIT_PAD);
       const dx=p.x-nx, dy=p.y-ny, d2=dx*dx+dy*dy;
       if(d2>R*R) continue;
@@ -2786,7 +2786,7 @@ class Graph{
      в экранных пикселях (7 — половина прежнего SVG-хитбокса в 14): иначе на отдалённом графе
      линии стали бы неприлично «толстыми» для мыши, а вблизи — недосягаемыми. Ноды главнее:
      их проверяют до связей, поэтому здесь про перекрытие думать не нужно. */
-  _хитСвязь(e){
+  _hitLink(e){
     const p=this._pt(e), порог=7/(this.zoom||1);
     let лучший=-1, лучшее=порог*порог;
     for(let i=0;i<this.links.length;i++){
@@ -2856,7 +2856,7 @@ class Graph{
         if(msg){ recomputeHierarchy(); this.build(); this.alpha=Math.max(this.alpha,0.12); } }   // бросил прямо на ноду — мягко разведём, чтобы не легли друг на друга
       /* Дом в точке, где отпустили. ПОСЛЕ _linkTo: бросок на ноду или на область как раз и
          назначает владельца, а до него смещение считалось бы не от того. */
-      if(S.settings.graphHome && this._домЖест(it)) persist();
+      if(S.settings.graphHome && this._homeFromDrag(it)) persist();
       toast(msg||"На холсте",{icon:"ti-check"});
     };
     el.setPointerCapture(e.pointerId);
@@ -2986,7 +2986,7 @@ class Graph{
      стороне от того места, куда ноду отпустила рука.
      Закреплённую ноду (pin) не трогаем вовсе: pin — «не шевелись», дом — «живи, но здесь»,
      два режима не смешиваются, и физика у закреплённой всё равно отключена. */
-  _домЖест(it){
+  _homeFromDrag(it){
     if(!it || it.pin || it.x==null) return false;
     const о = it.parent ? this.byId[it.parent] : (it.area ? this.byId["hub_"+it.area] : null);
     if(!о){ delete it.hx; delete it.hy; return false; }   // владельца нет — дому не от чего считаться
@@ -2998,10 +2998,10 @@ class Graph{
      только выключив режим целиком, то есть отпустив ВСЮ форму дерева.
      Что делает сброс: удаляет hx/hy. Дальше нода ведёт себя ровно так, будто дома у неё нет —
      подчиняется родителю и физике (в _tick ветка `if(it.hx==null||it.hy==null) continue`), а дом
-     назначится сам, как только её первый раз потянут: это уже делает _домЖест на отпускании.
+     назначится сам, как только её первый раз потянут: это уже делает _homeFromDrag на отпускании.
      Правило выделения то же, что у статуса: кликнутая нода в выделении — идёт всё выделение,
      нет — только она. ПКМ выделения не трогает, и молча чинить «те пять из прошлой рамки» нельзя. */
-  _сбросДома(n){
+  _resetHome(n){
     const ids=(this.selNodes.has(n.id) && this.selNodes.size>1) ? [...this.selNodes] : [n.id];
     const undo=[]; let nn=0;
     ids.forEach(id=>{
@@ -3038,7 +3038,7 @@ class Graph{
         else if(n.hubArea){ n.hubArea.x=Math.round(n.x); n.hubArea.y=Math.round(n.y); } });
       let назначено=0;
       this.nodes.forEach(n=>{ const it=n.ref; if(!it || (it.hx!=null && it.hy!=null)) return;
-        if(this._домЖест(it)) назначено++; });
+        if(this._homeFromDrag(it)) назначено++; });
       toast("Раскладка держится"+(назначено?" · домов: "+назначено:""),{icon:"ti-home"});
     } else toast("Раскладка свободна",{icon:"ti-home-off"});
     persist();
@@ -3129,10 +3129,10 @@ class Graph{
        на случай, если пустышка отъехала физикой, а не рукой. */
     if(this._естьПустышки){
       // в руке может быть сразу несколько пустышек (групповой хват) — области собраны на старте жеста
-      if(this._dragHollowAreas){ for(let i=0;i<this._dragHollowAreas.length;i++) this._переоценитьЯкоря(this._dragHollowAreas[i]); }
-      else if(this.drag && this.drag.hollow) this._переоценитьЯкоря(this.drag.area);
+      if(this._dragHollowAreas){ for(let i=0;i<this._dragHollowAreas.length;i++) this._reevaluateAnchors(this._dragHollowAreas[i]); }
+      else if(this.drag && this.drag.hollow) this._reevaluateAnchors(this.drag.area);
       this._ппТик=((this._ппТик||0)+1)%24;
-      if(this._ппТик===0) this._переоценитьЯкоря();
+      if(this._ппТик===0) this._reevaluateAnchors();
     }
     const _физ0=_прФ?performance.now():0;
     if(this.alpha>0){   // физика раскладки — только пока не остыло (при alpha=0 все силы = 0, движения нет → пропускаем весь цикл)
@@ -3143,7 +3143,7 @@ class Graph{
        взвешивание точки притяжения, и сама пружина, и оба ходят по узлам.
        Цель считаем от ЖИВОЙ позиции владельца, а не от сохранённой в данных: иначе дети догоняли
        бы уезжающий хаб только после остывания раскладки, то есть через секунды после того, как
-       его отпустили. Владельца разбираем ТАК ЖЕ, как _домЖест (родитель → хаб своей области),
+       его отпустили. Владельца разбираем ТАК ЖЕ, как _homeFromDrag (родитель → хаб своей области),
        но берём его УЗЕЛ. Родитель, лежащий в лотке, узла на холсте не имеет: дома у такой ноды
        в этом кадре просто нет, и она ведёт себя как раньше. Подмены владельца на хаб тут быть
        не должно — данные считают дом от родителя, и смещение указывало бы не туда. */
@@ -3837,7 +3837,7 @@ class Graph{
           x2:(this.W-this.tx+_зап0)/_z0, y2:(this.H-this.ty+_зап0)/_z0 }
       : { x1:-Infinity, y1:-Infinity, x2:Infinity, y2:Infinity };
     // РЕЖИМ CANVAS: вместо записи атрибутов в тысячи SVG-элементов рисуем весь граф одним холстом
-    if(this.canvasMode) this._рисоватьХолст();
+    if(this.canvasMode) this._drawCanvas();
     else this.linkEls.forEach((e,i)=>{ const l=this.links[i], a=this.byId[l.a], b=this.byId[l.b];
       const ax=RX(a),ay=RY(a),bx=RX(b),by=RY(b), d=this._linkPath(ax,ay,bx,by,l);
       /* Пишем в DOM, ТОЛЬКО если путь изменился. Панорама и зум двигают камеру одной
@@ -3905,7 +3905,7 @@ class Graph{
   /* ПАЛИТРА ИЗ CSS. Цвета узлов и связей заданы в styles.css и меняются вместе с темой, поэтому
      на холсте берём их оттуда же, а не зашиваем числами: иначе светлая тема осталась бы тёмной.
      Читаем один раз за сборку — getComputedStyle стоит дорого, а внутри кадра тема не меняется. */
-  _палитра(){
+  _palette(){
     if(this._пал) return this._пал;
     const cs=getComputedStyle(document.body), в=(имя,зап)=>(cs.getPropertyValue(имя).trim()||зап);
     this._пал={
@@ -3953,12 +3953,12 @@ class Graph{
     else { const m=s.match(/(\d+)[,\s]+(\d+)[,\s]+(\d+)/); if(m) r=[+m[1],+m[2],+m[3]]; }
     кэш.set(c,r); return r;
   }
-  _смесь(a,b,доля){
+  _mix(a,b,доля){
     const A=this._rgb(a), B=this._rgb(b), k=доля;
     return "rgb("+Math.round(A[0]*k+B[0]*(1-k))+","+Math.round(A[1]*k+B[1]*(1-k))+","+Math.round(A[2]*k+B[2]*(1-k))+")";
   }
   // контур фигуры узла на холсте: круг, квадрат, ромб (тот же квадрат под 45°) и шестиугольник
-  _путьФормы(ctx, форма, x, y, r){
+  _shapePath(ctx, форма, x, y, r){
     if(форма==="square"){ ctx.rect(x-r,y-r,r*2,r*2); return; }
     if(форма==="diamond"){ ctx.moveTo(x,y-r*1.41); ctx.lineTo(x+r*1.41,y); ctx.lineTo(x,y+r*1.41); ctx.lineTo(x-r*1.41,y); ctx.closePath(); return; }
     if(форма==="hexagon"){
@@ -3971,7 +3971,7 @@ class Graph{
   /* ПУТЬ «ПЛАШКИ» — полностью скруглённый прямоугольник, общий для всех залитых бейджей с
      текстом (просрочка, номер очереди у горящих). Радиус скругления — половина высоты, поэтому
      плашка на одну-две цифры выглядит капсулой, а не прямоугольником со скруглёнными углами. */
-  _путьПлашки(ctx, bx, by, ww, hh){
+  _pillPath(ctx, bx, by, ww, hh){
     const rr=hh/2;
     ctx.beginPath();
     ctx.moveTo(bx-ww/2+rr, by-hh/2); ctx.lineTo(bx+ww/2-rr, by-hh/2);
@@ -3997,14 +3997,14 @@ class Graph{
      открывалась бы пустота. Пересниматься приходится, когда картинку растянули больше чем на
      четверть (иначе мылит), увели за край запаса, или сменилось то, что на ней нарисовано
      (курсор на ноде, выделение). Каждый пересъём — один честный кадр, то есть те же 0.641 мс. */
-  _рисоватьХолст(){
+  _drawCanvas(){
     const s=S.settings||{};
     const годенРежим = (s.graphFastZoom!==false) && this.nodes.length>350;
     const жест = (this._zoomTo!=null) || !!this.panning;
     if(!годенРежим || !жест || this.alpha>0 || this.drag || this.marq || this.linkFrom){
       this._сн=null; this._drawMain(); return;
     }
-    if(!this._снГоден()) this._снятьСнимок();
+    if(!this._canvasSnapValid()) this._takeCanvasSnap();
     const с=this._сн; if(!с){ this._drawMain(); return; }
     const cv=this.mainCanvas, ctx=this.mainCtx; if(!cv||!ctx) return;
     const dpr=Math.min(window.devicePixelRatio||1,2), k=this.zoom/с.zoom;
@@ -4014,7 +4014,7 @@ class Graph{
     ctx.clearRect(0,0,this.W,this.H);
     ctx.drawImage(с.cv, this.tx-с.tx*k, this.ty-с.ty*k, с.W*k, с.H*k);
   }
-  _снГоден(){
+  _canvasSnapValid(){
     const с=this._сн; if(!с || !с.cv.width) return false;
     if(с.hov!==this._hovId || с.выд!==(this.selNodes?this.selNodes.size:0)) return false;
     if(с.экрW!==this.W || с.экрH!==this.H) return false;         // окно поменяло размер
@@ -4026,7 +4026,7 @@ class Graph{
   /* Честный кадр, но в СВОЙ холст и на увеличенный вьюпорт. Проще всего это сделать, временно
      подменив графу цель отрисовки и камеру: _drawMain и так берёт размеры из this.W/this.H и сам
      подгоняет размер холста — отдельной копии его кода заводить не надо. */
-  _снятьСнимок(){
+  _takeCanvasSnap(){
     const З=0.25;                                                 // запас за краем экрана
     if(!this.mainCanvas || !this.W || !this.H){ this._сн=null; return; }
     if(!this._снCv) this._снCv=document.createElement("canvas");
@@ -4056,7 +4056,7 @@ class Graph{
     if(cv.width!==Math.round(cw*dpr)||cv.height!==Math.round(ch*dpr)){ cv.width=Math.round(cw*dpr); cv.height=Math.round(ch*dpr); }
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,cw,ch);
-    const пал=this._палитра(), z=this.zoom, tx=this.tx, ty=this.ty;
+    const пал=this._palette(), z=this.zoom, tx=this.tx, ty=this.ty;
     const зап=60;                                                     // запас за краем: линия видна раньше своего узла
     const вид={x1:-зап, y1:-зап, x2:cw+зап, y2:ch+зап};
     const эx=n=>(n.x+(n._ix||0))*z+tx, эy=n=>(n.y+(n._iy||0))*z+ty;
@@ -4263,13 +4263,13 @@ class Graph{
        узел с ними связан.
        ПРОВЕРЯЕМ ПРИНАДЛЕЖНОСТЬ К РОДНЕ, А НЕ ПРЯМОЕ КАСАНИЕ hovId. Для обычного узла это одно
        и то же (его связи и есть его adj), но у ХАБА родня ШИРЕ — включает его пустышки И их
-       узлы (см. _родня). Прежняя проверка «касается ли сам hovId» это не ловила: узел через
+       узлы (см. _kin). Прежняя проверка «касается ли сам hovId» это не ловила: узел через
        пустышку подрастал и светился (родня), а связь ДО НЕГО (лист↔пустышка, не хаб↔что-то)
        оставалась тусклой — подсветка не совпадала с тем, что подросло (КРОЛИК прислал
        скриншот именно с этим разрывом). Правильно — обе стороны связи должны быть в одной
-       «освещённой» сети: hovId сам плюс всё, что _родня для него вернула. */
+       «освещённой» сети: hovId сам плюс всё, что _kin для него вернула. */
     if(this._hovId){
-      const родняКурсора=this._родня(this._hovId);
+      const родняКурсора=this._kin(this._hovId);
       const вСети=id=>id===this._hovId || (!!родняКурсора && родняКурсора.has(id));
       ctx.save(); ctx.lineWidth=толщ(2.4); ctx.lineCap="round"; ctx.globalAlpha=1;
       for(let i=0;i<this.links.length;i++){
@@ -4305,7 +4305,7 @@ class Graph{
        не видно, а стоят они как крупные. Подписи — только когда узел различим глазом; в SVG они
        жили ВСЕГДА, и 651 текстовый элемент был одной из главных статей расхода. */
     const детали=(r)=>r>=4.5, подписьВидна=(r)=>r>=6.5 && z>=0.45;
-    const соседиКурсора=this._hovId ? this._родня(this._hovId) : null;
+    const соседиКурсора=this._hovId ? this._kin(this._hovId) : null;
     let навЕдет=false;                 // хоть у одной ноды подсветка не доехала до цели
     for(let i=0;i<this.nodes.length;i++){
       const n=this.nodes[i], x=эx(n), y=эy(n);
@@ -4326,16 +4326,16 @@ class Graph{
       const r=n.r*z*(1+0.18*n._нав);
       if(x+r<вид.x1||x-r>вид.x2||y+r<вид.y1||y-r>вид.y2) continue;    // вне кадра — не рисуем вовсе
       const свой=n.color||пал.узел;
-      const форма=this._форма(n);
+      const форма=this._shape(n);
       let зал=пал.фонУзла, обв=свой, лw=1.7, пункт=false, альфа=1;
       if(n.type==="hub"){ зал=свой; обв=свой; лw=1; }
       else if(n.done){ зал=свой; }                                    // выполненная задача — залита своим цветом
-      if(n.doing) зал=this._смесь(свой, пал.фонУзла, 0.15);           // «в работе»: еле заметный тон цвета ноды
+      if(n.doing) зал=this._mix(свой, пал.фонУзла, 0.15);           // «в работе»: еле заметный тон цвета ноды
       /* «НА ПАУЗЕ» СОХРАНЯЕТ СВОЙ ЦВЕТ, но приглушённый. В SVG цвет уходил в серый целиком, и на
          цветном графе КРОЛИКА отложенные ветки переставали читаться как свои: «оставить им цвет,
          но приглушить, плюс пунктир и кольцо». Пунктир и серое кольцо (ниже) остаются признаком
          остановки — именно они отличают паузу от работы. */
-      if(n.paused){ зал=this._смесь(свой, пал.фонУзла, 0.16); обв=this._смесь(свой, пал.кольцо, 0.55); лw=1.6; пункт=true; альфа=0.72; }
+      if(n.paused){ зал=this._mix(свой, пал.фонУзла, 0.16); обв=this._mix(свой, пал.кольцо, 0.55); лw=1.6; пункт=true; альфа=0.72; }
       if(n.archived){ зал=n.done?пал.кольцо:пал.фонУзла; обв=пал.кольцо; лw=1.4; альфа=0.32; }
       /* ПУСТЫШКА — ЭТО ТА ЖЕ ОБЛАСТЬ, а не отдельная невзрачная нода: КРОЛИК прямо сказал, что
          пунктирный прозрачный контур терялся на графе и не читался как «часть области». Теперь
@@ -4343,7 +4343,7 @@ class Graph{
          родство; тонкий пунктир вместо сплошной обводки и небольшая прозрачность остаются
          единственным отличием «это развилка, а не сам хаб». Значок области рисуется поверх
          ниже (см. «значки») — то же самое, что человек видит в её карточке и в панели слева. */
-      if(n.hollow){ зал=this._смесь(свой, пал.фонУзла, 0.62); обв=свой; лw=1.6; пункт=true; альфа=0.92; }
+      if(n.hollow){ зал=this._mix(свой, пал.фонУзла, 0.62); обв=свой; лw=1.6; пункт=true; альфа=0.92; }
       if(!заметен(n.id)) альфа*=тень;                                 // непричастные к выделению или поиску
       else if(активные) лw=Math.max(лw,2.4);                          // окружение выделенного — контуром пожирнее
       /* ВЫДЕЛЕНИЕ — толстая обводка САМОЙ фигуры её цветом, как .g-node.sel .nd в стилях, а не
@@ -4420,8 +4420,8 @@ class Graph{
         /* Свечение в два слоя, как два drop-shadow у .g-node.sel в стилях: ближний даёт плотность
            самой обводки, дальний — заметный ореол. Одним слоем выделение читалось слабее. */
         ctx.strokeStyle=в.цвет; ctx.shadowColor=в.цвет;
-        ctx.shadowBlur=9;  ctx.beginPath(); this._путьФормы(ctx, в.форма, в.x, в.y, в.r); ctx.stroke();
-        ctx.shadowBlur=22; ctx.beginPath(); this._путьФормы(ctx, в.форма, в.x, в.y, в.r); ctx.stroke();
+        ctx.shadowBlur=9;  ctx.beginPath(); this._shapePath(ctx, в.форма, в.x, в.y, в.r); ctx.stroke();
+        ctx.shadowBlur=22; ctx.beginPath(); this._shapePath(ctx, в.форма, в.x, в.y, в.r); ctx.stroke();
       }
       ctx.restore();
     }
@@ -4432,8 +4432,8 @@ class Graph{
       for(const в of навед){
         ctx.globalAlpha=в.сила; ctx.lineWidth=толщ(3.2);
         ctx.strokeStyle=в.цвет; ctx.shadowColor=в.цвет;
-        ctx.shadowBlur=8*в.сила;  ctx.beginPath(); this._путьФормы(ctx, в.форма, в.x, в.y, в.r); ctx.stroke();
-        ctx.shadowBlur=20*в.сила; ctx.beginPath(); this._путьФормы(ctx, в.форма, в.x, в.y, в.r); ctx.stroke();
+        ctx.shadowBlur=8*в.сила;  ctx.beginPath(); this._shapePath(ctx, в.форма, в.x, в.y, в.r); ctx.stroke();
+        ctx.shadowBlur=20*в.сила; ctx.beginPath(); this._shapePath(ctx, в.форма, в.x, в.y, в.r); ctx.stroke();
       }
       ctx.restore();
     }
@@ -4441,7 +4441,7 @@ class Graph{
       ctx.globalAlpha=гр.альфа; ctx.fillStyle=гр.зал; ctx.strokeStyle=гр.обв; ctx.lineWidth=толщ(гр.лw);
       ctx.setLineDash(гр.пункт?[3.4,2.6]:[]);                         // пунктир — признак «на паузе»
       ctx.beginPath();
-      for(let k=0;k<гр.точки.length;k+=3) this._путьФормы(ctx, гр.форма, гр.точки[k], гр.точки[k+1], гр.точки[k+2]);
+      for(let k=0;k<гр.точки.length;k+=3) this._shapePath(ctx, гр.форма, гр.точки[k], гр.точки[k+1], гр.точки[k+2]);
       ctx.fill(); ctx.stroke();
     });
     ctx.setLineDash([]); ctx.globalAlpha=1;
@@ -4457,7 +4457,7 @@ class Graph{
       for(const ж of жар){
         ctx.globalAlpha=0.45+0.15*ж.ур; ctx.strokeStyle=пал.жар[ж.ур-1]||пал.жар[0];
         ctx.lineWidth=толщ(0.9+ж.ур*0.35);
-        ctx.beginPath(); this._путьФормы(ctx, ж.форма, ж.x, ж.y, ж.r+1.6+ж.ур*0.6); ctx.stroke();
+        ctx.beginPath(); this._shapePath(ctx, ж.форма, ж.x, ж.y, ж.r+1.6+ж.ур*0.6); ctx.stroke();
       }
       ctx.globalAlpha=1;
     }
@@ -4515,7 +4515,7 @@ class Graph{
         ctx.font=(прос?"600 ":"")+кегль+"px system-ui, -apple-system, Segoe UI, sans-serif";
         if(прос){
           const ww=Math.max(15, ctx.measureText(т).width+8), hh=кегль+4;
-          ctx.fillStyle=цв; this._путьПлашки(ctx,bx,by,ww,hh); ctx.fill();
+          ctx.fillStyle=цв; this._pillPath(ctx,bx,by,ww,hh); ctx.fill();
           ctx.fillStyle=пал.фон;
         } else ctx.fillStyle=цв;
         ctx.fillText(т, bx, by);
@@ -4546,7 +4546,7 @@ class Graph{
         const текст="№"+р.ранг;
         const R=р.r+8*z, bx=р.x+R*КОС, by=р.y+R*СИН;
         const ww=Math.max(20, ctx.measureText(текст).width+11), hh=кегльР+6;
-        ctx.fillStyle=цв; this._путьПлашки(ctx,bx,by,ww,hh); ctx.fill();
+        ctx.fillStyle=цв; this._pillPath(ctx,bx,by,ww,hh); ctx.fill();
         ctx.fillStyle=пал.фон;
         ctx.fillText(текст, bx, by);
       }
@@ -4595,8 +4595,8 @@ class Graph{
         const выделен=this.selNodes&&this.selNodes.has(n.id);
         ctx.globalAlpha=п.альфа*(пусто?0.7:1);
         ctx.fillStyle=(хаб||выделен) ? пал.текст
-                    : n.paused ? this._смесь(пал.подпись2, пал.текст, 0.55)
-                               : this._смесь(пал.подпись, пал.текст, 0.5);
+                    : n.paused ? this._mix(пал.подпись2, пал.текст, 0.55)
+                               : this._mix(пал.подпись, пал.текст, 0.5);
         ctx.font=(хаб?"600 13.5px ":(n.paused?"italic 12px ":"12px "))+"system-ui, -apple-system, Segoe UI, sans-serif";
         ctx.shadowColor=пал.фон; ctx.shadowBlur=4;   // подложка: подпись часто ложится на связь
         ctx.fillText(текст, п.x, п.y);
@@ -4689,7 +4689,7 @@ class Graph{
   }
   _openPop(n,e){
     this._closePop();
-    /* МЕНЮ ПУСТЫШКИ — отдельное от обычной ноды: она вспомогательная (см. _палитра/цвет),
+    /* МЕНЮ ПУСТЫШКИ — отдельное от обычной ноды: она вспомогательная (см. _palette/цвет),
        и разговор с ней идёт не про содержимое, а про то, что она обслуживает область. Отсюда
        заголовок с иконкой пустышки и названием ОБЛАСТИ, а не только своим именем, — чтобы было
        наглядно видно, что это та же самая область, просто вынесенная точка крепления. */
@@ -4711,7 +4711,7 @@ class Graph{
       $("#graph-wrap").appendChild(pop);
       this._posPop(pop,n);
       pop.querySelector('[data-pop="link"]').onclick=()=>{ this.startLink(n.id); };
-      pop.querySelector('[data-pop="hollow2"]').onclick=()=>{ this._closePop(); this._создатьПустышку(it.area, n); };
+      pop.querySelector('[data-pop="hollow2"]').onclick=()=>{ this._closePop(); this._createHollow(it.area, n); };
       /* Удаление безопасно само по себе: принадлежность прицепленных нод хранится ПОЛЕМ area
          на них самих, а не ссылкой на эту пустышку — анкер к ней существует только в памяти
          графа. Снесли пустышку — на следующей сборке эти ноды сами найдут хаб или соседнюю
@@ -4755,7 +4755,7 @@ class Graph{
       $$(".np-sw .swatch",pop).forEach(b=>b.onclick=()=>this._paintColor(n, PALETTE[+b.dataset.ci]||null));
       pop.querySelector('[data-pop="tasks"]').onclick=()=>{ this._closePop(); areaFilter=a.id; view="tasks"; render(); };
       pop.querySelector('[data-pop="link"]').onclick=()=>{ this.startLink(n.id); };
-      pop.querySelector('[data-pop="hollow"]').onclick=()=>{ this._closePop(); this._создатьПустышку(a.id, n); };
+      pop.querySelector('[data-pop="hollow"]').onclick=()=>{ this._closePop(); this._createHollow(a.id, n); };
       // область правится и удаляется прямо здесь — лезть за этим в полосу слева не нужно
       pop.querySelector('[data-pop="arename"]').onclick=()=>{
         this._closePop(); openAreaEditor(a, ()=>{ renderNav(); this.build(); });
@@ -4865,7 +4865,7 @@ class Graph{
     const setSize=(d)=>{ const cur=+it.size||1; it.size=Math.max(0.4,Math.min(3,+(cur+d).toFixed(2))); touch(it); persist(); this.build(); const v=$(".np-sz-val",pop); if(v) v.textContent=(+it.size).toFixed(1)+"×"; };
     if(pop.querySelector('[data-pop="size-"]')) pop.querySelector('[data-pop="size-"]').onclick=()=>setSize(-0.2);
     if(pop.querySelector('[data-pop="size+"]')) pop.querySelector('[data-pop="size+"]').onclick=()=>setSize(0.2);
-    if(pop.querySelector('[data-pop="home-off"]')) pop.querySelector('[data-pop="home-off"]').onclick=()=>this._сбросДома(n);
+    if(pop.querySelector('[data-pop="home-off"]')) pop.querySelector('[data-pop="home-off"]').onclick=()=>this._resetHome(n);
     if(pop.querySelector('[data-pop="folder-open"]')) pop.querySelector('[data-pop="folder-open"]').onclick=()=>openItemFolder(it);
     if(pop.querySelector('[data-pop="folder-pick"]')) pop.querySelector('[data-pop="folder-pick"]').onclick=()=>pickItemFolder(it, ()=>{ this._closePop(); this.build(); });
     // папку можно бросить прямо на попап ноды из проводника (см. wireFolderDrop в core.js)
@@ -4930,7 +4930,7 @@ class Graph{
         /* Отцепили от пустышки — нода возвращается к области напрямую. Наследование шло через
            пустышку, и без этого нода осталась бы вовсе без области: сняли развилку — потеряли
            принадлежность. Возвращаем ту же область СВОЕЙ, и луч от хаба появляется снова. */
-        this._отЖивогоУзла(l.a, l.b);
+        this._fromLiveNode(l.a, l.b);
         removeLink(l.a,l.b);
       }
       else { // auto area-link: detach the non-hub endpoint from its area
@@ -4948,15 +4948,15 @@ class Graph{
   // отложенный показ превью ноды (170 мс после клика) обязан умирать вместе с графом:
   // иначе переход на другую вкладку в этом окне рисовал попап поверх уже другого экрана
   _killPreviewTimer(){ if(this._pvT){ clearTimeout(this._pvT); this._pvT=null; } }
-  pause(){ this._paused=true; this._killPreviewTimer(); this._снятьКадр(); if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; } }
-  resume(){ if(!this._paused) return; this._paused=false; if(!this._ждётКадр()) this._tick(); }
+  pause(){ this._paused=true; this._killPreviewTimer(); this._cancelFrame(); if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; } }
+  resume(){ if(!this._paused) return; this._paused=false; if(!this._frameWaiting()) this._tick(); }
 
   // поля кадров ОБНУЛЯЕМ, а не только отменяем: во всём классе «raf пуст» означает «кадр не
   // запланирован» (на этом стоит и _schedule, и resume). Оставленный номер уже отменённого
   // кадра — ложь о состоянии, из-за которой цикл потом можно не запустить.
   destroy(){ this._paused=true; this._killPreviewTimer(); clearTimeout(this._asideT); this._asideT=null;
     clearTimeout(this._searchT); this._searchT=null;
-    this._снятьКадр();
+    this._cancelFrame();
     if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; }
     // граф пересоздаётся на каждый render — без этого наблюдатели и слушатели копились бы
     if(this._ro){ this._ro.disconnect(); this._ro=null; }

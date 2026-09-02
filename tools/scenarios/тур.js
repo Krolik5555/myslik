@@ -140,13 +140,13 @@ document.querySelector("#tour-next").click(); await ж(200); доиграть();
 
 // ================== ШАГ 3: СТРЕЛКА НА КНОПКУ НАПОМИНАНИЯ ==================
 /* Цель — кнопка внутри правой панели (.event-ctl [data-eventpick]), а не тулбара: у нее нет
-   готового id, панель появляется только когда что-то выбрано — ровно это и делает перед()
+   готового id, панель появляется только когда что-то выбрано — ровно это и делает before()
    у самого шага (см. ТУР в main.js), здесь просто проверяем итог. */
 document.querySelector("#tour-next").click(); await ж(200); доиграть();
 {
   const p = document.querySelector("#tour-pop"), ц = document.querySelector(".event-ctl [data-eventpick]");
   t.push({имя: "шаг про напоминание находит и подсвечивает кнопку в панели", ок: !!ц && ц.classList.contains("tour-lit"),
-          факт: ц ? "кнопка напоминания на экране, подсвечена: " + ц.classList.contains("tour-lit") : "кнопки нет — перед() не выбрал ноду?"});
+          факт: ц ? "кнопка напоминания на экране, подсвечена: " + ц.classList.contains("tour-lit") : "кнопки нет — before() не выбрал ноду?"});
   t.push({имя: "выноска не по центру — цель нашлась", ок: !p.classList.contains("mid"),
           факт: "класс mid: " + p.classList.contains("mid")});
 }

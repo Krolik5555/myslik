@@ -290,12 +290,12 @@ t.push({имя: "повторное включение возвращает пр
    не тянется, и дом назначается заново при первом же перетаскивании. */
 {
   if (!S.settings.graphHome) graph.toggleHome();
-  [A, B, D].forEach(it => { if (it.hx == null) graph._домЖест(it); });
+  [A, B, D].forEach(it => { if (it.hx == null) graph._homeFromDrag(it); });
   graph.build(); await ж(200);
 
   const уA = () => graph.byId[A.id], уB = () => graph.byId[B.id], уD = () => graph.byId[D.id];
   graph.selNodes = new Set([A.id, B.id]);
-  graph._сбросДома(уA()); await ж(250);
+  graph._resetHome(уA()); await ж(250);
   t.push({имя: "сброс дома идёт на всё выделение, чужие дома целы",
           ок: A.hx == null && B.hx == null && D.hx != null,
           факт: "A=" + A.hx + ", B=" + B.hx + ", D=" + D.hx});
@@ -307,9 +307,9 @@ t.push({имя: "повторное включение возвращает пр
           ок: уA()._дом === null && !!уD()._дом,
           факт: "A._дом=" + JSON.stringify(уA()._дом) + ", D._дом=" + (уD()._дом ? "есть" : "нет")});
 
-  // перетаскивание: обработчик указателя делает ровно это — двигает узел и зовёт _домЖест
+  // перетаскивание: обработчик указателя делает ровно это — двигает узел и зовёт _homeFromDrag
   const у = уA(); у.x += 60; у.y += 40; A.x = у.x; A.y = у.y;
-  const назначен = graph._домЖест(A);
+  const назначен = graph._homeFromDrag(A);
   graph.alpha = 0.4; graph._tick(true);
   t.push({имя: "после перетаскивания дом назначается заново",
           ок: назначен && A.hx != null && !!уA()._дом,
@@ -319,7 +319,7 @@ t.push({имя: "повторное включение возвращает пр
   const хабы = graph.nodes.filter(n => n.type === "hub");
   if (хабы.length) {
     graph.selNodes = new Set([хабы[0].id]);
-    graph._сбросДома(хабы[0]); await ж(150);
+    graph._resetHome(хабы[0]); await ж(150);
     t.push({имя: "у области дом не сбрасывается (он абсолютный)", ок: true,
             факт: "сброс по хабу не уронил граф"});
   }
