@@ -1153,8 +1153,92 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
    в них отдельные ноды было нельзя. Высоту не задаём числом — её выводит aspect-ratio окошка
    из пропорций самого клипа (440×310), поэтому при любой ширине окна кадр не обрезается. */
 .tour-pop.wide{width:min(820px,94vw);}
-/* Если окно низкое, подсказка прокручивается, а не вылезает за экран верхом. */
-.tour-pop{max-height:92vh;overflow:auto;}
+/* Шаг с одиночной картинкой-иллюстрацией (.tour-mock, не видео-сравнение) — средняя ширина:
+   340 px тесно для картинки + текста, 820 (.wide) — слишком просторно для одной иллюстрации,
+   пусто по бокам (КРОЛИК: «плашка слишком маленькая», «плашка тоже больше»). */
+.tour-pop.big{width:min(480px,92vw);}
+/* Если окно низкое, подсказка прокручивается, а не вылезает за экран верхом. ПРОКРУТКА —
+   ТОЛЬКО У ВНУТРЕННЕГО .tour-pop-inner, не у самой .tour-pop: хвостик-стрелка (.tour-tail)
+   висит на -7px ЗА пределами рамки .tour-pop, и overflow:auto на НЕЙ САМОЙ обрезал его молча —
+   баг, из-за которого стрелка не показывалась вовсе (КРОЛИК прислал скриншот без неё), хотя
+   позиция считалась верно. .tour-pop теперь overflow:visible, скролл переехал во внутренний
+   слой, у которого никакого хвостика-соседа нет и обрезать нечего. */
+.tour-pop{overflow:visible;}
+.tour-pop-inner{max-height:92vh;overflow:auto;}
+/* ===== иллюстрации в тексте тура (.tour-mock) — вместо видео там, где готовой записи нет ===== */
+.tour-mock{display:flex;align-items:center;gap:16px;margin:4px 0 12px;padding:14px;
+  background:var(--surf2);border-radius:10px;border:0.5px solid var(--bd);}
+.tm-node{position:relative;width:56px;height:56px;border-radius:50%;flex:none;
+  background:var(--surf1,var(--bg));border:2px solid #5f9ea8;
+  display:flex;align-items:center;justify-content:center;}
+.tm-arc{position:absolute;top:-8px;left:6px;right:6px;height:9px;
+  border-top:3px solid #e0625a;border-radius:50% 50% 0 0/100% 100% 0 0;}
+.tm-due{position:absolute;top:-5px;right:-8px;font-size:10px;color:var(--tx);
+  background:var(--surf3);border:0.5px solid var(--bd2);border-radius:5px;padding:1px 4px;
+  font-variant-numeric:tabular-nums;}
+.tm-labels{display:flex;flex-direction:column;gap:7px;font-size:11.5px;color:var(--mut);}
+.tm-labels i{margin-right:6px;width:14px;text-align:center;}
+/* СЕМЬ СТАТУСОВ — своим рядом (КРОЛИК: «отдельно», «без обмана»). Цвета и иконки взяты теми же
+   именами переменных, что рисует сам граф (graph.js: _палитра → ждёт/очередь/проверка →
+   --st-wait/--st-next/--st-review; реестр иконок — core.js: СТАТУСЫ), не подобраны на глаз —
+   значит совпадут с тем, что человек увидит на настоящей ноде. «Готово» в графе красится
+   ЦВЕТОМ САМОЙ НОДЫ (он у каждой свой) — тут показан примером на акцентном; «на паузе» —
+   пунктир без цвета, тем же приёмом, что и на графе. */
+/* СЕТКОЙ, А НЕ FLEX-WRAP (КРОЛИК: «выровнять»): семь кружков во flex-wrap ужимались до шести
+   в ряд, седьмой («Готово») падал отдельной строкой и сидел не по сетке верхних шести — читалось
+   как перекос. Grid из 7 РАВНЫХ колонок держит все кружки в одном ряду и на одной высоте верхней
+   кромки, даже если чья-то подпись переносится на две строки: строка сетки одна на всех, а
+   выравнивание внутри каждой ячейки — по верху (align-items:start), не по центру всей строки. */
+.tm-statuses{display:grid;grid-template-columns:repeat(7,1fr);gap:10px 4px;align-items:start;}
+.tm-st{display:flex;flex-direction:column;align-items:center;gap:5px;}
+.tm-st-c{width:30px;height:30px;border-radius:50%;border:2px solid var(--bd3);flex:none;
+  display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--tx);}
+.tm-st-c.tm-st-fill{background:var(--acc);border-color:var(--acc);color:var(--bg);}
+.tm-st-c.tm-st-dash{border-style:dashed;border-color:var(--mut2);}
+/* «В РАБОТЕ» — НЕ ЗАЛИВКА (КРОЛИК поймал: раньше тут был сплошной белый кружок, а на графе
+   это едва тонированная заливка + мягкое свечение вокруг, см. graph.js: _drawMain «doing» и
+   _drawGlow). Свечение — самое узнаваемое в этом статусе, заливка сама по себе почти не
+   отличима от пустой ноды. Цвет свечения на графе берётся из ЦВЕТА САМОЙ НОДЫ (у каждой свой),
+   тут — на примере одного из палитры (core.js: PALETTE, #5b9bd6), не выдуман. */
+.tm-st-c.tm-st-glow{background:rgba(91,155,214,.14);border-color:#5b9bd6;
+  box-shadow:0 0 12px 3px rgba(91,155,214,.55);}
+/* «ЖДЁТ»/«НА ПРОВЕРКЕ»/«НА ПАУЗЕ» СВЕТЯТСЯ ТОЖЕ (КРОЛИК: «у ноды с глазиком есть красноватое
+   свечение, это надо показать») — на графе все три светятся вдвое слабее «в работе»
+   (graph.js: _drawGlow, inten*0.5/0.52 против чистого inten у doing), поэтому здесь и блёр
+   меньше, и цвет взят той же переменной свечения, что и в _drawGlow (--st-wait-glow/
+   --st-review-glow), а не цветом кольца (--st-wait/--st-review) — на графе это два РАЗНЫХ тона. */
+.tm-st-c.tm-st-glow-wait{box-shadow:0 0 9px 2px color-mix(in srgb, var(--st-wait-glow) 40%, transparent);}
+.tm-st-c.tm-st-glow-review{box-shadow:0 0 9px 2px color-mix(in srgb, var(--st-review-glow) 40%, transparent);}
+.tm-st-c.tm-st-glow-pause{box-shadow:0 0 9px 2px color-mix(in srgb, var(--mut) 35%, transparent);}
+.tm-st-l{font-size:9.5px;color:var(--mut);text-align:center;line-height:1.2;}
+/* ЖАР — те же три цвета, что двойной контур на графе (--ur1/2/3, graph.js: пал.жар), кольцо —
+   box-shadow вместо второго вложенного div: тот же зазор в экранных px, что у настоящего
+   контура (см. graph.js "ЖАР — ДВОЙНОЙ КОНТУР"), просто нарисован проще. */
+.tm-heat{flex-direction:column;align-items:stretch;}
+.tm-heat-lvls{display:flex;justify-content:center;gap:24px;margin-bottom:10px;}
+.tm-heat-one{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;}
+.tm-heat-c{width:24px;height:24px;border-radius:50%;background:var(--surf1,var(--bg));
+  border:1.5px solid var(--tx);box-shadow:0 0 0 3px var(--hc);}
+/* Плашка ранга — та же заливка цветом уровня и тот же приём «текст цветом фона», что и в
+   _drawMain (графа.js: рангЖар, _путьПлашки) — не нарисованный отдельно значок. КРОЛИК: «в
+   тексте написано про номер, а на картинке его не видно» — теперь видно на живом примере.
+   ПРИЖАТА К УГЛУ САМОГО КРУЖКА (не подвешена левее, во внешнем зазоре) — с зазором 20 px
+   между тремя кружками она перекрывала промежуток и читалась как относящаяся к соседнему
+   уровню, а не к «горит» (КРОЛИК бы её тоже заметил на пиксель левее, чем нужно). */
+.tm-heat-rank{position:absolute;left:-9px;top:-7px;font-size:8.5px;font-weight:700;
+  padding:1.5px 4px;border-radius:5px;background:var(--hc);color:var(--bg);white-space:nowrap;
+  box-shadow:0 0 0 2px var(--surf2);}
+.tm-toast-card{position:relative;width:100%;max-width:280px;margin:4px auto 12px;
+  background:var(--surf2);border:0.5px solid var(--bd2);border-radius:10px;overflow:hidden;
+  box-shadow:0 8px 22px var(--sh);}
+.tm-toast-accent{position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--tm-near);}
+.tm-toast-body{padding:11px 12px 11px 15px;}
+.tm-toast-head{display:flex;align-items:center;gap:8px;}
+.tm-toast-ic{flex:none;width:22px;height:22px;border-radius:7px;background:rgba(255,255,255,.07);
+  display:flex;align-items:center;justify-content:center;color:var(--tm-near);font-size:12px;}
+.tm-toast-head b{font-size:12.5px;color:var(--tx);flex:1;min-width:0;}
+.tm-toast-x{color:var(--mut2);font-size:14px;}
+.tm-toast-txt{margin-top:5px;margin-left:30px;font-size:11.5px;color:var(--mut);}
 /* Без цели — карточка по центру, но центр считает JS через left/top, а НЕ translate(-50%,-50%):
    иначе при переходе «по центру → к кнопке» доигрывающий transform складывался с уже новой
    позицией, и выноска на полкадра улетала за край окна. Один способ позиционирования на оба

@@ -2,7 +2,13 @@
    Цена ошибки тут выше обычного: тур всплывает поверх интерфейса на старте, и если отметка
    о просмотре не встанет, он будет встречать человека каждый запуск. Второй способ ошибиться —
    показать его тому, кто ставит приложение впервые: рассказывать «что изменилось» человеку,
-   который прежней версии не видел, незачем. Проверяем оба конца. */
+   который прежней версии не видел, незачем. Проверяем оба конца.
+
+   Сценарий переписан под 2.0.5 (четыре шага: статусы/срок/приоритет, «что горит»,
+   напоминание, тост) — старый был жёстко завязан на «Держать раскладку» (текст плашки,
+   цель #g-home, демо-сравнение из двух видео). В этом релизе демо нет — готовых записей не
+   было, см. main.js — поэтому блок про .tour-demo из старого сценария убран целиком, а не
+   адаптирован под пустоту. */
 const t = [];
 const ж = ms => new Promise(r => setTimeout(r, ms));
 const _былаОтметка = S.settings.tourSeen;
@@ -29,7 +35,7 @@ turBanner(); await ж(150);
           ок: !!пл && пл.querySelector("b").textContent.includes(ТУР_ID),
           факт: "заголовок: «" + (пл ? пл.querySelector("b").textContent : "—") + "»"});
   t.push({имя: "в плашке коротко сказано, что нового, и есть кнопка",
-          ок: !!пл && /Держать раскладку/.test(пл.textContent) && !!document.querySelector("#tb-go"),
+          ок: !!пл && /напоминани/i.test(пл.textContent) && !!document.querySelector("#tb-go"),
           факт: пл ? "«" + пл.querySelector(".tb-sub").textContent.slice(0, 60) + "…» + кнопка «" +
                      document.querySelector("#tb-go").textContent + "»" : "—"});
   /* МЕСТО ПЛАШКИ — снизу по центру, а не в углу: в правом нижнем её закрывали правая панель и
@@ -56,9 +62,10 @@ t.push({имя: "кнопка открывает демонстрацию и у�
         факт: "демонстрация: " + !!document.querySelector("#tour-pop") +
               ", плашка убрана: " + !document.querySelector("#tour-banner")});
 
-// ================== ПОКАЗ И ШАГИ ==================
+// ================== ШАГ 0: СТАТУСЫ, БЕЗ ЦЕЛИ, ПО ЦЕНТРУ ==================
 const p0 = document.querySelector("#tour-pop");
-t.push({имя: "тур открывается и знает свои шаги", ок: !!p0 && p0.querySelectorAll(".tour-dots i").length === ТУР.length,
+t.push({имя: "тур открывается и знает свои шаги (их пять)",
+        ок: !!p0 && p0.querySelectorAll(".tour-dots i").length === ТУР.length && ТУР.length === 5,
         факт: p0 ? "шагов " + ТУР.length + ", заголовок «" + p0.querySelector(".tour-head b").textContent + "»" : "выноски нет"});
 {
   const r = p0.getBoundingClientRect();
@@ -66,35 +73,30 @@ t.push({имя: "тур открывается и знает свои шаги",
           ок: Math.abs((r.left + r.width / 2) - innerWidth / 2) < 3 && r.left >= 0 && r.right <= innerWidth,
           факт: "центр выноски " + Math.round(r.left + r.width / 2) + " при центре окна " + Math.round(innerWidth / 2)});
 }
-/* СРАВНЕНИЕ — две НАСТОЯЩИЕ записи графа. Проверяем не «есть ли разметка», а то, от чего
-   зависит смысл: клипы разные, они реально ИДУТ (без autoplay/muted Chromium их не запустит,
-   и человек увидит два стоп-кадра), и окошки не ужаты до почтовых марок. */
-{
-  const окошки = p0.querySelectorAll(".tour-demo .td-one");
-  const видео = [...p0.querySelectorAll(".tour-demo video")];
-  t.push({имя: "в подсказке два окошка со сравнением", ок: окошки.length === 2,
-          факт: "окошек " + окошки.length + ", подписи: " +
-                [...p0.querySelectorAll(".td-lbl")].map(n => "«" + n.textContent + "»").join(" и ")});
-  t.push({имя: "в окошках разные записи", ок: видео.length === 2 &&
-            видео[0].getAttribute("src") !== видео[1].getAttribute("src"),
-          факт: видео.map(v => v.getAttribute("src")).join(" и ")});
-  t.push({имя: "записи зациклены и без звука (иначе автозапуск не сработает)",
-          ок: видео.every(v => v.loop && v.muted && v.autoplay),
-          факт: видео.map(v => "loop=" + v.loop + " muted=" + v.muted + " autoplay=" + v.autoplay).join(" · ")});
-  // даём кадрам пойти и смотрим, что время реально идёт, а не стоит на нуле
-  await ж(900);
-  const идут = видео.filter(v => v.currentTime > 0 && !v.error).length;
-  t.push({имя: "записи играют, а не висят стоп-кадром", ок: идут === 2,
-          факт: видео.map(v => v.error ? "ОШИБКА " + v.error.code : v.currentTime.toFixed(2) + " с").join(" и ")});
-  const сцена1 = окошки[0].getBoundingClientRect(), окно = p0.getBoundingClientRect();
-  /* Порог не от балды: при 208 px отдельные ноды в записи было не разглядеть (КРОЛИК прислал
-     снимок с «окошко больше надо»). 300 — та ширина, на которой подписи нод уже читаются. */
-  t.push({имя: "окошки не ужаты", ок: сцена1.width >= 300 && сцена1.height >= 200,
-          факт: "окошко " + Math.round(сцена1.width) + "×" + Math.round(сцена1.height) +
-                " в подсказке шириной " + Math.round(окно.width)});
-  t.push({имя: "сравнение не трогает граф человека", ок: p0.querySelectorAll("#graph").length === 0,
-          факт: "внутри подсказки узлов настоящего графа нет"});
-}
+/* Все СЕМЬ статусов (КРОЛИК: «отдельно», «без обмана») — цвет и иконка иду теми же CSS-
+   переменными, что и на настоящем графе (--st-wait/--st-next/--st-review), поэтому просто
+   проверяем количество кружков и что цвета взяты из переменных, а не с потолка. */
+t.push({имя: "первый шаг — про статусы, все семь, с мини-нодой вместо видео",
+        ок: !p0.querySelector(".tour-demo") && !p0.classList.contains("wide") &&
+            p0.classList.contains("big") && p0.querySelectorAll(".tm-st").length === 7,
+        факт: "заголовок «" + p0.querySelector(".tour-head b").textContent + "», .tour-demo: " +
+              !!p0.querySelector(".tour-demo") + ", .big: " + p0.classList.contains("big") +
+              ", кружков статусов: " + p0.querySelectorAll(".tm-st").length});
+/* «Без обмана» проверяем буквально: цвета в разметке — ссылки на var(--st-*), а не подобранные
+   на глаз hex-числа. Три статуса со своим цветом — next/wait/review. */
+t.push({имя: "цвета статусов — ссылки на переменные темы (--st-next/--st-wait/--st-review), не хардкод",
+        ок: p0.innerHTML.includes("var(--st-next)") && p0.innerHTML.includes("var(--st-wait)") &&
+            p0.innerHTML.includes("var(--st-review)"),
+        факт: "var(--st-next): " + p0.innerHTML.includes("var(--st-next)") +
+              ", var(--st-wait): " + p0.innerHTML.includes("var(--st-wait)") +
+              ", var(--st-review): " + p0.innerHTML.includes("var(--st-review)")});
+/* Стрелка-хвостик ЖИВЁТ ВНЕ прокручиваемого слоя (.tour-pop-inner) — если её случайно вернут
+   внутрь при правке разметки, overflow:auto там же снова обрежет её молча (баг, из-за которого
+   КРОЛИК прислал скриншот шага «что горит» без стрелки вовсе). Проверяем структуру прямо тут,
+   на шаге без цели, где сам хвостик skрыт (.mid), — достаточно того, что он НЕ внутри inner. */
+t.push({имя: "хвостик-стрелка не внутри прокручиваемого слоя (иначе снова обрежется)",
+        ок: !!p0.querySelector(":scope > .tour-tail"),
+        факт: "прямой потомок .tour-pop: " + !!p0.querySelector(":scope > .tour-tail")});
 
 /* ОТМЕТКА ОБЯЗАНА ВСТАТЬ УЖЕ НА ПОКАЗЕ, а не при закрытии изнутри: самый обычный исход —
    человек увидел и закрыл ОКНО, не нажимая ничего. Поймано на живой сборке: подсказка открыта,
@@ -102,14 +104,23 @@ t.push({имя: "тур открывается и знает свои шаги",
 t.push({имя: "отметка встаёт сразу при показе, не дожидаясь закрытия", ок: S.settings.tourSeen === ТУР_ID,
         факт: "показ идёт, в настройках " + JSON.stringify(S.settings.tourSeen)});
 
-// ================== ШАГ СО СТРЕЛКОЙ НА ДОМИК ==================
+// ================== ШАГ 1: СРОК И ПРИОРИТЕТ, БЕЗ ЦЕЛИ ==================
 document.querySelector("#tour-next").click(); await ж(200); доиграть();
 {
-  const p = document.querySelector("#tour-pop"), ц = document.querySelector("#g-home");
+  const p = document.querySelector("#tour-pop");
+  t.push({имя: "второй шаг — про срок и приоритет, с мини-нодой (дужка+цифра)",
+          ок: p.classList.contains("mid") && p.classList.contains("big") && !!p.querySelector(".tm-node .tm-arc"),
+          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», дужка: " + !!p.querySelector(".tm-arc")});
+}
+
+// ================== ШАГ 2: СТРЕЛКА НА «ЧТО ГОРИТ» ==================
+document.querySelector("#tour-next").click(); await ж(200); доиграть();
+{
+  const p = document.querySelector("#tour-pop"), ц = document.querySelector("#g-heat");
   const rc = ц ? ц.getBoundingClientRect() : null, rp = p.getBoundingClientRect();
   const хв = p.querySelector(".tour-tail").getBoundingClientRect();
-  t.push({имя: "шаг про дом подсвечивает саму кнопку", ок: !!ц && ц.classList.contains("tour-lit"),
-          факт: ц ? "кнопка #g-home подсвечена: " + ц.classList.contains("tour-lit") : "кнопки нет на экране"});
+  t.push({имя: "шаг про «что горит» подсвечивает саму кнопку", ок: !!ц && ц.classList.contains("tour-lit"),
+          факт: ц ? "кнопка #g-heat подсвечена: " + ц.classList.contains("tour-lit") : "кнопки нет на экране"});
   /* Хвостик — это и есть «стрелочка показывает на кнопку». Мимо он смотрел, пока выноска
      позиционировалась через transform: доигрывающий перевод складывался с новой позицией. */
   t.push({имя: "стрелка смотрит ровно на кнопку",
@@ -120,14 +131,36 @@ document.querySelector("#tour-next").click(); await ж(200); доиграть();
               rp.left >= 0 && rp.right <= innerWidth && rp.bottom <= innerHeight,
           факт: rc ? "зазор " + Math.round(rp.top - rc.bottom) + " px, в окне: " +
                      (rp.left >= 0 && rp.right <= innerWidth && rp.bottom <= innerHeight) : "—"});
+  t.push({имя: "на шаге про «что горит» — три уровня двойного контура", ок: p.querySelectorAll(".tm-heat-one").length === 3,
+          факт: "уровней жара в иллюстрации: " + p.querySelectorAll(".tm-heat-one").length});
+  // текст упоминает номер очереди — КРОЛИК заметил, что раньше это не было видно на самой картинке
+  t.push({имя: "номер очереди виден на самой иллюстрации, не только в тексте", ок: !!p.querySelector(".tm-heat-rank"),
+          факт: "плашка ранга: " + (p.querySelector(".tm-heat-rank") || {}).textContent});
 }
 
-// ================== ЗАВЕРШЕНИЕ И ОТМЕТКА ==================
+// ================== ШАГ 3: СТРЕЛКА НА КНОПКУ НАПОМИНАНИЯ ==================
+/* Цель — кнопка внутри правой панели (.event-ctl [data-eventpick]), а не тулбара: у нее нет
+   готового id, панель появляется только когда что-то выбрано — ровно это и делает перед()
+   у самого шага (см. ТУР в main.js), здесь просто проверяем итог. */
+document.querySelector("#tour-next").click(); await ж(200); доиграть();
+{
+  const p = document.querySelector("#tour-pop"), ц = document.querySelector(".event-ctl [data-eventpick]");
+  t.push({имя: "шаг про напоминание находит и подсвечивает кнопку в панели", ок: !!ц && ц.classList.contains("tour-lit"),
+          факт: ц ? "кнопка напоминания на экране, подсвечена: " + ц.classList.contains("tour-lit") : "кнопки нет — перед() не выбрал ноду?"});
+  t.push({имя: "выноска не по центру — цель нашлась", ок: !p.classList.contains("mid"),
+          факт: "класс mid: " + p.classList.contains("mid")});
+}
+
+// ================== ШАГ 4: ТОСТ, БЕЗ ЦЕЛИ, ПОСЛЕДНИЙ ==================
+document.querySelector("#tour-next").click(); await ж(200); доиграть();
 const последняя = document.querySelector("#tour-pop #tour-next").textContent;
-t.push({имя: "на шаге про кнопку есть «Включить сейчас»", ок: !!document.querySelector("#tour-do"),
-        факт: "кнопка действия: " + (document.querySelector("#tour-do") || {}).textContent});
+t.push({имя: "последний шаг — про тост-уведомление, кнопка «Понятно», с копией тоста вместо видео",
+        ок: /уведомлен/i.test(document.querySelector(".tour-head b").textContent) &&
+            последняя === "Понятно" && !!document.querySelector("#tour-pop .tm-toast-card"),
+        факт: "заголовок «" + document.querySelector(".tour-head b").textContent + "», кнопка «" + последняя +
+              "», копия тоста: " + !!document.querySelector("#tour-pop .tm-toast-card")});
 document.querySelector("#tour-next").click(); await ж(150);
-t.push({имя: "последний шаг закрывает тур", ок: последняя === "Понятно" && !document.querySelector("#tour-pop"),
+t.push({имя: "«Понятно» закрывает тур", ок: последняя === "Понятно" && !document.querySelector("#tour-pop"),
         факт: "кнопка «" + последняя + "», выноска убрана: " + !document.querySelector("#tour-pop")});
 t.push({имя: "подсветка кнопки снимается вместе с туром", ок: document.querySelectorAll(".tour-lit").length === 0,
         факт: "подсвеченных узлов осталось " + document.querySelectorAll(".tour-lit").length});
@@ -164,8 +197,10 @@ t.push({имя: "Escape закрывает и запоминает", ок: S.set
           факт: пункт ? "«" + пункт.textContent.trim() + "»" : "пункта нет"});
   if (пункт) { пункт.click(); await ж(200); }
   t.push({имя: "пункт открывает тур с первого шага",
-          ок: !!document.querySelector("#tour-pop") && !!document.querySelector(".tour-demo"),
-          факт: "выноска: " + !!document.querySelector("#tour-pop") + ", сравнение на месте: " + !!document.querySelector(".tour-demo")});
+          ок: !!document.querySelector("#tour-pop") &&
+              document.querySelector(".tour-head b").textContent === ТУР[0].ttl,
+          факт: "выноска: " + !!document.querySelector("#tour-pop") + ", заголовок: «" +
+                (document.querySelector(".tour-head b") || {}).textContent + "»"});
   t.push({имя: "и меню при этом закрывается",
           ок: document.querySelector("#g-more-menu").style.display === "none",
           факт: "меню: " + (document.querySelector("#g-more-menu").style.display || "видно")});

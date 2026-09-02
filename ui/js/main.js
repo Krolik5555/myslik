@@ -652,38 +652,77 @@ async function autoCheckUpdate(delayed){
    Шаг без цели — обычная карточка по центру: так рассказываются вещи, у которых нет своей
    кнопки (запись на диск, скорость графа). Цели может не оказаться на экране вовсе — тогда
    шаг молча становится центральным, а не ломает тур. */
-const ТУР_ID="2.0.4.1";
-/* Тур РОВНО ПРО ОДНУ вещь — «Держать раскладку». Остальное из патча (запись на диск, скорость
-   графа, бросок папки) сюда не тащим намеренно: список из трёх новостей человек листает не
-   читая, а рассказать надо про кнопку, о существовании которой иначе не догадаться.
-   Первый шаг — не текст, а СРАВНЕНИЕ в движении: две одинаковые мини-звёздочки, слева лучи
-   пляшут вразнобой, справа отходят и возвращаются к одной длине. Объяснять словами, что
-   «форма держится», можно долго; увидеть разницу — секунда. Анимация чисто на CSS: свои кадры
-   тут заводить не на что, а keyframes крутит композитор и в окне, которое мы не рисуем. */
-/* СРАВНЕНИЕ — ДВЕ НАСТОЯЩИЕ ЗАПИСИ графа, а не рисованные звёздочки. Рисованная версия тут
-   была и оказалась бесполезной: обе половины читались как «что-то шевелится», и объяснить,
-   чем дом отличается, она не могла (КРОЛИК: «демонстрация показывает одно и то же»). Живая
-   запись показывает это без единого слова.
-   WebM/VP9, а не GIF: те же секунды весят 75 и 95 КБ вместо мегабайтов, и на тёмном фоне со
-   звёздами нет полос от 256-цветной палитры. Файлы лежат в ui/media и уезжают в сборку сами —
-   в Myslik.spec папка ui берётся целиком.
-   muted обязателен: без него Chromium не даст автозапуску сработать вовсе. */
-const ТУР_ДЕМО=`
-  <div class="tour-demo">
-    <div class="td-one bad">
-      <video class="td-vid" src="media/home-off.webm" autoplay loop muted playsinline></video>
-      <span class="td-lbl">физика сама по себе</span></div>
-    <div class="td-vs"><i class="ti ti-arrow-right"></i></div>
-    <div class="td-one good">
-      <video class="td-vid" src="media/home-on.webm" autoplay loop muted playsinline></video>
-      <span class="td-lbl">с домом</span></div>
+const ТУР_ID="2.0.5";
+/* Релиз накопил пять самостоятельных вещей (статусы, срок+приоритет, «что горит»,
+   напоминание, тост) — заметно больше, чем «ровно одна», как в прошлый раз. Без демо: видео
+   пишется руками (см. рецепт в docs/СБОРКА-И-РЕЛИЗ.md), а в этом заходе готовых записей нет —
+   ТУР_ДЕМО из прошлой версии убран вместе с её клипами (ui/media/home-*.webm), они были про
+   уже показанную функцию. Каждый шаг всё равно указывает на живую кнопку, где кнопка есть, —
+   тур сам по себе уже наглядность, просто без предзаписанного сравнения.
+
+   .tour-mock — статичные иллюстрации ЧЕСТНЫМИ цветами (КРОЛИК: «без обмана»): не подобраны
+   на глаз, а взяты теми же именами CSS-переменных, что рисует сам граф (graph.js: _палитра,
+   реестр иконок — core.js: СТАТУСЫ) — увидит на настоящей ноде то же самое, не апроксимацию. */
+const ТУР_ВИЗ_СТАТУСЫ=`
+  <div class="tour-mock tm-statuses">
+    <div class="tm-st"><span class="tm-st-c"></span><span class="tm-st-l">Не начато</span></div>
+    <div class="tm-st"><span class="tm-st-c" style="border-color:var(--st-next)"><i class="ti ti-player-track-next" style="color:var(--st-next)"></i></span><span class="tm-st-l">На очереди</span></div>
+    <div class="tm-st"><span class="tm-st-c tm-st-glow"></span><span class="tm-st-l">В работе</span></div>
+    <div class="tm-st"><span class="tm-st-c tm-st-glow-wait" style="border-color:var(--st-wait)"><i class="ti ti-hourglass-low" style="color:var(--st-wait)"></i></span><span class="tm-st-l">Ждёт</span></div>
+    <div class="tm-st"><span class="tm-st-c tm-st-glow-review" style="border-color:var(--st-review)"><i class="ti ti-eye" style="color:var(--st-review)"></i></span><span class="tm-st-l">На проверке</span></div>
+    <div class="tm-st"><span class="tm-st-c tm-st-dash tm-st-glow-pause"></span><span class="tm-st-l">На паузе</span></div>
+    <div class="tm-st"><span class="tm-st-c tm-st-fill"><i class="ti ti-check"></i></span><span class="tm-st-l">Готово</span></div>
   </div>`;
+const ТУР_ВИЗ_СРОК=`
+  <div class="tour-mock">
+    <div class="tm-node"><span class="tm-arc" style="border-color:var(--pri3)"></span><span class="tm-due">3</span></div>
+    <div class="tm-labels">
+      <span><i class="ti ti-flag" style="color:var(--pri3)"></i>приоритет дужкой сверху — три уровня, цвет говорит о силе</span>
+      <span><i class="ti ti-calendar"></i>срок цифрой в углу, без открытия ноды</span>
+    </div>
+  </div>`;
+const ТУР_ВИЗ_ЖАР=`
+  <div class="tour-mock tm-heat">
+    <div class="tm-heat-lvls">
+      <div class="tm-heat-one"><span class="tm-heat-c" style="--hc:var(--ur1)"></span><span class="tm-st-l">тлеет</span></div>
+      <div class="tm-heat-one"><span class="tm-heat-c" style="--hc:var(--ur2)"></span><span class="tm-st-l">греется</span></div>
+      <div class="tm-heat-one"><span class="tm-heat-rank" style="--hc:var(--ur3)">№1</span><span class="tm-heat-c" style="--hc:var(--ur3)"></span><span class="tm-st-l">горит</span></div>
+    </div>
+    <div class="tm-labels">
+      <span><i class="ti ti-flame" style="color:var(--ur3)"></i>двойной контур — цвет и есть уровень жара</span>
+      <span><i class="ti ti-hash"></i>№1…№8 слева — номер в очереди</span>
+    </div>
+  </div>`;
+const ТУР_ВИЗ_ТОСТ=`
+  <div class="tm-toast-card">
+    <span class="tm-toast-accent"></span>
+    <div class="tm-toast-body">
+      <div class="tm-toast-head"><span class="tm-toast-ic"><i class="ti ti-bell"></i></span>
+        <b>Позвонить в клинику</b><i class="ti ti-x tm-toast-x"></i></div>
+      <div class="tm-toast-txt">Записаться на чистку, спросить про отбеливание</div>
+    </div>
+  </div>`;
+/* Тексты — простым языком, без жаргона (КРОЛИК: «понятным, корректным для рядового
+   пользователя»). «Нода» оставлена: это уже родное слово интерфейса — так же подписана
+   кнопка поиска («Найти ноду»), не наш профессиональный сленг из комментариев. А вот
+   «попап»/«глиф» и подобное — убраны, это слова для комментариев к коду, не для человека. */
 const ТУР=[
-  {значок:"ti-home", ttl:"Раскладка, которая держится", демо:true,
-   txt:"Слева обычная физика: ноды понемногу переползают, и раскладка каждый раз получается новая. Справа то же дерево с домом — ноды так же дышат и расходятся от протяжек, но всякий раз возвращаются на свои места."},
-  {значок:"ti-home", ttl:"Включается вот здесь", цель:"#g-home", действие:"Включить сейчас",
-   txt:"Включишь — каждая нода запомнит, где стоит, и будет туда возвращаться. Перетащишь ноду — новое место запомнится само. Место считается от родителя, поэтому сдвинешь область — вся её ветка переедет следом, не рассыпавшись. Выключить можно тем же домиком, ничего при этом не пропадёт: включишь снова — раскладка вернётся.",
+  {значок:"ti-circle-dot", ttl:"Семь статусов — видно без открытия ноды", виз:ТУР_ВИЗ_СТАТУСЫ,
+   txt:"У задачи теперь семь состояний вместо старой пары «не начато / готово» — например «ждёт» или «на проверке». Каждое видно значком прямо внутри ноды, без клика: песочные часы — «ждёт», глаз — «на проверке», двойная стрелка — «на очереди».",
    перед(){ view="notes"; notesMode="graph"; render(); }},
+  {значок:"ti-eye", ttl:"Срок и приоритет — видно сразу", виз:ТУР_ВИЗ_СРОК,
+   txt:"Срок — цифрой в углу ноды, приоритет — цветной дужкой сверху. Оба видно на любом отдалении графа, не только вблизи — искать взглядом важное можно, не подлетая к каждой ноде по очереди.",
+   перед(){ view="notes"; notesMode="graph"; render(); }},
+  {значок:"ti-flame", ttl:"Что горит — режим по одной кнопке", цель:"#g-heat", виз:ТУР_ВИЗ_ЖАР,
+   txt:"Кнопка с огоньком (или Ctrl+G) отбирает до восьми самых срочных задач — учитывает срок, приоритет и то, сколько нода вообще не трогали. У горящих — двойной контур ноды (цвет показывает силу) и номер очереди слева, остальной граф гаснет, чтобы не отвлекал.",
+   перед(){ view="notes"; notesMode="graph"; render(); }},
+  {значок:"ti-bell", ttl:"Напоминание — на любой ноде", цель:".event-ctl [data-eventpick]",
+   txt:"У задачи и у заметки — своё поле, отдельно от срока: точные дата и время, до минуты, и при желании повтор («каждые 3 дня», «раз в неделю»…). Открывается тут же, в панели, или в окне правки — своим окошком с крутящимся колесом времени.",
+   перед(){ view="notes"; notesMode="graph"; render();
+     const it=(S.items||[]).find(x=>x.kind==="task" && !x.deleted);
+     if(it) asideSelect(it.id); }},
+  {значок:"ti-bell-ringing", ttl:"Уведомление даже при свёрнутом окне", виз:ТУР_ВИЗ_ТОСТ,
+   txt:"Когда время подойдёт — справа снизу экрана всплывёт своё окошко поверх всех остальных, даже если Мыслик свёрнут. В нём — название и описание ноды. Висит, пока не закроешь крестиком или не кликнешь по нему — клик сам откроет нужную ноду."},
 ];
 let _турШаг=0, _турУзел=null;
 function turDone(){
@@ -738,15 +777,22 @@ function turStep(n){
      разглядеть в них движение было нельзя (КРОЛИК: «панель очень маленькая»). Ширину меняем
      ДО расчёта позиции — turPlace читает offsetWidth и по нему центрует выноску. */
   _турУзел.classList.toggle("wide", !!шаг.демо);
+  _турУзел.classList.toggle("big", !!шаг.виз);
+  /* Хвостик — ПРЯМОЙ соседский узел .tour-pop, не внутри скроллящегося слоя: он торчит на
+     -7px ЗА пределы рамки (см. .tour-tail), и overflow:auto на том же узле, что и хвостик,
+     обрезает его молча (баг, из-за которого стрелка не показывалась — КРОЛИК прислал скриншот
+     без неё). Скролл теперь только у .tour-pop-inner. */
   _турУзел.innerHTML=`<span class="tour-tail"></span>
-    <div class="tour-head"><i class="ti ${шаг.значок}"></i><b>${esc(шаг.ttl)}</b>
-      <button class="tour-x" id="tour-x" title="Закрыть — больше не покажем"><i class="ti ti-x"></i></button></div>
-    ${шаг.демо?ТУР_ДЕМО:""}
-    <div class="tour-txt">${esc(шаг.txt)}</div>
-    <div class="tour-foot">
-      <span class="tour-dots">${ТУР.map((_,i)=>`<i class="${i===n?"on":""}"></i>`).join("")}</span>
-      ${шаг.действие?`<button class="btn ghost" id="tour-do">${esc(шаг.действие)}</button>`:""}
-      <button class="btn primary" id="tour-next">${последний?"Понятно":"Дальше"}</button>
+    <div class="tour-pop-inner">
+      <div class="tour-head"><i class="ti ${шаг.значок}"></i><b>${esc(шаг.ttl)}</b>
+        <button class="tour-x" id="tour-x" title="Закрыть — больше не покажем"><i class="ti ti-x"></i></button></div>
+      ${шаг.виз||(шаг.демо?ТУР_ДЕМО:"")}
+      <div class="tour-txt">${esc(шаг.txt)}</div>
+      <div class="tour-foot">
+        <span class="tour-dots">${ТУР.map((_,i)=>`<i class="${i===n?"on":""}"></i>`).join("")}</span>
+        ${шаг.действие?`<button class="btn ghost" id="tour-do">${esc(шаг.действие)}</button>`:""}
+        <button class="btn primary" id="tour-next">${последний?"Понятно":"Дальше"}</button>
+      </div>
     </div>`;
   $("#tour-x",_турУзел).onclick=turDone;
   $("#tour-next",_турУзел).onclick=()=>turStep(n+1);
@@ -768,6 +814,11 @@ function turStep(n){
      доставляет вовсе, и выноска осталась бы неспозиционированной в углу. Анимацию появления
      отдаём таймеру по той же причине. */
   turPlace();
+  /* СТРАХОВКА: на самом первом открытии (только что вставленный узел, только что сменившийся
+     класс big/wide) offsetWidth/window.innerWidth изредка ещё не устаканились к этому кадру —
+     видел выноску, вжатую в 30 px у левого края вместо центра. setTimeout(0) достаточно, чтобы
+     позиция уже была верной, и стоит копейки, если она и так была верна с первого раза. */
+  setTimeout(turPlace, 0);
   setTimeout(()=>{ if(_турУзел) _турУзел.classList.add("show"); }, 0);
   /* ОТМЕЧАЕМ ПРИ ПОКАЗЕ, а не при закрытии. Закрытие ставило отметку только если тур ЗАКРЫЛИ
      изнутри — кнопкой, крестиком или Escape. А самый обычный исход другой: человек увидел
@@ -787,9 +838,9 @@ function turStep(n){
 function turBanner(){
   const было=$("#tour-banner"); if(было) было.remove();
   const b=el("div","tour-banner"); b.id="tour-banner";
-  b.innerHTML=`<i class="ti ti-home tb-ico"></i>
+  b.innerHTML=`<i class="ti ti-bell tb-ico"></i>
     <div class="tb-txt"><b>Мыслик обновился — ${esc(ТУР_ID)}</b>
-      <span class="tb-sub">Появилась «Держать раскладку»: ноды запоминают свои места и возвращаются на них.</span></div>
+      <span class="tb-sub">Появились напоминания — своя дата, время и уведомление поверх всех окон.</span></div>
     <button class="btn primary" id="tb-go">Что нового</button>
     <button class="tb-x" id="tb-close" title="Закрыть — больше не предложим"><i class="ti ti-x"></i></button>`;
   document.body.appendChild(b);
