@@ -981,6 +981,51 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .dp-quick button:hover{color:var(--tx);border-color:var(--bd2);}
 .dp-quick .dp-clear{flex:0 0 28px;display:flex;align-items:center;justify-content:center;font-size:13px;}
 .dp-quick .dp-clear:hover{color:var(--warn);border-color:var(--warn);}
+/* напоминание — свой попап: без месячной сетки (КРОЛИК: «тут большой календарь не нужен»),
+   день степпером «‹ Сегодня ›» + быстрые кнопки, время — крутящимся колесом (wireWheel в
+   overlays.js). scroll-snap делает доезд и щелчок на значении — своей физики инерции не пишем. */
+.ev-dp{width:244px;}
+.ev-day{display:flex;align-items:center;justify-content:space-between;gap:4px;}
+.ev-day-nav{width:26px;height:26px;border-radius:7px;color:var(--mut);display:flex;align-items:center;
+  justify-content:center;font-size:15px;flex:0 0 auto;}
+.ev-day-nav:hover{color:var(--tx);background:var(--surf3);}
+.ev-day-lbl{font-size:13px;color:var(--tx);text-align:center;flex:1;}
+.ev-quick{display:flex;gap:4px;margin-top:8px;}
+.ev-quick button{flex:1;padding:5px 6px;border:0.5px solid var(--bd);border-radius:7px;font-size:11.5px;
+  color:var(--mut);background:var(--surf2);}
+.ev-quick button:hover{color:var(--tx);border-color:var(--bd2);}
+.ev-wheels{position:relative;display:flex;align-items:center;justify-content:center;gap:2px;margin:10px 0;}
+/* БЕЗ scroll-snap — правка по жалобе КРОЛИКА «анимация не плавная»: mandatory-снап на КАЖДЫЙ
+   instant-кадр моей анимации (см. evAnimateScroll в overlays.js) пытался довернуть к ближайшей
+   строке сам, и вместо плавного doезда получались рывки враздрай с моим же easing. Доезд до
+   ровного значения теперь целиком на JS: колесо мыши и клик по цифре уже метят в кратное
+   EV_ITEM_H, а протяжка мышью доводит на pointerup (см. wireWheel). */
+.ev-wheel{height:128px;width:52px;overflow-y:auto;
+  -ms-overflow-style:none;scrollbar-width:none;cursor:grab;touch-action:pan-y;}
+.ev-wheel::-webkit-scrollbar{display:none;}
+.ev-wheel-pad{height:48px;}
+.ev-wheel-item{height:32px;line-height:32px;text-align:center;
+  font-size:14px;color:var(--mut2);font-variant-numeric:tabular-nums;opacity:.55;
+  transition:color .12s,opacity .12s,font-size .12s;user-select:none;}
+.ev-wheel-item.sel{color:var(--tx);font-size:18px;font-weight:600;opacity:1;}
+.ev-wheel-sep{font-size:17px;color:var(--tx);font-weight:600;}
+.ev-wheel-mid{position:absolute;left:4px;right:4px;top:50%;transform:translateY(-50%);height:32px;
+  border-top:0.5px solid var(--bd2);border-bottom:0.5px solid var(--bd2);pointer-events:none;border-radius:6px;}
+/* Повтор — чек-бокс + всегда видимая строка «каждые N единиц» (КРОЛИК: убрать пресеты,
+   оставить как будто «свой интервал» выбран всегда — компактно). Единицы своими кнопками,
+   не <select>: открытый список нативного select красит браузер/ОС своими цветами, та же
+   причина, по которой в проекте нет системного календаря. */
+.ev-rep{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12.5px;color:var(--mut);}
+.ev-custom{display:flex;align-items:center;gap:5px;margin-top:6px;transition:opacity .15s;}
+.ev-custom.off{opacity:.35;pointer-events:none;}
+.ev-custom input{width:34px;flex:0 0 auto;background:var(--surf2);border:0.5px solid var(--bd);border-radius:7px;
+  padding:5px 4px;font-size:12.5px;color:var(--tx);text-align:center;outline:none;}
+.ev-unit{display:flex;gap:3px;flex:1;}
+.ev-unit button{flex:1;padding:5px 0;border:0.5px solid var(--bd);border-radius:7px;font-size:10.5px;
+  color:var(--mut);background:var(--surf2);}
+.ev-unit button.on{background:var(--acc);color:var(--bg);border-color:var(--acc);}
+.ev-unit button:hover{color:var(--tx);}
+.ev-unit button.on:hover{color:var(--bg);}
 .row2{display:flex;gap:12px;}
 .row2 .field{flex:1;}
 .seg{display:flex;gap:6px;flex-wrap:wrap;}

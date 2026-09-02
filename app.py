@@ -15,6 +15,7 @@ import ctypes
 import logging
 import traceback
 import tempfile
+import html
 
 # Уровень лога pywebview задаём ДО импорта: свой логгер он настраивает в момент импорта
 # (webview/__init__.py, _setup_logger) и переменную больше не перечитывает. Нужен он вот зачем:
@@ -393,6 +394,142 @@ _HWND = 0
 # доски). Сбрасывается на None при каждом запуске процесса — первый save() сессии всегда
 # пишет boards.json заново; это же и есть переезд с версий, где доски лежали в planner.json.
 _LAST_BOARDS_JSON = None
+
+
+# ---------- окно-тост (напоминания) ----------
+# Своё маленькое pywebview-окно, а не системный Windows-тост: КРОЛИК попросил канал строго
+# через приложение. Показывается ДАЖЕ когда главное окно свёрнуто (win_min прячет его, но
+# процесс и WebView2 живы) — вот почему это ОТДЕЛЬНОЕ окно, а не элемент внутри главного:
+# свёрнутое окно ничего не рисует на экране в принципе.
+_TOAST_WINDOW = None
+# Автозакрытия НЕТ (КРОЛИК: «если не замечу — напоминание потеряно безвозвратно»). Висит
+# поверх всех окон, пока не закроют крестиком или не кликнут — тот же принцип, что у плашки
+# обновления в главном окне (main.js: showUpdateBanner), она тоже не тост и не гаснет сама.
+
+
+class _ToastApi:
+    """Мост тоста — отдельный от Api главного окна: у каждого тоста своя копия с id ноды,
+    на которую он ведёт, а не общее на все окна состояние."""
+
+    def __init__(self, item_id):
+        self._item_id = item_id
+
+    def click(self):
+        _toast_open_item(self._item_id)
+
+    def dismiss(self):
+        _toast_close()
+
+
+def _toast_close():
+    global _TOAST_WINDOW
+    w = _TOAST_WINDOW
+    _TOAST_WINDOW = None
+    if w is not None:
+        try:
+            w.destroy()
+        except Exception:
+            pass
+
+
+def _toast_open_item(item_id):
+    """Клик по тосту: закрыть его, поднять главное окно, попросить фронт открыть ноду.
+
+    notifyOpenItem — обычная функция в main.js (classic script, значит window.notifyOpenItem
+    существует) — ищет ноду по всем графам сама: тост несёт только id текстом, у Python нет
+    доступа к S.
+
+    ВОССТАНАВЛИВАЕМ ЧЕРЕЗ НАТИВНЫЙ ShowWindow, А НЕ pywebview .restore() (жалоба КРОЛИКА:
+    «было развёрнуто на весь экран, после клика по тосту стало обычным окном»). window.restore()
+    в pywebview (winforms.py) безусловно ставит FormWindowState.Normal — то есть ВСЕГДА обычное
+    окно, а не «то состояние, что было до сворачивания». SW_RESTORE в user32 — тот же вызов, что
+    делает клик по значку на панели задач: корректно возвращает Maximized, если окно было
+    развёрнуто перед сворачиванием, Normal — если нет."""
+    _toast_close()
+    try:
+        hwnd = _get_hwnd()
+        if hwnd:
+            h = ctypes.c_void_p(hwnd)
+            ctypes.windll.user32.ShowWindow(h, 9)   # SW_RESTORE
+            ctypes.windll.user32.SetForegroundWindow(h)
+        else:
+            _WINDOW.show()
+    except Exception as e:
+        print("[toast] restore window error:", e)
+        try:
+            _WINDOW.show()
+        except Exception:
+            pass
+    if item_id and _WINDOW is not None:
+        try:
+            _WINDOW.evaluate_js("window.notifyOpenItem && window.notifyOpenItem(%s)" % json.dumps(item_id))
+        except Exception as e:
+            print("[toast] open item error:", e)
+
+
+def _toast_html(title, text, dark):
+    """Разметка окна-тоста — своя, не из ui/: окно отдельное, тянуть в него весь styles.css
+    незачем. Палитра — те же несколько переменных, что и в основном приложении, вручную:
+    тост не грузит core.js/graph.js и о теме узнаёт только по флагу из аргумента.
+
+    Акцент — цвет «срок скоро» (--tm-near из styles.css), не выдуманный отдельно: у
+    напоминания и у «скоро наступит срок» один смысл — обратить внимание заранее, не сгорая
+    тревогой, как у просрочки. Полоска слева и чип под колокольчиком — оформление по
+    замечанию КРОЛИКА («улучшить»), плоская рамка без акцента читалась как системная ошибка,
+    а не как забота о задаче."""
+    acc = "#d8b04a" if dark else "#b8891f"
+    acc_rgb = "216,176,74" if dark else "184,137,31"
+    pal = {
+        "bg": "#161618" if dark else "#f7f7f8",
+        "bd": "rgba(255,255,255,.14)" if dark else "rgba(0,0,0,.12)",
+        "tx": "#f4f4f5" if dark else "#111114",
+        "mut": "#9a9aa0" if dark else "#666666",
+        "acc": acc,
+        "acc_rgb": acc_rgb,
+    }
+    return ("""<!doctype html><html><head><meta charset="utf-8"><style>
+/* ВЫСОТА ЗАЛИТА ЯВНО, А НЕ ЧЕРЕЗ height:100%% НА body БЕЗ height НА html (правка по жалобе
+   КРОЛИКА: «уведомление выглядит криво» — снизу карточки висела белая полоса). Процентная
+   высота ребёнка учитывается, только если родитель имеет ЗАДАННУЮ высоту, а не auto; html без
+   собственного height — это и есть auto, и body{height:100%%} внутри него молча превращается
+   в auto тоже. Заодно фон вешаем прямо на body одним слоем: под transparent=True в pywebview
+   есть недокументированный хак («no idea why this works», winforms.py) с таймингом на
+   динамически созданных окнах — не рискуем, красим окно сплошным цветом, без альфа-канала. */
+html,body{margin:0;padding:0;height:100%%;overflow:hidden;background:%(bg)s;}
+body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-user-select:none;user-select:none;cursor:pointer;
+  box-sizing:border-box;border:0.5px solid %(bd)s;position:relative;}
+.t-accent{position:absolute;left:0;top:0;bottom:0;width:3px;background:%(acc)s;}
+.t-body{box-sizing:border-box;height:100%%;padding:13px 14px 13px 17px;}
+.t-h{display:flex;align-items:center;gap:9px;}
+.t-ic-wrap{flex:0 0 auto;width:25px;height:25px;border-radius:8px;background:rgba(%(acc_rgb)s,.16);
+  display:flex;align-items:center;justify-content:center;}
+.t-ic{color:%(acc)s;}
+.t-title{font-size:13px;font-weight:600;color:%(tx)s;flex:1 1 auto;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.t-x{flex:0 0 auto;color:%(mut)s;font-size:16px;line-height:1;padding:3px;border-radius:6px;}
+.t-x:hover{color:%(tx)s;background:rgba(%(acc_rgb)s,.12);}
+.t-txt{margin-top:7px;margin-left:34px;font-size:12.5px;color:%(mut)s;line-height:1.4;overflow:hidden;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+</style></head><body>
+<div class="t-accent"></div>
+<div class="t-body">
+  <div class="t-h">
+    <div class="t-ic-wrap"><svg class="t-ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 21a2 2 0 0 0 4 0M3.2 15.5C2.6 16.4 3 17.5 4 17.7c5.3 1 10.5 1 15.9 0 1-.2 1.4-1.3.8-2.2C19.6 14 19 12.3 19 10c0-3.9-3.1-7-7-7s-7 3.1-7 7c0 2.3-.6 4-1.8 5.5Z"/></svg></div>
+    <div class="t-title">%(title)s</div>
+    <div class="t-x" id="t-x">&times;</div>
+  </div>
+  <div class="t-txt">%(text)s</div>
+</div>
+<script>
+function ready(){
+  document.getElementById("t-x").addEventListener("click", function(e){ e.stopPropagation(); window.pywebview.api.dismiss(); });
+  document.body.addEventListener("click", function(){ window.pywebview.api.click(); });
+}
+if(window.pywebview) ready(); else window.addEventListener("pywebviewready", ready);
+</script>
+</body></html>""" % {"bg": pal["bg"], "bd": pal["bd"], "tx": pal["tx"], "mut": pal["mut"],
+                     "acc": pal["acc"], "acc_rgb": pal["acc_rgb"],
+                     "title": html.escape(str(title or "")), "text": html.escape(str(text or ""))})
 
 
 def _get_hwnd():
@@ -1272,6 +1409,44 @@ class Api:
         except Exception as e:
             print("[drag] win_startdrag error:", e)
             return False
+
+    # ---------- напоминания (окно-тост) ----------
+    def show_toast(self, title, text, item_id=None, dark=True):
+        """Показать тост в правом нижнем углу — своё окно, живёт независимо от того,
+        свёрнуто ли главное (см. _toast_close/_toast_open_item выше класса).
+
+        Один тост за раз: новый закрывает предыдущий, а не встаёт в очередь — движок
+        уведомлений сам решает частоту показа (см. docs/УВЕДОМЛЕНИЯ.md, «предел в день»),
+        сюда доходит уже готовое к показу."""
+        global _TOAST_WINDOW
+        try:
+            _toast_close()
+            w, h = 336, 104
+            x = y = None
+            try:
+                hwnd = _get_hwnd()
+                if hwnd:
+                    rl, rt, rw, rh = self._work_rect(hwnd)
+                    x = rl + rw - w - 16
+                    y = rt + rh - h - 16
+            except Exception as e:
+                print("[toast] work_rect error:", e)
+            api = _ToastApi(item_id)
+            # без transparent=True (см. комментарий в _toast_html) — окно просто заливаем тем же
+            # сплошным цветом, что и страницу, стыка не видно без риска ловить хак прозрачности
+            bg = "#161618" if dark else "#f7f7f8"
+            kwargs = dict(width=w, height=h, frameless=True, on_top=True, resizable=False,
+                          easy_drag=False, background_color=bg, focus=False,
+                          js_api=api, html=_toast_html(title, text, bool(dark)))
+            if x is not None:
+                kwargs["x"] = x
+                kwargs["y"] = y
+            win = webview.create_window("", **kwargs)
+            _TOAST_WINDOW = win
+            return {"ok": True}
+        except Exception as e:
+            print("[toast] show_toast error:", e)
+            return {"ok": False, "reason": str(e)}
 
 
 def _get_form():

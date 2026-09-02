@@ -407,6 +407,9 @@ function asideCard(it){
          ${Object.entries(REPEAT).map(([k,v])=>`<option value="${k}" ${(it.repeat||"none")===k?"selected":""}>${k==="none"?"не повторяется":v}</option>`).join("")}
        </select>`));
   }
+  // напоминание — у задачи И у заметки (не только у задачи, в отличие от срока/приоритета);
+  // своя дата+время, отдельно от срока (см. docs/УВЕДОМЛЕНИЯ.md)
+  if(!холст) стр.push(строка("Напоминание", ["ti-bell"], eventControlHtml(it.eventAt, it.eventRepeat, {data:"eventAt", repeatData:"eventRepeat"})));
   /* Папка ноды — здесь, а не только в окне правки: путь нужен по ходу работы (открыть рендеры,
      скопировать для смежника), а ради этого открывать окно поверх графа — лишний шаг.
      Показываем УКОРОЧЕННЫЙ путь (см. shortFolder): полный не влезает в панель и всё равно
@@ -565,6 +568,8 @@ function wireAside(it){
       else if(f==="priority") it.priority = +v || 0;
       else if(f==="repeat") it.repeat = v || "none";
       else if(f==="due") it.due = v || null;
+      else if(f==="eventAt") it.eventAt = v || null;
+      else if(f==="eventRepeat") it.eventRepeat = v || null;
       else if(f==="status"){
         // «Готово» проводим через toggleDone: он ставит дату выполнения и порождает следующий
         // повтор. Прямое it.done=true всё это потеряло бы.
@@ -576,7 +581,8 @@ function wireAside(it){
     };
   });
 
-  wireDateControls(a);   // срок: своя кнопка с календарём, крестик внутри неё снимает дату
+  wireDateControls(a);    // срок: своя кнопка с календарём, крестик внутри неё снимает дату
+  wireEventControls(a);   // напоминание: тот же приём, дата+время, отдельно от срока
 
   // теги: снять крестиком, добавить плюсом
   a.querySelectorAll("[data-untag]").forEach(el=>{

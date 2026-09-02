@@ -815,6 +815,14 @@ function _sanitizeGraph(s, seen, seenF, okColor){
     // срок: только «YYYY-MM-DD», и только существующая дата — иначе parseYmd отдаст сдвинутый
     // день (2026-02-31 → 3 марта) и он тихо разъедется по календарю, спискам и повторам
     if(it.due!=null){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(it.due)); it.due = (m && makeDate(m[1],m[2],m[3])) ? String(it.due) : null; }
+    // напоминание/дата события — «YYYY-MM-DDTHH:MM», отдельно от срока (см. docs/УВЕДОМЛЕНИЯ.md)
+    if(it.eventAt!=null){ const me=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(String(it.eventAt));
+      it.eventAt = (me && makeDate(me[1],me[2],me[3]) && +me[4]<24 && +me[5]<60) ? String(it.eventAt) : null; }
+    // повтор напоминания — «every:N:minutes|hours|days|weeks|months», N в пределах 1..999;
+    // daily/weekly/monthly — старый формат первых версий попапа, ещё встречается в данных
+    if(it.eventRepeat!=null){ const rr=String(it.eventRepeat);
+      const custom=/^every:([1-9]\d{0,2}):(minutes|hours|days|weeks|months)$/.test(rr);
+      it.eventRepeat = (["daily","weekly","monthly"].includes(rr) || custom) ? rr : null; }
     if(it.folder!=null){ it.folder = typeof it.folder==="string" ? it.folder : undefined; if(it.folder==="") it.folder=undefined; }   // привязанная папка на ПК: только непустая строка
     /* Дополнительные поля ноды. Столкнувшийся id поля переименовываем ВМЕСТЕ с его доской:
        иначе две ноды рисовали бы на одном холсте (ключ доски выводится из id поля). */

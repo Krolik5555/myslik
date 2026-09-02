@@ -489,6 +489,28 @@ function toast(msg, opt){
   if(opt.onAction){ const b=t.querySelector(".toast-act"); if(b) b.onclick=()=>{ clearTimeout(toastT); hide(); opt.onAction(); }; }
 }
 
+/* Точка входа для клика по окну-тосту (app.py: _toast_open_item, через evaluate_js) — тост
+   живёт СВОИМ pywebview-окном, у него нет доступа к S напрямую, только id ноды текстом.
+   Ищем сперва в активном графе (частый случай, без лишней работы), не нашли — обходим все
+   графы: нода может быть не в том графе, что открыт сейчас. */
+function notifyOpenItem(id){
+  let it=S.items.find(x=>x.id===id), сменилГраф=false;
+  if(!it && S.graphs){
+    for(const g of S.graphs){
+      const found=(g.items||[]).find(x=>x.id===id);
+      if(found){ сменилГраф=graphSwitch(g.id); it=found; break; }
+    }
+  }
+  if(!it) return;
+  if(view!=="notes" || сменилГраф){ view="notes"; render(); }
+  /* ПАНЕЛЬ СПРАВА, А НЕ ОКНО ПРАВКИ (правка по замечанию КРОЛИКА): openItemSmart сразу
+     выдёргивал в редактирование — навязчиво для «просто напомнили, гляну потом». Тот же
+     приём, что у клика по связанной ноде в самой панели (views.js: asideCard) — показать
+     и подлететь камерой, а не открыть на правку; захочет менять — нажмёт карандаш сам. */
+  asideSelect(it.id);
+  if(graph) graph.focusNode(it.id);
+}
+
 /* Свой ресайз краёв УДАЛЁН. Он появился, когда окно не умело менять размер само: слой
    невидимых полос по краям ловил перетаскивание и двигал границу вызовом в Python. Теперь у
    окна есть штатное право менять размер (нужное ещё и для Aero Snap), и Windows делает это
@@ -555,6 +577,10 @@ async function boot(){
   autoCheckUpdate(true);
   setInterval(()=>autoCheckUpdate(), UPD_TICK);
   shakeBoot();
+  // напоминания по датам событий (notify.js) — сразу и дальше по тику; НЕ гасим по document.hidden,
+  // иначе не сработает ровно тогда, когда нужнее всего — окно свёрнуто (см. docs/КАРТА.md)
+  notifyTick();
+  setInterval(notifyTick, NOTIFY_TICK_MS);
 }
 
 /* РЕЖИМ ЗАМЕРА ДРОЖИ (debug-дрожь.bat). Спрашиваем у моста, а не смотрим адрес: приложение

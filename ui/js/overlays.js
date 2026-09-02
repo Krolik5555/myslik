@@ -263,6 +263,297 @@ function wireDateControls(root){
   });
 }
 
+/* ===== напоминание / дата события =====
+   Отдельное от срока поле (docs/УВЕДОМЛЕНИЯ.md): своя дата+время, не про дедлайн задачи, а про
+   момент, который нельзя пропустить (встреча, звонок). eventAt — «YYYY-MM-DDTHH:MM».
+   eventRepeat — null (не повторяется) | "every:N:minutes|hours|days|weeks|months».
+   "daily"/"weekly"/"monthly" — старый формат первой версии попапа (пресеты убрали по просьбе
+   КРОЛИКА), метка ниже их ещё понимает, но попап их больше не пишет — см. openEventPicker. */
+const СОБЫТИЕ_ПОВТОР_ЕД={minutes:"мин",hours:"ч",days:"дн",weeks:"нед",months:"мес"};
+function eventRepeatLabel(rep){
+  if(!rep || rep==="none") return "";
+  if(rep==="daily") return "кажд. день";
+  if(rep==="weekly") return "кажд. неделю";
+  if(rep==="monthly") return "кажд. месяц";
+  const m=/^every:(\d{1,3}):(minutes|hours|days|weeks|months)$/.exec(rep);
+  return m ? "кажд. "+m[1]+СОБЫТИЕ_ПОВТОР_ЕД[m[2]] : "";
+}
+function eventButtonText(eventAt, eventRepeat){
+  if(!eventAt) return "Без напоминания";
+  const [ds,hm]=String(eventAt).split("T");
+  const d=parseYmd(ds); if(!d) return "Без напоминания";
+  const свой=d.getFullYear()===today().getFullYear();
+  const рп=eventRepeatLabel(eventRepeat);
+  return DP_ДНИ[(d.getDay()+6)%7]+", "+d.getDate()+" "+DP_МЕС_КР[d.getMonth()]+(свой?"":" "+d.getFullYear())+", "+(hm||"")+(рп?" · "+рп:"");
+}
+function eventControlHtml(eventAt, eventRepeat, opts){
+  opts=opts||{};
+  return `<div class="date-ctl event-ctl">
+    <input type="hidden" ${opts.id?`id="${opts.id}"`:""} ${opts.data?`data-f="${opts.data}"`:""} value="${esc(eventAt||"")}">
+    <input type="hidden" ${opts.repeatId?`id="${opts.repeatId}"`:""} ${opts.repeatData?`data-f="${opts.repeatData}"`:""} value="${esc(eventRepeat||"")}">
+    <button type="button" class="date-btn${eventAt?"":" nodate"}" data-eventpick title="Дата и время напоминания">
+      <i class="ti ti-bell"></i>
+      <span class="db-txt">${esc(eventButtonText(eventAt, eventRepeat))}</span>
+      ${eventAt?`<i class="ti ti-x db-x" data-eventclear title="Убрать напоминание"></i>`:""}
+    </button>
+  </div>`;
+}
+function wireEventControls(root){
+  (root||document).querySelectorAll(".event-ctl").forEach(ctl=>{
+    if(ctl._событиеГотово) return;
+    ctl._событиеГотово=true;
+    const [входAt,входRep]=ctl.querySelectorAll("input"), кн=ctl.querySelector("[data-eventpick]");
+    if(!входAt||!кн) return;
+    const записать=(at,rep)=>{
+      входAt.value=at||""; if(входRep) входRep.value=(at&&rep)||"";
+      кн.classList.toggle("nodate", !входAt.value);
+      кн.querySelector(".db-txt").textContent=eventButtonText(входAt.value||null, входРеп());
+      const x=кн.querySelector(".db-x"); if(x) x.remove();
+      if(входAt.value) кн.insertAdjacentHTML("beforeend",`<i class="ti ti-x db-x" data-eventclear title="Убрать напоминание"></i>`);
+      входAt.dispatchEvent(new Event("change",{bubbles:true}));
+      if(входRep) входRep.dispatchEvent(new Event("change",{bubbles:true}));
+    };
+    const входРеп=()=>входRep?входRep.value||null:null;
+    кн.addEventListener("click", e=>{
+      if(e.target.closest("[data-eventclear]")){ e.preventDefault(); e.stopPropagation(); записать("",null); return; }
+      e.preventDefault();
+      openEventPicker(кн, входAt.value||"", входРеп(), записать);
+    });
+  });
+}
+let eventPopEsc=null, eventPopСторож=null;
+function closeEventPicker(){
+  const p=$("#event-pop"); if(p) p.remove();
+  if(eventPopEsc){ document.removeEventListener("keydown", eventPopEsc, true); eventPopEsc=null; }
+  if(eventPopСторож){ eventPopСторож.disconnect(); eventPopСторож=null; }
+  document.removeEventListener("mousedown", closeEventPickerOutside, true);
+  document.removeEventListener("scroll", closeEventPickerOnScroll, true);
+}
+function closeEventPickerOutside(e){
+  const p=$("#event-pop"); if(!p) return;
+  if(p.contains(e.target) || (e.target.closest && e.target.closest("[data-eventpick]"))) return;
+  closeEventPicker();
+}
+// скролл КОЛЕСА времени внутри попапа — рабочий жест, а не «ушли со страницы»: обычный
+// closeEventPicker сюда вешать нельзя, он поймал бы и его (capture-фаза видит любой скролл-таргет)
+function closeEventPickerOnScroll(e){
+  if(e.target && e.target.closest && e.target.closest("#event-pop")) return;
+  closeEventPicker();
+}
+/* Колесо часов/минут — крутится нативной прокруткой (scroll-snap: y mandatory), браузер сам
+   даёт плавный доезд и точный щелчок на значении, без своей физики инерции. Плюс перетаскивание
+   мышью (drag) поверх: голая прокрутка колесом мыши мышь без колеса лишает жеста «листания». */
+const EV_ITEM_H=32, EV_WHEEL_H=128;   // (EV_WHEEL_H-EV_ITEM_H)/2 = 48 — паддинг для центрирования, см. wireWheel
+function eventWheelHtml(id, max){
+  let items=""; for(let i=0;i<max;i++) items+=`<div class="ev-wheel-item" data-v="${i}">${String(i).padStart(2,"0")}</div>`;
+  return `<div class="ev-wheel" id="${id}"><div class="ev-wheel-pad"></div>${items}<div class="ev-wheel-pad"></div></div>`;
+}
+/* Своя анимация доезда вместо scrollTo(behavior:"smooth") — родной плавный скролл в паре
+   с mandatory-снапом на этом стенде вообще не срабатывал (замер: голый тестовый div без
+   какого-либо снапа тоже не доезжал, дело не в снапе, а в самом smooth) — только "instant"
+   надёжно меняет scrollTop. Дальше плавность делаем сами: rAF + easeOutCubic, шагая instant
+   каждый кадр. Счётчик-поколение отменяет прошлую анимацию, если следующий щелчок/клик
+   пришёл раньше, чем доехала предыдущая — иначе два запущенных цикла тянули бы колесо
+   каждый к своей цели одновременно. */
+function evAnimateScroll(колесо, to, ms){
+  колесо._evAnimId=(колесо._evAnimId||0)+1;
+  const свой=колесо._evAnimId, from=колесо.scrollTop, t0=performance.now(), dt=Math.max(1,ms||180);
+  const кадр=(t)=>{
+    if(колесо._evAnimId!==свой) return;
+    const p=Math.min(1,(t-t0)/dt), ease=1-Math.pow(1-p,3);
+    колесо.scrollTo({top:from+(to-from)*ease, behavior:"instant"});
+    if(p<1) requestAnimationFrame(кадр);
+  };
+  requestAnimationFrame(кадр);
+  // СТРАХОВКА. Если кадры почему-то не пришли (окно без фокуса, фоновый троттлинг) — колесо
+  // обязано всё равно доехать до цели, иначе щелчок/клик выглядел бы так, будто ничего не
+  // произошло. setTimeout независим от rAF и сработает, даже когда кадры графики стоят.
+  setTimeout(()=>{ if(колесо._evAnimId===свой) колесо.scrollTo({top:to, behavior:"instant"}); }, dt+60);
+}
+function wireWheel(колесо, max, значение, наИзменение){
+  const активные=()=>колесо.querySelectorAll(".ev-wheel-item");
+  const подсветить=()=>{
+    const idx=Math.max(0,Math.min(max-1,Math.round(колесо.scrollTop/EV_ITEM_H)));
+    активные().forEach((it,i)=>it.classList.toggle("sel", i===idx));
+    return idx;
+  };
+  /* scrollTo(behavior:'instant'), а не голое scrollTop=... — с mandatory-снапом (см. ниже)
+     прямое присваивание свойства откатывается назад к 0 сразу же (проверено замером в
+     консоли): движок трактует его иначе, чем настоящий scrollTo, и снап побеждает прыжок. */
+  колесо.scrollTo({top:значение*EV_ITEM_H, behavior:"instant"});
+  // и сразу, и на следующем кадре — «instant» не всегда синхронно обновляет scrollTop
+  // к моменту чтения (проверено замером), одного requestAnimationFrame иногда мало
+  подсветить();
+  requestAnimationFrame(подсветить);
+  let таймер=null;
+  колесо.addEventListener("scroll", ()=>{
+    подсветить();
+    clearTimeout(таймер);
+    таймер=setTimeout(()=>наИзменение(подсветить()), 90);
+  }, {passive:true});
+  активные().forEach((it,i)=>it.addEventListener("click", ()=>evAnimateScroll(колесо, i*EV_ITEM_H, 200)));
+  /* КОЛЕСО МЫШИ — СВОИМ ШАГОМ, а не отдаём браузеру (правка по замечанию КРОЛИКА: «резко,
+     сложно попасть в нужную цифру»). Один щелчок физического колеса мыши обычно даёт
+     deltaY ~100-120 px — это 3-4 строки по 32 px разом, да ещё БЕЗ анимации (mandatory snap
+     довозит рывком). Гасим нативный скролл и шагаем РОВНО на одно значение за щелчок, своей
+     анимацией (evAnimateScroll) — так на любой мыши, независимо от её настроек колеса, каждый
+     щелчок предсказуемо двигает на единицу и есть на чём разглядеть анимацию доезда. */
+  колесо.addEventListener("wheel", e=>{
+    e.preventDefault();
+    const цель=Math.max(0,Math.min((max-1)*EV_ITEM_H, колесо.scrollTop+(e.deltaY>0?EV_ITEM_H:-EV_ITEM_H)));
+    evAnimateScroll(колесо, цель, 140);
+  }, {passive:false});
+  // протяжка мышью (тач и колесо мыши прокручивают сами, нативно) — только для pointerType mouse,
+  // иначе тач-скролл на сенсорном экране получит двойной привод (нативный + свой) и задёргается
+  let активенЖест=false, y0=0, top0=0, сдвинул=false;
+  колесо.addEventListener("pointerdown", e=>{
+    if(e.pointerType!=="mouse") return;
+    активенЖест=true; сдвинул=false; y0=e.clientY; top0=колесо.scrollTop;
+    колесо.setPointerCapture(e.pointerId);
+  });
+  колесо.addEventListener("pointermove", e=>{
+    if(!активенЖест) return;
+    const dy=e.clientY-y0;
+    if(Math.abs(dy)>2) сдвинул=true;
+    // scrollTo(instant), не голое scrollTop=... — см. комментарий у первой установки колеса выше
+    колесо.scrollTo({top:Math.max(0,Math.min((max-1)*EV_ITEM_H, top0-dy)), behavior:"instant"});
+  });
+  // ОТПУСТИЛИ ПРОТЯЖКУ — довести до ближайшего целого значения самим (снап убран, см. styles.css:
+  // .ev-wheel — он воевал с моей же анимацией на каждом кадре и ломал плавность щелчка колесом).
+  const доездПослеПротяжки=()=>{
+    if(!активенЖест) return;
+    активенЖест=false;
+    if(сдвинул) evAnimateScroll(колесо, Math.round(колесо.scrollTop/EV_ITEM_H)*EV_ITEM_H, 160);
+  };
+  колесо.addEventListener("pointerup", доездПослеПротяжки);
+  колесо.addEventListener("pointercancel", доездПослеПротяжки);
+  // клик по цифре после протяжки не должен ДОПОЛНИТЕЛЬНО прыгать на неё — иначе прокрутка мышью
+  // всегда заканчивалась бы там, где курсор случайно завис
+  колесо.addEventListener("click", e=>{ if(сдвинул) e.stopPropagation(); }, true);
+}
+/* Своя копия openDatePicker, а не общий код с ней: там клик по дню сразу подтверждает и
+   закрывает попап, а тут после дня нужно ещё время и повтор — подтверждает только «Готово».
+   Разводить оба режима внутри одной функции читалось бы тяжелее, чем скопировать один раз.
+   БЕЗ БОЛЬШОГО КАЛЕНДАРЯ (правка по замечанию КРОЛИКА): день — быстрыми кнопками и степпером
+   «‹ день ›» на ±1, месячная сетка тут была лишней — напоминание почти всегда про «сегодня/
+   завтра/через N», а не про дату через два месяца. */
+function openEventPicker(кнопка, значение, репитЗначение, выбрать){
+  closeEventPicker();
+  const [дИсх,вИсх]=String(значение||"").split("T");
+  let выбранДень=(дИсх&&parseYmd(дИсх))||new Date(today());
+  // без готового значения стартуем от ТЕКУЩЕГО времени — 00:00 читалось как «сброс», а не «сейчас»
+  const сейчасВрч=new Date();
+  const времяПоУмолч=String(сейчасВрч.getHours()).padStart(2,"0")+":"+String(сейчасВрч.getMinutes()).padStart(2,"0");
+  let [чИсх,мИсх]=(вИсх||времяПоУмолч).split(":").map(Number);
+  let час=isFinite(чИсх)?Math.min(23,Math.max(0,чИсх)):9, минута=isFinite(мИсх)?Math.min(59,Math.max(0,мИсх)):0;
+  /* Раньше было пять кнопок-пресетов (не повтор./день/неделя/месяц/свой) — КРОЛИК попросил
+     убрать всё, кроме чек-бокса «повторять» и всегда видимой строки «каждые N единиц»: пресеты
+     всё равно сводятся к N=1 нужной единицы, отдельные кнопки под них были лишними. */
+  let repВкл=!!репитЗначение, custN=1, custU="days";
+  { const m=/^every:(\d{1,3}):(minutes|hours|days|weeks|months)$/.exec(репитЗначение||"");
+    if(m){ custN=+m[1]; custU=m[2]; }
+    else if(репитЗначение==="daily") custU="days";
+    else if(репитЗначение==="weekly") custU="weeks";
+    else if(репитЗначение==="monthly") custU="months"; }
+  const pop=el("div","dp ev-dp"); pop.id="event-pop"; pop.tabIndex=-1;
+  const деньТекст=(d)=>{
+    const ds=ymd(d);
+    if(ds===ymd(today())) return "Сегодня";
+    if(ds===ymd(addDays(today(),1))) return "Завтра";
+    const свой=d.getFullYear()===today().getFullYear();
+    return DP_ДНИ[(d.getDay()+6)%7]+", "+d.getDate()+" "+DP_МЕС_КР[d.getMonth()]+(свой?"":" "+d.getFullYear());
+  };
+  const рисоватьДень=()=>{ const л=$(".ev-day-lbl",pop); if(л) л.textContent=деньТекст(выбранДень); };
+  pop.innerHTML=`
+    <div class="ev-day">
+      <button type="button" class="ev-day-nav" data-day-mv="-1" title="На день раньше"><i class="ti ti-chevron-left"></i></button>
+      <span class="ev-day-lbl">${esc(деньТекст(выбранДень))}</span>
+      <button type="button" class="ev-day-nav" data-day-mv="1" title="На день позже"><i class="ti ti-chevron-right"></i></button>
+    </div>
+    <div class="ev-quick">
+      <button type="button" data-eq="0">сегодня</button>
+      <button type="button" data-eq="1">завтра</button>
+      <button type="button" data-eq="7">+нед</button>
+    </div>
+    <div class="ev-wheels">
+      <div class="ev-wheel-mid"></div>
+      ${eventWheelHtml("ev-h",24)}
+      <div class="ev-wheel-sep">:</div>
+      ${eventWheelHtml("ev-m",60)}
+    </div>
+    <div class="ev-rep">
+      <button type="button" class="chk" id="ev-rep-chk" title="Повторять"><i class="ti ti-check"></i></button>
+      <span>Повторять каждые</span>
+    </div>
+    <div class="ev-custom" id="ev-custom">
+      <input type="text" id="ev-custom-n" maxlength="3" value="${custN}">
+      <div class="ev-unit" id="ev-custom-u">
+        <button type="button" data-u="minutes">мин</button>
+        <button type="button" data-u="hours">ч</button>
+        <button type="button" data-u="days">дн</button>
+        <button type="button" data-u="weeks">нед</button>
+        <button type="button" data-u="months">мес</button>
+      </div>
+    </div>
+    <div class="dp-quick">
+      <button type="button" data-ok="1">Готово</button>
+      <button type="button" class="dp-clear" data-q="clear" title="Убрать напоминание"><i class="ti ti-x"></i></button>
+    </div>`;
+  // В ДОКУМЕНТ — ДО wireWheel. scrollTop на колесе вне документа не оседает (нет layout,
+  // negative тест это и поймал — попап всегда стартовал на 00:00 вместо текущего времени).
+  document.body.appendChild(pop);
+  $$("[data-day-mv]",pop).forEach(b=>b.onclick=()=>{ выбранДень=addDays(выбранДень,+b.dataset.dayMv); рисоватьДень(); });
+  $$("[data-eq]",pop).forEach(b=>b.onclick=()=>{ выбранДень=addDays(today(),+b.dataset.eq); рисоватьДень(); });
+  wireWheel($("#ev-h",pop), 24, час, v=>час=v);
+  wireWheel($("#ev-m",pop), 60, минута, v=>минута=v);
+  /* Чек-бокс + всегда видимая строка «каждые N единиц» вместо пяти кнопок-пресетов (КРОЛИК:
+     убрать всё лишнее, оставить как будто «свой интервал» выбран всегда). Единицы — свои
+     кнопки, не <select>: открытый список нативного select красит браузер/ОС своими цветами,
+     та же причина, по которой в проекте нет системного календаря. */
+  const чк=$("#ev-rep-chk",pop);
+  let custUВыбор=custU;
+  const рисоватьРеп=()=>{
+    чк.classList.toggle("done", repВкл);
+    $$("[data-u]",pop).forEach(b=>b.classList.toggle("on", b.dataset.u===custUВыбор));
+    $("#ev-custom",pop).classList.toggle("off", !repВкл);
+  };
+  рисоватьРеп();
+  чк.onclick=()=>{ repВкл=!repВкл; рисоватьРеп(); };
+  $$("[data-u]",pop).forEach(b=>b.onclick=()=>{ custUВыбор=b.dataset.u; рисоватьРеп(); });
+  $("[data-ok]",pop).onclick=()=>{
+    let репOut=null;
+    if(repВкл){
+      const n=Math.max(1,Math.min(999,parseInt($("#ev-custom-n",pop).value,10)||1));
+      репOut="every:"+n+":"+custUВыбор;
+    }
+    closeEventPicker();
+    выбрать(ymd(выбранДень)+"T"+String(час).padStart(2,"0")+":"+String(минута).padStart(2,"0"), репOut);
+  };
+  $("[data-q='clear']",pop).onclick=()=>{ closeEventPicker(); выбрать("",null); };
+  const r=кнопка.getBoundingClientRect(), ш=pop.offsetWidth, в=pop.offsetHeight;
+  let x=r.left, y=r.bottom+6;
+  if(y+в>innerHeight-8) y=Math.max(8, r.top-6-в);
+  x=Math.max(8, Math.min(x, innerWidth-ш-8));
+  pop.style.left=x+"px"; pop.style.top=y+"px";
+  pop.focus({preventScroll:true});
+  eventPopEsc=(e)=>{
+    if(!$("#event-pop")) return;
+    if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); closeEventPicker(); кнопка.focus(); return; }
+    if(e.key==="Enter" && e.target && e.target.id!=="ev-custom-n"){
+      e.preventDefault(); e.stopPropagation(); $("[data-ok]",pop).click(); return; }
+    if(e.target && e.target.id==="ev-custom-n") return;   // обычный ввод в своём поле числа
+    if(e.key==="ArrowLeft"){ e.preventDefault(); e.stopPropagation(); выбранДень=addDays(выбранДень,-1); рисоватьДень(); return; }
+    if(e.key==="ArrowRight"){ e.preventDefault(); e.stopPropagation(); выбранДень=addDays(выбранДень,1); рисоватьДень(); return; }
+  };
+  document.addEventListener("keydown", eventPopEsc, true);
+  document.addEventListener("mousedown", closeEventPickerOutside, true);
+  document.addEventListener("scroll", closeEventPickerOnScroll, true);
+  eventPopСторож=new MutationObserver(()=>{
+    if(!кнопка.isConnected || !кнопка.offsetParent) closeEventPicker();
+  });
+  eventPopСторож.observe(document.body,{childList:true, subtree:true, attributes:true, attributeFilter:["style","class"]});
+}
+
 /* Ввод одной строки — тот же uiConfirm, но с полем. Нужен там, где заводить целое окно ради
    названия избыточно (граф, например). Возвращает строку, null при отмене или "__удалить__",
    если нажали дополнительную кнопку: у графа правка и удаление живут в одном месте. */
@@ -345,7 +636,7 @@ async function sendFeedback(msg, contact){
 
 function openItemEditor(existing, defaultKind, presetDue, seed){
   const isNew=!existing;
-  const it = existing || {id:null, kind:defaultKind||"task", title:"", body:"", area:areaFilter||null, due:presetDue||null, repeat:"none", priority:0, tags:[]};
+  const it = existing || {id:null, kind:defaultKind||"task", title:"", body:"", area:areaFilter||null, due:presetDue||null, eventAt:null, eventRepeat:null, repeat:"none", priority:0, tags:[]};
   /* Заготовка по шаблону (см. fields.js). Тип из шаблона берём только тогда, когда его не
      назвали явно кнопкой «Новая задача/заметка»: иначе шаблон-заметка молча превращал бы
      нажатую задачу в заметку. */
@@ -381,6 +672,9 @@ function openItemEditor(existing, defaultKind, presetDue, seed){
           ${[0,1,2,3].map(p=>`<button data-p="${p}" class="${(it.priority||0)===p?"on":""}">${["—","низкий","средний","высокий"][p]}</button>`).join("")}
         </div>
       </div>
+    </div>
+    <div class="field"><label>Напоминание <span class="set-val">дата и время, не зависит от срока</span></label>
+      ${eventControlHtml(it.eventAt, it.eventRepeat, {id:"f-event", repeatId:"f-event-repeat"})}
     </div>
     <div class="field"><label>Цвет</label>
       <div class="swatches" id="f-color">${swatchRow(it.color)}</div>
@@ -440,6 +734,7 @@ function openItemEditor(existing, defaultKind, presetDue, seed){
      здесь она без save: правки уезжают в ноду по «Сохранить» вместе с остальными. */
   fieldsPanel($("#f-fields",m), fields, {item:it});
   wireDateControls(m);          // срок — свой календарь вместо системного пикера
+  wireEventControls(m);         // напоминание — своя дата+время, отдельно от срока
   onOverlayClose(ov, ()=>fieldsStopIn(m));   // живая доска в поле обязана сняться вместе с окном
   fieldsCopyOnRight($("#f-body",m), ()=>$("#f-body",m).value);   // ПКМ копирует описание — как у полей
 
@@ -472,7 +767,9 @@ function openItemEditor(existing, defaultKind, presetDue, seed){
     // то есть затёр бы уже проставленную область.
     const data={ kind, title, body:$("#f-body",m).value,
       due: kind==="note"?null:($("#f-due",m).value||null), repeat: kind==="note"?"none":$("#f-rep",m).value,
-      priority: kind==="note"?0:priority, tags, color, folder: folder||null };
+      priority: kind==="note"?0:priority, tags, color, folder: folder||null,
+      eventAt: $("#f-event",m).value||null,
+      eventRepeat: $("#f-event-repeat",m).value||null };   // напоминание — у любого вида, не только у задачи
     /* Поля, убранные в черновике, уносят с собой картинку и доску — но только СЕЙЧАС, когда
        правка принята. Считаем по id: сравнивать сами объекты нельзя, черновик их скопировал. */
     { const остались=new Set(fields.map(f=>f.id));
