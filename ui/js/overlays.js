@@ -660,17 +660,19 @@ function openItemEditor(existing, defaultKind, presetDue, seed){
     <div class="field" id="wrap-body"><label>Заметка / детали</label><textarea id="f-body" placeholder="Текст, ссылки, мысли…">${esc(it.body||"")}</textarea></div>
     <div class="field" id="wrap-fields" ${it.kind==="flow"?`style="display:none"`:""}><label>Поля</label>
       <div class="flds" id="f-fields"></div></div>
-    <div class="row2" id="wrap-due">
-      <div class="field"><label>Срок</label>${dueControlHtml(it.due, {id:"f-due"})}</div>
-      <div class="field"><label>Повтор</label><select id="f-rep">
-        ${Object.entries(REPEAT).map(([k,vv])=>`<option value="${k}" ${it.repeat===k?"selected":""}>${k==="none"?"нет":vv}</option>`).join("")}
-      </select></div>
-    </div>
-    <div class="row2" id="wrap-task2">
-      <div class="field"><label>Приоритет</label>
-        <div class="seg" id="f-pri">
-          ${[0,1,2,3].map(p=>`<button data-p="${p}" class="${(it.priority||0)===p?"on":""}">${["—","низкий","средний","высокий"][p]}</button>`).join("")}
-        </div>
+    <!-- Срок/Повтор/Приоритет — каждый своей строкой, не в паре. Раньше «Срок»+«Повтор» делили
+         row2, но быстрые кнопки срока (2026-09-01) выросли до 66 px против 40 у select — строка
+         выглядела рваной. Пробовал переложить «Повтор» к «Приоритету» вместо этого — тоже мимо:
+         в половине ширины row2 четыре кнопки приоритета переносятся на вторую строку (86 px),
+         разнобой только увеличился. Полная ширина нужна ИМЕННО приоритету (4 кнопки в один ряд),
+         поэтому проще не теснить ни одно из трёх полей парой — каждое получает свою строку. -->
+    <div class="field" id="wrap-due"><label>Срок</label>${dueControlHtml(it.due, {id:"f-due"})}</div>
+    <div class="field" id="wrap-task2"><label>Повтор</label><select id="f-rep">
+      ${Object.entries(REPEAT).map(([k,vv])=>`<option value="${k}" ${it.repeat===k?"selected":""}>${k==="none"?"нет":vv}</option>`).join("")}
+    </select></div>
+    <div class="field" id="wrap-pri"><label>Приоритет</label>
+      <div class="seg" id="f-pri">
+        ${[0,1,2,3].map(p=>`<button data-p="${p}" class="${(it.priority||0)===p?"on":""}">${["—","низкий","средний","высокий"][p]}</button>`).join("")}
       </div>
     </div>
     <div class="field"><label>Напоминание <span class="set-val">дата и время, не зависит от срока</span></label>
@@ -704,7 +706,8 @@ function openItemEditor(existing, defaultKind, presetDue, seed){
 
   const syncKind=()=>{
     $("#wrap-due",m).style.display = kind==="note"?"none":"";
-    $("#wrap-task2",m).style.display = kind==="note"?"none":"flex";
+    $("#wrap-task2",m).style.display = kind==="note"?"none":"";
+    $("#wrap-pri",m).style.display = kind==="note"?"none":"";
     $$("#f-kind button",m).forEach(b=>b.classList.toggle("on",b.dataset.k===kind));
   };
   syncKind();
