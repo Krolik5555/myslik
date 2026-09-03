@@ -66,8 +66,8 @@ t.push({имя: "кнопка открывает демонстрацию и у�
 
 // ================== ШАГ 0: СТАТУСЫ, БЕЗ ЦЕЛИ, ПО ЦЕНТРУ ==================
 const p0 = document.querySelector("#tour-pop");
-t.push({имя: "тур открывается и знает свои шаги (их шесть)",
-        ок: !!p0 && p0.querySelectorAll(".tour-dots i").length === ТУР.length && ТУР.length === 6,
+t.push({имя: "тур открывается и знает свои шаги (их семь)",
+        ок: !!p0 && p0.querySelectorAll(".tour-dots i").length === ТУР.length && ТУР.length === 7,
         факт: p0 ? "шагов " + ТУР.length + ", заголовок «" + p0.querySelector(".tour-head b").textContent + "»" : "выноски нет"});
 {
   const r = p0.getBoundingClientRect();
@@ -162,11 +162,17 @@ t.push({имя: "шаг про тост несёт копию тоста вме�
         факт: "заголовок «" + document.querySelector(".tour-head b").textContent + "», копия тоста: " +
               !!document.querySelector("#tour-pop .tm-toast-card")});
 
-// ================== ШАГ 5: ГРУППОВОЕ ПЕРЕТАСКИВАНИЕ, ПОСЛЕДНИЙ ==================
+// ================== ШАГ 5: ГРУППОВОЕ ПЕРЕТАСКИВАНИЕ ==================
+document.querySelector("#tour-next").click(); await ж(200); доиграть();
+t.push({имя: "шаг про перетаскивание группы на месте",
+        ок: /тащи всё|перетаск/i.test(document.querySelector(".tour-head b").textContent),
+        факт: "заголовок «" + document.querySelector(".tour-head b").textContent + "»"});
+
+// ================== ШАГ 6: КОПИЯ ЖЕСТОМ, ПОСЛЕДНИЙ ==================
 document.querySelector("#tour-next").click(); await ж(200); доиграть();
 const последняя = document.querySelector("#tour-pop #tour-next").textContent;
-t.push({имя: "последний шаг — про перетаскивание группы, кнопка «Понятно»",
-        ок: /тащи|перетаск/i.test(document.querySelector(".tour-head b").textContent) && последняя === "Понятно",
+t.push({имя: "последний шаг — про копию жестом, кнопка «Понятно»",
+        ок: /копи/i.test(document.querySelector(".tour-head b").textContent) && последняя === "Понятно",
         факт: "заголовок «" + document.querySelector(".tour-head b").textContent + "», кнопка «" + последняя + "»"});
 document.querySelector("#tour-next").click(); await ж(150);
 t.push({имя: "«Понятно» закрывает тур", ок: последняя === "Понятно" && !document.querySelector("#tour-pop"),
@@ -223,7 +229,7 @@ t.push({имя: "Escape закрывает и запоминает", ок: S.set
   turDone();
   const всего = ТУР.length, новых = ТУР.filter(ш => ш.v === ТУР_ID).length;
 
-  S.settings.tourSeen = "2.0.5";
+  S.settings.tourSeen = "2.0.5.1";
   const сПрошлой = turNewSteps();
   t.push({имя:"обновился с прошлой версии — только новые шаги",
           ок: сПрошлой.length === новых && сПрошлой.every(ш => ш.v === ТУР_ID),
@@ -252,14 +258,14 @@ t.push({имя: "Escape закрывает и запоминает", ок: S.set
      показывает всё подряд. Ровно так оно и сломалось при первой проверке КРОЛИКОМ. */
   // ПОРЯДОК: turDone сам ставит отметку «просмотрено», поэтому убираемся ДО того, как задать её
   turDone(); document.querySelectorAll("#tour-banner").forEach(n => n.remove());
-  S.settings.tourSeen = "2.0.5";
+  S.settings.tourSeen = "2.0.5.1";
   turBanner(); await ж(120);
   document.querySelector("#tb-go").click(); await ж(200); доиграть();
   const точекПослеПлашки = document.querySelectorAll(".tour-dots i").length;
   const заголовок = (document.querySelector(".tour-head b") || {}).textContent || "";
   turDone();
   t.push({имя:"плашка → кнопка: показан только новый шаг, а не весь тур",
-          ок: точекПослеПлашки === новых && /тащи|перетаск/i.test(заголовок),
+          ок: точекПослеПлашки === новых && /копи/i.test(заголовок),
           факт: "шагов в туре " + точекПослеПлашки + " (ждали " + новых + "), заголовок «" + заголовок + "»"});
 
   S.settings.tourSeen = ТУР_ID;

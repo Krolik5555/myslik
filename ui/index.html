@@ -8,8 +8,8 @@
 <meta http-equiv="Expires" content="0">
 <title>Мыслик</title>
 <link rel="icon" type="image/png" href="icon.png">
-<link rel="stylesheet" href="vendor/tabler-icons.min.css?v=549">
-<link rel="stylesheet" href="styles.css?v=549">
+<link rel="stylesheet" href="vendor/tabler-icons.min.css?v=550">
+<link rel="stylesheet" href="styles.css?v=550">
 </head>
 <body>
 <div id="app">
@@ -58,7 +58,7 @@
         <button class="foot-btn" id="f-settings" title="Настройки"><i class="ti ti-settings"></i></button>
       </div>
       <div class="side-ver">
-        <span class="sv-t" title="версия">Мыслик 2.0.5.1 <span>beta</span></span>
+        <span class="sv-t" title="версия">Мыслик 2.0.5.2 <span>beta</span></span>
         <button class="sv-fb" id="f-feedback"><i class="ti ti-message-report"></i>Сообщить о проблеме</button>
       </div>
     </div>
@@ -82,21 +82,21 @@
 <!-- модули загружаются как классические скрипты (общая глобальная область),
      порядок важен: core → model → views → graph → overlays → main.
      ES-модули НЕ используем: реальный аппа грузится по file://, где import блокируется CORS. -->
-<script src="js/core.js?v=549"></script>
-<script src="js/model.js?v=549"></script>
+<script src="js/core.js?v=550"></script>
+<script src="js/model.js?v=550"></script>
 <!-- тикер напоминаний по датам событий (it.eventAt/it.eventRepeat) — после core/model, до views -->
-<script src="js/notify.js?v=549"></script>
-<script src="js/views.js?v=549"></script>
-<script src="js/graph.js?v=549"></script>
-<script src="js/overlays.js?v=549"></script>
+<script src="js/notify.js?v=550"></script>
+<script src="js/views.js?v=550"></script>
+<script src="js/graph.js?v=550"></script>
+<script src="js/overlays.js?v=550"></script>
 <!-- доска (Excalidraw); сам вендор подгружается лениво, при первом заходе на вкладку -->
-<script src="js/draw.js?v=549"></script>
+<script src="js/draw.js?v=550"></script>
 <!-- поля ноды (текст/картинка/доска) и шаблоны нод; зовётся из окон и панели, поэтому после них -->
-<script src="js/fields.js?v=549"></script>
+<script src="js/fields.js?v=550"></script>
 <!-- локальный ИИ (умный захват) — опционально; нет движка/модели → молчит -->
-<script src="js/ai.js?v=549"></script>
+<script src="js/ai.js?v=550"></script>
 <!-- отчёт из выделенного (простой + через ИИ) -->
-<script src="js/report.js?v=549"></script>
-<script src="js/main.js?v=549"></script>
+<script src="js/report.js?v=550"></script>
+<script src="js/main.js?v=550"></script>
 </body>
 </html>
