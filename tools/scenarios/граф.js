@@ -2999,5 +2999,88 @@ t.push({имя:"возврат на вкладку пересобирает гр
   recomputeHierarchy(); render(); await ж(120);
 }
 
+/* CTRL+ТАЩИ — КОПИЯ ВЫДЕЛЕННОГО. Копии рождаются под рукой и едут за ней, оригиналы стоят.
+   Стережём оба конца: связи внутри выделения обязаны переехать в копию, а Ctrl+КЛИК без
+   движения не должен плодить дубликаты поверх оригиналов. */
+{
+  const былоК=S.items.length;
+  const рендерБылК=S.settings.graphRender; S.settings.graphRender="svg";
+  let домБылК=S.settings.graphHome;
+  const корень=addItem({kind:"task", title:"копия: корень"}); корень.x=-400; корень.y=-300;
+  if(S.areas[0]){ корень.area=S.areas[0].id; корень.areaAuto=false; }
+  const дети=[];
+  for(let i=0;i<3;i++){ const д=addItem({kind:"task", title:"копия "+i}); д.x=-260+i*70; д.y=-220; дети.push(д); S.links.push([корень.id,д.id,1]); }
+  S.links.push([дети[0].id, дети[1].id, 1]);        // связь ВНУТРИ выделения — должна попасть в копию
+  recomputeHierarchy(); render(); await ж(200);
+
+  try {
+    const svg=graph.svg, rc=svg.getBoundingClientRect();
+    const экр=(wx,wy)=>({x: rc.left+(wx*graph.zoom+graph.tx)/graph.W*rc.width,
+                         y: rc.top +(wy*graph.zoom+graph.ty)/graph.H*rc.height});
+    const эл=id=>svg.querySelector('.g-node[data-id="'+id+'"]');
+    if(дети.every(д=>graph.byId[д.id]) && эл(дети[0].id)){
+      /* Дом оригиналам задаём заранее: копия рождается ПОВЕРХ оригинала, и физика их законно
+         растолкает — важно не то, что оригинал не дрогнул, а то, что раскладка возвращается.
+         Ровно так это и выглядит у человека с включённым «Держать раскладку». */
+      S.settings.graphHome=true;
+      дети.forEach(д=>graph._homeFromDrag(д));
+      graph.selNodes=new Set(дети.map(д=>д.id)); graph._paintSel();
+      // мерим ОТ КОРНЯ: дом ребёнка и есть смещение от владельца, и уход всей ветки целиком
+      // (её мог толкнуть сосед) формы не ломает — важно, что дети держатся своих мест внутри неё
+      const отн=()=>{ const к=graph.byId[корень.id]; return дети.map(д=>({x:graph.byId[д.id].x-к.x, y:graph.byId[д.id].y-к.y})); };
+      const местаБыли=отн(), абсБыли=дети.map(д=>({x:graph.byId[д.id].x, y:graph.byId[д.id].y}));
+      const нодБыло=S.items.length, связейБыло=S.links.length;
+      const p=экр(graph.byId[дети[0].id].x, graph.byId[дети[0].id].y);
+
+      эл(дети[0].id).dispatchEvent(new PointerEvent("pointerdown", {button:0, ctrlKey:true, clientX:p.x, clientY:p.y, bubbles:true, cancelable:true}));
+      svg.dispatchEvent(new PointerEvent("pointermove", {buttons:1, ctrlKey:true, clientX:p.x+90, clientY:p.y+50, bubbles:true, cancelable:true}));
+      svg.dispatchEvent(new PointerEvent("pointerup", {button:0, clientX:p.x+90, clientY:p.y+50, bubbles:true, cancelable:true}));
+      await ж(150);
+
+      t.push({имя:"Ctrl+тащи создаёт копии всего выделения", ок: S.items.length===нодБыло+3,
+              факт:"нод было "+нодБыло+", стало "+S.items.length});
+      /* Оригиналы за рукой НЕ едут — тащат копии. Сравниваем со сдвигом копий, а не требуем
+         полной неподвижности: копия рождается поверх оригинала, и физика их законно растолкает —
+         это раскладка, а не жест, и мерить ею работу жеста нельзя. */
+      const сдвигОриг=Math.max(...дети.map((д,i)=> graph.byId[д.id]
+        ? Math.hypot(graph.byId[д.id].x-абсБыли[i].x, graph.byId[д.id].y-абсБыли[i].y) : 9999));
+      const копииСдвиг=[...graph.selNodes].map(id=>graph.byId[id]).filter(Boolean)
+        .map((k,i)=> Math.hypot(k.x-абсБыли[Math.min(i,2)].x, k.y-абсБыли[Math.min(i,2)].y));
+      const сдвигКоп=копииСдвиг.length?Math.max(...копииСдвиг):0;
+      t.push({имя:"оригиналы не едут за рукой — тащат копии",
+              ок: сдвигОриг < сдвигКоп/2,
+              факт:"оригиналы сместились на "+Math.round(сдвигОриг)+" px, копии — на "+Math.round(сдвигКоп)});
+      const копии=[...graph.selNodes].map(id=>graph.byId[id]).filter(Boolean);
+      t.push({имя:"после жеста выделены копии, а не оригиналы",
+              ок: копии.length===3 && копии.every(k=>дети.every(д=>д.id!==k.id)),
+              факт:"выделено "+копии.length+", из них оригиналов "+копии.filter(k=>дети.some(д=>д.id===k.id)).length});
+      t.push({имя:"копии уехали за курсором, а не легли на оригиналы",
+              ок: копии.length===3 && копии.every(k=>дети.every((д,i)=>Math.abs(k.x-местаБыли[i].x)>10 || Math.abs(k.y-местаБыли[i].y)>10)),
+              факт:"копии на "+копии.map(k=>Math.round(k.x)).join(",")+" против оригиналов "+местаБыли.map(m=>Math.round(m.x)).join(",")});
+      const новId=new Set(копии.map(k=>k.id));
+      t.push({имя:"связь внутри выделения переехала в копию",
+              ок: (S.links||[]).some(l=>новId.has(l[0])&&новId.has(l[1])),
+              факт:"связей было "+связейБыло+", стало "+S.links.length});
+
+      // Ctrl+КЛИК без движения: копий быть не должно, иначе промах мимо жеста плодит дубли
+      const передКликом=S.items.length;
+      const p2=экр(копии[0].x, копии[0].y);
+      эл(копии[0].id).dispatchEvent(new PointerEvent("pointerdown", {button:0, ctrlKey:true, clientX:p2.x, clientY:p2.y, bubbles:true, cancelable:true}));
+      svg.dispatchEvent(new PointerEvent("pointerup", {button:0, clientX:p2.x, clientY:p2.y, bubbles:true, cancelable:true}));
+      await ж(120);
+      t.push({имя:"Ctrl+клик без протяжки копий не плодит", ок: S.items.length===передКликом,
+              факт:"нод было "+передКликом+", стало "+S.items.length});
+    } else {
+      t.push({имя:"копирование жестом: фикстура собралась", ок:false, факт:"нод или элементов в графе нет"});
+    }
+  } catch(e) {
+    t.push({имя:"копирование жестом: без исключений", ок:false, факт:String((e&&e.message)||e)});
+  }
+  S.items.slice(былоК).map(i=>i.id).forEach(id=>hardDeleteItem(id));
+  S.settings.graphRender=рендерБылК;
+  S.settings.graphHome=домБылК;
+  graph.selNodes.clear(); recomputeHierarchy(); render(); await ж(120);
+}
+
 hardDeleteItem(мысль.id); render();
 return t;

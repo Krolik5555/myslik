@@ -134,7 +134,7 @@ function renderNotes(v){
       <span><span class="lg-dot flow"></span>полотно</span>
     </div>
     <!-- подсказку можно закрыть: висеть постоянно ей незачем, а вернуть — из меню «…» -->
-    <div class="graph-hint${S.settings.graphHint===false?" off":""}" id="g-hint"><span>Alt+тащи от ноды — связь/заметка · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · колесо — зум · Delete — удалить</span><button id="g-hint-x" title="Скрыть подсказку"><i class="ti ti-x"></i></button></div>
+    <div class="graph-hint${S.settings.graphHint===false?" off":""}" id="g-hint"><span>Alt+тащи от ноды — связь/заметка · Ctrl+тащи — копия выделенного · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · колесо — зум · Delete — удалить</span><button id="g-hint-x" title="Скрыть подсказку"><i class="ti ti-x"></i></button></div>
     <!-- только счётчик: кнопка «Отчёт» уехала в правую панель, где отчёт и собирается -->
     <div class="graph-selbar" id="g-selbar" style="display:none">
       <span class="gsb-n"></span>
@@ -365,7 +365,7 @@ class Graph{
     this.svg=svg; this.W=svg.clientWidth||900; this.H=svg.clientHeight||500;
     this.nodes=[]; this.links=[]; this.byId={};
     this._lcId=null; this._lcT=0;
-    this.alpha=1; this.drag=null; this.dragMates=null; this._dragHollowAreas=null; this.linkFrom=null; this.sel=null;
+    this.alpha=1; this.drag=null; this.dragMates=null; this._dragHollowAreas=null; this.copyDrag=false; this.linkFrom=null; this.sel=null;
     // режим «что горит» переживает и пересборку вида, и перезапуск приложения — состояние в S.settings, не на экземпляре
     this._показатьЖар=!!S.settings.graphShowHeat;
     this._dbg = _дрожьВкл ? this._dbgNew() : null;   // диагностика дрожи — только по выключателю (см. дрожь())
@@ -707,8 +707,13 @@ class Graph{
     const links=(S.links||[]).filter(l=>idset.has(l[0])&&idset.has(l[1])).map(l=>[l[0],l[1],+l[2]||1]);
     graphClip={items,links}; toast("Скопировано: "+ids.length,{icon:"ti-copy"});
   }
-  pasteClip(){
-    if(!graphClip||!graphClip.items.length) return; const map={}, off=28, newIds=[], пары=[];
+  /* off — на сколько сдвинуть копии от оригиналов (Ctrl+V ставит рядом, 28 px; жест Ctrl+тащи
+     просит 0: копия рождается ПОВЕРХ оригинала и сразу уезжает за рукой).
+     тихо — не показывать тост: у жеста результат и так виден, а тост перебивал бы чужие.
+     Возвращает {map, newIds}: жесту нужно знать, какая копия соответствует схваченной ноде. */
+  pasteClip(off, тихо){
+    if(off==null) off=28;
+    if(!graphClip||!graphClip.items.length) return null; const map={}, newIds=[], пары=[];
     graphClip.items.forEach(d=>{
       const it=addItem({kind:d.kind,title:d.title,body:d.body,area:d.area,color:d.color,tags:(d.tags||[]).slice(),status:d.status,due:d.due,repeat:d.repeat,priority:d.priority});
       if(d.size) it.size=d.size;
@@ -741,7 +746,36 @@ class Graph{
         else if(S.settings.graphHome) this._homeFromDrag(it);
       }); }
     this.selNodes=new Set(newIds); this.build(); this._paintSel();
-    toast("Вставлено: "+newIds.length,{icon:"ti-clipboard-check"});
+    if(!тихо) toast("Вставлено: "+newIds.length,{icon:"ti-clipboard-check"});
+    return {map, newIds};
+  }
+  /* КОПИЯ ПРЯМО ЖЕСТОМ: Ctrl+тащи по выделенному — копии рождаются под рукой и едут за ней,
+     оригиналы остаются на месте. Раньше размножить куст можно было только через Ctrl+C, Ctrl+V
+     и отдельное перетаскивание пачки на место.
+     Зовётся НЕ на нажатии, а при первом движении за порогом (см. onpointermove): создавать копию
+     на клике значило бы плодить невидимые дубликаты поверх оригиналов у каждого, кто промахнулся
+     мимо Ctrl. Буфер Ctrl+C на время жеста сохраняем и возвращаем: человек копировал в него
+     своё, и жест не имеет права это стирать. */
+  _startCopyDrag(){
+    const вед=this.drag; if(!вед||!вед.ref) return false;
+    const ids=(this.selNodes.has(вед.id) && this.selNodes.size>1) ? [...this.selNodes] : [вед.id];
+    const былБуфер=graphClip;
+    this.selNodes=new Set(ids); this.copySelection();
+    const рез=this.pasteClip(0, true);        // 0 — копия точно поверх оригинала, тост не нужен
+    graphClip=былБуфер;
+    const нов=рез && рез.map ? this.byId[рез.map[вед.id]] : null;
+    if(!нов){ return false; }                 // не получилось — жест продолжится с оригиналом
+    // хват переносим на копии: старые объекты узлов только что пересоздал build внутри pasteClip
+    вед._grabbed=false;
+    if(this.dragMates) this.dragMates.forEach(м=>{ м.n._grabbed=false; });
+    this.drag=нов; нов._moved=true; нов._grabbed=true;
+    const мест=[];
+    рез.newIds.forEach(id=>{ const m=this.byId[id];
+      if(m && m!==нов){ m._grabbed=true; мест.push({n:m, dx:m.x-нов.x, dy:m.y-нов.y}); } });
+    this.dragMates=мест.length?мест:null;
+    this._dragHollowAreas=null;
+    toast("Копия: "+рез.newIds.length,{icon:"ti-copy"});
+    return true;
   }
   _startConnectDrag(n,e){ this.connectDrag=n.id; this._closePop(); const p=this._pt(e);
     this.tempLine.style.display=""; this.tempLine.setAttribute("x1",n.x); this.tempLine.setAttribute("y1",n.y); this.tempLine.setAttribute("x2",p.x); this.tempLine.setAttribute("y2",p.y); }
@@ -1403,6 +1437,10 @@ class Graph{
            доживает до pointerdown в целости.
            Признак хвата держим ФЛАГОМ НА НОДЕ (`_grabbed`, у ведущей тоже): физика в двух местах
            спрашивает «эта нода в руке?», и сравнения `n===this.drag` ей больше не хватает. */
+        // Ctrl — тащим КОПИЮ. Само копирование отложено до первого движения (см. onpointermove):
+        // на нажатии оно плодило бы дубликаты поверх оригиналов при простом Ctrl+клике
+        this.copyDrag=e.ctrlKey && !e.altKey && !e.shiftKey;
+        if(this.copyDrag) svg.style.cursor="copy";
         this.dragMates=null; n._grabbed=true;
         if(this.selNodes.size>1 && this.selNodes.has(n.id)){
           const мест=[];
@@ -1448,6 +1486,8 @@ class Graph{
           const f=this._dragFrom;
           if(f && Math.hypot(e.clientX-f.x, e.clientY-f.y) < 4) return;
           this.drag._moved=true;
+          // порог пройден — значит это настоящая протяжка, и копию создавать не рано
+          if(this.copyDrag){ this.copyDrag=false; this._startCopyDrag(); }
         }
         // тянем за ТУ ЖЕ точку, за которую взялись (см. _grab) — нода не прыгает центром под курсор
         const p=this._pt(e), g=this._grab||{dx:0,dy:0};
@@ -1559,9 +1599,11 @@ class Graph{
         this._syncAsideLater();
         /* Признак хвата снимаем СО ВСЕЙ группы. Забыть его на пассажире — значит навсегда
            выключить для него физику: в _tick такая нода вечно стоит с нулевой скоростью. */
+        // хват снимаем с ТЕКУЩЕЙ ведущей: при Ctrl+тащи ею стала копия, а не та нода, за которую взялись
+        if(this.drag) this.drag._grabbed=false;
         n._grabbed=false;
         if(this.dragMates){ this.dragMates.forEach(м=>{ м.n._grabbed=false; }); this.dragMates=null; }
-        this._dragHollowAreas=null;
+        this._dragHollowAreas=null; this.copyDrag=false; svg.style.cursor="";
         this.drag=null;
       }
       this.panning=null;
@@ -2591,7 +2633,7 @@ class Graph{
     return `M ${ax.toFixed(1)} ${ay.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${bx.toFixed(1)} ${by.toFixed(1)}`;
   }
   startLink(id){ this.linkFrom=id; this.svg.classList.add("linking"); $("#g-hint").innerHTML="Режим связи: кликни по второму узлу. Esc — отмена."; this._closePop(); }
-  cancelLink(){ this.linkFrom=null; this.svg.classList.remove("linking"); this.tempLine.style.display="none"; if($("#g-hint"))$("#g-hint").innerHTML="Alt+тащи от ноды — связь/заметка · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · Delete — удалить"; }
+  cancelLink(){ this.linkFrom=null; this.svg.classList.remove("linking"); this.tempLine.style.display="none"; if($("#g-hint"))$("#g-hint").innerHTML="Alt+тащи от ноды — связь/заметка · Ctrl+тащи — копия выделенного · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · Delete — удалить"; }
   // Связать два узла. Связывать можно с чем угодно (заметка/задача/область), но не сам с собой
   // и не область с областью. ОБЛАСТЬ — ОСОБЫЙ СЛУЧАЙ: членство в области это поле it.area, а не
   // связь — линию элемент↔область граф рисует сам (см. build). Поэтому конец в хабе означает
