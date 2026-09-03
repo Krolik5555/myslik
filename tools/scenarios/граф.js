@@ -2382,14 +2382,17 @@ t.push({имя:"возврат на вкладку пересобирает гр
   const x2 = Math.max(...узлы.map(n => n.x)) + 40, y2 = Math.max(...узлы.map(n => n.y)) + 40;
   const A = экр(x1, y1), B = экр(x2, y2);
 
-  graph.selNodes = new Set(узлы.map(n => n.id)); graph._paintSel();
+  /* СМЕШАННЫЙ СЛУЧАЙ — тот самый, ради которого правило и меняли: в рамку попали и уже
+     выделенная нода, и невыделенная. Переключатель менял их ролями (первая уходила из
+     выделения, вторая приходила), и набрать выделение в несколько заходов было нельзя. */
+  graph.selNodes = new Set([узлы[0].id]); graph._paintSel();
   svg.dispatchEvent(new PointerEvent("pointerdown", {button:0, shiftKey:true, clientX:A.x, clientY:A.y, bubbles:true, cancelable:true}));
   svg.dispatchEvent(new PointerEvent("pointermove", {buttons:1, shiftKey:true, clientX:B.x, clientY:B.y, bubbles:true, cancelable:true}));
   const послеShift = new Set(graph.selNodes);
   svg.dispatchEvent(new PointerEvent("pointerup", {button:0, clientX:B.x, clientY:B.y, bubbles:true, cancelable:true}));
-  t.push({имя:"рамка с Shift снимает выделение с уже выделенных",
-          ок: узлы.every(n => !послеShift.has(n.id)),
-          факт: "было " + узлы.length + ", осталось " + узлы.filter(n => послеShift.has(n.id)).length});
+  t.push({имя:"рамка с Shift добавляет и НЕ снимает уже выделенное",
+          ок: узлы.every(n => послеShift.has(n.id)),
+          факт: "было выделено 1, стало " + узлы.filter(n => послеShift.has(n.id)).length + " из " + узлы.length});
 
   graph.selNodes.clear(); graph._paintSel();
   svg.dispatchEvent(new PointerEvent("pointerdown", {button:0, clientX:A.x, clientY:A.y, bubbles:true, cancelable:true}));
