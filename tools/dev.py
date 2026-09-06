@@ -142,7 +142,7 @@ def _code_symbols():
     """Все имена, определённые во фронте и в питоне, — чтобы сверять с ними карту."""
     имена = set()
     for f in ("core.js", "model.js", "notify.js", "views.js", "graph.js", "overlays.js", "draw.js",
-              "fields.js", "ai.js", "report.js", "main.js"):
+              "fields.js", "cmd.js", "ai.js", "report.js", "main.js"):
         s = _read("ui/js/" + f)
         for a, b, c in re.findall(r'^(?:async\s+)?function\s+([A-Za-zА-Яа-я_$][\w$]*)'
                                   r'|^\s*class\s+([A-Za-z_$][\w$]*)'
@@ -203,6 +203,9 @@ def _check_map():
     токены = re.findall(r'`([^`\n]+)`', карта)
     символы = _code_symbols()
     css = _read("ui/styles.css")
+    # разметка: id узлов живут в index.html и в шаблонах, которые собирает фронт
+    разметка = _read("ui/index.html") + "".join(
+        _read("ui/js/" + f) for f in ("graph.js", "views.js", "overlays.js", "cmd.js", "main.js", "fields.js"))
 
     нет_файлов, нет_символов, нет_селекторов = [], [], []
     проверено = 0
@@ -221,7 +224,10 @@ def _check_map():
             if t in КАРТА_НЕ_СЕЛЕКТОРЫ:
                 continue
             проверено += 1
-            if t.rstrip("*") not in css:
+            # Селектор ищем И В РАЗМЕТКЕ. Карта называет узлы интерфейса их id (#g-ai, #g-tidy),
+            # а стиль у них бывает по классу — такого id в styles.css нет и быть не должно.
+            # Проверка «только по css» ругалась на честные ссылки и учила бы карту врать.
+            if t.rstrip("*") not in css and t.lstrip("#.") not in разметка:
                 нет_селекторов.append(t)
             continue
         # имя символа (в карте они бывают через слэш: fieldsLayout/fieldsFromLayout)

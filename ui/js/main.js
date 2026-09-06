@@ -669,54 +669,67 @@ async function autoCheckUpdate(delayed){
    Шаг без цели — обычная карточка по центру: так рассказываются вещи, у которых нет своей
    кнопки (запись на диск, скорость графа). Цели может не оказаться на экране вовсе — тогда
    шаг молча становится центральным, а не ломает тур. */
-const ТУР_ID="2.0.5.2";
-/* Релиз накопил пять самостоятельных вещей (статусы, срок+приоритет, «что горит»,
-   напоминание, тост) — заметно больше, чем «ровно одна», как в прошлый раз. Без демо: видео
-   пишется руками (см. рецепт в docs/СБОРКА-И-РЕЛИЗ.md), а в этом заходе готовых записей нет —
-   ТУР_ДЕМО из прошлой версии убран вместе с её клипами (ui/media/home-*.webm), они были про
-   уже показанную функцию. Каждый шаг всё равно указывает на живую кнопку, где кнопка есть, —
-   тур сам по себе уже наглядность, просто без предзаписанного сравнения.
+const ТУР_ID="2.0.6";
+/* Шаги версии 2.0.5 и заплатки 2.0.5.1 убраны вместе с их иллюстрациями (ТУР_ВИЗ_СТАТУСЫ,
+   СРОК, ЖАР, ТОСТ): глубина тура — два релиза, иначе обновившийся через полгода получает
+   простыню из десятка карточек про то, чем давно пользуется. Клипов в ui/media нет и в этот
+   раз — видео пишется руками (рецепт в docs/СБОРКА-И-РЕЛИЗ.md), поэтому ТУР_ДЕМО не нужен.
 
    .tour-mock — статичные иллюстрации ЧЕСТНЫМИ цветами (КРОЛИК: «без обмана»): не подобраны
-   на глаз, а взяты теми же именами CSS-переменных, что рисует сам граф (graph.js: _palette,
-   реестр иконок — core.js: СТАТУСЫ) — увидит на настоящей ноде то же самое, не апроксимацию. */
-const ТУР_ВИЗ_СТАТУСЫ=`
-  <div class="tour-mock tm-statuses">
-    <div class="tm-st"><span class="tm-st-c"></span><span class="tm-st-l">Не начато</span></div>
-    <div class="tm-st"><span class="tm-st-c" style="border-color:var(--st-next)"><i class="ti ti-player-track-next" style="color:var(--st-next)"></i></span><span class="tm-st-l">На очереди</span></div>
-    <div class="tm-st"><span class="tm-st-c tm-st-glow"></span><span class="tm-st-l">В работе</span></div>
-    <div class="tm-st"><span class="tm-st-c tm-st-glow-wait" style="border-color:var(--st-wait)"><i class="ti ti-hourglass-low" style="color:var(--st-wait)"></i></span><span class="tm-st-l">Ждёт</span></div>
-    <div class="tm-st"><span class="tm-st-c tm-st-glow-review" style="border-color:var(--st-review)"><i class="ti ti-eye" style="color:var(--st-review)"></i></span><span class="tm-st-l">На проверке</span></div>
-    <div class="tm-st"><span class="tm-st-c tm-st-dash tm-st-glow-pause"></span><span class="tm-st-l">На паузе</span></div>
-    <div class="tm-st"><span class="tm-st-c tm-st-fill"><i class="ti ti-check"></i></span><span class="tm-st-l">Готово</span></div>
+   на глаз, а взяты теми же именами CSS-переменных, что рисует сам граф. Здесь это особенно
+   важно у подграфа: шестиугольник в карточке обязан выглядеть как настоящая нода, иначе
+   человек не узнает её на холсте. */
+const ТУР_ВИЗ_ПОДГРАФ=`
+  <div class="tour-mock tm-sub">
+    ${/* Шестиугольник — тем же приёмом, что метка подграфа в легенде графа (.lg-dot.sub):
+         clip-path вместо SVG-полигона, а значок обычным <i>. Кодов глифов шрифта руками не
+         пишем — их легко перепутать, и в карточке оказался бы не тот значок. */""}
+    <span class="tm-sub-hex"><i class="ti ti-hierarchy-2"></i></span>
+    <i class="ti ti-arrow-right tm-sub-arrow"></i>
+    <svg viewBox="0 0 128 74" class="tm-sub-svg" aria-hidden="true">
+      <rect x="2" y="4" width="124" height="66" rx="9" fill="none" stroke="var(--bd2)" stroke-width="1" stroke-dasharray="4 3"/>
+      <line x1="40" y1="37" x2="74" y2="22" stroke="var(--acc)" stroke-width="1.2" opacity=".55"/>
+      <line x1="40" y1="37" x2="74" y2="52" stroke="var(--acc)" stroke-width="1.2" opacity=".55"/>
+      <line x1="74" y1="22" x2="104" y2="18" stroke="var(--acc)" stroke-width="1.2" opacity=".55"/>
+      <circle cx="40" cy="37" r="7" fill="var(--acc)"/>
+      <rect x="68" y="16" width="12" height="12" rx="2.5" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
+      <rect x="68" y="46" width="12" height="12" rx="2.5" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
+      <circle cx="104" cy="18" r="5.5" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
+    </svg>
   </div>`;
-const ТУР_ВИЗ_СРОК=`
-  <div class="tour-mock">
-    <div class="tm-node"><span class="tm-arc" style="border-color:var(--pri3)"></span><span class="tm-due">3</span></div>
-    <div class="tm-labels">
-      <span><i class="ti ti-flag" style="color:var(--pri3)"></i>приоритет дужкой сверху — три уровня, цвет говорит о силе</span>
-      <span><i class="ti ti-calendar"></i>срок цифрой в углу, без открытия ноды</span>
+const ТУР_ВИЗ_ПОРЯДОК=`
+  <div class="tour-mock tm-tidy">
+    <div class="tm-tidy-one">
+      <svg viewBox="0 0 110 78" aria-hidden="true">
+        <line x1="26" y1="20" x2="84" y2="58" stroke="var(--mut2)" stroke-width="1.2"/>
+        <line x1="84" y1="20" x2="30" y2="56" stroke="var(--mut2)" stroke-width="1.2"/>
+        <line x1="26" y1="20" x2="58" y2="40" stroke="var(--mut2)" stroke-width="1.2"/>
+        <line x1="58" y1="40" x2="62" y2="44" stroke="var(--mut2)" stroke-width="1.2"/>
+        <circle cx="26" cy="20" r="6" fill="var(--surf)" stroke="var(--mut)" stroke-width="1.5"/>
+        <circle cx="84" cy="20" r="6" fill="var(--surf)" stroke="var(--mut)" stroke-width="1.5"/>
+        <circle cx="58" cy="40" r="6" fill="var(--surf)" stroke="var(--mut)" stroke-width="1.5"/>
+        <circle cx="62" cy="44" r="6" fill="var(--surf)" stroke="var(--mut)" stroke-width="1.5"/>
+        <circle cx="84" cy="58" r="6" fill="var(--surf)" stroke="var(--mut)" stroke-width="1.5"/>
+        <circle cx="30" cy="56" r="6" fill="var(--surf)" stroke="var(--mut)" stroke-width="1.5"/>
+      </svg>
+      <span class="tm-st-l">как легло</span>
     </div>
-  </div>`;
-const ТУР_ВИЗ_ЖАР=`
-  <div class="tour-mock tm-heat">
-    <div class="tm-heat-lvls">
-      <div class="tm-heat-one"><span class="tm-heat-c" style="--hc:var(--ur1)"></span><span class="tm-st-l">тлеет</span></div>
-      <div class="tm-heat-one"><span class="tm-heat-c" style="--hc:var(--ur2)"></span><span class="tm-st-l">греется</span></div>
-      <div class="tm-heat-one"><span class="tm-heat-rank" style="--hc:var(--ur3)">№1</span><span class="tm-heat-c" style="--hc:var(--ur3)"></span><span class="tm-st-l">горит</span></div>
-    </div>
-    <div class="tm-labels">
-      <span><i class="ti ti-flame" style="color:var(--ur3)"></i>двойной контур — цвет и есть уровень жара</span>
-      <span><i class="ti ti-hash"></i>№1…№8 слева — номер в очереди</span>
-    </div>
-  </div>`;
-const ТУР_ВИЗ_ТОСТ=`
-  <div class="tm-toast-card">
-    <span class="tm-toast-accent"></span>
-    <div class="tm-toast-body">
-      <div class="tm-toast-head"><span class="tm-toast-ic"><i class="ti ti-bell"></i></span>
-        <b>Позвонить в клинику</b><i class="ti ti-x tm-toast-x"></i></div>
-      <div class="tm-toast-txt">Записаться на чистку, спросить про отбеливание</div>
+    <i class="ti ti-arrow-right tm-sub-arrow"></i>
+    <div class="tm-tidy-one">
+      <svg viewBox="0 0 110 78" aria-hidden="true">
+        <line x1="20" y1="39" x2="58" y2="15" stroke="var(--acc)" stroke-width="1.2" opacity=".6"/>
+        <line x1="20" y1="39" x2="58" y2="39" stroke="var(--acc)" stroke-width="1.2" opacity=".6"/>
+        <line x1="20" y1="39" x2="58" y2="63" stroke="var(--acc)" stroke-width="1.2" opacity=".6"/>
+        <line x1="58" y1="15" x2="92" y2="15" stroke="var(--acc)" stroke-width="1.2" opacity=".6"/>
+        <line x1="58" y1="63" x2="92" y2="63" stroke="var(--acc)" stroke-width="1.2" opacity=".6"/>
+        <circle cx="20" cy="39" r="6.5" fill="var(--acc)"/>
+        <circle cx="58" cy="15" r="6" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
+        <circle cx="58" cy="39" r="6" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
+        <circle cx="58" cy="63" r="6" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
+        <circle cx="92" cy="15" r="6" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
+        <circle cx="92" cy="63" r="6" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
+      </svg>
+      <span class="tm-st-l">после кнопки</span>
     </div>
   </div>`;
 /* Тексты — простым языком, без жаргона (КРОЛИК: «понятным, корректным для рядового
@@ -724,27 +737,20 @@ const ТУР_ВИЗ_ТОСТ=`
    кнопка поиска («Найти ноду»), не наш профессиональный сленг из комментариев. А вот
    «попап»/«глиф» и подобное — убраны, это слова для комментариев к коду, не для человека. */
 const ТУР=[
-  {v:"2.0.5", значок:"ti-circle-dot", ttl:"Семь статусов — видно без открытия ноды", виз:ТУР_ВИЗ_СТАТУСЫ,
-   txt:"У задачи теперь семь состояний вместо старой пары «не начато / готово» — например «ждёт» или «на проверке». Каждое видно значком прямо внутри ноды, без клика: песочные часы — «ждёт», глаз — «на проверке», двойная стрелка — «на очереди».",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.0.5", значок:"ti-eye", ttl:"Срок и приоритет — видно сразу", виз:ТУР_ВИЗ_СРОК,
-   txt:"Срок — цифрой в углу ноды, приоритет — цветной дужкой сверху. Оба видно на любом отдалении графа, не только вблизи — искать взглядом важное можно, не подлетая к каждой ноде по очереди.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.0.5", значок:"ti-flame", ttl:"Что горит — режим по одной кнопке", цель:"#g-heat", виз:ТУР_ВИЗ_ЖАР,
-   txt:"Кнопка с огоньком (или Ctrl+G) отбирает до восьми самых срочных задач — учитывает срок, приоритет и то, сколько нода вообще не трогали. У горящих — двойной контур ноды (цвет показывает силу) и номер очереди слева, остальной граф гаснет, чтобы не отвлекал.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.0.5", значок:"ti-bell", ttl:"Напоминание — на любой ноде", цель:".event-ctl [data-eventpick]",
-   txt:"У задачи и у заметки — своё поле, отдельно от срока: точные дата и время, до минуты, и при желании повтор («каждые 3 дня», «раз в неделю»…). Открывается тут же, в панели, или в окне правки — своим окошком с крутящимся колесом времени.",
-   before(){ view="notes"; notesMode="graph"; render();
-     const it=(S.items||[]).find(x=>x.kind==="task" && !x.deleted);
-     if(it) asideSelect(it.id); }},
-  {v:"2.0.5", значок:"ti-bell-ringing", ttl:"Уведомление даже при свёрнутом окне", виз:ТУР_ВИЗ_ТОСТ,
-   txt:"Когда время подойдёт — справа снизу экрана всплывёт своё окошко поверх всех остальных, даже если Мыслик свёрнут. В нём — название и описание ноды. Висит, пока не закроешь крестиком или не кликнешь по нему — клик сам откроет нужную ноду."},
-  {v:"2.0.5.1", значок:"ti-drag-drop", ttl:"Тащи всё выделенное сразу",
-   txt:"Выдели ноды рамкой или с Shift и тяни любую из них — остальные поедут следом.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
   {v:"2.0.5.2", значок:"ti-copy", ttl:"Ctrl+тащи — копия под рукой",
    txt:"Зажми Ctrl и потяни выделенное: под рукой окажутся копии со всеми связями, а оригиналы останутся на месте.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.0.6", значок:"ti-hierarchy-2", ttl:"Подграф — нода, внутри которой свой граф", виз:ТУР_ВИЗ_ПОДГРАФ,
+   txt:"Новый вид ноды. Снаружи она обычная: связывается с чем угодно, носит описание, поля, теги и срок, её можно завершить. Двойной клик — и ты внутри: чистый холст только для её содержимого, а в центре стоит корень с названием самого подграфа, от него и растёт дерево. Наружу — по дорожке над холстом, двойным кликом по корню или клавишей Escape. Создаётся правой кнопкой по пустому месту графа.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.0.6", значок:"ti-sparkles", ttl:"Планер понимает нейросети", цель:"#g-ai",
+   txt:"Копируешь отсюда промпт, отдаёшь его любой нейросети со своей просьбой — «разбей проект на этапы» — и вставляешь ответ обратно. Приложение покажет, что получится, и сделает это только по кнопке; отменяется всё одним Ctrl+Z. В том же окне подключается ИИ-агент вроде Claude Code.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.0.6", значок:"ti-layout-grid", ttl:"Упорядочить выделенное", виз:ТУР_ВИЗ_ПОРЯДОК,
+   txt:"Выдели ветку и нажми значок сетки в полосе выделения (или «Упорядочить» в меню по правой кнопке). Дерево соберётся кустами: у каждой ветки свои ноды рядом с ней, ветки расходятся вокруг, а корень останется ровно там, где стоял — ветка расправляется на месте. Ноды доезжают плавно, и дальше форму можно доводить руками. Особенно выручает после того, как крупное дерево создала нейросеть.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.0.6", значок:"ti-arrow-back-up", ttl:"Ctrl+Z возвращает и раскладку",
+   txt:"Раньше откат касался только содержимого: перетащил ноды неудачно — вернуть их на место было нечем. Теперь перетаскивание, «Сбросить дом» и «Перераскладка» — обычные шаги истории, и Ctrl+Z возвращает форму дерева ровно такой, какой она была до жеста.",
    before(){ view="notes"; notesMode="graph"; render(); }},
 ];
 /* СЛОЁНЫЙ ТУР: человек видит только то, чего ещё не видел. Каждый шаг помечен версией, в которой
@@ -793,7 +799,20 @@ function turEsc(e){ if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(
    мышью за любой край, и выноска, посчитанная один раз, отъезжала бы от своей кнопки. */
 function turPlace(){
   if(!_турУзел) return;
-  const шаг=_турПоказ[_турШаг], цель=шаг.цель ? document.querySelector(шаг.цель) : null;
+  const шаг=_турПоказ[_турШаг];
+  let цель=шаг.цель ? document.querySelector(шаг.цель) : null;
+  /* ЦЕЛЬ ГОДИТСЯ, ТОЛЬКО ЕСЛИ ЕЁ ВИДНО НА ЭКРАНЕ. Раньше хватало того, что узел НАШЁЛСЯ, — и
+     этого мало: скрытый (display:none), нулевой по размеру или уехавший за кромку окна узел
+     отдаёт прямоугольник из нулей либо координаты вне видимой части. Выноска тогда честно
+     вставала «вплотную к цели» — то есть в угол, где для человека ничего нет (КРОЛИК прислал
+     снимок шага про нейросети: карточка внизу слева, а кнопка ИИ вверху справа). Лучше встать
+     по центру и не показывать никуда, чем показывать не туда. */
+  if(цель){
+    const r0=цель.getBoundingClientRect();
+    const видно = r0.width>0 && r0.height>0 && r0.right>0 && r0.bottom>0 &&
+                  r0.left<window.innerWidth && r0.top<window.innerHeight;
+    if(!видно) цель=null;
+  }
   const хвост=$(".tour-tail",_турУзел);
   const w0=_турУзел.offsetWidth||320, h0=_турУзел.offsetHeight||140;
   if(!цель){
@@ -812,7 +831,12 @@ function turPlace(){
   const снизу = r.bottom+14+h <= window.innerHeight-8;
   let left=Math.round(r.left+r.width/2-w/2);
   left=Math.max(10, Math.min(left, window.innerWidth-w-10));
-  const top=снизу ? Math.round(r.bottom+14) : Math.round(r.top-h-14);
+  /* Выноску держим В ОКНЕ и в обоих направлениях. Ветка «над целью» ограничения не имела вовсе:
+     на высокой карточке (текст в десять строк) она уезжала выше верхней кромки, а с целью у
+     самого верха — на треть экрана прочь от кнопки, на которую показывает. Замер на шаге про
+     нейросети: зазор −356 px, то есть карточка стояла нигде. */
+  let top=снизу ? Math.round(r.bottom+14) : Math.round(r.top-h-14);
+  top=Math.max(8, Math.min(top, window.innerHeight-h-8));
   _турУзел.style.left=left+"px"; _турУзел.style.top=top+"px";
   _турУзел.classList.toggle("up", !снизу);
   if(хвост) хвост.style.left=Math.round(r.left+r.width/2-left)+"px";
@@ -862,8 +886,27 @@ function turStep(n){
     if(b && !S.settings.graphHome) b.click();
     turDone();
   };
-  const цель=шаг.цель ? document.querySelector(шаг.цель) : null;
-  if(цель) цель.classList.add("tour-lit");
+  /* ЦЕЛЬ ИЩЕМ ПОВТОРНО. `before()` часто зовёт render(), и узел, на который показывает шаг,
+     появляется в DOM тем же кадром — но не всегда к моменту этой строки: вид мог быть другим,
+     граф пересоздаётся целиком, а часть разметки досоздаётся обработчиками. Не нашли с первого
+     раза — выноска молча падала в центр экрана и показывала «непонятно куда» (КРОЛИК, снимок
+     шага про нейросети: кнопка вверху справа, карточка посреди окна). Второй заход через таймер
+     стоит копейки и лечит весь этот класс, а не один шаг. */
+  const подсветить=()=>{
+    const ц=шаг.цель ? document.querySelector(шаг.цель) : null;
+    if(!ц || ц.classList.contains("tour-lit")) return ц;
+    ц.classList.add("tour-lit"); turPlace();
+    return ц;
+  };
+  const цель=подсветить();
+  if(шаг.цель && !цель) setTimeout(подсветить, 80);
+  /* ДОЖИМАЕМ ПОЗИЦИЮ, А НЕ ТОЛЬКО ПОИСК ЦЕЛИ. Повтор выше спасал лишь случай «узла ещё нет в
+     DOM». Хуже другой: узел ЕСТЬ, но холст графа после render() ещё не получил своих размеров —
+     а кнопка ИИ прижата к ПРАВОМУ краю холста (right:12px), и по нулевой ширине её прямоугольник
+     уезжает к левому краю. Выноска честно вставала вплотную к этому призраку — внизу слева, при
+     кнопке вверху справа (КРОЛИК прислал два снимка). Пересчёт стоит доли миллисекунды, а ловит
+     весь класс «цель доехала до своего места позже нас». */
+  if(шаг.цель){ setTimeout(turPlace, 120); setTimeout(turPlace, 400); }
   /* Позицию считаем СИНХРОННО, сразу после вставки разметки: размеры к этому моменту уже есть
      (чтение offsetWidth в turPlace само дожимает раскладку). Через requestAnimationFrame было
      нельзя — окно, которое не рисует кадров (свёрнуто, неактивно, за пределами экрана), rAF не

@@ -4,11 +4,10 @@
    показать его тому, кто ставит приложение впервые: рассказывать «что изменилось» человеку,
    который прежней версии не видел, незачем. Проверяем оба конца.
 
-   Сценарий переписан под 2.0.5 (четыре шага: статусы/срок/приоритет, «что горит»,
-   напоминание, тост) — старый был жёстко завязан на «Держать раскладку» (текст плашки,
-   цель #g-home, демо-сравнение из двух видео). В этом релизе демо нет — готовых записей не
-   было, см. main.js — поэтому блок про .tour-demo из старого сценария убран целиком, а не
-   адаптирован под пустоту. */
+   Проверки идут ПО ПОРЯДКУ шагов и не зашиты на номера версий: состав тура меняется каждый
+   выпуск (глубина — два релиза, docs/СБОРКА-И-РЕЛИЗ.md), и сценарий, привязанный к цифрам,
+   рассыпался бы при каждом. Что здесь всё-таки закреплено — связь шкалы точек со списком
+   шагов, наличие версии у каждого шага и глубина не больше двух версий. */
 const t = [];
 const ж = ms => new Promise(r => setTimeout(r, ms));
 const _былаОтметка = S.settings.tourSeen;
@@ -64,115 +63,121 @@ t.push({имя: "кнопка открывает демонстрацию и у�
         факт: "демонстрация: " + !!document.querySelector("#tour-pop") +
               ", плашка убрана: " + !document.querySelector("#tour-banner")});
 
-// ================== ШАГ 0: СТАТУСЫ, БЕЗ ЦЕЛИ, ПО ЦЕНТРУ ==================
+// ================== ШАГ 0: БЕЗ ЦЕЛИ, ПО ЦЕНТРУ ==================
 const p0 = document.querySelector("#tour-pop");
-t.push({имя: "тур открывается и знает свои шаги (их семь)",
-        ок: !!p0 && p0.querySelectorAll(".tour-dots i").length === ТУР.length && ТУР.length === 7,
-        факт: p0 ? "шагов " + ТУР.length + ", заголовок «" + p0.querySelector(".tour-head b").textContent + "»" : "выноски нет"});
+/* Число шагов НЕ зашиваем: глубина тура — два релиза, состав меняется каждый выпуск, и
+   проверка «их ровно семь» падала бы при каждом релизе, ничего не защищая. Сторожим связь
+   шкалы точек с самим списком — вот это ломается молча. */
+t.push({имя: "тур открывается, и точек в шкале столько же, сколько шагов",
+        ок: !!p0 && p0.querySelectorAll(".tour-dots i").length === ТУР.length && ТУР.length > 0,
+        факт: p0 ? "шагов " + ТУР.length + ", точек " + p0.querySelectorAll(".tour-dots i").length +
+                   ", заголовок «" + p0.querySelector(".tour-head b").textContent + "»" : "выноски нет"});
 {
   const r = p0.getBoundingClientRect();
   t.push({имя: "шаг без цели встаёт по центру окна",
           ок: Math.abs((r.left + r.width / 2) - innerWidth / 2) < 3 && r.left >= 0 && r.right <= innerWidth,
           факт: "центр выноски " + Math.round(r.left + r.width / 2) + " при центре окна " + Math.round(innerWidth / 2)});
 }
-/* Все СЕМЬ статусов (КРОЛИК: «отдельно», «без обмана») — цвет и иконка иду теми же CSS-
-   переменными, что и на настоящем графе (--st-wait/--st-next/--st-review), поэтому просто
-   проверяем количество кружков и что цвета взяты из переменных, а не с потолка. */
-t.push({имя: "первый шаг — про статусы, все семь, с мини-нодой вместо видео",
-        ок: !p0.querySelector(".tour-demo") && !p0.classList.contains("wide") &&
-            p0.classList.contains("big") && p0.querySelectorAll(".tm-st").length === 7,
-        факт: "заголовок «" + p0.querySelector(".tour-head b").textContent + "», .tour-demo: " +
-              !!p0.querySelector(".tour-demo") + ", .big: " + p0.classList.contains("big") +
-              ", кружков статусов: " + p0.querySelectorAll(".tm-st").length});
-/* «Без обмана» проверяем буквально: цвета в разметке — ссылки на var(--st-*), а не подобранные
-   на глаз hex-числа. Три статуса со своим цветом — next/wait/review. */
-t.push({имя: "цвета статусов — ссылки на переменные темы (--st-next/--st-wait/--st-review), не хардкод",
-        ок: p0.innerHTML.includes("var(--st-next)") && p0.innerHTML.includes("var(--st-wait)") &&
-            p0.innerHTML.includes("var(--st-review)"),
-        факт: "var(--st-next): " + p0.innerHTML.includes("var(--st-next)") +
-              ", var(--st-wait): " + p0.innerHTML.includes("var(--st-wait)") +
-              ", var(--st-review): " + p0.innerHTML.includes("var(--st-review)")});
+/* Все шаги обязаны иметь версию: по ней тур фильтруется под того, кто обновился (turNewSteps).
+   Шаг без `v` виден всем и каждый раз — то есть тур перестаёт быть слоёным. */
+t.push({имя: "у каждого шага проставлена версия",
+        ок: ТУР.every(ш => !!ш.v), факт: ТУР.map(ш => ш.v || "—").join(", ")});
+/* Глубина — два релиза (docs/СБОРКА-И-РЕЛИЗ.md): шаги позапрошлой версии удаляют при выпуске
+   новой. Проверяем не конкретные номера, а что разных версий в туре не больше двух. */
+t.push({имя: "в туре не больше двух версий — глубина соблюдена",
+        ок: new Set(ТУР.map(ш => ш.v)).size <= 2,
+        факт: "версии: " + [...new Set(ТУР.map(ш => ш.v))].join(", ")});
 /* Стрелка-хвостик ЖИВЁТ ВНЕ прокручиваемого слоя (.tour-pop-inner) — если её случайно вернут
    внутрь при правке разметки, overflow:auto там же снова обрежет её молча (баг, из-за которого
-   КРОЛИК прислал скриншот шага «что горит» без стрелки вовсе). Проверяем структуру прямо тут,
-   на шаге без цели, где сам хвостик skрыт (.mid), — достаточно того, что он НЕ внутри inner. */
+   КРОЛИК прислал скриншот шага «что горит» без стрелки вовсе). */
 t.push({имя: "хвостик-стрелка не внутри прокручиваемого слоя (иначе снова обрежется)",
         ок: !!p0.querySelector(":scope > .tour-tail"),
         факт: "прямой потомок .tour-pop: " + !!p0.querySelector(":scope > .tour-tail")});
-
 /* ОТМЕТКА ОБЯЗАНА ВСТАТЬ УЖЕ НА ПОКАЗЕ, а не при закрытии изнутри: самый обычный исход —
    человек увидел и закрыл ОКНО, не нажимая ничего. Поймано на живой сборке: подсказка открыта,
    а в файле лежит tourSeen: null, и следующий запуск встречал бы тем же самым. */
 t.push({имя: "отметка встаёт сразу при показе, не дожидаясь закрытия", ок: S.settings.tourSeen === ТУР_ID,
         факт: "показ идёт, в настройках " + JSON.stringify(S.settings.tourSeen)});
 
-// ================== ШАГ 1: СРОК И ПРИОРИТЕТ, БЕЗ ЦЕЛИ ==================
+/* ================== ШАГ 1: ПОДГРАФ, БЕЗ ЦЕЛИ ==================
+   Состав тура меняется каждый релиз (глубина — два выпуска, см. docs/СБОРКА-И-РЕЛИЗ.md), и
+   проверки идут ПО ПОРЯДКУ шагов, а не по номерам версий: так их правят вместе с самим туром,
+   а не ищут потом, почему сценарий рассыпался. */
 document.querySelector("#tour-next").click(); await ж(200); доиграть();
 {
   const p = document.querySelector("#tour-pop");
-  t.push({имя: "второй шаг — про срок и приоритет, с мини-нодой (дужка+цифра)",
-          ок: p.classList.contains("mid") && p.classList.contains("big") && !!p.querySelector(".tm-node .tm-arc"),
-          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», дужка: " + !!p.querySelector(".tm-arc")});
+  t.push({имя: "второй шаг — про подграф, с иллюстрацией «нода → её содержимое»",
+          ок: /подграф/i.test(p.querySelector(".tour-head b").textContent) && !!p.querySelector(".tm-sub-hex"),
+          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», шестиугольник: " + !!p.querySelector(".tm-sub-hex")});
 }
 
-// ================== ШАГ 2: СТРЕЛКА НА «ЧТО ГОРИТ» ==================
-document.querySelector("#tour-next").click(); await ж(200); доиграть();
+/* ================== ШАГ 2: СТРЕЛКА НА КНОПКУ ИИ ==================
+   Единственный шаг релиза с целью. Он же ловит целый класс поломок: цель ищется сразу после
+   before(), и если узел ещё не в DOM — выноска молча уезжает в центр экрана и показывает
+   «непонятно куда» (КРОЛИК прислал снимок именно этого шага). */
+document.querySelector("#tour-next").click(); await ж(240); доиграть();
 {
-  const p = document.querySelector("#tour-pop"), ц = document.querySelector("#g-heat");
-  const rc = ц ? ц.getBoundingClientRect() : null, rp = p.getBoundingClientRect();
-  const хв = p.querySelector(".tour-tail").getBoundingClientRect();
-  t.push({имя: "шаг про «что горит» подсвечивает саму кнопку", ок: !!ц && ц.classList.contains("tour-lit"),
-          факт: ц ? "кнопка #g-heat подсвечена: " + ц.classList.contains("tour-lit") : "кнопки нет на экране"});
-  /* Хвостик — это и есть «стрелочка показывает на кнопку». Мимо он смотрел, пока выноска
-     позиционировалась через transform: доигрывающий перевод складывался с новой позицией. */
-  t.push({имя: "стрелка смотрит ровно на кнопку",
-          ок: !!rc && Math.abs((хв.left + хв.width / 2) - (rc.left + rc.width / 2)) < 4,
-          факт: rc ? "хвост " + Math.round(хв.left + хв.width / 2) + ", центр кнопки " + Math.round(rc.left + rc.width / 2) : "—"});
-  t.push({имя: "выноска стоит под кнопкой и не вылезает за окно",
-          ок: !!rc && rp.top > rc.bottom && rp.top - rc.bottom < 30 &&
-              rp.left >= 0 && rp.right <= innerWidth && rp.bottom <= innerHeight,
-          факт: rc ? "зазор " + Math.round(rp.top - rc.bottom) + " px, в окне: " +
-                     (rp.left >= 0 && rp.right <= innerWidth && rp.bottom <= innerHeight) : "—"});
-  t.push({имя: "на шаге про «что горит» — три уровня двойного контура", ок: p.querySelectorAll(".tm-heat-one").length === 3,
-          факт: "уровней жара в иллюстрации: " + p.querySelectorAll(".tm-heat-one").length});
-  // текст упоминает номер очереди — КРОЛИК заметил, что раньше это не было видно на самой картинке
-  t.push({имя: "номер очереди виден на самой иллюстрации, не только в тексте", ок: !!p.querySelector(".tm-heat-rank"),
-          факт: "плашка ранга: " + (p.querySelector(".tm-heat-rank") || {}).textContent});
-}
-
-// ================== ШАГ 3: СТРЕЛКА НА КНОПКУ НАПОМИНАНИЯ ==================
-/* Цель — кнопка внутри правой панели (.event-ctl [data-eventpick]), а не тулбара: у нее нет
-   готового id, панель появляется только когда что-то выбрано — ровно это и делает before()
-   у самого шага (см. ТУР в main.js), здесь просто проверяем итог. */
-document.querySelector("#tour-next").click(); await ж(200); доиграть();
-{
-  const p = document.querySelector("#tour-pop"), ц = document.querySelector(".event-ctl [data-eventpick]");
-  t.push({имя: "шаг про напоминание находит и подсвечивает кнопку в панели", ок: !!ц && ц.classList.contains("tour-lit"),
-          факт: ц ? "кнопка напоминания на экране, подсвечена: " + ц.classList.contains("tour-lit") : "кнопки нет — before() не выбрал ноду?"});
+  const p = document.querySelector("#tour-pop"), ц = document.querySelector("#g-ai");
+  t.push({имя: "кнопка ИИ есть на холсте графа", ок: !!ц, факт: ц ? "#g-ai найдена" : "#g-ai НЕТ в DOM"});
+  t.push({имя: "шаг про нейросети подсвечивает саму кнопку", ок: !!ц && ц.classList.contains("tour-lit"),
+          факт: ц ? "подсвечена: " + ц.classList.contains("tour-lit") : "кнопки нет на экране"});
   t.push({имя: "выноска не по центру — цель нашлась", ок: !p.classList.contains("mid"),
           факт: "класс mid: " + p.classList.contains("mid")});
+  if (ц) {
+    const rc = ц.getBoundingClientRect(), rp = p.getBoundingClientRect();
+    const хв = p.querySelector(".tour-tail").getBoundingClientRect();
+    t.push({имя: "стрелка смотрит ровно на кнопку",
+            ок: Math.abs((хв.left + хв.width / 2) - (rc.left + rc.width / 2)) < 4,
+            факт: "хвост " + Math.round(хв.left + хв.width / 2) + ", центр кнопки " + Math.round(rc.left + rc.width / 2)});
+    /* «Рядом» требуем, только если карточка вообще помещается: на низком окне выноска выше
+       самого экрана прижимается к кромке, и требовать от неё соседства с целью бессмысленно.
+       Зато «не вылезает за окно» обязательно всегда — ради этого ограничение и заведено. */
+    const влезает = rp.height + 40 < innerHeight;
+    /* Проверяем ДВА свойства, которые ломаются молча: выноска видна целиком и стоит вплотную
+       к цели — сверху или снизу, это решает наличие места и обе стороны законны. Требовать
+       именно «снизу» нельзя: у цели под самой кромкой окна места там нет. */
+    const рядом = Math.min(Math.abs(rp.top - rc.bottom), Math.abs(rc.top - rp.bottom)) < 40;
+    t.push({имя: "выноска целиком в окне и вплотную к цели",
+            ок: rp.left >= 0 && rp.right <= innerWidth && rp.top >= 0 && rp.bottom <= innerHeight && рядом,
+            факт: "снизу " + Math.round(rp.top - rc.bottom) + ", сверху " + Math.round(rc.top - rp.bottom) +
+                  ", выноска " + Math.round(rp.top) + ".." + Math.round(rp.bottom) + " при окне " + innerHeight});
+  }
+  /* НЕВИДИМАЯ ЦЕЛЬ — НЕ ЦЕЛЬ. Узел может НАЙТИСЬ и при этом ничего не значить для человека:
+     скрыт, нулевого размера или уехал за кромку окна. Прямоугольник тогда из нулей, и выноска
+     вставала «вплотную» к точке (0,0) — стрелкой в угол, где ничего нет. Прячем кнопку и
+     требуем, чтобы тур честно перешёл в режим «без цели»: по центру и без хвостика. */
+  if (ц) {
+    const было = ц.style.display;
+    ц.style.display = "none";
+    turPlace();
+    const rp = p.getBoundingClientRect();
+    const хвост = p.querySelector(".tour-tail");
+    t.push({имя: "скрытая цель не уводит выноску в угол — встаёт по центру",
+            ок: p.classList.contains("mid") && Math.abs((rp.left + rp.width / 2) - innerWidth / 2) < 3 &&
+                getComputedStyle(хвост).display === "none",
+            факт: "mid: " + p.classList.contains("mid") + ", центр выноски " + Math.round(rp.left + rp.width / 2) +
+                  " при центре окна " + Math.round(innerWidth / 2) + ", хвостик " + getComputedStyle(хвост).display});
+    ц.style.display = было;
+    turPlace();
+  }
 }
 
-// ================== ШАГ 4: ТОСТ, БЕЗ ЦЕЛИ ==================
+// ================== ШАГ 3: УПОРЯДОЧИВАНИЕ, СРАВНЕНИЕ «БЫЛО — СТАЛО» ==================
 document.querySelector("#tour-next").click(); await ж(200); доиграть();
-t.push({имя: "шаг про тост несёт копию тоста вместо видео",
-        ок: /уведомлен/i.test(document.querySelector(".tour-head b").textContent) &&
-            !!document.querySelector("#tour-pop .tm-toast-card") &&
-            document.querySelector("#tour-pop #tour-next").textContent === "Дальше",
-        факт: "заголовок «" + document.querySelector(".tour-head b").textContent + "», копия тоста: " +
-              !!document.querySelector("#tour-pop .tm-toast-card")});
+{
+  const p = document.querySelector("#tour-pop");
+  t.push({имя: "шаг про упорядочивание показывает сравнение до/после",
+          ок: /упорядоч/i.test(p.querySelector(".tour-head b").textContent) &&
+              p.querySelectorAll(".tm-tidy-one").length === 2,
+          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», половин сравнения: " +
+                p.querySelectorAll(".tm-tidy-one").length});
+}
 
-// ================== ШАГ 5: ГРУППОВОЕ ПЕРЕТАСКИВАНИЕ ==================
-document.querySelector("#tour-next").click(); await ж(200); доиграть();
-t.push({имя: "шаг про перетаскивание группы на месте",
-        ок: /тащи всё|перетаск/i.test(document.querySelector(".tour-head b").textContent),
-        факт: "заголовок «" + document.querySelector(".tour-head b").textContent + "»"});
-
-// ================== ШАГ 6: КОПИЯ ЖЕСТОМ, ПОСЛЕДНИЙ ==================
+// ================== ШАГ 4: ОТКАТ РАСКЛАДКИ, ПОСЛЕДНИЙ ==================
 document.querySelector("#tour-next").click(); await ж(200); доиграть();
 const последняя = document.querySelector("#tour-pop #tour-next").textContent;
-t.push({имя: "последний шаг — про копию жестом, кнопка «Понятно»",
-        ок: /копи/i.test(document.querySelector(".tour-head b").textContent) && последняя === "Понятно",
+t.push({имя: "последний шаг — про откат раскладки, кнопка «Понятно»",
+        ок: /ctrl\+z|раскладк/i.test(document.querySelector(".tour-head b").textContent) && последняя === "Понятно",
         факт: "заголовок «" + document.querySelector(".tour-head b").textContent + "», кнопка «" + последняя + "»"});
 document.querySelector("#tour-next").click(); await ж(150);
 t.push({имя: "«Понятно» закрывает тур", ок: последняя === "Понятно" && !document.querySelector("#tour-pop"),
@@ -229,7 +234,9 @@ t.push({имя: "Escape закрывает и запоминает", ок: S.set
   turDone();
   const всего = ТУР.length, новых = ТУР.filter(ш => ш.v === ТУР_ID).length;
 
-  S.settings.tourSeen = "2.0.5.1";
+  // «прошлая версия» — та, что реально лежит в туре, а не зашитый номер: состав меняется
+  // каждый релиз, и проверка на конкретных цифрах падала бы при каждом выпуске
+  S.settings.tourSeen = [...new Set(ТУР.map(ш => ш.v))].filter(v => v !== ТУР_ID)[0] || ТУР_ID;
   const сПрошлой = turNewSteps();
   t.push({имя:"обновился с прошлой версии — только новые шаги",
           ок: сПрошлой.length === новых && сПрошлой.every(ш => ш.v === ТУР_ID),
@@ -258,14 +265,17 @@ t.push({имя: "Escape закрывает и запоминает", ок: S.set
      показывает всё подряд. Ровно так оно и сломалось при первой проверке КРОЛИКОМ. */
   // ПОРЯДОК: turDone сам ставит отметку «просмотрено», поэтому убираемся ДО того, как задать её
   turDone(); document.querySelectorAll("#tour-banner").forEach(n => n.remove());
-  S.settings.tourSeen = "2.0.5.1";
+  // «прошлая версия» — та, что реально лежит в туре, а не зашитый номер: состав меняется
+  // каждый релиз, и проверка на конкретных цифрах падала бы при каждом выпуске
+  S.settings.tourSeen = [...new Set(ТУР.map(ш => ш.v))].filter(v => v !== ТУР_ID)[0] || ТУР_ID;
   turBanner(); await ж(120);
   document.querySelector("#tb-go").click(); await ж(200); доиграть();
   const точекПослеПлашки = document.querySelectorAll(".tour-dots i").length;
   const заголовок = (document.querySelector(".tour-head b") || {}).textContent || "";
   turDone();
   t.push({имя:"плашка → кнопка: показан только новый шаг, а не весь тур",
-          ок: точекПослеПлашки === новых && /копи/i.test(заголовок),
+          ок: точекПослеПлашки === новых &&
+              заголовок === (ТУР.find(ш => ш.v === ТУР_ID) || {}).ttl,
           факт: "шагов в туре " + точекПослеПлашки + " (ждали " + новых + "), заголовок «" + заголовок + "»"});
 
   S.settings.tourSeen = ТУР_ID;
@@ -274,6 +284,26 @@ t.push({имя: "Escape закрывает и запоминает", ок: S.set
   turDone();
   t.push({имя:"меню «Что нового» открывает весь тур, а не только новинки",
           ок: точек === всего, факт: "точек в шкале " + точек + " из " + всего});
+}
+
+/* ================== ЦЕЛИ ШАГОВ СУЩЕСТВУЮТ ==================
+   Шаг с `цель` подсвечивает живой узел и показывает на него выноской. Не нашёлся селектор —
+   выноска молча падает в центр экрана и указывает «непонятно куда» (КРОЛИК, снимок шага про
+   нейросети). Проверяем не текст, а факт: подготовили шаг его же before() и ищем цель.  */
+{
+  const сЦелью = ТУР.filter(ш => ш.цель);
+  t.push({имя: "в туре есть шаги с целью", ок: сЦелью.length > 0, факт: "шагов с целью: " + сЦелью.length});
+  for (const ш of сЦелью) {
+    if (ш.before) { try { ш.before(); } catch (e) {} }
+    await ж(120);
+    const узел = document.querySelector(ш.цель);
+    t.push({имя: "цель шага «" + ш.ttl + "» есть на экране", ок: !!узел, факт: ш.цель});
+    if (узел) {
+      const r = узел.getBoundingClientRect();
+      t.push({имя: "у цели «" + ш.цель + "» ненулевой размер", ок: r.width > 0 && r.height > 0,
+              факт: Math.round(r.width) + "x" + Math.round(r.height) + " в (" + Math.round(r.left) + "," + Math.round(r.top) + ")"});
+    }
+  }
 }
 
 // ================== УБОРКА ==================
