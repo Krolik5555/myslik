@@ -111,7 +111,7 @@ function dueControlHtml(due, opts){
 // сколько задач уже стоит на день — точкой под числом: видно занятые дни, не открывая календарь
 function dueBusyMap(y, m){
   const карта={};
-  S.items.forEach(it=>{ if(it.deleted||it.kind!=="task"||!it.due||it.done) return;
+  S.items.forEach(it=>{ if(it.deleted||!kindIsTask(it.kind)||!it.due||it.done) return;
     const d=parseYmd(it.due); if(!d||d.getFullYear()!==y||d.getMonth()!==m) return;
     карта[it.due]=(карта[it.due]||0)+1; });
   return карта;
@@ -649,11 +649,15 @@ function openItemEditor(existing, defaultKind, presetDue, seed){
   const fields = (isNew && seed && seed.fields) ? seed.fields : JSON.parse(JSON.stringify(fieldsOf(it)));
   const m=el("div","modal");
   m.innerHTML=`
-    <h3><i class="ti ${it.kind==="note"?"ti-note":"ti-checklist"}"></i>${isNew?"Новый элемент":"Изменить"}</h3>
+    <h3><i class="ti ${kindIcon(it.kind)}"></i>${isNew?"Новый элемент":"Изменить"}</h3>
+    ${/* ПОДГРАФ В ПЕРЕКЛЮЧАТЕЛЕ ВИДА ЕСТЬ, а полотна нет — и это не забывчивость: полотно
+         правится своим окном (у него нет ни описания, ни полей), а подграф — обычная нода
+         с полями и сроком, у которой особенное только содержимое. */""}
     <div class="field"><label>Тип</label>
       <div class="seg" id="f-kind">
-        <button data-k="task" class="${it.kind==="task"?"on":""}"><i class="ti ti-checklist"></i> Задача</button>
-        <button data-k="note" class="${it.kind==="note"?"on":""}"><i class="ti ti-note"></i> Заметка</button>
+        <button data-k="task" class="${it.kind==="task"?"on":""}"><i class="ti ${kindIcon("task")}"></i> Задача</button>
+        <button data-k="note" class="${it.kind==="note"?"on":""}"><i class="ti ${kindIcon("note")}"></i> Заметка</button>
+        <button data-k="sub" class="${it.kind==="sub"?"on":""}"><i class="ti ${kindIcon("sub")}"></i> Подграф</button>
       </div>
     </div>
     <div class="field"><label>Название</label><input type="text" id="f-title" value="${esc(it.title)}" placeholder="Что нужно сделать / о чём заметка"></div>
@@ -910,7 +914,7 @@ function openNoteReader(it){
   const kids=childrenOfLive(it.id);       // из корзины детей не показываем: список кликабелен
   const parentChain=noteParentChain(it.id).slice(0,-1); // without self
   m.innerHTML=`
-    <h3><i class="ti ${it.kind==="task"?"ti-checklist":"ti-note"}"></i>${esc(it.title)}</h3>
+    <h3><i class="ti ${kindIcon(it.kind)}"></i>${esc(it.title)}</h3>
     ${it.area?`<div style="margin-bottom:10px;"><span class="tag"><i class="ti ${areaIcon(it.area)}"></i>${esc(areaName(it.area))}</span></div>`:""}
     ${it.folder?`<div style="margin-bottom:10px;"><button class="tag folder-tag" id="nr-folder" title="${esc(it.folder)}"><i class="ti ti-folder"></i>Открыть папку</button></div>`:""}
     ${parentChain.length?`<div style="margin-bottom:10px;"><span class="tag"><i class="ti ti-sitemap"></i>Иерархия: ${parentChain.map(id=>{const p=S.items.find(i=>i.id===id);return p?esc(p.title):"";}).join(" → ")}</span></div>`:""}
@@ -1059,6 +1063,14 @@ function ensureFlow(it){
 // единая точка открытия элемента: заметка → ридер, схема → редактор схемы, иначе → редактор задачи
 function openItemSmart(it){
   if(!it) return;
+  /* ПОДГРАФ «ОТКРЫТЬ» = ВОЙТИ ВНУТРЬ. Читать в нём нечего: содержимое ноды — это её граф,
+     а описание и поля правятся карандашом в панели (см. wireAside). Возвращаемся в «Заметки»,
+     потому что граф живёт только там — иначе вход сработал бы вникуда. */
+  if(it.kind==="sub"){
+    if(subEnter(it)){ if(view!=="notes") view="notes"; render();
+      toast("Подграф · "+((it.title||"").trim()||"без названия"),{icon:kindIcon("sub")}); }
+    return;
+  }
   if(it.kind==="note") openNoteReader(it);
   else if(it.kind==="flow") openFlowEditor(it);
   else openItemEditor(it);
@@ -1070,6 +1082,11 @@ function createNew(kind){
      экран, когда её ОТКРЫВАЮТ (см. инвариант в CLAUDE.md) — трогаем только момент СОЗДАНИЯ.
      Нода без координат уходит в лоток графа, как и любая другая мысль без места на холсте. */
   if(kind==="flow"){ addItem({kind:"flow", title:"Новое полотно", area:areaFilter||null}); render(); }
+  /* Подграф создаётся ТОЧНО ТАК ЖЕ, как полотно, и по той же причине: его «открытие» —
+     это уход в другой граф, и делать это без спроса, сразу после создания, значит выдёргивать
+     человека из того места, где он работал. Внутренний граф заведётся сам при первом входе
+     (subEnsure) — пустая запись на каждую созданную ноду файлу ни к чему. */
+  else if(kind==="sub"){ addItem({kind:"sub", title:"Новый подграф", area:areaFilter||null, status:"todo"}); render(); }
   // шаблон по умолчанию (если выбран) заводит ноду сразу с нужными полями; не выбран — как раньше
   else openItemEditor(null, kind, null, templateSeed(templateDefault(), kind));
 }
@@ -1169,8 +1186,11 @@ function openShortcuts(){
       ["ЛКМ-тащи по пустому","Рамка выделения нод"],
       ["Средняя кнопка","Двигать холст (пан)"],
       ["Alt + тащи от ноды","Связь · на пустое — новая связанная заметка"],
-      ["ПКМ по пустому","Меню «Создать» (заметка/задача/полотно)"],
+      ["ПКМ по пустому","Меню «Создать» (заметка/задача/полотно/подграф)"],
       ["ПКМ по ноде / связи","Настройки ноды / связи"],
+      ["2× клик по ноде","Открыть: заметку — читалкой, полотно — доской, подграф — войти внутрь"],
+      ["2× клик по корню подграфа","Выйти наружу (корень — узел с названием подграфа, он не удаляется)"],
+      ["<kbd>Esc</kbd> в подграфе","Выйти на уровень выше (когда закрывать больше нечего)"],
       ["Shift + клик","Добавить ноду в выделение"],
       ["<kbd>Delete</kbd>","Удалить выделенные ноды"],
       ["<kbd>Ctrl</kbd><kbd>C</kbd> · <kbd>Ctrl</kbd><kbd>V</kbd>","Копировать · вставить ноды"],
@@ -1432,8 +1452,8 @@ function openSettings(tab){
 function openLonelyNodes(){
   const m=el("div","modal");
   const looseList=()=>{ const linked=new Set(); (S.links||[]).forEach(l=>{ linked.add(l[0]); linked.add(l[1]); });
-    return S.items.filter(it=>!it.deleted && (it.kind==="note"||it.kind==="task"||it.kind==="flow") && !it.area && !linked.has(it.id)); };
-  const rowHtml=it=>{ const ic=it.kind==="flow"?"ti-artboard":it.kind==="note"?"ti-note":"ti-checklist";
+    return S.items.filter(it=>!it.deleted && KINDS[it.kind] && !it.area && !linked.has(it.id)); };
+  const rowHtml=it=>{ const ic=kindIcon(it.kind);
     const ttl=(it.title||"").trim()||"(без названия)", body=(it.body||"").trim();
     return `<div class="ln-row" data-id="${it.id}"><i class="ti ${ic} ln-ic"></i><span class="ln-ttl">${esc(ttl)}${body?` — <span class="ln-sub">${esc(body.slice(0,44))}</span>`:""}</span><button class="btn ghost ln-del" data-del="${it.id}" title="Удалить"><i class="ti ti-trash"></i></button></div>`; };
   const paint=()=>{ const items=looseList();

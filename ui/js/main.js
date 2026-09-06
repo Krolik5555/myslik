@@ -15,7 +15,8 @@ function openPalette(){
     // через createNew, а не напрямую в редактор: там подхватывается шаблон по умолчанию
     {t:"Новая задача",i:"ti-plus",run:()=>{closeOverlays();createNew("task");}},
     {t:"Новая заметка",i:"ti-note",run:()=>{closeOverlays();createNew("note");}},
-    {t:"Новое полотно",i:"ti-artboard",run:()=>{closeOverlays();createNew("flow");}},
+    {t:"Новое полотно",i:kindIcon("flow"),run:()=>{closeOverlays();createNew("flow");}},
+    {t:"Новый подграф",i:kindIcon("sub"),run:()=>{closeOverlays();createNew("sub");}},
     {t:"Перейти: Сегодня",i:"ti-sun",run:()=>go("today")},
     {t:"Перейти: Задачи",i:"ti-checklist",run:()=>go("tasks")},
     {t:"Перейти: Заметки",i:"ti-affiliate",run:()=>go("notes")},
@@ -36,7 +37,7 @@ function openPalette(){
     {t:"Горячие клавиши",i:"ti-keyboard",run:()=>{closeOverlays();openShortcuts();}}
   ];
   function go(v){ closeOverlays(); areaFilter=null; view=v; render(); }
-  const itemRow=it=>({type:"item",t:it.title,i:it.kind==="flow"?"ti-artboard":it.kind==="note"?"ti-note":"ti-checklist",sub:areaName(it.area),run:()=>{closeOverlays();openItemSmart(it);}});
+  const itemRow=it=>({type:"item",t:it.title,i:kindIcon(it.kind),sub:areaName(it.area),run:()=>{closeOverlays();openItemSmart(it);}});
   function compute(q){
     q=q.trim().toLowerCase();
     const cmds=commands.filter(c=>!q||c.t.toLowerCase().includes(q)).map(c=>({type:"cmd",...c}));
@@ -199,6 +200,8 @@ function wireGlobal(){
   window.addEventListener("beforeunload",()=>{
     // сперва дожать доску: её штрих ждёт своего дебаунса и в S ещё не попал
     try{ if(typeof drawFlush==="function") drawFlush(); }catch(e){}
+    // и раскладку графа: живые координаты узлов уезжают в S только по остыванию (см. flushLayout)
+    try{ if(graph) graph.flushLayout(); }catch(e){}
     if(saveTimer!==null){ clearTimeout(saveTimer); saveTimer=null; try{ Store.save(S); }catch(e){} } });
 
   /* Кнопок окна в разметке больше нет — полоса заголовка нативная (см. app.py).
@@ -208,6 +211,8 @@ function wireGlobal(){
   window.appRequestClose = async ()=>{
     // доска пишет в S с дебаунсом 900 мс — без этого последний штрих терялся при закрытии
     try{ if(typeof drawFlush==="function") drawFlush(); }catch(e){}
+    // раскладка графа — та же история: в данные она попадает только по остыванию симуляции
+    try{ if(graph) graph.flushLayout(); }catch(e){}
     try{ await flushSave(); }catch(e){}
     if(HasPy()) window.pywebview.api.win_close();
   };
@@ -272,7 +277,7 @@ function wireGlobal(){
     const ofo=e.target.closest("[data-openfolder]"); if(ofo){ const it=S.items.find(i=>i.id===ofo.dataset.openfolder); if(it) openItemFolder(it); return; }   // кнопка «открыть папку» в списках
     const chk=e.target.closest("[data-chk]"); if(chk){ const it=S.items.find(i=>i.id===chk.dataset.chk); if(it){ toggleDone(it); render(); const b=document.querySelector(`[data-chk="${it.id}"]`); if(b&&it.done) b.classList.add("pop"); } return; }
     const tdy=e.target.closest("[data-today]"); if(tdy){ const it=S.items.find(i=>i.id===tdy.dataset.today); if(it){ it.due=ymd(today()); touch(it); persist(); render(); toast("Перенесено на сегодня",{icon:"ti-target"}); } return; }
-    const ot=e.target.closest("[data-overtoday]"); if(ot){ const T=today(), ds=ymd(T); let n=0; S.items.forEach(it=>{ if(!it.deleted&&it.kind==="task"&&!it.done&&it.due&&parseYmd(it.due)<T){ it.due=ds; touch(it); n++; } }); if(n){ persist(); render(); toast("Перенесено на сегодня: "+n,{icon:"ti-target"}); } return; }   // вся просрочка → сегодня
+    const ot=e.target.closest("[data-overtoday]"); if(ot){ const T=today(), ds=ymd(T); let n=0; S.items.forEach(it=>{ if(!it.deleted&&kindIsTask(it.kind)&&!it.done&&it.due&&parseYmd(it.due)<T){ it.due=ds; touch(it); n++; } }); if(n){ persist(); render(); toast("Перенесено на сегодня: "+n,{icon:"ti-target"}); } return; }   // вся просрочка → сегодня
     const ed=e.target.closest("[data-edit]"); if(ed){ const it=S.items.find(i=>i.id===ed.dataset.edit); if(it)openItemEditor(it); return; }
     // клик по дню календаря — новая задача на эту дату (с полями шаблона по умолчанию)
     const day=e.target.closest("[data-day]"); if(day){ openItemEditor(null,"task",day.dataset.day,templateSeed(templateDefault(),"task")); return; }
@@ -345,7 +350,18 @@ function wireGlobal(){
       else if(graph) graph.openSearch();
       return;
     }
-    if(e.key==="Escape"){ if(graph&&graph.linkFrom){graph.cancelLink();return;} closeOverlays(); return; }
+    if(e.key==="Escape"){
+      if(graph&&graph.linkFrom){graph.cancelLink();return;}
+      if($("#overlay-root").children.length){ closeOverlays(); return; }
+      /* ESCAPE ВЫВОДИТ ИЗ ПОДГРАФА — но ПОСЛЕДНИМ в очереди, когда закрывать больше нечего:
+         окно, начатая связь, поиск и любое поле ввода забирают клавишу раньше. Выход наверх
+         это навигация, а не отмена, и перебивать ею отмену нельзя. */
+      const бокс=$("#g-search-box"), ае=document.activeElement;
+      const впол = ае && (/INPUT|TEXTAREA|SELECT/.test(ае.tagName) || ае.isContentEditable);
+      if(!впол && view==="notes" && (!бокс || бокс.style.display==="none")
+         && typeof inSubGraph==="function" && inSubGraph() && subLeave()){ render(); return; }
+      closeOverlays(); return;
+    }
     /* Страж полей ввода. isContentEditable — не придирка: заголовок ноды в правой панели
        правится прямо в <h2 contenteditable>, тега INPUT там нет, и набор текста уходил в
        глобальные горячие клавиши. Буква «т» (клавиша N) открывала редактор новой заметки,
@@ -387,7 +403,7 @@ function wireGlobal(){
     if(e.altKey && !e.ctrlKey && !e.metaKey && view==="notes" && graph && graph.selNodes && graph.selNodes.size){
       const цифра=/^Digit([1-9])$/.exec(e.code);
       if(цифра){
-        const id=[...graph.selNodes].find(x=>x.indexOf("hub_")!==0);
+        const id=[...graph.selNodes].find(x=>!isHubId(x));
         const it=id && S.items.find(x=>x.id===id);
         if(it){
           const список=статусыДляВида(it.kind), k=список[+цифра[1]-1];
@@ -565,7 +581,7 @@ async function boot(){
   setTimeout(()=>{ const c=$("#cap"); if(c && !$("#overlay-root").children.length) c.focus(); }, 120);  // готов печатать мысль сразу
   // напоминание при старте
   setTimeout(()=>{
-    const overdue=S.items.filter(it=>!it.deleted&&it.kind==="task"&&!it.done&&it.due&&parseYmd(it.due)<today());
+    const overdue=S.items.filter(it=>!it.deleted&&kindIsTask(it.kind)&&!it.done&&it.due&&parseYmd(it.due)<today());
     if(overdue.length) toast("⚠️ Просрочено: "+overdue.length+" задач");
   }, 600);
   // «Что нового» после обновления — один раз на версию (см. ТУР выше)

@@ -21,7 +21,7 @@ function counts(){
   let unsorted=0, todayN=0;
   S.items.forEach(it=>{
     if(it.x==null) unsorted++;
-    if(it.kind==="task" && !it.done && it.due && parseYmd(it.due)<=today()) todayN++;
+    if(kindIsTask(it.kind) && !it.done && it.due && parseYmd(it.due)<=today()) todayN++;
   });
   return {unsorted, today:todayN};
 }
@@ -61,12 +61,20 @@ function renderNav(){
     // подпись дублируем в title: в свёрнутой полосе виден только значок
     return `<button class="navi ${view===n[0]?"on":""}" data-v="${n[0]}" title="${esc(n[2])}"><i class="ti ${n[1]}"></i><span>${n[2]}</span>${badge}</button>`;
   }).join("");
+  /* ВНУТРИ ПОДГРАФА ОБЛАСТЕЙ НЕТ — прячем и заголовок раздела, и кнопку «+», а не только
+     пустой список: кнопка, которая ничего не делает, хуже отсутствующей. Признак вешаем на
+     всю полосу, чтобы правило жило в стилях одной строкой (см. #side.in-sub). */
+  { const s=$("#side"); if(s) s.classList.toggle("in-sub", inSubGraph()); }
   /* Список графов. Показываем даже когда он один: иначе кнопка «новый граф» висела бы над
      пустотой и было бы непонятно, к чему она. Число нод — чтобы отличать графы, у которых
-     похожие названия. */
+     похожие названия.
+     ВНУТРЕННИЕ ГРАФЫ ПОДГРАФОВ В СПИСОК НЕ ПОПАДАЮТ: подграф существует только внутри своей
+     ноды, и отдельной строкой в полосе он был бы вторым входом мимо неё. Пока стоим внутри,
+     подсвечен КОРНЕВОЙ граф этой ветки — клик по любому другому и есть выход наружу. */
   const списокГрафов=$("#graphs");
-  if(списокГрафов) списокГрафов.innerHTML = (S.graphs||[]).map(g=>{
-    const свой = g.id===S.settings.graph;
+  const корень=graphTopId();
+  if(списокГрафов) списокГрафов.innerHTML = graphsTop().map(g=>{
+    const свой = g.id===корень;
     const подпись = g.name + " · нод: " + (g.items||[]).length + " · правая кнопка — значок, имя, удалить";
     /* Цвет графа задаёт и значок, и полоску активного: полоска акцентного цвета рядом с
        цветным значком читалась как чужая метка, а не как «этот граф сейчас открыт». */
@@ -76,7 +84,7 @@ function renderNav(){
       `<span class="cnt">${(g.items||[]).length||""}</span></button>`;
   }).join("");
   $("#areas").innerHTML = S.areas.map(a=>{
-    const tasks=S.items.filter(it=>it.kind==="task"&&it.area===a.id&&!it.deleted);
+    const tasks=S.items.filter(it=>kindIsTask(it.kind)&&it.area===a.id&&!it.deleted);
     const n=tasks.filter(it=>!it.done&&it.status!=="note").length;
     const pct=tasks.length?Math.round(tasks.filter(it=>it.done).length/tasks.length*100):null;
     const col=a.color?`style="color:${a.color}"`:"";
@@ -110,8 +118,12 @@ function applyKind(it, kind){
   /* Статус переставляем ТОЛЬКО если он новому виду не подходит: задача, ставшая заметкой, теряет
      «Готово», но «в работе» и «ждёт» заметке разрешены и должны пережить смену вида. Формула
      одна на всё приложение — статусыДляВида/нейтральныйСтатус в core.js. */
-  if(kind!=="task"){ it.done=false; it.doneAt=null; it.due=null; it.repeat="none"; it.priority=0; }
-  if(статусыДляВида(kind).indexOf(it.status)<0) it.status = (kind==="task" && it.done) ? "done" : нейтральныйСтатус(kind);
+  /* Срок, приоритет и завершённость живут у ЗАДАЧНЫХ видов (задача и подграф) — превращение
+     в заметку или полотно их снимает, превращение задачи в подграф обязано сохранить.
+     Внутренний граф подграфа при смене вида НЕ трогаем — по той же причине, что и доску
+     полотна: вернут прежний вид, и содержимое окажется на месте. */
+  if(!kindIsTask(kind)){ it.done=false; it.doneAt=null; it.due=null; it.repeat="none"; it.priority=0; }
+  if(статусыДляВида(kind).indexOf(it.status)<0) it.status = (kindIsTask(kind) && it.done) ? "done" : нейтральныйСтатус(kind);
   touch(it);
   return true;
 }
@@ -157,9 +169,11 @@ function asideTreeRows(nodes, limit){
 
 // строка ноды в панели: отступ по уровню + роль. Уровень уезжает в CSS-переменную --lvl.
 function asideNodeRow(n, lvl, role){
-  const икона = n.kind==="flow"?"ti-artboard":n.kind==="note"?"ti-note":"ti-checkbox";
+  // у задачи в дереве панели свой значок — галочка в квадрате, а не список: строка тут про
+  // состояние одной ноды, а не про перечень (реестр KINDS в core.js даёт остальные)
+  const икона = n.kind==="task" ? "ti-checkbox" : kindIcon(n.kind);
   const имя = (n.title||"").trim();
-  const пусто = n.kind==="flow"?"полотно без названия":n.kind==="note"?"заметка без названия":"задача без названия";
+  const пусто = kindRu(n.kind)+" без названия";
   return `<button class="as-link${lvl?" as-sub":""}" style="--lvl:${lvl||0}" data-go="${esc(n.id)}"><i class="ti ${икона}"></i>
     <span${имя?"":' class="as-dim"'}>${esc(имя||пусто)}</span>
     ${role?`<em class="as-role">${role}</em>`:""}</button>`;
@@ -234,17 +248,19 @@ function renderAside(){
     a.innerHTML = `<div class="as-head"><h2 class="as-title">Выделено: ${ноды.length}</h2></div>
       <div class="as-rows">
         <div class="as-row"><span class="as-k">Задачи</span><span class="as-ico"><i class="ti ti-checkbox"></i></span><span class="as-v">${счёт("task")}</span></div>
-        <div class="as-row"><span class="as-k">Заметки</span><span class="as-ico"><i class="ti ti-note"></i></span><span class="as-v">${счёт("note")}</span></div>
-        <div class="as-row"><span class="as-k">Полотна</span><span class="as-ico"><i class="ti ti-artboard"></i></span><span class="as-v">${счёт("flow")}</span></div>
+        <div class="as-row"><span class="as-k">Заметки</span><span class="as-ico"><i class="ti ${kindIcon("note")}"></i></span><span class="as-v">${счёт("note")}</span></div>
+        <div class="as-row"><span class="as-k">Полотна</span><span class="as-ico"><i class="ti ${kindIcon("flow")}"></i></span><span class="as-v">${счёт("flow")}</span></div>
+        ${/* Подграфы показываем строкой ТОЛЬКО когда они в выделении есть: у большинства
+             человек их не заводит вовсе, и пустая строка «Подграфы · 0» отъедала бы высоту
+             панели у того, ради чего её открыли. */""}
+        ${счёт("sub")?`<div class="as-row"><span class="as-k">Подграфы</span><span class="as-ico"><i class="ti ${kindIcon("sub")}"></i></span><span class="as-v">${счёт("sub")}</span></div>`:""}
       </div>
       <div class="as-sec">Изменить всё сразу</div>
       <div class="as-rows">
         <div class="as-row"><span class="as-k">Тип</span><span class="as-ico"></span><span class="as-v">
           <select class="as-sel" data-all="kind">
             <option value="">— оставить —</option>
-            <option value="task">Задача</option>
-            <option value="note">Заметка</option>
-            <option value="flow">Полотно</option>
+            ${Object.keys(KINDS).map(k=>`<option value="${k}">${esc(kindName(k))}</option>`).join("")}
           </select></span></div>
         <div class="as-row"><span class="as-k">Область</span><span class="as-ico"></span><span class="as-v">
           <select class="as-sel" data-all="area">
@@ -291,7 +307,7 @@ function renderAside(){
         const дата = (к==="__none__") ? null
                    : ymd(addDays(today(), (БЫСТРЫЙ_СРОК.find(x=>x.к===к)||{дн:()=>0}).дн()));
         let тронуто=0;
-        ноды.forEach(n=>{ if(n.kind!=="task" || n.done) return; n.due=дата; touch(n); тронуто++; });
+        ноды.forEach(n=>{ if(!kindIsTask(n.kind) || n.done) return; n.due=дата; touch(n); тронуто++; });
         if(!тронуто){ toast("В выделении нет живых задач",{icon:"ti-calendar-off"}); return; }
         persist(); if(graph) graph.build(); renderAside();
         toast((дата?("Срок · "+(dueLabel(дата)||{txt:дата}).txt):"Срок снят")+" · задач: "+тронуто,{icon:"ti-calendar-event"});
@@ -357,9 +373,9 @@ function asideCard(it){
      (hub_*) — из-за этого в списке висели пустые строки «без названия». Разворачиваем
      в настоящие элементы, хабы выбрасываем: область и так показана отдельной строкой. */
   const дети = childrenOfLive(it.id);
-  const связи = linksOfLive(it.id).filter(x=>!/^hub_/.test(x)).map(liveById).filter(Boolean);
+  const связи = linksOfLive(it.id).filter(x=>!isHubId(x)).map(liveById).filter(Boolean);
   const родитель = it.parent ? liveById(it.parent) : null;
-  const тип = it.kind==="flow" ? "Полотно" : it.kind==="note" ? "Заметка" : "Задача";
+  const тип = kindName(it.kind);
   // строка панели: подпись | слот иконки (может быть пустым) | значение
   const строка = (имя, икона, значение)=>
     `<div class="as-row"><span class="as-k">${имя}</span>
@@ -367,9 +383,7 @@ function asideCard(it){
       <span class="as-v">${значение}</span></div>`;
 
   const выборТипа = `<select class="as-sel" data-f="kind">
-       <option value="task" ${it.kind==="task"?"selected":""}>Задача</option>
-       <option value="note" ${it.kind==="note"?"selected":""}>Заметка</option>
-       <option value="flow" ${it.kind==="flow"?"selected":""}>Полотно</option>
+       ${Object.keys(KINDS).map(k=>`<option value="${k}" ${it.kind===k?"selected":""}>${esc(kindName(k))}</option>`).join("")}
      </select>`;
   const стр = [];
   // у полотна тип уезжает в шапку, к названию: строк не остаётся вовсе, и доска берёт их высоту
@@ -378,7 +392,8 @@ function asideCard(it){
      это холст, а не карточка задачи, — а каждая лишняя строка отъедала высоту у самой доски,
      ради которой панель и открывают. Поля никуда не делись: они доступны в окне правки. */
   const холст = it.kind==="flow";
-  if(!холст) стр.push(строка("Область", [areaIcon(it.area), areaColor(it.area)],
+  // внутри подграфа областей не бывает — селект с единственным «Без области» только занимал бы строку
+  if(!холст && !inSubGraph()) стр.push(строка("Область", [areaIcon(it.area), areaColor(it.area)],
     `<select class="as-sel" data-f="area">
        <option value="">Без области</option>
        ${S.areas.map(a=>`<option value="${esc(a.id)}" ${it.area===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}
@@ -394,7 +409,7 @@ function asideCard(it){
          ${статусыДляВида(it.kind).map(k=>`<option value="${k}" ${ст===k?"selected":""}>${esc(СТАТУСЫ[k].имя)}</option>`).join("")}
        </select>`));
   }
-  if(it.kind==="task"){
+  if(kindIsTask(it.kind)){
     // срок — свой календарь (см. dueControlHtml в overlays.js): нативный пикер открывал
     // системное окно WebView2, чужое всему остальному интерфейсу
     стр.push(строка("Срок", ["ti-calendar"], dueControlHtml(it.due, {data:"due"})));
@@ -433,6 +448,15 @@ function asideCard(it){
       <button class="as-chip as-add" data-addtag="1" title="Добавить тег"><i class="ti ti-plus"></i></button>
       <button class="as-chip as-add" data-tagmgr="1" title="Теги со стилем: цвет, иконка, размер"><i class="ti ti-settings"></i></button></span>`));
 
+  /* ПОДГРАФ — КНОПКА ВХОДА ПРЯМО В ПАНЕЛИ, а не только двойной клик по ноде. Двойной клик
+     знает не всякий, а выбранной нода бывает и тогда, когда на холсте её не видно вовсе:
+     нашли поиском, пришли по связи из соседней. Счётчик рядом отвечает на единственный вопрос,
+     который задают ПЕРЕД входом: есть там что-нибудь или пусто. */
+  const внутри = it.kind==="sub" ? ((subGraphOf(it.id)||{items:[]}).items||[]).length : 0;
+  const вход = it.kind==="sub"
+    ? `<button class="btn primary as-open" data-opensub="1"><i class="ti ${kindIcon("sub")}"></i>Открыть подграф${внутри?" · нод: "+внутри:""}</button>`
+    : "";
+
   const тело = it.kind==="flow"
     ? (asideBoardFits()
         ? `<div class="as-board"><div class="as-board-bar">
@@ -460,7 +484,7 @@ function asideCard(it){
   const ветка = [];
   if(родитель) ветка.push(asideNodeRow(родитель, 0, "родитель"));
   const свой = родитель ? 1 : 0;
-  ветка.push(`<div class="as-link as-self" style="--lvl:${свой}"><i class="ti ${it.kind==="flow"?"ti-artboard":it.kind==="note"?"ti-note":"ti-checkbox"}"></i>
+  ветка.push(`<div class="as-link as-self" style="--lvl:${свой}"><i class="ti ${it.kind==="task"?"ti-checkbox":kindIcon(it.kind)}"></i>
     <span>${esc((it.title||"").trim()||"эта нода")}</span><em class="as-role">эта</em></div>`);
   детиLive.slice(0,20).forEach(n=>ветка.push(asideNodeRow(n, свой+1, "вложена")));
 
@@ -487,6 +511,7 @@ function asideCard(it){
         <button class="as-ic" data-close="1" title="Закрыть панель"><i class="ti ti-x"></i></button>
       </div></div>
     ${стр.length?`<div class="as-rows${холст?" compact":""}">${стр.join("")}</div>`:""}
+    ${вход}
     ${тело}
     ${связанные}
     ${действия}`;
@@ -499,7 +524,10 @@ function wireAside(it){
   /* У ПОЛОТНА карандаш открывает окно ПРАВКИ, а не доску на весь экран. Раньше он звал
      openItemSmart, и для полотна это был разворот доски — а поля (область, папка, теги) из
      панели убраны и жить им больше негде. Развернуть доску есть чем: кнопка в её шапке. */
-  b("[data-edit]",  ()=> it.kind==="flow" ? openItemEditor(it) : openItemSmart(it));
+  // у ПОДГРАФА карандаш ведёт туда же, куда у полотна, и по той же причине: openItemSmart для
+  // него — это ВХОД внутрь, а править название, теги и поля надо не входя
+  b("[data-edit]",  ()=> (it.kind==="flow"||it.kind==="sub") ? openItemEditor(it) : openItemSmart(it));
+  b("[data-opensub]", ()=>{ if(subEnter(it)){ if(view!=="notes") view="notes"; render(); toast("Подграф · "+((it.title||"").trim()||"без названия"),{icon:kindIcon("sub")}); } });
   /* Тот же самый разбор, что и при вводе мысли в строку захвата, только запущенный руками:
      нода уже создана, поэтому «сырьём» отдаём её название плюс описание. Без этой кнопки
      причесать можно было только то, что вводилось через верхнюю строку. */
@@ -783,7 +811,7 @@ function sparkSVG(wk){ const w=190,h=46,max=Math.max(1,...wk),pad=5;
 function renderToday(v){
   head("Сегодня", new Intl.DateTimeFormat("ru",{weekday:"long",day:"numeric",month:"long"}).format(new Date()),
     `<button class="btn" data-new="task"><i class="ti ti-plus"></i>Задача</button>`);
-  const T=today(), ymdT=ymd(T), isT=it=>!it.deleted&&it.kind==="task";
+  const T=today(), ymdT=ymd(T), isT=it=>!it.deleted&&kindIsTask(it.kind);
   const todayAll=S.items.filter(it=>isT(it)&&it.due&&ymd(parseYmd(it.due))===ymdT);
   const doneT=todayAll.filter(it=>it.done).length, dayTotal=todayAll.length, pct=dayTotal?Math.round(doneT/dayTotal*100):0;
   const over=S.items.filter(it=>isT(it)&&!it.done&&it.due&&parseYmd(it.due)<T).sort((a,b)=>(b.priority||0)-(a.priority||0));
@@ -859,7 +887,7 @@ function renderTasks(v){
   // Раньше тут отсекался status==="inbox" — вкладка Inbox прятала свои задачи от «Задач».
   // Теперь такого статуса нет: задача есть задача, даже если её ещё не поставили на холст.
   // Корни без области подхватит секция «Без области» ниже — ничего не теряется.
-  const isTask=it=>!it.deleted&&it.kind==="task";
+  const isTask=it=>!it.deleted&&kindIsTask(it.kind);
   const doneCount=S.items.filter(it=>isTask(it)&&it.done).length;
   const filt=FILT[taskFilter]||FILT.all;
   // видимые задачи: фильтр срока + (done только при showDone) + фильтр по тегу + текстовый фильтр
@@ -937,7 +965,7 @@ function renderFolders(v){
   const ids=new Set(nodes.map(n=>n.id));
   const byId=id=>S.items.find(i=>i.id===id);
   const hasFld=it=>typeof it.folder==="string"&&!!it.folder;
-  const isDone=it=>it.kind==="task" && it.done;
+  const isDone=it=>kindIsTask(it.kind) && it.done;
   // архивация решается ТОЛЬКО на уровне корня ветки (нода без родителя): архивен, если сам done.
   // У дочерней ноды свой собственный done НЕ имеет значения — она наследует статус родителя.
   // Так подзадача (VFX/Light) с папкой не улетает в «Завершённые» сама по себе — её папка ещё
@@ -1028,7 +1056,7 @@ function renderCal(v){
   const mStart=startOfDay(first), mEnd=startOfDay(new Date(y,m+1,0));
   const ghosts={};
   S.items.forEach(it=>{
-    if(it.deleted||it.kind!=="task"||it.done||!it.due||!it.repeat||it.repeat==="none") return;
+    if(it.deleted||!kindIsTask(it.kind)||it.done||!it.due||!it.repeat||it.repeat==="none") return;
     let d=nextRepeat(it.due,it.repeat), i=0;
     while(d && i++<370 && parseYmd(d)<=mEnd){ if(parseYmd(d)>=mStart) (ghosts[d]||(ghosts[d]=[])).push(it); d=nextRepeat(d,it.repeat); }
   });
@@ -1037,7 +1065,7 @@ function renderCal(v){
   const todayStr=ymd(today());
   for(let d=1;d<=days;d++){
     const ds=ymd(new Date(y,m,d));
-    const ev=S.items.filter(it=>!it.deleted&&it.due===ds && it.kind==="task");
+    const ev=S.items.filter(it=>!it.deleted&&it.due===ds && kindIsTask(it.kind));
     /* Показываем ПЕРВЫЕ ЧЕТЫРЕ, остальное сворачиваем в «ещё N». Ячейка растёт по содержимому, а
        строка сетки тянет за собой всю неделю: один загруженный день раздувал шесть соседних
        пустых квадратов до его высоты, и месяц переставал помещаться на экран. */

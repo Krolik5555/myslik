@@ -80,6 +80,40 @@ const _phase=s=>{ let h=2166136261>>>0;
   return (h>>>0)/4294967296; };
 /* фон паутины «Точечное поле» (canvas): точки рисует Graph._drawBg() каждый кадр,
    привязано к настоящему пану/зуму (this.tx/ty/zoom), бесшовно по мировому индексу тайла. */
+/* ХЛЕБНЫЕ КРОШКИ ПОДГРАФА: «‹ Мой граф › Проект › Этап». Рисуются только внутри подграфа —
+   на обычном графе крошка из одного корня ничего не сообщала бы, а место в тулбаре заняла.
+   Путь считает graphChain (core.js): он же знает, какая нода в какой граф ведёт. */
+function subCrumbsHtml(){
+  const цепь=(typeof graphChain==="function")?graphChain():[];
+  if(цепь.length<2) return "";
+  const шаги=цепь.map((ш,i)=>{
+    const последний=(i===цепь.length-1);
+    const имя=(ш.item ? (ш.item.title||"").trim() : (ш.graph.name||"").trim()) || (ш.item?"без названия":"граф");
+    const зн=ш.item ? kindIcon("sub") : (ш.graph.icon||GRAPH_ICON_DEF);
+    return `<button class="g-crumb${последний?" on":""}" ${последний?"disabled":`data-crumb="${esc(ш.graph.id)}"`} title="${esc(имя)}">`+
+      `<i class="ti ${esc(зн)}"></i><span>${esc(имя)}</span></button>`;
+  }).join(`<i class="ti ti-chevron-right g-crumb-sep"></i>`);
+  return `<div class="g-crumbs" id="g-crumbs">`+
+    `<button class="btn ghost g-crumb-up" id="g-crumb-up" title="На уровень вверх"><i class="ti ti-corner-left-up"></i></button>`+
+    шаги+`</div>`;
+}
+function subCrumbsWire(){
+  const up=$("#g-crumb-up");
+  if(up) up.onclick=()=>{ if(subLeave()) render(); };
+  /* Клик по крошке — прыжок СРАЗУ на её уровень, а не по одному вверх: из подграфа третьего
+     уровня выбираются в корень одним движением. Переход тем же graphSwitch, что и всё
+     остальное, — у каждого уровня своя история отката и своя камера. */
+  $$("[data-crumb]").forEach(b=>b.onclick=()=>{
+    const id=b.dataset.crumb;
+    /* Возвращаясь наружу, показываем в панели ноду, ЧЕРЕЗ КОТОРУЮ уходили вглубь: иначе
+       выныриваешь в большой граф без единой подсказки, где ты только что был. */
+    const цепь=graphChain(); const i=цепь.findIndex(ш=>ш.graph.id===id);
+    const метка=(i>=0 && цепь[i+1]) ? (цепь[i+1].item||{}).id : null;
+    if(!graphSwitch(id)) return;
+    if(метка) asideId=метка;
+    render();
+  });
+}
 function renderNotes(v){
   recomputeHierarchy();   // иерархия всегда выводится от области (чинит и старые данные)
   head("Заметки", notesMode==="graph"?"Граф связей · тяни узлы · двойной клик = закрепить":"Все заметки карточками",
@@ -97,6 +131,12 @@ function renderNotes(v){
     <canvas class="graph-main-canvas"></canvas>
     <svg id="graph" preserveAspectRatio="xMidYMid meet"></svg>
     <div class="graph-toolbar">
+      ${/* ХЛЕБНЫЕ КРОШКИ ПОДГРАФА. Внутри подграфа холст выглядит как обычный граф, и без
+           указателя «где я» человек оказывается в пустой паутине, не понимая, куда делись его
+           ноды. Крошки стоят В ТУЛБАРЕ, а не отдельной полосой: своя полоса отъела бы высоту
+           у холста на КАЖДОМ графе ради состояния, которое бывает не всегда. Наружу — клик по
+           любой крошке слева от текущей (стрелка = на уровень вверх). */""}
+      ${subCrumbsHtml()}
       <button class="btn ghost" id="g-search" title="Найти ноду (название или #тег)"><i class="ti ti-search"></i></button>
       <button class="btn ghost" id="g-focus" title="Показать все ноды"><i class="ti ti-focus-2"></i></button>
       <!-- «Держать раскладку»: у каждой ноды появляется дом, к которому её мягко тянет.
@@ -128,13 +168,16 @@ function renderNotes(v){
       <i class="ti ti-search"></i><input type="text" placeholder="Найти по названию или #тегу…" spellcheck="false"><span class="gs-count"></span><button class="gs-close" title="Закрыть (Esc)"><i class="ti ti-x"></i></button>
     </div>
     <div class="graph-legend">
-      <span><span class="lg-dot hub"></span>область</span>
+      ${/* Внутри подграфа областей нет, а залитый кружок на холсте есть — это КОРЕНЬ. Легенда,
+           обещающая «область», отправляла бы искать то, чего в этом графе не бывает. */""}
+      <span><span class="lg-dot hub"></span>${inSubGraph()?"корень":"область"}</span>
       <span><span class="lg-dot note"></span>заметка</span>
       <span><span class="lg-dot task"></span>задача</span>
       <span><span class="lg-dot flow"></span>полотно</span>
+      <span><span class="lg-dot sub"></span>подграф</span>
     </div>
     <!-- подсказку можно закрыть: висеть постоянно ей незачем, а вернуть — из меню «…» -->
-    <div class="graph-hint${S.settings.graphHint===false?" off":""}" id="g-hint"><span>Alt+тащи от ноды — связь/заметка · Ctrl+тащи — копия выделенного · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · колесо — зум · Delete — удалить</span><button id="g-hint-x" title="Скрыть подсказку"><i class="ti ti-x"></i></button></div>
+    <div class="graph-hint${S.settings.graphHint===false?" off":""}" id="g-hint"><span>Alt+тащи от ноды — связь/заметка · Ctrl+тащи — копия выделенного · ПКМ — меню / создать · ЛКМ-рамка — выделить · двойной клик — открыть (подграф — войти внутрь) · средняя кнопка — двигать · колесо — зум · Delete — удалить</span><button id="g-hint-x" title="Скрыть подсказку"><i class="ti ti-x"></i></button></div>
     <!-- только счётчик: кнопка «Отчёт» уехала в правую панель, где отчёт и собирается -->
     <div class="graph-selbar" id="g-selbar" style="display:none">
       <span class="gsb-n"></span>
@@ -150,6 +193,7 @@ function renderNotes(v){
   if(graph){ const g=graph; graph=null; g.destroy(); }
   graph=new Graph($("#graph"));
   graph.build();
+  subCrumbsWire();
   $("#g-search").onclick=()=>{ const box=$("#g-search-box"); if(box && box.style.display!=="none") graph.closeSearch(); else graph.openSearch(); };
   $("#g-focus").onclick=()=>graph._fitView();
   if($("#g-home")) $("#g-home").onclick=()=>graph.toggleHome();
@@ -206,11 +250,12 @@ function caretHTML(it, hasKids){
   return `<button class="nc-caret" data-collapse="${it.id}" title="${col?'Развернуть':'Свернуть'}"><i class="ti ${col?'ti-chevron-right':'ti-chevron-down'}"></i></button>`;
 }
 function noteCard(it, depth=0, hasKids, compact){
-  if(it.kind==="task") return treeTaskCard(it, depth, hasKids);
+  // подграф идёт карточкой ЗАДАЧИ: у него есть своё «готово», срок и приоритет (см. kindIsTask)
+  if(kindIsTask(it.kind)) return treeTaskCard(it, depth, hasKids);
   const c=itemColor(it);
   const isChild = depth > 0;
   const border = isChild?'':'border-left-color:'+(c||'var(--acc)')+';';
-  const kicn = it.kind==="flow"?"ti-artboard":"ti-note";
+  const kicn = kindIcon(it.kind);
   const showIcn = compact || it.kind==="flow";   // схему всегда помечаем иконкой, чтобы отличать от заметок
   const head=`<div class="nc-head">${caretHTML(it, hasKids)}${showIcn?`<i class="ti ${kicn} nc-icn"></i>`:''}<div class="nc-ttl">${esc(it.title)}</div></div>`;
   // compact: заметка как контекст-заголовок в дереве задач (без тела/футера)
@@ -247,7 +292,9 @@ function treeTaskCard(it, depth=0, hasKids){
       <div class="nc-ttl">${esc(it.title)}</div>
     </div>
     <div class="nc-foot">
-      <span class="tag"><i class="ti ti-checklist"></i>задача</span>
+      ${/* Подпись вида берём из реестра KINDS: сюда noteCard перебрасывает и задачу, и подграф
+           (у обоих своё «готово»), и жёсткое «задача» соврало бы про второй. */""}
+      <span class="tag"><i class="ti ${kindIcon(it.kind)}"></i>${esc(kindRu(it.kind))}</span>
       ${/* СТАТУС В СПИСКАХ. Раньше карточка показывала только выполненность, и во вкладках
            «Задачи» и «Заметки» семь задач «в работе» и шесть «на паузе» были неотличимы от
            двадцати одной «не начато» — статус жил исключительно на графе. Одна эта карточка
@@ -267,9 +314,9 @@ function byUrgency(a,b){ return (b.priority||0)-(a.priority||0) || ((a.due?parse
 // компактная строка для вкладки «Папки»: каретка + иконка типа + заголовок. Полоска слева = цвет ноды (itemColor);
 // задача-с-папкой со срочностью показывает флажок справа (как в списке заметок).
 function folderRowCard(it, hasKids){
-  const ki=it.kind==="flow"?"ti-artboard":it.kind==="task"?"ti-checklist":"ti-note";
+  const ki=kindIcon(it.kind);
   const col=itemColor(it);
-  const flag=(it.kind==="task" && it.priority && it.folder)?`<span class="pri" style="color:${it.priority>=3?"var(--pri3)":it.priority===2?"var(--pri2)":"var(--pri1)"}"><i class="ti ti-flag-3"></i></span>`:"";
+  const flag=(kindIsTask(it.kind) && it.priority && it.folder)?`<span class="pri" style="color:${it.priority>=3?"var(--pri3)":it.priority===2?"var(--pri2)":"var(--pri1)"}"><i class="ti ti-flag-3"></i></span>`:"";
   return `<div class="note-card ctx ${it.done?'done':''}" data-nid="${it.id}" ${col?`style="border-left-color:${col}"`:""}><div class="nc-head">${caretHTML(it,hasKids)}<i class="ti ${ki} nc-icn"></i><div class="nc-ttl">${esc(it.title)}</div>${flag}</div></div>`;
 }
 function renderNotesList(v){
@@ -277,7 +324,7 @@ function renderNotesList(v){
   if(!nodes.length){ v.innerHTML=emptyBox("ti-note","Пусто. Создай заметку (кнопка сверху или <b>N</b>) или задачу."); wireNotesToggle(); return; }
   const ids=new Set(nodes.map(n=>n.id));
   const byId=id=>S.items.find(i=>i.id===id);
-  const isDone=it=>it.kind==="task" && it.done;
+  const isDone=it=>kindIsTask(it.kind) && it.done;
   // архивна ли нода: она сама done-задача, ИЛИ архивен её ближайший родитель (рекурсивно вниз по дереву).
   // выполненные задачи и их поддерево «улетают» в «Завершённые», как во вкладке «Папки»;
   // активный узел НЕ утягивается в архив статусом своего потомка (только предка).
@@ -497,9 +544,10 @@ class Graph{
     const pop=el("div","g-ctx"); pop.id="node-pop";
     pop.innerHTML=`<div class="np-ttl"><i class="ti ti-plus"></i> Связать с новой</div>
       <div class="np-col">
-        <button class="btn" data-k="note"><i class="ti ti-note"></i>Заметка</button>
-        <button class="btn" data-k="task"><i class="ti ti-checklist"></i>Задача</button>
-        <button class="btn" data-k="flow"><i class="ti ti-artboard"></i>Полотно</button>
+        <button class="btn" data-k="note"><i class="ti ${kindIcon("note")}"></i>Заметка</button>
+        <button class="btn" data-k="task"><i class="ti ${kindIcon("task")}"></i>Задача</button>
+        <button class="btn" data-k="flow"><i class="ti ${kindIcon("flow")}"></i>Полотно</button>
+        <button class="btn" data-k="sub"><i class="ti ${kindIcon("sub")}"></i>Подграф</button>
       </div>`;
     wrap.appendChild(pop);
     const pw=pop.offsetWidth||180, ph=pop.offsetHeight||150;
@@ -521,7 +569,12 @@ class Graph{
   }
 
   _syncAside(){
-    const ids=[...this.selNodes].filter(id=>id.indexOf("hub_")!==0);
+    /* ЭКЗЕМПЛЯР МОГ УМЕРЕТЬ, ПОКА ЖДАЛ ТАЙМЕР. Панель догоняет выделение с задержкой 140 мс
+       (см. _syncAsideLater), а за это время граф успевает пересобраться: вход в подграф и
+       переключение графа зовут render() прямо из обработчика жеста. У мёртвого экземпляра
+       selNodes указывает на ноды ДРУГОГО графа — панель показала бы пустоту вместо карточки. */
+    if(typeof graph!=="undefined" && graph!==this) return;
+    const ids=[...this.selNodes].filter(id=>!isHubId(id));
     /* ВЫДЕЛЕНИЕ НЕ ИЗМЕНИЛОСЬ — ПАНЕЛЬ НЕ ТРОГАЕМ. Одну и ту же ноду человек хватает подряд
        десятки раз («тащу, отпускаю, снова хватаю»), и собирать ей ту же карточку заново на
        каждый жест незачем: на ноде с полями, картинками и доской это самая дорогая работа во
@@ -702,6 +755,9 @@ class Graph{
         // доска полотна живёт в S.boards, а не в самой ноде — копируем её отдельно,
         // иначе дубликат приезжал бы с пустым холстом
         board:it.kind==="flow"&&S.boards&&S.boards[it.id]?JSON.parse(JSON.stringify(S.boards[it.id])):null,
+        // внутренний граф подграфа лежит в S.graphs по ключу от id ноды — у копии ключ будет
+        // свой, поэтому содержимое переносим отдельно (новые id нодам выдаст subUnpack)
+        sub:subPack(it.id),
         // поля ноды вместе с их содержимым: новые ключи выдаст fieldsUnpack при вставке
         pack:fieldsPack(it),
         // дом переносим смещением, как он и хранится; куда его приложить — решает pasteClip
@@ -728,6 +784,7 @@ class Graph{
       else if(it.status==="done"){ it.status="todo"; it.doneAt=null; }
       if(d.kind==="flow"&&d.flow){ it.flow=JSON.parse(JSON.stringify(d.flow)); ensureFlow(it); }
       if(d.kind==="flow"&&d.board){ boardSet(it.id, JSON.parse(JSON.stringify(d.board))); }
+      if(d.sub){ subUnpack(it.id, d.sub); }
       if(d.pack){ const поля=fieldsUnpack(d.pack); if(поля) it.fields=поля; }
       it.x=(d.x||0)+off; it.y=(d.y||0)+off;
       map[d._old]=it.id; newIds.push(it.id); пары.push({d,it});
@@ -796,9 +853,10 @@ class Graph{
        здесь — стоило один раз щёлкнуть по области в полосе, и каждая новая мысль молча
        приписывалась к ней, а дети наследовали это дальше по ветке. */
     const data={kind, title:"", area:(fromId ? null : (areaFilter||null))};
-    if(kind==="task") data.status="todo";
-    // шаблон по умолчанию: нода рождается сразу с нужными полями (название человек впишет сам)
-    if(kind!=="flow"){ const з=templateSeed(templateDefault(), kind); if(з && з.fields.length) data.fields=з.fields; }
+    if(kindIsTask(kind)) data.status="todo";
+    // шаблон по умолчанию: нода рождается сразу с нужными полями (название человек впишет сам).
+    // Шаблоны бывают только задачные и заметочные — полотну и подграфу подставлять нечего.
+    if(kind==="note"||kind==="task"){ const з=templateSeed(templateDefault(), kind); if(з && з.fields.length) data.fields=з.fields; }
     const it=addItem(data);
     it.x=Math.round(wx); it.y=Math.round(wy); persist();
     if(fromId) addLink(fromId, it.id);
@@ -818,10 +876,13 @@ class Graph{
     pop.innerHTML=`
       <div class="np-ttl"><i class="ti ti-plus"></i> Создать здесь</div>
       <div class="np-col">
-        <button class="btn" data-mk="note"><i class="ti ti-note"></i>Заметка</button>
-        <button class="btn" data-mk="task"><i class="ti ti-checklist"></i>Задача</button>
-        <button class="btn" data-mk="flow"><i class="ti ti-artboard"></i>Полотно</button>
-        <button class="btn" data-mk="area"><i class="ti ti-circle-dot"></i>Область</button>
+        <button class="btn" data-mk="note"><i class="ti ${kindIcon("note")}"></i>Заметка</button>
+        <button class="btn" data-mk="task"><i class="ti ${kindIcon("task")}"></i>Задача</button>
+        <button class="btn" data-mk="flow"><i class="ti ${kindIcon("flow")}"></i>Полотно</button>
+        <button class="btn" data-mk="sub"><i class="ti ${kindIcon("sub")}"></i>Подграф</button>
+        ${/* Внутри подграфа областей нет (см. SUB_PREFIX в core.js) — и кнопки тоже: пункт
+             меню, который отказывает после нажатия, хуже отсутствующего. */""}
+        ${inSubGraph()?"":`<button class="btn" data-mk="area"><i class="ti ti-circle-dot"></i>Область</button>`}
       </div>`;
     wrap.appendChild(pop);
     const pw=pop.offsetWidth||180, ph=pop.offsetHeight||170;
@@ -838,7 +899,10 @@ class Graph{
   _inlineRename(id){
     const n=this.byId[id]; if(!n) return; const wrap=$("#graph-wrap"); if(!wrap) return;
     const old=wrap.querySelector(".g-inline"); if(old) old.remove();
-    const inp=document.createElement("input"); inp.className="g-inline"; inp.value=n.ref?n.ref.title:""; inp.placeholder="Название…";
+    /* Корень подграфа переименовывается ТОЙ ЖЕ строкой на холсте, но пишет в ноду-владельца
+       (она в соседнем графе — своего названия у корня нет, он берёт живое, см. build). */
+    const цель = n.ref || n.subOwner || null; if(!цель) return;
+    const inp=document.createElement("input"); inp.className="g-inline"; inp.value=цель.title||""; inp.placeholder="Название…";
     wrap.appendChild(inp);
     const m=this.root.getScreenCTM(); if(m){ const pt=this.svg.createSVGPoint(); pt.x=n.x; pt.y=n.y; const sp=pt.matrixTransform(m); const rc=wrap.getBoundingClientRect(); inp.style.left=(sp.x-rc.left)+"px"; inp.style.top=(sp.y-rc.top)+"px"; }
     const commit=(save)=>{ if(inp._done) return; inp._done=true; const v=inp.value.trim();
@@ -847,7 +911,13 @@ class Graph{
            По настройке разбираем и её — сырьё то же самое, введённое название. Пустое имя
            не отдаём: разбирать «Новая заметка» бессмысленно, модель придумает чушь. */
         if(v && S.settings.aiGraphSuggest===true && typeof aiRefineCapture==="function") aiRefineCapture(n.ref, v);
-      } }
+      }
+      /* Переименование КОРНЯ пишет в ноду-владельца, лежащую в соседнем графе, и потому идёт
+         своей веткой: ИИ-разбор ей не нужен (это не новая мысль, а имя раздела), а пустое имя
+         не превращаем в «Новую заметку» — у подграфа остаётся имя его графа (см. build). */
+      else if(n.subOwner){ n.subOwner.title=v; touch(n.subOwner); if(n.subRoot) n.subRoot.name=v||n.subRoot.name; persist();
+        // крошки рисует renderNotes, а build их не трогает — правим последнюю на месте
+        const кр=$("#g-crumbs .g-crumb.on span"); if(кр) кр.textContent=v||"без названия"; } }
       else if(n.ref && !(n.ref.title||"").trim()){ hardDeleteItem(n.ref.id); recomputeHierarchy(); }   // Escape по только что созданной пустой → убрать ноду-сироту (и связь)
       inp.remove(); this.build(); };
     inp.onkeydown=(ev)=>{ ev.stopPropagation(); if(ev.key==="Enter"){ ev.preventDefault(); commit(true); } else if(ev.key==="Escape"){ ev.preventDefault(); commit(false); } };
@@ -875,6 +945,12 @@ class Graph{
     /* ХАБЫ — ОТДЕЛЬНО, тем же путём, что кнопка «Удалить область» в поп-апе (с тем же
        подтверждением: снос области — не то действие, которое можно отменить тостом «Вернуть»,
        как обычная нода, поэтому спрашиваем явно, а не удаляем молча по одной клавише). */
+    /* КОРЕНЬ ПОДГРАФА НЕ УДАЛЯЕТСЯ — и не «запрещён кнопкой», а физически: его нет в S.items,
+       удалять нечего. Молча пропустить его тоже нельзя: выделил рамкой всё, нажал Delete —
+       и надо понимать, почему один узел остался. */
+    const корни=выбор.filter(id=>isRootId(id) && this.byId[id]);
+    if(корни.length){ корни.forEach(id=>this.selNodes.delete(id)); this._paintSel();
+      if(выбор.length===корни.length){ toast("Корень подграфа удалить нельзя — он и есть сам подграф",{icon:"ti-lock"}); return; } }
     const хабы=выбор.filter(id=>id.indexOf("hub_")===0 && this.byId[id]);
     for(const hid of хабы){
       const a=areaById(hid.slice(4)); if(!a) continue;
@@ -882,6 +958,21 @@ class Graph{
       await this._deleteArea(a);
     }
     if(!ids.length) return;
+    /* ПОДГРАФ С СОДЕРЖИМЫМ СПРАШИВАЕТ ЯВНО. Обычную ноду видно целиком, и клавиша Delete с
+       тостом «Вернуть» — честный размен. У подграфа за одной шестиугольной точкой стоит целый
+       граф, которого на экране в этот момент НЕ ВИДНО: без вопроса человек сносит десятки нод
+       одним нажатием, не подозревая об этом. Вернуть по-прежнему можно — и тостом, и Ctrl+Z
+       (внутренний граф уезжает в карман удалённых, см. trashKeep). */
+    { const тяжёлые=ids.map(id=>this.byId[id].ref)
+        .filter(it=>it && it.kind==="sub" && ((subGraphOf(it.id)||{items:[]}).items||[]).length);
+      if(тяжёлые.length){
+        const нод=тяжёлые.reduce((s,it)=>s+((subGraphOf(it.id)||{items:[]}).items||[]).length,0);
+        const ок=await uiConfirm(тяжёлые.length===1
+          ? `Внутри подграфа «${(тяжёлые[0].title||"без названия").trim()}» — нод: ${нод}. Они удалятся вместе с ним.`
+          : `В выделении подграфов: ${тяжёлые.length}, внутри них нод: ${нод}. Они удалятся вместе с ними.`,
+          {danger:true, title:"Удалить вместе с содержимым?", okLabel:"Удалить"});
+        if(!ок) return;
+      } }
     // снимаем ноды ВМЕСТЕ СО СВЯЗЯМИ: иначе «Вернуть» отдало бы их висящими в пустоте
     const пакет=deletePack(ids); this.selNodes.clear(); recomputeHierarchy(); this.build();
     toast(ids.length>1?ids.length+" удалено":"Удалено",{icon:"ti-trash",label:"Вернуть",
@@ -955,6 +1046,21 @@ class Graph{
       this.nodes.push({id:"hub_"+a.id, hubArea:a, label:a.name, type:"hub", r:11, fixed:!!a.pin, color:areaColor(a.id),
         x, y, vx:0, vy:0, _fresh:(a.x==null && !p)});
     });
+    /* КОРЕНЬ ПОДГРАФА — один служебный узел, которого нет в S.items (см. ROOT_PREFIX в core.js).
+       Удалить его нечем физически: удалять просто нечего. Имя берёт ЖИВОЕ, у самой ноды-владельца
+       (как пустышка берёт имя области) — переименовал подграф снаружи, и корень тут же подхватил.
+       Крупнее хаба области (13 против 11): он один на весь холст и отвечает на вопрос «где я». */
+    const _влГраф=graphCurrent(), _вл=graphOwnerOf(_влГраф);
+    if(_вл){
+      const rid=subRootId(_вл.item.id);
+      const p=prev[rid];
+      const x = p ? p.x : (_влГраф.x!=null ? _влГраф.x : cx);
+      const y = p ? p.y : (_влГраф.y!=null ? _влГраф.y : cy);
+      this.nodes.push({id:rid, subRoot:_влГраф, subOwner:_вл.item,
+        label:(_вл.item.title||"").trim()||_влГраф.name||"Подграф",
+        type:"hub", r:13, fixed:!!_влГраф.pin, color:_вл.item.color||_влГраф.color||null,
+        x, y, vx:0, vy:0, _fresh:(_влГраф.x==null && !p)});
+    }
     // На холсте — только РАЗМЕЩЁННЫЕ ноды. Нет координат (x==null) = мысль ещё не разобрана:
     // она лежит в лотке и ждёт, пока её вытянут на холст (см. _renderTray). Это не новое поле —
     // элемент и так рождается без координат (model.js), раньше граф просто выдумывал их за человека,
@@ -971,7 +1077,7 @@ class Graph{
       if(_fMemo.has(it.id)) return _fMemo.get(it.id);
       _fMemo.set(it.id,false);   // защита от циклов в иерархии
       let res;
-      if(it.kind==="task") res=!!it.done;
+      if(kindIsTask(it.kind)) res=!!it.done;
       else { const pid=(it.parent&&_onIds.has(it.parent))?it.parent:null; res=pid?_isFaded(_byIdIt(pid)):false; }
       _fMemo.set(it.id,res); return res;
     };
@@ -1003,7 +1109,7 @@ class Graph{
       const review  = рабочий && it.status==="review";    // сдано, ждёт приёмки — может вернуться с правками
       /* Число дней до срока считаем ЗДЕСЬ, а не в кадре: parseYmd+daysBetween на 245 нод — копейки
          раз в пересборку, но те же вызовы 60 раз в секунду уже статья расхода кадра. */
-      const дней = (it.kind==="task" && !it.done && it.due) ? daysBetween(parseYmd(it.due), today()) : null;
+      const дней = (kindIsTask(it.kind) && !it.done && it.due) ? daysBetween(parseYmd(it.due), today()) : null;
       /* ПОДПИСЬ ПУСТЫШКИ — ВСЕГДА ЖИВОЕ ИМЯ ОБЛАСТИ, а не застывший title. Пустышка это та же
          область, просто другая точка входа — переименуй область, и все её пустышки обязаны
          подхватить новое имя сразу, а не остаться со старым и не выглядеть осиротевшими. */
@@ -1085,6 +1191,12 @@ class Graph{
       якорь[it.id]=цель;
     });
     this._якорь=якорь;
+    /* КОГО ДЕРЖИТ КОРЕНЬ ПОДГРАФА — множество считаем ЗДЕСЬ, один раз на сборку, а не в кадре:
+       правило то же, что в subRootHolds (связан руками), но там оно стоит перебором связей, а
+       в _tick этот вопрос задают каждой ноде каждый кадр. Связи меняются только через build. */
+    { const rid=_вл?subRootId(_вл.item.id):null;
+      this._уКорня = rid ? new Set((S.links||[]).filter(l=>Array.isArray(l)&&(l[0]===rid||l[1]===rid))
+                                                .map(l=>l[0]===rid?l[1]:l[0])) : null; }
     /* Сохраняем то, чем пользуется живая переоценка якорей (_reevaluateAnchors) между сборками:
        список пустышек по областям, ручные пары (чтобы не спорить с явной связью человека) и
        флаг «есть ли вообще пустышки» — без него _tick тратил бы время на проверку каждый кадр
@@ -1160,7 +1272,8 @@ class Graph{
       const dsc=(S.settings.graphDegScale!=null?S.settings.graphDegScale:1);    // насколько размер зависит от числа связей
       const tsz=(n.tagStyle&&n.tagStyle.size)?n.tagStyle.size:1;                 // множитель размера из тега
       const psz=(n.ref&&+n.ref.size?+n.ref.size:1)*tsz;                          // индивидуальный (it.size) × тег
-      if(n.type==="hub"){ n.r=(11+Math.min(deg*0.7*dsc,11))*nsz; }
+      // корень подграфа стартует крупнее хаба области: он один на весь холст и отвечает «где я»
+      if(n.type==="hub"){ n.r=((n.subRoot?14:11)+Math.min(deg*0.7*dsc,11))*nsz; }
       else { n.r=(6+Math.min(Math.sqrt(deg)*3*dsc,9))*nsz*psz; }
       if(n.type==="task"||n.type==="flow") n.r*=0.86;   // квадрат/ромб визуально крупнее круга той же r → ужимаем, чтобы размер отражал именно связи
       /* Приоритет виден и в паутине, а не только в списках: невыполненная важная задача
@@ -1181,7 +1294,7 @@ class Graph{
     /* ЧТО ГОРИТ. Срочность вычисляется (urgency в core.js), а не берётся из поля: приоритет
        проставлен у 9 живых задач из 34, срок — у 2. Отбор здесь, в пересборке, а не в кадре.
        Потухшие исключаем до отбора: завершённая ветка гореть не может по определению. */
-    const живые=S.items.filter(it=>{ const у=this.byId[it.id]; return it.kind==="task" && !it.deleted && !it.done && !(у&&у.archived); });
+    const живые=S.items.filter(it=>{ const у=this.byId[it.id]; return kindIsTask(it.kind) && !it.deleted && !it.done && !(у&&у.archived); });
     const горящие=(typeof отобратьГорящие==="function") ? отобратьГорящие(живые, СРОЧНОСТЬ_ПРЕДЕЛ) : [];
     this._горящие=[];
     горящие.forEach((it,i)=>{
@@ -1287,12 +1400,19 @@ class Graph{
       }
       g.appendChild(shape);
       let check=null;
-      if(n.type==="task" && n.done){ check=document.createElementNS(NS,"path"); check.setAttribute("class","g-check"); g.appendChild(check); }
+      if(kindIsTask(n.type) && n.done){ check=document.createElementNS(NS,"path"); check.setAttribute("class","g-check"); g.appendChild(check); }
       const pin=document.createElementNS(NS,"circle"); pin.setAttribute("class","g-pin"); pin.setAttribute("r",n.r+8); pin.style.display=n.fixed?"":"none";
       g.appendChild(pin);
       // иконка тега прямо в ноде (глиф шрифта Tabler)
+      /* У ПОДГРАФА БЕЗ ТЕГА внутри стоит ЕГО значок: одной формы мало, чтобы понять, что за
+         этой нодой прячется целый граф, — а именно это и надо знать, глядя на паутину.
+         Тег важнее (постоянная классификация), завершённому подграфу глиф не ставим —
+         там уже стоит галочка. */
       let ticon=null, ticonG=null;
-      if(n.tagStyle&&n.tagStyle.icon){ const gl=iconGlyph(n.tagStyle.icon);
+      const глифНоды=(n.tagStyle&&n.tagStyle.icon) ? n.tagStyle.icon
+                    : n.subRoot ? kindIcon("sub")                       // корень подграфа помечен тем же значком, что и сама нода снаружи
+                    : (n.type==="sub" && !n.done) ? kindIcon("sub") : null;
+      if(глифНоды){ const gl=iconGlyph(глифНоды);
         /* Глиф кладём в СВОЮ группу и двигаем её трансформацией, а сам текст стоит в нуле.
            Если менять x/y самого текста, браузер растеризует глиф заново на каждой позиции —
            отсюда дрожь при дрейфе и рывки при перетаскивании. Трансформация группы этого не
@@ -1565,6 +1685,7 @@ class Graph{
           группа.forEach(q=>{
             if(q.ref){ q.ref.x=q.x; q.ref.y=q.y; }
             else if(q.hubArea){ q.hubArea.x=q.x; q.hubArea.y=q.y; }                      // позиция области
+            else if(q.subRoot){ q.subRoot.x=q.x; q.subRoot.y=q.y; }                      // позиция корня подграфа (лежит во внутреннем графе)
           });
           /* ЖЕСТ ЗАДАЁТ ДОМ — и это единственное место, где дом переписывается после протяжки.
              Физика дом не пишет никогда, поэтому соседи, которых сейчас растолкало, вернутся
@@ -2057,7 +2178,7 @@ class Graph{
     const сосед={};
     this.nodes.forEach(n=>{ сосед[n.id]=[]; });
     this.links.forEach(l=>{
-      if(String(l.a).indexOf("hub_")===0 || String(l.b).indexOf("hub_")===0) return;
+      if(isHubId(l.a) || isHubId(l.b)) return;
       if(сосед[l.a]) сосед[l.a].push(l.b);
       if(сосед[l.b]) сосед[l.b].push(l.a);
     });
@@ -2286,7 +2407,7 @@ class Graph{
          единственными «hub_»-связями были как раз массовые рядовые лучи. Теперь толстая
          магистраль — самая заметная линия на графе, и обходить узлы на своём пути ей нужнее,
          чем кому-либо ещё (КРОЛИК прислал скриншот: магистраль идёт прямо сквозь чужие ветки). */
-      if(кадром && !l.hubLink && (String(l.a).indexOf("hub_")===0 || String(l.b).indexOf("hub_")===0)){ l._bendT=null; continue; }
+      if(кадром && !l.hubLink && (isHubId(l.a) || isHubId(l.b))){ l._bendT=null; continue; }
       /* Очень длинная связь дуг тоже не получает: её рамка накрывает пол-графа, то есть сотни
          кандидатов на каждую проверку, а обход помехи на таком пролёте глазом не читается. */
       if(кадром && L2>1440000){ l._bendT=null; continue; }
@@ -2374,7 +2495,7 @@ class Graph{
     this._closePop();
     const it=n.ref; if(!it) return;
     this.sel=n.id;
-    const km = it.kind==="flow"?{i:"ti-artboard",n:"полотно"} : it.kind==="note"?{i:"ti-note",n:"заметка"} : {i:"ti-checklist",n:"задача"};
+    const km = {i:kindIcon(it.kind), n:kindRu(it.kind)};
     const conn=linksOf(it.id);
     // в превью идёт и описание, и именованные поля: заглянуть внутрь — значит увидеть всё,
     // что в ноде написано, а не только общий блок
@@ -2389,8 +2510,10 @@ class Graph{
         ${it.area?`<span><i class="ti ${areaIcon(it.area)}"></i>${esc(areaName(it.area))}</span>`:""}
         ${conn.length?`<span><i class="ti ti-link"></i>${conn.length}</span>`:""}
       </div>
-      <div class="pv-body">${it.kind==="flow" ? "<i>схема на полотне</i>" : (body?esc(body):"<i>пусто</i>")}</div>
-      <div class="np-row"><button class="btn" data-pv="open"><i class="ti ${it.kind==="flow"?"ti-artboard":"ti-eye"}"></i>Открыть</button></div>`;
+      <div class="pv-body">${it.kind==="flow" ? "<i>схема на полотне</i>"
+        : (it.kind==="sub" && !body) ? `<i>внутри нод: ${((subGraphOf(it.id)||{items:[]}).items||[]).length}</i>`
+        : (body?esc(body):"<i>пусто</i>")}</div>
+      <div class="np-row"><button class="btn" data-pv="open"><i class="ti ${it.kind==="flow"||it.kind==="sub"?kindIcon(it.kind):"ti-eye"}"></i>Открыть</button></div>`;
     $("#graph-wrap").appendChild(pv);
     this._posPop(pv,n);
     // «Открыть» ведёт в ЧИТАЛЬНЫЙ вид, а не в редактор: из превью человек хочет прочитать
@@ -2399,15 +2522,29 @@ class Graph{
     // Полотно — исключение: у него нет текста, только своя схема.
     pv.querySelector('[data-pv="open"]').onclick=()=>{
       this._closePop();
-      if(it.kind==="flow") openFlowEditor(it); else openNoteReader(it);
+      // подграф «открыть» = войти внутрь: читать в нём нечего, содержимое — это его граф
+      if(it.kind==="sub") this._openNode(n);
+      else if(it.kind==="flow") openFlowEditor(it); else openNoteReader(it);
     };
   }
 
   _openNode(n){
     // двойной клик: область → фильтр задач; заметка → ридер; задача → редактор
     this._closePop();
+    /* ДВОЙНОЙ КЛИК ПО КОРНЮ — НАРУЖУ. Жест зеркалит вход: двойной клик по ноде-подграфу уводит
+       внутрь, двойной клик по узлу, который этот подграф и обозначает, — обратно. Открывать в
+       нём нечего: он не нода, а точка отсчёта. */
+    if(n.subRoot){ if(subLeave()) render(); return; }
     if(n.type==="hub"){ areaFilter=n.id.replace("hub_",""); view="tasks"; render(); return; }
     const it=n.ref; if(!it) return;
+    /* ПОДГРАФ ГЛАВНЕЕ ВСЕГО ОСТАЛЬНОГО. Двойной клик по нему — единственный жест входа внутрь,
+       ради которого этот вид ноды и заведён; отдать его папке значило бы отобрать у подграфа
+       его смысл (папку у такой ноды всё равно открывают кнопкой в панели). */
+    if(it.kind==="sub"){
+      if(subEnter(it)){ if(view!=="notes") view="notes"; render();
+        toast("Подграф · "+((it.title||"").trim()||"без названия"),{icon:kindIcon("sub")}); }
+      return;
+    }
     /* ПАПКА ГЛАВНЕЕ РИДЕРА. Если к ноде привязана папка, двойной клик открывает её на ПК: у
        КРОЛИКА за нодой стоит шот или проект, и «открыть» для него значит попасть в рендеры и
        исходники, а не прочитать описание. Содержимое ноды никуда не девается — оно открывается
@@ -2804,8 +2941,11 @@ class Graph{
   /* Форма узла: задаётся стилем тега, иначе выводится из типа. Считают её и отрисовка, и
      попадание мышью, поэтому правило живёт в одном месте — разъехавшись, они дали бы «клик
      мимо угла квадрата». */
+  /* Подграф — ШЕСТИУГОЛЬНИК: форма читается как «собранное из частей» и не путается ни с
+     квадратом задачи, ни с ромбом полотна. Ужимать его, как квадрат и ромб (см. n.r*=0.86
+     в build), не надо — вписанный шестиугольник по площади МЕНЬШЕ круга того же радиуса. */
   _shape(n){ return (n.tagStyle&&n.tagStyle.shape) ? n.tagStyle.shape
-                  : (n.type==="task"?"square" : n.type==="flow"?"diamond" : "circle"); }
+                  : (n.type==="task"?"square" : n.type==="flow"?"diamond" : n.type==="sub"?"hexagon" : "circle"); }
   _nodeAt(e){ return this._hitNode(e); }
   /* ПОПАДАНИЕ ПО КООРДИНАТАМ. На SVG за это отвечал сам браузер: у каждой ноды невидимый круг
      захвата (см. HIT_PAD), и хватало e.target.closest(".g-node"). На холсте элементов нет —
@@ -2861,7 +3001,7 @@ class Graph{
     $(".gt-tab",tray).title=open?"Свернуть":"Неразобранных: "+loose.length;
     $(".gt-tab",tray).onclick=()=>{ S.settings.trayOpen=!open; persist(); this._renderTray(); };
     if(!open){ $(".gt-list",tray).innerHTML=""; return; }   // свёрнут — список не строим вовсе
-    const ic=it=>it.kind==="flow"?"ti-artboard":it.kind==="note"?"ti-note":"ti-checklist";
+    const ic=it=>kindIcon(it.kind);
     $(".gt-list",tray).innerHTML=loose.map(it=>{ const t=(it.title||"").trim()||"(без названия)";
       return `<div class="gt-it" data-tid="${it.id}" title="${esc(t)}"><i class="ti ${ic(it)}"></i><span>${esc(t)}</span><button class="gt-del" data-del="${it.id}" title="Удалить в корзину"><i class="ti ti-x"></i></button></div>`; }).join("");
     // тащить на холст — но не когда жмут на крестик удаления
@@ -2918,6 +3058,10 @@ class Graph{
     const ids=(this.selNodes.has(n.id) && this.selNodes.size>1) ? [...this.selNodes] : [n.id];
     const undo=[]; let nn=0, na=0;
     ids.forEach(id=>{
+      /* У КОРНЯ ПОДГРАФА СВОЕГО ЦВЕТА НЕТ — он берёт цвет ноды-владельца, а она лежит в
+         СОСЕДНЕМ графе. Красить её отсюда нельзя: снимок отката сериализует только активный
+         граф, и Ctrl+Z вернул бы всё, кроме этой правки. Цвет подграфа меняют снаружи. */
+      if(isRootId(id)) return;
       if(id.indexOf("hub_")===0){ const a=areaById(id.slice(4)); if(a){ undo.push([id,a.color||null]); a.color=col; na++; } }
       else { const it=S.items.find(x=>x.id===id); if(it){ undo.push([id,it.color||null]); it.color=col; touch(it); nn++; } }
     });
@@ -2930,6 +3074,7 @@ class Graph{
     if(pop) $$(".np-sw .swatch",pop).forEach(b=>b.classList.toggle("on",(PALETTE[+b.dataset.ci]||null)===col));
     if(undo.length<2) return;   // одну ноду красят перебором — тост на каждый кружок был бы шумом
     const back=()=>{ undo.forEach(([id,c])=>{
+        if(isRootId(id)) return;
         if(id.indexOf("hub_")===0){ const a=areaById(id.slice(4)); if(a) a.color=c; }
         else { const it=S.items.find(x=>x.id===id); if(it){ it.color=c; touch(it); } } });
       persist(); this.build(); };
@@ -2952,7 +3097,7 @@ class Graph{
     const ids=(this.selNodes.has(n.id) && this.selNodes.size>1) ? [...this.selNodes] : [n.id];
     const undo=[]; let nn=0;
     ids.forEach(id=>{
-      if(id.indexOf("hub_")===0) return;              // у области своего статуса нет
+      if(isHubId(id)) return;                         // у области и у корня подграфа своего статуса нет
       const it=S.items.find(x=>x.id===id);
       const у=this.byId[id];
       /* Потухшее статусом не трогаем — но потухшей считается и своя завершённая задача (_isFaded),
@@ -2988,14 +3133,14 @@ class Graph{
      — возвращаем всех. Иначе пачка «перемигнула» бы половину задач в обратную сторону.
      Повторы (`repeat`) создаёт сам toggleDone — здесь их логику не дублируем. */
   _setDone(n){
-    const кл=n.ref; if(!кл || кл.kind!=="task") return;
+    const кл=n.ref; if(!кл || !kindIsTask(кл.kind)) return;
     const завершаем=!кл.done;
     const ids=(this.selNodes.has(n.id) && this.selNodes.size>1) ? [...this.selNodes] : [n.id];
     const undo=[]; let nn=0;
     ids.forEach(id=>{
-      if(id.indexOf("hub_")===0) return;                // у области выполненности нет
+      if(isHubId(id)) return;                           // у области и у корня подграфа выполненности нет
       const it=S.items.find(x=>x.id===id);
-      if(!it || it.kind!=="task" || !!it.done===завершаем) return;   // уже в нужном состоянии
+      if(!it || !kindIsTask(it.kind) || !!it.done===завершаем) return;   // уже в нужном состоянии
       undo.push([id, it.done, it.status, it.doneAt||null]);
       toggleDone(it); nn++;
     });
@@ -3034,7 +3179,10 @@ class Graph{
      два режима не смешиваются, и физика у закреплённой всё равно отключена. */
   _homeFromDrag(it){
     if(!it || it.pin || it.x==null) return false;
-    const о = it.parent ? this.byId[it.parent] : (it.area ? this.byId["hub_"+it.area] : null);
+    // внутри подграфа владелец — корень, и только у ПРИЦЕПЛЕННЫХ к нему нод (тот же расчёт, что homeOwner)
+    const о = it.parent ? this.byId[it.parent]
+            : it.area ? this.byId["hub_"+it.area]
+            : ((this._уКорня && this._уКорня.has(it.id)) ? this.byId[subRootCur()||""]||null : null);
     if(!о){ delete it.hx; delete it.hy; return false; }   // владельца нет — дому не от чего считаться
     it.hx=Math.round(it.x-о.x); it.hy=Math.round(it.y-о.y); return true;
   }
@@ -3051,7 +3199,7 @@ class Graph{
     const ids=(this.selNodes.has(n.id) && this.selNodes.size>1) ? [...this.selNodes] : [n.id];
     const undo=[]; let nn=0;
     ids.forEach(id=>{
-      if(id.indexOf("hub_")===0) return;              // у области дом абсолютный — это её собственные x/y
+      if(isHubId(id)) return;                         // у области и у корня подграфа дом абсолютный — это их собственные x/y
       const it=S.items.find(x=>x.id===id);
       if(!it || it.hx==null || it.hy==null) return;   // дома и так нет — сбрасывать нечего
       undo.push([id, it.hx, it.hy]);
@@ -3081,7 +3229,8 @@ class Graph{
     S.settings.graphHome=вкл;
     if(вкл){
       this.nodes.forEach(n=>{ if(n.ref){ n.ref.x=Math.round(n.x); n.ref.y=Math.round(n.y); }
-        else if(n.hubArea){ n.hubArea.x=Math.round(n.x); n.hubArea.y=Math.round(n.y); } });
+        else if(n.hubArea){ n.hubArea.x=Math.round(n.x); n.hubArea.y=Math.round(n.y); }
+        else if(n.subRoot){ n.subRoot.x=Math.round(n.x); n.subRoot.y=Math.round(n.y); } });
       let назначено=0;
       this.nodes.forEach(n=>{ const it=n.ref; if(!it || (it.hx!=null && it.hy!=null)) return;
         if(this._homeFromDrag(it)) назначено++; });
@@ -3194,6 +3343,8 @@ class Graph{
        в этом кадре просто нет, и она ведёт себя как раньше. Подмены владельца на хаб тут быть
        не должно — данные считают дом от родителя, и смещение указывало бы не туда. */
     const _домВкл=!!(S.settings && S.settings.graphHome);
+    // узел корня подграфа ищем ОДИН раз на кадр, а не на каждую ноду: subRootCur ходит по S.graphs
+    const _корУзел=this.byId[subRootCur()||""]||null;
     let _домМакс=0;
     for(let i=0;i<N.length;i++){ const a=N[i], it=a.ref;
       a._дом=null;
@@ -3203,11 +3354,15 @@ class Graph{
          ветка ехала за ним, потому что дома детей от него и считаются (замер: нода «доезжала»
          до дома, промахиваясь на 46 px, ровно на снос хаба). Область без координат (никогда не
          стояла на холсте) дома не получает: держать её нечем и незачем. */
-      if(!it){ const ar=a.hubArea;
+      // корень подграфа живёт по тому же правилу: его x/y и есть дом (лежат во внутреннем графе)
+      if(!it){ const ar=a.hubArea||a.subRoot;
         if(ar && ar.x!=null && ar.y!=null) a._дом={x:ar.x, y:ar.y};
         continue; }
       if(it.hx==null || it.hy==null) continue;
-      const о = it.parent ? this.byId[it.parent] : (it.area ? this.byId["hub_"+it.area] : null);
+      // внутри подграфа владелец ноды верхнего уровня — КОРЕНЬ подграфа (тот же расчёт, что homeOwner)
+      const о = it.parent ? this.byId[it.parent]
+              : it.area ? this.byId["hub_"+it.area]
+              : ((this._уКорня && this._уКорня.has(it.id)) ? _корУзел : null);
       if(о) a._дом={x:о.x+it.hx, y:о.y+it.hy};
     }
     /* ОТТАЛКИВАНИЕ УЗЛОВ ДРУГ ОТ ДРУГА. На малом дереве считаем честно все пары: там это доли
@@ -3625,7 +3780,7 @@ class Graph{
          сотни соседей (10 fps на 880 нодах). Магистрали (hubLink) — исключение из исключения,
          тем же рассуждением, что и у обхода препятствий чуть выше: их считанные единицы, а не
          сотни, и именно они теперь толстые и заметные — узлы обязаны их обходить, а не наоборот. */
-      if(_многоНод && !l.hubLink && (String(l.a).indexOf("hub_")===0 || String(l.b).indexOf("hub_")===0)) continue;
+      if(_многоНод && !l.hubLink && (isHubId(l.a) || isHubId(l.b))) continue;
       const ex=b.x-a.x, ey=b.y-a.y, eL2=ex*ex+ey*ey; if(eL2<1) continue;
       /* Та же граница длины, что у _recalcBends (1440000 = 1200 px). У ОБЫЧНЫХ связей она не
          набегает — пружины держат их короткими, — а вот магистраль хаб↔дальняя пустышка может
@@ -3917,7 +4072,7 @@ class Graph{
         o.pri.style.transformOrigin = x.toFixed(1)+"px "+y.toFixed(1)+"px";   // растём вместе с нодой, от её центра
       }
       if(o.hit){ o.hit.setAttribute("cx",x); o.hit.setAttribute("cy",y); }   // расширенная область захвата едет с нодой
-      if(n.type==="task" && o.check) o.check.setAttribute("d",`M ${x-3.2} ${y+0.3} l 2.2 2.4 l 4.2 -5`);
+      if(kindIsTask(n.type) && o.check) o.check.setAttribute("d",`M ${x-3.2} ${y+0.3} l 2.2 2.4 l 4.2 -5`);
       if(o.halo){ o.halo.setAttribute("cx",x); o.halo.setAttribute("cy",y); }
       o.pin.setAttribute("cx",x); o.pin.setAttribute("cy",y);
       // глиф тега двигаем ТРАНСФОРМАЦИЕЙ его группы — текст при этом не растеризуется заново
@@ -3942,10 +4097,7 @@ class Graph{
     // когда симуляция остыла и просили «уложить» — подгоняем обзор под всё дерево
     if(this.alpha===0 && this._needFit){ this._needFit=false; this._fitView(); }
     // авто-раскладка остыла после активности → сохраняем позиции один раз, чтобы следующее открытие было статичным
-    if(this.alpha===0 && this._moved){ this._moved=false;
-      this.nodes.forEach(n=>{ if(n.ref){ n.ref.x=n.x; n.ref.y=n.y; } else if(n.hubArea){ n.hubArea.x=n.x; n.hubArea.y=n.y; } });
-      persist(true);   // тихо: раскладка улеглась сама, человек ничего не делал — в историю отката это не шаг
-    }
+    if(this.alpha===0) this.flushLayout();
     this._schedule(this._покойКадр?ПОКОЙ_МС:0);
   }
   /* ПАЛИТРА ИЗ CSS. Цвета узлов и связей заданы в styles.css и меняются вместе с темой, поэтому
@@ -4442,7 +4594,7 @@ class Graph{
          пунктирного кольца булавки (r+8z), иначе пунктир проходил бы сквозь цифры. */
       if(n.дней!=null && подписьВидна(r)) сроки.push({x, y, r, дней:n.дней});
       if(n.fixed) булавки.push(x,y,r+8*z);
-      if(n.type==="task" && n.done) галочки.push(x,y,r);
+      if(kindIsTask(n.type) && n.done) галочки.push(x,y,r);
       if(статусГлиф){ const гл=iconGlyph(статусГлиф.и);
         if(гл) значки.push({x, y, гл, кегль:Math.max(8,n.r*1.15*z), цвет:статусГлиф.ц, альфа}); }
       else if(n.tagStyle && n.tagStyle.icon){ const гл=iconGlyph(n.tagStyle.icon);
@@ -4454,6 +4606,17 @@ class Graph{
          как загадочный кружок, а не как узнаваемая метка области. */
       else if(n.hollow){ const обл=areaById(n.area), гл=обл&&iconGlyph(обл.icon);
         if(гл) значки.push({x, y, гл, кегль:Math.max(8,n.r*1.15*z), цвет:пал.текст, альфа}); }
+      /* ЗНАЧОК ПОДГРАФА ВНУТРИ НОДЫ — тот же, что везде в интерфейсе (реестр KINDS). Формы
+         одной мало: по шестиугольнику среди кругов и квадратов не прочитать, что за нодой
+         прячется целый граф. Уступает и статусу, и тегу — они про «прямо сейчас», а вид ноды
+         никуда не денется; завершённому глиф не ставим, там уже стоит галочка. */
+      else if(n.type==="sub" && !n.done){ const гл=iconGlyph(kindIcon("sub"));
+        if(гл) значки.push({x, y, гл, кегль:Math.max(8,n.r*1.0*z), цвет:(n.color||пал.текст), альфа}); }
+      /* КОРЕНЬ ПОДГРАФА — тот же значок, но ЦВЕТОМ ФОНА: круг под ним залит акцентом (как у
+         хаба области), и обычный тёмный глиф на нём не читался бы вовсе. Та же причина, по
+         которой цветом фона рисуется галочка внутри выполненной задачи. */
+      else if(n.subRoot){ const гл=iconGlyph(kindIcon("sub"));
+        if(гл) значки.push({x, y, гл, кегль:Math.max(8,n.r*1.05*z), цвет:пал.фон, альфа}); }
       if(подписьВидна(r)) подписи.push({n, x, y:y+r+12*z, альфа});
     }
     this._навЕдет=навЕдет;
@@ -4771,6 +4934,42 @@ class Graph{
       };
       return;
     }
+    /* МЕНЮ КОРНЯ ПОДГРАФА. Стоит ПЕРЕД веткой хаба намеренно: у корня тот же type "hub" —
+       так он получает всю отрисовку хаба даром, — и разбирать их надо по subRoot, а не по типу.
+       Действий три, и все три про сам подграф, а не про ноду: выйти наружу, потянуть от корня
+       связь и закрепить его на месте. Удаления тут нет и быть не может — удалять нечего. */
+    if(n.subRoot){
+      this.sel=n.id;
+      const вл=n.subOwner||{};
+      const pop=el("div"); pop.id="node-pop";
+      pop.innerHTML=`
+        <div class="np-hd">
+          <div class="np-ttl">${esc((вл.title||"").trim())||"Подграф"}</div>
+          <button class="np-pin${n.fixed?" on":""}" data-pop="pin" title="${n.fixed?"Открепить":"Закрепить"}"><i class="ti ${n.fixed?"ti-pin-filled":"ti-pin"}"></i></button>
+        </div>
+        <div class="np-meta">
+          <span><i class="ti ${kindIcon("sub")}"></i>корень подграфа</span>
+          <span><i class="ti ti-affiliate"></i>${S.items.length}</span>
+        </div>
+        <div class="np-row" style="margin-bottom:6px;">
+          <button class="btn" data-pop="out"><i class="ti ti-corner-left-up"></i>Наружу</button>
+          <button class="btn" data-pop="link"><i class="ti ti-plus"></i>Связать</button>
+        </div>
+        <div class="np-row">
+          <button class="btn" data-pop="rename"><i class="ti ti-pencil"></i>Переименовать</button>
+        </div>`;
+      $("#graph-wrap").appendChild(pop);
+      this._posPop(pop,n);
+      pop.querySelector('[data-pop="out"]').onclick=()=>{ this._closePop(); if(subLeave()) render(); };
+      pop.querySelector('[data-pop="link"]').onclick=()=>{ this._closePop(); this.startLink(n.id); };
+      pop.querySelector('[data-pop="rename"]').onclick=()=>{ this._closePop(); this._inlineRename(n.id); };
+      pop.querySelector('[data-pop="pin"]').onclick=()=>{
+        n.fixed=!n.fixed; n.subRoot.pin=n.fixed; persist();
+        const o=this.nodeEls&&this.nodeEls.find(x=>x.n.id===n.id); if(o&&o.pin) o.pin.style.display=n.fixed?"":"none";
+        this._wake(); this._closePop();
+      };
+      return;
+    }
     if(n.type==="hub"){
       this.sel=n.id;
       const a=areaById(n.id.replace("hub_",""));
@@ -4826,8 +5025,8 @@ class Graph{
     this.sel=n.id;
     const pop=el("div"); pop.id="node-pop";
     const conn=linksOf(it.id);
-    const km = it.kind==="flow"?{i:"ti-artboard",n:"полотно"} : it.kind==="note"?{i:"ti-note",n:"заметка"} : {i:"ti-checklist",n:"задача"};
-    const hasOpen = (it.kind==="note" || it.kind==="flow");
+    const km = {i:kindIcon(it.kind), n:kindRu(it.kind)};
+    const hasOpen = (it.kind==="note" || it.kind==="flow" || it.kind==="sub");
     // Меню — только действия, которых больше негде взять. «Изменить», «Связать» и «Удалить»
     // убраны намеренно: они дублировали двойной клик, Alt+тащи и клавишу Delete — то есть
     // занимали половину окна, ничего не добавляя (всё это написано в подсказке графа).
@@ -4844,7 +5043,7 @@ class Graph{
       </div>
       <div class="swatches np-sw" style="margin-bottom:10px;">${swatchRow(it.color)}</div>
       ${hasOpen?`<div class="np-row" style="margin-bottom:6px;">
-        <button class="btn" data-pop="open"><i class="ti ${it.kind==="flow"?"ti-artboard":"ti-eye"}"></i>Открыть</button>
+        <button class="btn" data-pop="open"><i class="ti ${(it.kind==="flow"||it.kind==="sub")?kindIcon(it.kind):"ti-eye"}"></i>${it.kind==="sub"?"Войти в подграф":"Открыть"}</button>
       </div>`:""}
       ${/* СТАТУС — РЯД ИКОНОК, а не две кнопки с подписями (2026-09-01).
            Окно шириной 288 px при padding 12 даёт 264 px полезных; с gap 5 это 39,8 px на кнопку
@@ -4895,7 +5094,10 @@ class Graph{
     $("#graph-wrap").appendChild(pop);
     this._posPop(pop,n);
     $$(".np-sw .swatch",pop).forEach(b=>b.onclick=()=>this._paintColor(n, PALETTE[+b.dataset.ci]||null));
-    if(pop.querySelector('[data-pop="open"]')) pop.querySelector('[data-pop="open"]').onclick=()=>{ this._closePop(); openItemSmart(it); };
+    // «Открыть» у подграфа = вход внутрь, тем же путём, что и двойной клик (см. _openNode)
+    if(pop.querySelector('[data-pop="open"]')) pop.querySelector('[data-pop="open"]').onclick=()=>{
+      if(it.kind==="sub"){ this._openNode(n); return; }
+      this._closePop(); openItemSmart(it); };
     /* Ряд однороден на вид, но маршрут внутри разный, и это принципиально: «Готово» обязано идти
        через _setDone → toggleDone, потому что там ставится doneAt и рождается следующий повтор.
        Прямая запись status="done" всё это потеряла бы. Остальные значения — через _setStatus.
@@ -4964,7 +5166,7 @@ class Graph{
         /* Нить к области в S.links не хранится — граф строит её из it.area на каждой сборке.
            Поэтому длину держит САМА НОДА: положи её в связь, и настройка исчезла бы при первом
            же build (а он случается от любой правки графа). */
-        const itemId=(l.a.indexOf("hub_")===0)?l.b:l.a;
+        const itemId=isHubId(l.a)?l.b:l.a;
         const it=S.items.find(x=>x.id===itemId);
         if(it){ if(Math.abs(v-1)<0.001) delete it.arealen; else it.arealen=v; }
       }
@@ -4980,7 +5182,7 @@ class Graph{
         removeLink(l.a,l.b);
       }
       else { // auto area-link: detach the non-hub endpoint from its area
-        const itemId = l.a.indexOf("hub_")===0 ? l.b : l.a;
+        const itemId = isHubId(l.a) ? l.b : l.a;
         // сняли область руками — нода снова наследует её от родителя, если к кому-то привязана
         const it=S.items.find(x=>x.id===itemId); if(it){ it.area=null; delete it.areaAuto; touch(it); persist(); recomputeHierarchy(); }
       }
@@ -5000,7 +5202,26 @@ class Graph{
   // поля кадров ОБНУЛЯЕМ, а не только отменяем: во всём классе «raf пуст» означает «кадр не
   // запланирован» (на этом стоит и _schedule, и resume). Оставленный номер уже отменённого
   // кадра — ложь о состоянии, из-за которой цикл потом можно не запустить.
-  destroy(){ this._paused=true; this._killPreviewTimer(); clearTimeout(this._asideT); this._asideT=null;
+  /* ДОЖАТЬ РАСКЛАДКУ В ДАННЫЕ. Живые координаты узлов уезжают в S только по ОСТЫВАНИЮ симуляции
+     (~6 с), а экземпляр графа умирает раньше: любой полный render() пересоздаёт его — смена
+     вкладки, переключение графа, вход в подграф и выход обратно. Без этого шага возврат поднимал
+     ПОСЛЕДНЮЮ СОХРАНЁННУЮ раскладку, то есть ту, что была за секунды до ухода, и дерево прыгало
+     на прежние места. При включённом «Держать раскладку» это читалось как «ноды поехали по
+     домам»: координаты старые, а дома уже новые — их _homeFromDrag пишет в момент жеста.
+     Тот же приём и та же причина, что у drawFlush() для доски перед закрытием окна.
+     Пишем ТОЛЬКО после заметной активности (_moved), иначе каждая перерисовка графа тащила бы
+     на диск ту же самую раскладку. */
+  flushLayout(){
+    if(!this._moved) return false;
+    this._moved=false;
+    this.nodes.forEach(n=>{ if(n.ref){ n.ref.x=n.x; n.ref.y=n.y; }
+      else if(n.hubArea){ n.hubArea.x=n.x; n.hubArea.y=n.y; }
+      else if(n.subRoot){ n.subRoot.x=n.x; n.subRoot.y=n.y; } });
+    persist(true);   // тихо: раскладка улеглась сама, человек ничего не делал — в историю отката это не шаг
+    return true;
+  }
+  destroy(){ this.flushLayout();   // ПЕРЕД сносом: живая раскладка иначе умирает вместе с экземпляром
+    this._paused=true; this._killPreviewTimer(); clearTimeout(this._asideT); this._asideT=null;
     clearTimeout(this._searchT); this._searchT=null;
     this._cancelFrame();
     if(this._vraf){ cancelAnimationFrame(this._vraf); this._vraf=null; }

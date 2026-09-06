@@ -159,7 +159,7 @@ function urgency(it, детей){
      пробиться в «что горит» — притом что человек её САМ отложил. Отложенное не может требовать
      внимания прямо сейчас: это внутреннее противоречие, а не вопрос веса. Полный ноль, а не
      скидка — так же, как у выполненной или удалённой задачи двумя строками ниже. */
-  if(!it || it.kind!=="task" || it.done || it.deleted || it.status==="paused") return 0;
+  if(!it || !kindIsTask(it.kind) || it.done || it.deleted || it.status==="paused") return 0;
   const дней = it.due ? daysBetween(parseYmd(it.due), today()) : null;
   const u = СРОЧНОСТЬ_ВЕСА.срок*_вкладСрока(дней)
           + СРОЧНОСТЬ_ВЕСА.приоритет*((it.priority||0)/3)
@@ -180,7 +180,7 @@ function urgencyLevel(it, детей){
 function отобратьГорящие(items, предел){
   предел = предел || СРОЧНОСТЬ_ПРЕДЕЛ;
   const детей={};
-  (items||[]).forEach(it=>{ if(it.parent && it.kind==="task" && !it.done && !it.deleted) детей[it.parent]=(детей[it.parent]||0)+1; });
+  (items||[]).forEach(it=>{ if(it.parent && kindIsTask(it.kind) && !it.done && !it.deleted) детей[it.parent]=(детей[it.parent]||0)+1; });
   const с=(items||[]).map(it=>({it, u:urgency(it, детей[it.id]||0)}))
                      .filter(x=>x.u>=СРОЧНОСТЬ_ПОРОГ)
                      .sort((a,b)=>b.u-a.u)
@@ -223,6 +223,25 @@ const СТАТУСЫ={
   done:   {имя:"Готово",     иконка:"ti-check",              маркер:"✓", вид:"task", рабочий:false, актив:false, фокус:false},
   note:   {имя:"Заметка",    иконка:"ti-note",               маркер:"•", вид:"note", рабочий:false, актив:false, фокус:false},
 };
+/* ВИД ВЕДЁТ СЕБЯ КАК ЗАДАЧА: у него свой `done`, срок, приоритет и повтор. Таких видов два —
+   обычная задача и ПОДГРАФ (kind:"sub", нода с собственным графом внутри). Проверка вынесена
+   в одно место не ради красоты: `kind==="task"` было выписано в двух десятках мест — счётчики,
+   календарь, срочность, потухание, отчёт, — и подграф, забытый хотя бы в одном из них, не
+   падал бы, а НЕМЕЛ (та же болезнь, что была у статусов, см. реестр СТАТУСЫ выше). */
+const kindIsTask = k => (k==="task" || k==="sub");
+/* ВИДЫ НОД — ОДИН РЕЕСТР. Значок и название вида были выписаны тернарником полтора десятка раз
+   (карточки списка, лоток, поповер графа, правая панель, палитра команд, меню создания). Забытое
+   место при добавлении вида не падает — оно показывает НЕ ТОТ значок, то есть врёт молча.
+   `ru` — со строчной, потому что подставляется в середину фразы («полотно без названия»). */
+const KINDS={
+  task:{имя:"Задача",  ru:"задача",  icon:"ti-checklist"},
+  note:{имя:"Заметка", ru:"заметка", icon:"ti-note"},
+  flow:{имя:"Полотно", ru:"полотно", icon:"ti-artboard"},
+  sub: {имя:"Подграф", ru:"подграф", icon:"ti-hierarchy-2"},
+};
+const kindIcon = (k, def) => (KINDS[k] ? KINDS[k].icon : (def||KINDS.task.icon));
+const kindName = k => (KINDS[k]||KINDS.task).имя;
+const kindRu   = k => (KINDS[k]||KINDS.task).ru;
 /* НЕЙТРАЛЬ ЗАВИСИТ ОТ ВИДА, и до этой функции формула была написана в приложении ПЯТЬ раз
    (addItem, applyKind, окно правки, ИИ-захват — и _setStatus, который её как раз НЕ знал).
    Из-за этого пятого места в живом файле завелись 15 заметок со статусом "todo": повторное
@@ -524,18 +543,209 @@ function graphRename(id, name){
    и без этого от снесённого графа остались бы мегабайты, которые уже некому показать.
    Последний граф удалить нельзя — приложению нужно где-то жить. */
 function graphDelete(id){
-  if(!Array.isArray(S.graphs) || S.graphs.length<2) return false;
-  const g=S.graphs.find(x=>x.id===id); if(!g) return false;
+  if(!Array.isArray(S.graphs)) return false;
+  // «последний» считаем по ВЕРХНЕМУ УРОВНЮ: внутренние графы подграфов лежат в том же массиве
+  if(S.graphs.filter(x=>!isSubGraph(x)).length<2) return false;
+  const g=S.graphs.find(x=>x.id===id); if(!g || isSubGraph(g)) return false;
+  const снести=new Set([id]);
   g.items.forEach(it=>{
     boardDelete(it.id);
     (it.fields||[]).forEach(f=>{
       if(f.media && S.media) delete S.media[f.media];
       if(f.type==="board") boardDelete(fieldBoardKey(f.id));
     });
+    // подграфы нод этого графа — вместе с их содержимым и вложенными подграфами
+    if(it.kind==="sub") subCollect(it.id).forEach(вг=>{
+      снести.add(вг.id);
+      (вг.items||[]).forEach(y=>{ boardDelete(y.id); if(typeof fieldsDrop==="function") fieldsDrop(y); });
+    });
   });
-  S.graphs=S.graphs.filter(x=>x.id!==id);
-  if(S.settings.graph===id){ S.settings.graph=S.graphs[0].id; areaFilter=null; asideId=null; undoInit(); }
+  S.graphs=S.graphs.filter(x=>!снести.has(x.id));
+  if(снести.has(S.settings.graph)){ S.settings.graph=(S.graphs.find(x=>!isSubGraph(x))||S.graphs[0]).id; areaFilter=null; asideId=null; undoInit(); }
   persist();
+  return true;
+}
+
+/* ---------- ПОДГРАФ: нода kind:"sub" со своим графом внутри ----------
+   Такая нода живёт в паутине как любая другая — поля, описание, теги, статус, завершение, —
+   но двойной клик уводит ВНУТРЬ неё, в собственный граф.
+
+   ВНУТРЕННИЙ ГРАФ — ОБЫЧНАЯ ЗАПИСЬ В S.graphs с ключом "gs_"+id ноды. Своего хранилища ему не
+   заводили намеренно: всё, что уже написано для графов — геттеры S.items/areas/links, санитайзер,
+   история отката, своя камера, лоток неразобранных, — начинает работать для подграфа без единой
+   правки. Отдельная структура означала бы второй экземпляр всей этой логики.
+
+   КЛЮЧ ВЫВОДИТСЯ ИЗ id НОДЫ, а не хранится полем: копия ноды получает новый id, а значит и
+   новый внутренний граф — двух хозяев у одного содержимого не бывает физически (та же причина,
+   что у ключей досок полей, см. fieldBoardKey). Висячей ссылки тоже не бывает: указывать
+   не на что.
+
+   ОБЛАСТЕЙ ВНУТРИ НЕТ. Подграф — это раскрытие ОДНОЙ мысли, а область делит целый граф на части;
+   вложить второе в первое значит спутать два разных инструмента. Держит это правилом санитайзер,
+   а не только спрятанная кнопка в интерфейсе. */
+const SUB_PREFIX="gs_";
+const subKey = id => SUB_PREFIX+id;
+/* КОРЕНЬ ПОДГРАФА — служебный узел холста `root_<id ноды-владельца>`, ровно того же класса, что
+   хаб области `hub_<id>`: его НЕТ в `S.items`, поэтому удалить его физически нечего, а имя он
+   всегда берёт живое — у самой ноды-владельца. Он и обозначает подграф («мы внутри вот этого»),
+   и служит корнем дерева: без точки отсчёта иерархия внутри не строилась вовсе — BFS в
+   `recomputeHierarchy` стартует от областей, а областей внутри подграфа нет.
+   Позиция и закреплённость лежат в объекте внутреннего графа (`x`/`y`/`pin`) — теми же именами,
+   что у области, чтобы `homeOwner` и расчёт домов принимали его без единой оговорки.
+   `isHubId` — общий предикат «это служебный узел, а не нода»: по нему стоят все проверки, где
+   раньше был литерал `hub_`. Заводить второй литерал по коду значило бы снова обойти два
+   десятка мест при появлении третьего такого узла. */
+const ROOT_PREFIX="root_";
+const subRootId = ownerId => ROOT_PREFIX+ownerId;
+const isRootId = id => typeof id==="string" && id.indexOf(ROOT_PREFIX)===0;
+const isHubId  = id => typeof id==="string" && (id.indexOf("hub_")===0 || id.indexOf(ROOT_PREFIX)===0);
+// корень ТЕКУЩЕГО графа: id — когда стоим внутри подграфа, иначе null
+const subRootCur = () => { const o=subOwnerId(graphCurrent()); return o ? subRootId(o) : null; };
+/* ДЕРЖИТ ЛИ КОРЕНЬ ЭТУ НОДУ. Владельцем дома он становится ТОЛЬКО для тех, кто связан с ним
+   руками, — ровно как хаб области владеет лишь нодами со СВОЕЙ областью. Без этой проверки
+   владельцем оказывалась каждая нода верхнего уровня (а в свежем подграфе это все подряд), и
+   перетаскивание корня возило за собой весь подграф, включая то, что к нему никто не цеплял:
+   дом хранится СМЕЩЕНИЕМ от владельца, значит уехал владелец — уехали все его дома. */
+function subRootHolds(it){
+  const кор=subRootCur(); if(!кор || !it) return false;
+  return (S.links||[]).some(l=>Array.isArray(l) && ((l[0]===кор&&l[1]===it.id)||(l[1]===кор&&l[0]===it.id)));
+}
+const isSubGraph = g => !!g && typeof g.id==="string" && g.id.indexOf(SUB_PREFIX)===0;
+const subOwnerId = g => isSubGraph(g) ? g.id.slice(SUB_PREFIX.length) : null;
+const subGraphOf = id => (S.graphs||[]).find(g=>g.id===subKey(id)) || null;
+// графы верхнего уровня: только они видны в полосе слева и в переключателе
+const graphsTop = () => (S.graphs||[]).filter(g=>!isSubGraph(g));
+const inSubGraph = () => isSubGraph(graphCurrent());
+/* Внутренний граф заводится ЛЕНИВО, при первом заходе: пустая запись на каждую созданную ноду
+   раздувала бы файл ради содержимого, которого может и не появиться вовсе. */
+function subEnsure(it){
+  if(!it) return null;
+  let g=subGraphOf(it.id);
+  if(!g){
+    if(!Array.isArray(S.graphs)) S.graphs=[];
+    // x/y/pin — место КОРНЯ подграфа на холсте (см. ROOT_PREFIX): те же имена, что у области,
+    // чтобы дома нод считались от него без единой оговорки в homeOwner
+    g={id:subKey(it.id), name:(it.title||"Подграф"), icon:GRAPH_ICON_DEF, color:it.color||null,
+       x:null, y:null, pin:false, items:[], areas:[], links:[]};
+    S.graphs.push(g); persist();
+  }
+  return g;
+}
+/* Кто владелец внутреннего графа. Сам граф знает только id своей ноды — ноду ищем по всем
+   графам: она лежит в том, из которого в подграф и заходили (а после переноса — в другом). */
+function graphOwnerOf(g){
+  const oid=subOwnerId(g); if(!oid) return null;
+  for(const x of (S.graphs||[])){ const it=(x.items||[]).find(i=>i&&i.id===oid); if(it) return {graph:x, item:it}; }
+  return null;
+}
+/* Путь от корневого графа до указанного: [{graph, item}], где item — нода-подграф, через
+   которую вошли (у корня null). На нём стоят и хлебные крошки над холстом, и подсветка графа
+   в левой полосе. Ограничитель на 40 шагов — от порченых данных с петлёй, а не от глубины. */
+function graphChain(id){
+  const out=[]; let g=(S.graphs||[]).find(x=>x.id===(id||S.settings.graph)); let guard=0;
+  while(g && guard++<40){ const up=graphOwnerOf(g); out.unshift({graph:g, item:up?up.item:null}); g=up?up.graph:null; }
+  return out;
+}
+const graphTopId = () => { const ц=graphChain(); return ц.length ? ц[0].graph.id : null; };
+/* Вход в подграф — тот же graphSwitch, и это не экономия строк: у внутреннего графа обязана
+   быть СВОЯ история отката (снимок снят с другого набора нод) и своя камера. */
+function subEnter(it){
+  if(!it || it.kind!=="sub") return false;
+  const g=subEnsure(it); if(!g) return false;
+  return graphSwitch(g.id);
+}
+// на уровень вверх; вернувшись, показываем в панели ту ноду, из которой вышли
+function subLeave(){
+  const up=graphOwnerOf(graphCurrent());
+  if(!up) return false;
+  const id=up.item.id;
+  if(!graphSwitch(up.graph.id)) return false;
+  asideId=id;
+  return true;
+}
+/* Все внутренние графы поддерева ноды: её собственный, подграфы нод внутри него и так далее.
+   Нужны и удалению (унести вместе с нодой), и карману отката (вернуть тем же движением),
+   и копированию. Верхний граф идёт ПЕРВЫМ — на этом стоит распаковка копии. */
+function subCollect(id, out, guard){
+  out=out||[]; guard=guard||new Set();
+  if(guard.has(id)) return out; guard.add(id);
+  const g=subGraphOf(id); if(!g) return out;
+  out.push(g);
+  (g.items||[]).forEach(it=>{ if(it && it.kind==="sub") subCollect(it.id, out, guard); });
+  return out;
+}
+/* Удаление ноды уносит её подграф целиком — со всеми досками и картинками нод внутри.
+   Хранилища досок и картинок общие на всё приложение: не подмети мы их здесь, от снесённого
+   подграфа остались бы мегабайты, а общая уборка санитайзера случится только при следующей
+   загрузке файла. Содержимое к этому моменту уже лежит в кармане удалённых (trashKeep). */
+function subDrop(it){
+  if(!it) return;
+  const графы=subCollect(it.id);
+  if(!графы.length) return;
+  const ids=new Set(графы.map(g=>g.id));
+  /* Страховка на случай, когда сносят граф, внутри которого сейчас стоим: без неё геттеры
+     S.items молча съехали бы на первый попавшийся граф (см. graphBind). */
+  if(ids.has(S.settings.graph)){
+    const дом=(S.graphs||[]).find(g=>(g.items||[]).some(x=>x&&x.id===it.id));
+    if(дом){ S.settings.graph=дом.id; areaFilter=null; asideId=null; undoInit(); }
+  }
+  графы.forEach(g=>(g.items||[]).forEach(x=>{
+    boardDelete(x.id);
+    if(typeof fieldsDrop==="function") fieldsDrop(x);
+  }));
+  S.graphs=(S.graphs||[]).filter(g=>!ids.has(g.id));
+}
+/* УПАКОВКА ПОДГРАФА ДЛЯ КОПИИ. Ключ внутреннего графа выведен из id ноды, поэтому копия
+   родилась бы пустой, если содержимое не перенести руками. Переносим дерево целиком, выдавая
+   КАЖДОЙ вложенной ноде новый id: id нод уникальны на всё приложение (по ним лежат доски),
+   и общий id означал бы двух хозяев одного холста — та же причина, что у полей. */
+function subPack(id){
+  const графы=subCollect(id);
+  if(!графы.length) return null;
+  return графы.map(g=>({ id:g.id, name:g.name, icon:g.icon, color:g.color,
+    x:g.x, y:g.y, pin:g.pin===true,          // место корня подграфа на холсте
+    links:JSON.parse(JSON.stringify(g.links||[])),
+    items:(g.items||[]).map(it=>{
+      const к=JSON.parse(JSON.stringify(it));
+      к._pack=(typeof fieldsPack==="function")?fieldsPack(it):null;
+      к._board=(it.kind==="flow" && S.boards && S.boards[it.id])?JSON.parse(JSON.stringify(S.boards[it.id])):null;
+      return к;
+    }) }));
+}
+function subUnpack(newOwnerId, pack){
+  if(!Array.isArray(pack) || !pack.length || !newOwnerId) return false;
+  if(!Array.isArray(S.graphs)) S.graphs=[];
+  /* Сначала раздаём НОВЫЕ id всем нодам разом и только потом переписываем ссылки: связь,
+     родитель и ключ вложенного графа указывают на ноду, которой к моменту её собственной
+     обработки может ещё не существовать. */
+  const map={};
+  map[pack[0].id.slice(SUB_PREFIX.length)]=newOwnerId;   // владелец верхнего графа — новая нода
+  pack.forEach(g=>(g.items||[]).forEach(it=>{ if(it && it.id && !map[it.id]) map[it.id]=uid(); }));
+  pack.forEach(g=>{
+    const хозяин=map[String(g.id).slice(SUB_PREFIX.length)];
+    if(!хозяин) return;
+    const нг={id:subKey(хозяин), name:g.name, icon:g.icon, color:g.color,
+              x:(g.x==null?null:+g.x), y:(g.y==null?null:+g.y), pin:g.pin===true,
+              items:[], areas:[], links:[]};
+    (g.items||[]).forEach(it=>{
+      if(!it || !map[it.id]) return;
+      const к=Object.assign({}, it), пак=к._pack, доска=к._board;
+      delete к._pack; delete к._board;
+      к.id=map[it.id];
+      к.parent=(it.parent && map[it.parent]) ? map[it.parent] : null;
+      к.area=null; delete к.areaAuto;              // областей внутри подграфа нет
+      if(пак && typeof fieldsUnpack==="function"){ const поля=fieldsUnpack(пак); к.fields=поля||[]; }
+      if(доска) boardSet(к.id, JSON.parse(JSON.stringify(доска)));
+      нг.items.push(к);
+    });
+    /* КОРЕНЬ ПЕРЕЕЗЖАЕТ ВМЕСТЕ С ГРАФОМ. Его id выведен из id ноды-владельца, а у копии владелец
+       другой — оставь связи как есть, и они указывали бы на корень ОРИГИНАЛА, то есть внутри
+       копии повисли бы в никуда (санитайзер их и снёс бы при первой загрузке). */
+    const старКор=subRootId(String(g.id).slice(SUB_PREFIX.length)), новКор=subRootId(хозяин);
+    const пер=x=> (x===старКор) ? новКор : map[x];
+    (g.links||[]).forEach(l=>{ const a=пер(l[0]), b=пер(l[1]); if(a&&b) нг.links.push([a,b,+l[2]||1]); });
+    S.graphs.push(нг);
+  });
   return true;
 }
 
@@ -698,17 +908,32 @@ function sanitizeState(s){
     s.graphs=[{id:"g_main", name:"Мой граф", icon:GRAPH_ICON_DEF, items:s.items||[], areas:s.areas||[], links:s.links||[]}];
   }
   { const виден=new Set();
-    s.graphs=s.graphs.filter(g=>g&&typeof g==="object"&&!Array.isArray(g)).slice(0,20).map((g,i)=>{
+    /* ПОТОЛОК В 20 ГРАФОВ СЧИТАЕТСЯ ПО ВЕРХНЕМУ УРОВНЮ. Внутренние графы нод-подграфов лежат
+       в том же массиве (ключ "gs_"+id ноды, см. SUB_PREFIX), и общий slice(0,20) обрезал бы
+       содержимое подграфов ровно тогда, когда их завели больше двух десятков. Свой потолок у
+       них тоже есть — он про порченый файл, а не про то, сколько подграфов человеку положено. */
+    let верхних=0;
+    s.graphs=s.graphs.filter(g=>g&&typeof g==="object"&&!Array.isArray(g))
+      .filter(g=>{ if(typeof g.id==="string" && g.id.indexOf(SUB_PREFIX)===0) return true;
+                   верхних++; return верхних<=20; })
+      .slice(0,600)
+      .map((g,i)=>{
+      const вн=(typeof g.id==="string" && g.id.indexOf(SUB_PREFIX)===0 && !виден.has(g.id));
       let id=(typeof g.id==="string"&&g.id&&!виден.has(g.id))?g.id:("g_"+uid()); виден.add(id);
+      const чс=v=>(v!=null && isFinite(v) && Math.abs(+v)<=20000) ? +v : null;   // тот же предел, что у координат нод
       return { id, name:String(g.name==null?"":g.name).trim().slice(0,40)||("Граф "+(i+1)),
                icon:ICONS.includes(g.icon)?g.icon:GRAPH_ICON_DEF,   // значок только из белого списка
                color:okColor(g.color),
-               items:Array.isArray(g.items)?g.items:[], areas:Array.isArray(g.areas)?g.areas:[],
+               // x/y/pin — место КОРНЯ подграфа на холсте (см. ROOT_PREFIX); у графа верхнего
+               // уровня корня нет, и держать эти поля незачем
+               x:вн?чс(g.x):null, y:вн?чс(g.y):null, pin:вн?(g.pin===true):false,
+               // областей внутри подграфа не бывает — это правило вида, а не настройка интерфейса
+               items:Array.isArray(g.items)?g.items:[], areas:(вн||!Array.isArray(g.areas))?[]:g.areas,
                links:Array.isArray(g.links)?g.links:[] };
     });
-    if(!s.graphs.length) s.graphs=[{id:"g_main", name:"Мой граф", icon:GRAPH_ICON_DEF, items:[], areas:[], links:[]}];
+    if(!s.graphs.some(g=>!isSubGraph(g))) s.graphs.unshift({id:"g_main", name:"Мой граф", icon:GRAPH_ICON_DEF, color:null, items:[], areas:[], links:[]});
   }
-  if(!s.graphs.some(g=>g.id===s.settings.graph)) s.settings.graph=s.graphs[0].id;
+  if(!s.graphs.some(g=>g.id===s.settings.graph)) s.settings.graph=(s.graphs.find(g=>!isSubGraph(g))||s.graphs[0]).id;
 
   /* КАМЕРА — СВОЯ У КАЖДОГО ГРАФА (2026-08-12). Раньше graphCam был один на всё приложение:
      переключился на другой граф — камера оставалась там же, где была на прежнем, и человек
@@ -728,9 +953,45 @@ function sanitizeState(s){
      id ноды в двух графах означал бы двух хозяев у одного холста. */
   const seenF=new Set();   // id полей уникальны ГЛОБАЛЬНО: по ним же лежат доски (ключ "fld_"+id)
   const seen=new Set();
-  s.graphs.forEach(гр=>{ s.items=гр.items; s.areas=гр.areas; s.links=гр.links;
+  s.graphs.forEach(гр=>{
+    /* ВНУТРИ ПОДГРАФА ОБЛАСТЕЙ НЕТ — и чистим это ДО общей чистки, чтобы та работала уже по
+       согласованным данным. Занести их сюда мог чужой json, старый экспорт или смена вида ноды;
+       пустышка области (it.hollow) без самой области — узел, который нечем ни подписать,
+       ни открыть. */
+    if(isSubGraph(гр)){
+      гр.areas=[];
+      гр.items=(Array.isArray(гр.items)?гр.items:[]).filter(it=>!(it && it.hollow));
+      гр.items.forEach(it=>{ if(it&&typeof it==="object"){ it.area=null; delete it.areaAuto; } });
+      /* Связи с ХАБОМ области выбрасываем ЗДЕСЬ, до общей чистки: ниже стоит миграция, которая
+         превращает такую связь в `it.area`, и область, только что вычищенная строкой выше,
+         вернулась бы через заднюю дверь. Чужой корень — тоже мусор: у подграфа он ровно один. */
+      const свой=subRootId(subOwnerId(гр));
+      гр.links=(Array.isArray(гр.links)?гр.links:[]).filter(l=>Array.isArray(l)
+        && !/^hub_/.test(l[0]) && !/^hub_/.test(l[1])
+        && !(isRootId(l[0]) && l[0]!==свой) && !(isRootId(l[1]) && l[1]!==свой)
+        && !(isRootId(l[0]) && isRootId(l[1])));                      // корень сам с собой
+    } else {
+      // корня подграфа в обычном графе нет — связи с ним указывают в никуда
+      гр.links=(Array.isArray(гр.links)?гр.links:[]).filter(l=>Array.isArray(l) && !isRootId(l[0]) && !isRootId(l[1]));
+    }
+    s.items=гр.items; s.areas=гр.areas; s.links=гр.links;
     _sanitizeGraph(s, seen, seenF, okColor);
     гр.items=s.items; гр.areas=s.areas; гр.links=s.links; });
+  /* ОСИРОТЕВШИЕ ПОДГРАФЫ. Ключ внутреннего графа выведен из id ноды-владельца: не стало ноды —
+     не стало и графа, иначе его содержимое навсегда осталось бы в файле невидимкой, которую
+     нечем ни открыть, ни удалить. Проходов несколько: снос подграфа сиротит подграфы нод,
+     лежавших внутри него. Считается ПОСЛЕ чистки — она могла сменить ноде id (и вместе с ним
+     переехал ключ подграфа, см. _sanitizeGraph). */
+  { let ушли=true, круг=0;
+    while(ушли && круг++<40){
+      const живые=new Set();
+      s.graphs.forEach(g=>(g.items||[]).forEach(it=>живые.add(it.id)));
+      const было=s.graphs.length;
+      s.graphs=s.graphs.filter(g=>!isSubGraph(g) || живые.has(subOwnerId(g)));
+      ушли=(s.graphs.length!==было);
+    }
+    if(!s.graphs.some(g=>g.id===s.settings.graph)) s.settings.graph=(s.graphs.find(g=>!isSubGraph(g))||s.graphs[0]).id;
+  }
   /* Уборка мусора считается ПО ВСЕМ графам сразу: хранилище досок и картинок одно, и,
      подметая по одному графу, мы снесли бы содержимое нод соседнего. */
   { const живыеМедиа=new Set(), живыеДоски=new Set();
@@ -768,6 +1029,12 @@ function _sanitizeGraph(s, seen, seenF, okColor){
       it.id=uid();
       if(typeof старый==="string" && старый && s.boards[старый] && !s.boards[it.id]){
         s.boards[it.id]=s.boards[старый]; delete s.boards[старый];
+      }
+      /* Внутренний граф ноды-подграфа адресуется её id той же дорогой, что и доска. Сменили
+         id — обязан переехать и он, иначе подграф осиротеет и его снесёт уборка ниже. */
+      if(typeof старый==="string" && старый){
+        const вг=(s.graphs||[]).find(g=>g && g.id===SUB_PREFIX+старый);
+        if(вг && !(s.graphs||[]).some(g=>g && g.id===SUB_PREFIX+it.id)) вг.id=SUB_PREFIX+it.id;
       }
     }
     seen.add(it.id);
@@ -869,7 +1136,7 @@ function _sanitizeGraph(s, seen, seenF, okColor){
   });
   s.items.forEach(it=>{ if(it.parent && !seen.has(it.parent)) it.parent=null; });   // снять висячие parent
   s.links=s.links.filter(l=>Array.isArray(l)&&l.length>=2 &&
-    (seen.has(l[0])||/^hub_/.test(l[0])) && (seen.has(l[1])||/^hub_/.test(l[1])))   // выкинуть связи в никуда
+    (seen.has(l[0])||isHubId(l[0])) && (seen.has(l[1])||isHubId(l[1])))   // выкинуть связи в никуда (служебные узлы — не ноды, их в seen нет)
     .map(l=>{ const len=+l[2]; return (len>=0.3&&len<=3)?[l[0],l[1],len]:[l[0],l[1]]; });   // per-link длина (3-й элемент, множитель)
   // МИГРАЦИЯ: членство в области — это поле it.area, связь элемент↔область граф рисует из него сам.
   // Раньше бросок на область писал вместо этого обычную связь в s.links: линия была, а области у
@@ -1027,12 +1294,30 @@ const TRASH_KEEP=40;                 // помним последние удал
 const _trash=new Map();              // id ноды → {boards:{ключ:сцена}, media:{ключ:data-URL}}
 function trashKeep(it){
   if(!it) return;
-  const карман={boards:{}, media:{}};
+  const карман={boards:{}, media:{}, graphs:[]};
   if(S.boards && S.boards[it.id]){ карман.boards[it.id]=S.boards[it.id]; }
   (Array.isArray(it.fields)?it.fields:[]).forEach(f=>{
     const к=fieldBoardKey(f.id);
     if(S.boards && S.boards[к]) карман.boards[к]=S.boards[к];
     if(f.media && S.media && S.media[f.media]) карман.media[f.media]=S.media[f.media];
+  });
+  /* ПОДГРАФ — В КАРМАН ЦЕЛИКОМ. Снимок отката сериализует items АКТИВНОГО графа, а внутренний
+     граф ноды лежит отдельной записью в S.graphs и в снимок не входит: без кармана Ctrl+Z
+     вернул бы ноду с выпотрошенной внутренностью. Содержимое нод внутри (доски, картинки полей)
+     лежит вне них по той же причине — забираем и его. */
+  /* По ключу, а не по виду ноды: сменили вид подграфа на заметку — внутренний граф остаётся
+     лежать (его хранит смена вида, как доску полотна), и удаление обязано положить в карман
+     и его тоже. subCollect на ноде без подграфа просто вернёт пустой список. */
+  subCollect(it.id).forEach(g=>{
+    карман.graphs.push(JSON.parse(JSON.stringify(g)));
+    (g.items||[]).forEach(x=>{
+      if(S.boards && S.boards[x.id]) карман.boards[x.id]=S.boards[x.id];
+      (Array.isArray(x.fields)?x.fields:[]).forEach(f=>{
+        const к=fieldBoardKey(f.id);
+        if(S.boards && S.boards[к]) карман.boards[к]=S.boards[к];
+        if(f.media && S.media && S.media[f.media]) карман.media[f.media]=S.media[f.media];
+      });
+    });
   });
   _trash.set(it.id, карман);
   while(_trash.size>TRASH_KEEP) _trash.delete(_trash.keys().next().value);
@@ -1045,6 +1330,9 @@ function trashRevive(items){
     if(!S.media  || typeof S.media !=="object") S.media={};
     Object.keys(к.boards).forEach(x=>{ if(!S.boards || !S.boards[x]) boardSet(x, к.boards[x]); });
     Object.keys(к.media ).forEach(x=>{ if(!S.media[x])  S.media[x] =к.media[x];  });
+    // внутренний граф ноды-подграфа (и вложенные в него) — тем же движением, см. trashKeep
+    (к.graphs||[]).forEach(g=>{ if(!Array.isArray(S.graphs)) S.graphs=[];
+      if(!S.graphs.some(x=>x.id===g.id)) S.graphs.push(g); });
   });
 }
 const _undoSnap=()=>JSON.stringify({items:S.items, links:S.links, areas:S.areas, tags:S.tags});
@@ -1065,6 +1353,11 @@ function _undoApply(snap){
   // _undoBusy: render() ниже сам зовёт persist() (синхронизация view в views.js и
   // recomputeHierarchy в графе). Без флага откат положил бы снимок сам на себя и убил повтор.
   _undoBusy=true;
+  /* Раскладку графа дожимаем ДО снятия координат: живые позиции узлов уезжают в S только по
+     остыванию симуляции (graph.js: flushLayout), и без этого шага «держать» ниже сохранил бы
+     места, с которых ноды уехали несколько секунд назад — откат содержимого дёргал бы заодно
+     и форму дерева. Та же причина, по которой flushLayout зовёт destroy. */
+  try{ if(typeof graph!=="undefined" && graph && graph.flushLayout) graph.flushLayout(); }catch(e){}
   const d=JSON.parse(snap);
   /* Ноды остаются там, где стоят: откат — про содержимое, а не про раскладку.
      Но координаты из снимка всё же берём в двух случаях: нода воскресла (её сейчас нет —

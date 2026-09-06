@@ -156,6 +156,13 @@ select option{background:var(--surf2);color:var(--tx);}
    не спорят вовсе. Пустота между ними — не потеря места: в полосе иконок её нечем занять.
    margin-top:auto работает, потому что #side — колонка flex. */
 .side-h.sh-areas{margin-top:auto;padding-top:18px;border-top-color:var(--bd2);}
+/* ВНУТРИ ПОДГРАФА ОБЛАСТЕЙ НЕТ (см. SUB_PREFIX в core.js) — прячем весь раздел вместе с
+   кнопкой «+»: кнопка, которая ничего не создаёт, хуже отсутствующей. Признак ставит
+   renderNav. Список графов остаётся: клик по любому из них и есть выход наружу. */
+#side.in-sub .sh-areas,#side.in-sub #areas{display:none;}
+/* Раздел графов держал верхнюю границу за счёт «margin-top:auto» у областей — без них список
+   графов прилипал бы к низу полосы. */
+#side.in-sub #graphs{margin-bottom:auto;}
 .side-h-lbl{display:flex;align-items:center;gap:6px;min-width:0;}
 .side-h-ic{font-size:13px;color:var(--mut2);}
 /* У первого раздела линии нет — над ним кнопка вида, а не соседний список. Но отступ нужен
@@ -549,6 +556,11 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .g-node.note .nd{fill:var(--surf);stroke:var(--acc);stroke-width:1.7;}
 .g-node.task .nd{fill:var(--surf);stroke:var(--acc);stroke-width:1.7;}
 .g-node.task.done .nd{fill:var(--acc);stroke:var(--acc);}
+/* ПОДГРАФ — та же толщина линии и та же заливка «готово», что у задачи: у него есть своё
+   завершение (см. kindIsTask в core.js), и завершённый подграф обязан читаться так же, как
+   завершённая задача. Отличает его только форма — шестиугольник (см. _shape в graph.js). */
+.g-node.sub .nd{fill:var(--surf);stroke:var(--acc);stroke-width:1.7;}
+.g-node.sub.done .nd{fill:var(--acc);stroke:var(--acc);}
 .g-check{stroke:var(--bg);stroke-width:1.6;fill:none;stroke-linecap:round;stroke-linejoin:round;pointer-events:none;}
 /* Подсветка/выделение светят ЦВЕТОМ ноды. --nc ставится в build() из итогового цвета
    (свой → тег → область), поэтому унаследованный цвет тоже works. Запасной вариант
@@ -664,6 +676,21 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
    поэтому включённое состояние обязано читаться по самой кнопке — заливкой акцентом. */
 .graph-toolbar .btn.on{background:var(--acc);color:var(--bg);border-color:var(--acc);}
 .graph-toolbar .btn.on i{color:var(--bg);}
+/* ХЛЕБНЫЕ КРОШКИ ПОДГРАФА — В ТУЛБАРЕ, слева от кнопок (разметка — subCrumbsHtml в graph.js).
+   Своей полосы им не дали намеренно: полоса отъела бы высоту холста на КАЖДОМ графе ради
+   состояния, которого чаще всего нет. Ширина ограничена, длинные названия режутся многоточием —
+   иначе цепочка из трёх уровней уехала бы под поиск, который стоит по центру той же кромки. */
+.g-crumbs{display:flex;align-items:center;gap:3px;max-width:min(44%,400px);
+  background:var(--surf2);border:0.5px solid var(--bd);border-radius:9px;padding:3px 8px 3px 3px;margin-right:4px;}
+.graph-toolbar .g-crumb-up{width:26px;height:26px;padding:0;justify-content:center;flex:none;}
+.g-crumb{display:inline-flex;align-items:center;gap:5px;flex:0 1 auto;min-width:34px;
+  font-size:12px;color:var(--mut);border-radius:7px;padding:3px 6px;white-space:nowrap;overflow:hidden;}
+.g-crumb span{overflow:hidden;text-overflow:ellipsis;}
+.g-crumb i{font-size:14px;flex:none;color:var(--mut2);}
+.g-crumb:not(.on):hover{background:var(--surf3);color:var(--tx);}
+.g-crumb.on{color:var(--tx);cursor:default;}
+.g-crumb.on i{color:var(--acc);}
+.g-crumb-sep{font-size:11px;color:var(--mut2);flex:none;}
 .graph-more{position:absolute;top:54px;left:12px;z-index:7;display:flex;flex-direction:column;gap:2px;background:var(--surf2);border:0.5px solid var(--bd2);border-radius:10px;padding:6px;box-shadow:0 10px 30px var(--sh),0 0 18px var(--glow);}
 .gm-it{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:7px;font-size:13px;color:var(--tx);width:100%;text-align:left;white-space:nowrap;}
 .gm-it i{font-size:16px;color:var(--mut);}
@@ -710,6 +737,11 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .lg-dot.note{border:1.6px solid var(--acc);}
 .lg-dot.task{border:1.7px solid var(--acc);width:10px;height:10px;border-radius:3px;}
 .lg-dot.flow{border:1.7px solid var(--acc);width:9px;height:9px;border-radius:2px;transform:rotate(45deg);}
+/* Подграф — шестиугольник (та же форма, что у ноды на холсте, см. _shape в graph.js).
+   Контур рамкой тут не сделать: clip-path режет и её, поэтому берём заливку акцентом
+   вполсилы — в ряду из четырёх меток различает именно ФОРМА, а не толщина линии. */
+.lg-dot.sub{width:11px;height:10px;border-radius:0;background:var(--acc);opacity:.75;
+  clip-path:polygon(25% 0%,75% 0%,100% 50%,75% 100%,25% 100%,0% 50%);}
 .graph-marquee{position:absolute;z-index:6;border:1px solid var(--acc);background:rgba(120,140,210,.10);border-radius:2px;pointer-events:none;}
 
 /* color swatches */
@@ -1477,6 +1509,9 @@ button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:va
 .due.late{color:var(--mut);font-style:italic;}
 /* стилизованные теги: глиф иконки в ноде графа + менеджер тегов */
 .g-ticon{dominant-baseline:central;fill:var(--tx);pointer-events:none;font-family:"tabler-icons";}
+/* Значок ВНУТРИ ХАБА (сейчас это корень подграфа) — цветом фона: круг под ним залит акцентом,
+   и обычный тёмный глиф на нём не читался бы. Та же причина, что у галочки .g-check. */
+.g-node.hub .g-ticon{fill:var(--bg);}
 .tag-hint{font-size:12px;color:var(--mut);line-height:1.5;margin-bottom:13px;}
 .tag-prev{width:28px;height:28px;border-radius:7px;border:1px solid var(--bd2);display:flex;align-items:center;justify-content:center;color:var(--tx);font-size:15px;flex:none;}
 .tag-badges{display:flex;gap:5px;margin-left:auto;margin-right:8px;}

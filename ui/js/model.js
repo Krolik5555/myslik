@@ -105,6 +105,7 @@ function hardDeleteItem(id){
   if(S.settings&&S.settings.collapsed) delete S.settings.collapsed[id]; // убрать мёртвый ключ свёрнутости
   boardDelete(id);                    // доска полотна лежит отдельно от ноды — унести вместе с ней
   if(it) fieldsDrop(it);              // картинки и доски ПОЛЕЙ лежат там же — унести тем же движением
+  if(it) subDrop(it);                 // внутренний граф ноды-подграфа — тоже отдельная запись, см. core.js
   persist();
 }
 /* Удаление ПАКЕТОМ: снимает ноды вместе с их связями и отдаёт снимок, по которому «Вернуть»
@@ -129,7 +130,8 @@ function restorePack(pack){
   return pack.items.length;
 }
 function toggleDone(it){
-  if(it.kind!=="task") return;
+  // завершать умеет и ПОДГРАФ: у него, как у задачи, есть своё «готово» (см. kindIsTask в core.js)
+  if(!kindIsTask(it.kind)) return;
   if(!it.done){
     // прежний статус помним — из него задача вернётся, если галочку снимут (см. ветку else ниже)
     if(it.status && it.status!=="done") it.prevStatus=it.status;
@@ -171,7 +173,7 @@ function childrenOf(id){ return S.items.filter(it=>it.parent===id); }
    обещает «3 подветки», а раскрывается одна, и корзина протекает в интерфейс. */
 const liveById = id => { const it=S.items.find(i=>i.id===id); return (it && inWeb(it)) ? it : null; };
 function childrenOfLive(id){ return S.items.filter(it=>it.parent===id && inWeb(it)); }
-function linksOfLive(id){ return linksOf(id).filter(x=>/^hub_/.test(x) ? true : !!liveById(x)); }
+function linksOfLive(id){ return linksOf(id).filter(x=>isHubId(x) ? true : !!liveById(x)); }
 // свёрнутые узлы/области в списке (ключи: id узла или "area:"+id)
 function isCollapsed(id){ const c=S.settings&&S.settings.collapsed; return !!(c&&c[id]); }
 function toggleCollapse(id){ if(!S.settings.collapsed) S.settings.collapsed={}; if(S.settings.collapsed[id]) delete S.settings.collapsed[id]; else S.settings.collapsed[id]=true; persist(); }
@@ -201,6 +203,12 @@ function homeOwner(it, byId){
   if(!it) return null;
   if(it.parent){ const p=byId?byId.get(it.parent):S.items.find(i=>i.id===it.parent); if(p) return p; }
   if(it.area){ const a=areaById(it.area); if(a) return a; }
+  /* Внутри подграфа владелец — КОРЕНЬ, но только у нод, ПРИЦЕПЛЕННЫХ к нему связью (см.
+     subRootHolds): иначе он владел бы каждой нодой верхнего уровня и таскал бы за собой весь
+     подграф. Его место лежит в объекте внутреннего графа теми же полями x/y, что у области,
+     поэтому отдаём сам объект: всё, что считает дом, работает с ним как с областью. */
+  { const g=(typeof graphCurrent==="function") ? graphCurrent() : null;
+    if(g && isSubGraph(g) && subRootHolds(it)) return g; }
   return null;
 }
 // мировая точка дома (или null, если дома нет либо у владельца ещё нет координат)
@@ -218,6 +226,11 @@ function recomputeHierarchy(){
   // в иерархии участвуют все заметки и задачи из паутины
   const notes=S.items.filter(inWeb);
   const noteIds=new Set(notes.map(n=>n.id));
+  /* Корень подграфа — такая же точка отсчёта дерева, как область, только один и без данных
+     (см. ROOT_PREFIX в core.js). В обходе он идёт под меткой "R:": обычным id он быть не может,
+     иначе пересёкся бы с id ноды. Нет подграфа — метки нет, и всё считается как раньше. */
+  const R="R:";
+  const корПодграфа=(typeof subRootCur==="function") ? subRootCur() : null;
   const adj={};
   const addEdge=(x,y)=>{ (adj[x]||(adj[x]=new Set())).add(y); (adj[y]||(adj[y]=new Set())).add(x); };
   /* Ребро заметка↔область строим только по ЯВНО заданной области. Унаследованная (areaAuto)
@@ -227,14 +240,15 @@ function recomputeHierarchy(){
   // ручные связи между узлами паутины (заметки/задачи) и хабами-областями
   (S.links||[]).forEach(l=>{
     let a=l[0], b=l[1]; if(typeof a!=="string"||typeof b!=="string") return;
-    const na=a.indexOf("hub_")===0?"A:"+a.slice(4):a;
-    const nb=b.indexOf("hub_")===0?"A:"+b.slice(4):b;
-    const ok=x=> x.indexOf("A:")===0 || noteIds.has(x);
+    const na=a===корПодграфа?R:(a.indexOf("hub_")===0?"A:"+a.slice(4):a);
+    const nb=b===корПодграфа?R:(b.indexOf("hub_")===0?"A:"+b.slice(4):b);
+    const ok=x=> x===R || x.indexOf("A:")===0 || noteIds.has(x);
     if(ok(na)&&ok(nb)) addEdge(na,nb);
   });
-  // BFS одновременно от всех областей; предшественник = родитель в сторону области
+  // BFS одновременно от всех областей (и от корня подграфа); предшественник = родитель в сторону корня
   const dist={}, pred={}, q=[];
   S.areas.forEach(a=>{ const r="A:"+a.id; dist[r]=0; q.push(r); });
+  if(корПодграфа){ dist[R]=0; q.push(R); }
   for(let i=0;i<q.length;i++){ const cur=q[i]; const ns=adj[cur]; if(!ns) continue;
     ns.forEach(nb=>{ if(dist[nb]===undefined){ dist[nb]=dist[cur]+1; pred[nb]=cur; q.push(nb); } });
   }
@@ -244,6 +258,8 @@ function recomputeHierarchy(){
   const корень={};
   q.forEach(узел=>{
     if(узел.indexOf("A:")===0){ корень[узел]=узел.slice(2); return; }
+    // корень подграфа области не несёт (её там нет вовсе) — вся его ветка остаётся без области
+    if(узел===R){ корень[узел]=null; return; }
     const p=pred[узел];
     корень[узел] = p ? (p.indexOf("A:")===0 ? p.slice(2) : корень[p]) : null;
   });
@@ -255,7 +271,7 @@ function recomputeHierarchy(){
   notes.forEach(n=>{
     const p=pred[n.id];
     // предшественник-область → верхний уровень (parent=null); предшественник-заметка → она родитель
-    const np=(p && p.indexOf("A:")!==0) ? p : null;
+    const np=(p && p.indexOf("A:")!==0 && p!==R) ? p : null;
     /* ВЛАДЕЛЬЦА ДОМА ЗАПОМИНАЕМ ДО ПЕРЕСТАНОВКИ. Дом хранится смещением, то есть привязан к
        точке отсчёта; смена родителя или области меняет точку отсчёта молча — и нода прыгнула бы
        к новому владельцу ровно на разницу их координат. Пересчёт ниже эту разницу и снимает. */

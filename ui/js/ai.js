@@ -432,7 +432,10 @@ function aiBuildProposal(it, res){
   if(pr>0 && pr>(it.priority||0)){ out.priority=pr; changes.push({k:"срочность", v:"!".repeat(pr), i:"ti-flag-3"}); }
 
   // вид — задача/заметка (полотно не трогаем)
-  if((res.kind==="task"||res.kind==="note") && it.kind!=="flow" && res.kind!==it.kind){
+  /* Вид ПОДГРАФА модель не меняет — как и вид полотна. Внутри такой ноды лежит целый граф;
+     превращение её в заметку одним нажатием «применить» увело бы содержимое из виду, и
+     человек об этом даже не узнал бы: в списке правок это строка «вид: заметка». */
+  if((res.kind==="task"||res.kind==="note") && it.kind!=="flow" && it.kind!=="sub" && res.kind!==it.kind){
     out.kind=res.kind; changes.push({k:"вид", v:res.kind==="note"?"заметка":"задача", i:res.kind==="note"?"ti-note":"ti-checklist"});
   }
 

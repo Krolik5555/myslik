@@ -13,7 +13,7 @@
    четырёх местах этого файла — маркер, мета, сводка и сам разбор. Заметки и схемы отчёт по
    статусу не разбирает: у них он вспомогательный, в тексте они идут обычным буллетом. */
 function reportStatusOf(it){
-  if(!it || it.kind!=="task") return null;
+  if(!it || !kindIsTask(it.kind)) return null;
   if(it.done) return "done";
   return (typeof СТАТУСЫ!=="undefined" && СТАТУСЫ[it.status] && it.status!=="note") ? it.status : "todo";
 }
@@ -49,7 +49,7 @@ function buildReportText(items, opts){
   try{ head+=" · "+new Date().toLocaleDateString("ru"); }catch(e){}
   L.push(head);
   // краткая сводка по задачам (если они есть)
-  const tasks=items.filter(i=>i.kind==="task");
+  const tasks=items.filter(i=>kindIsTask(i.kind));
   if(tasks.length){
     const cnt=s=>tasks.filter(t=>reportStatusOf(t)===s).length;
     /* Сводка идёт ЦИКЛОМ по реестру, а не четырьмя парами if: каждая пара звала cnt() дважды и
