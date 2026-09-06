@@ -352,6 +352,36 @@ t.push({имя: "повторное включение возвращает пр
   }
 }
 
+/* ================== УПОРЯДОЧИТЬ ВЫДЕЛЕННОЕ ==================
+   Раскладка пишет ДОМА, а не координаты: ноды доезжают физикой, и человек потом доводит форму
+   руками. Проверяем контракт, а не картинку: дома назначены всем, кроме корня; корень с места
+   не сдвинулся; шаг лёг в историю; расстояния между соседями по слою больше размеров нод. */
+{
+  const дерево = [A, B, C, D].filter(Boolean);
+  if (дерево.length < 3) t.push({имя:"упорядочивание выделенного", ок:false, факт:"мало проверочных нод"});
+  else {
+    view = "notes"; render(); await ж(140);
+    const ids = дерево.map(n => n.id).filter(id => graph && graph.byId[id]);
+    graph.selNodes = new Set(ids); graph._paintSel();
+    const корень = дерево.find(n => !дерево.some(m => m.id === n.parent)) || дерево[0];
+    const корБыл = graph.byId[корень.id] ? {x:graph.byId[корень.id].x, y:graph.byId[корень.id].y} : null;
+    const ок = graph._tidySelection();
+    await ж(200);
+    t.push({имя:"раскладка выделенного отрабатывает", ок: ок === true, факт:"нод: " + ids.length});
+    t.push({имя:"дома назначены (раскладка идёт домами, а не координатами)",
+            ок: дерево.filter(n => n.hx != null && n.hy != null).length >= ids.length - 1,
+            факт: "с домом: " + дерево.filter(n => n.hx != null).length + " из " + ids.length});
+    const корСтал = graph.byId[корень.id];
+    t.push({имя:"корень выделения с места не съезжает",
+            ок: !корБыл || !корСтал || (Math.abs(корСтал.x - корБыл.x) < 40 && Math.abs(корСтал.y - корБыл.y) < 40),
+            факт: корБыл && корСтал ? (Math.round(корСтал.x - корБыл.x) + "," + Math.round(корСтал.y - корБыл.y)) : ""});
+    t.push({имя:"«Держать раскладку» включается само (иначе порядок растащит физика)",
+            ок: S.settings.graphHome === true, факт: String(S.settings.graphHome)});
+    undoStep(); await ж(150);   // шаг раскладки лёг в историю — вернуть как было
+    graph.selNodes.clear(); graph._paintSel();
+  }
+}
+
 // ================== УБОРКА ==================
 deletePack([A.id, B.id, D.id, C.id]);
 S.settings.graphHome = _былДом; S.settings.graphRender = _былРенд;

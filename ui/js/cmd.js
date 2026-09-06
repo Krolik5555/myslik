@@ -287,6 +287,38 @@ function cmdPreview(ops){
 }
 const cmdHasDelete = ops => (ops || []).some(o => o.op === "delete");
 
+/* ФОРМА ТОГО, ЧТО ПОСТРОИТСЯ. Плоский список операций отвечает на вопрос «что произойдёт», но
+   не на главный — «как это будет выглядеть». А ошибаются как раз в форме: последовательные шаги
+   вешают веером на общего родителя вместо цепочки, и по списку «Связать A и B» × 8 это не видно
+   вовсе. Отступами видно сразу.
+   Строим по связям ВНУТРИ пакета: узел, к которому никто не ведёт, — корень ветки. */
+function cmdShape(ops){
+  const узлы = {}, порядок = [];
+  (ops || []).forEach(o => { if(o.op === "node" && o.as){ узлы[o.as] = o; порядок.push(o.as); } });
+  if(порядок.length < 2) return [];
+  const дети = {}, входящих = {};
+  порядок.forEach(a => { дети[a] = []; входящих[a] = 0; });
+  (ops || []).forEach(o => {
+    if(o.op !== "link" || !узлы[o.from] || !узлы[o.to]) return;
+    дети[o.from].push(o.to); входящих[o.to]++;
+  });
+  const корни = порядок.filter(a => !входящих[a]);
+  if(!корни.length) return [];
+  const строки = [], виден = new Set();
+  const обойти = (a, гл) => {
+    if(виден.has(a) || гл > 8) return;
+    виден.add(a);
+    const o = узлы[a];
+    строки.push({d: гл, i: kindIcon(o.kind), t: (o.title || "").trim() || "без названия",
+                 k: kindRu(o.kind), сколько: дети[a].length});
+    дети[a].forEach(d => обойти(d, гл + 1));
+  };
+  корни.forEach(к => обойти(к, 0));
+  // ноды, ни с чем не связанные в этом пакете, показываем в конце — иначе они просто исчезнут
+  порядок.forEach(a => { if(!виден.has(a)) обойти(a, 0); });
+  return строки;
+}
+
 /* ---------- картинки ----------
    Читаем файлы ДО применения и по одному: чтение идёт через мост в Python и может отказать
    (нет файла, не картинка, слишком большой). Отказ на середине применённого пакета оставил бы
@@ -533,6 +565,24 @@ function cmdPrompt(){
 '  • ПАРАЛЛЕЛЬНЫЕ и независимые (свет, звук, справочная заметка — их можно делать в любом порядке) — веером от общего родителя:',
 '      {"op":"link","from":"этап","to":"свет"},{"op":"link","from":"этап","to":"звук"}',
 "  • Повесить последовательные шаги веером — значит соврать про порядок: по такой ветке не видно, что за чем идёт.",
+'  • НЕ НУМЕРУЙ названия («01 — Блокинг», «Этап 2»). Порядок уже выражен связями, а номер в заголовке дублирует его и врёт, как только шаги переставят.',
+"",
+"  ЧТО ЗАДАЧА, А ЧТО ЗАМЕТКА — по этому виду отличают, а не по важности:",
+'  • task — то, что ВЫПОЛНЯЮТ и закрывают галочкой: «Сборка», «Рендер», «Смонтировать».',
+'  • note — то, что ЧИТАЮТ и помнят: справка, описание, ссылка на локацию, «не забыть — …». Заметке галочки не ставят, у неё нет своего завершения.',
+'  • Раздел, у которого есть дети, — тоже обычная нода, а не что-то особое.',
+"",
+"  Пример хорошей ветки (проект → этапы, внутри этапа последовательность и заметка сбоку):",
+'    {"op":"node","as":"pr","kind":"task","title":"Ролик для МТС","tags":["проект"],"area":"<id области>"}',
+'    {"op":"node","as":"sh","kind":"task","title":"SH010","tags":["шот"]}',
+'    {"op":"node","as":"bl","kind":"task","title":"Блокинг"}',
+'    {"op":"node","as":"sp","kind":"task","title":"Сплайн"}',
+'    {"op":"node","as":"po","kind":"task","title":"Полиш"}',
+'    {"op":"node","as":"rf","kind":"note","title":"Референсы движения"}',
+'    {"op":"link","from":"pr","to":"sh"},{"op":"link","from":"sh","to":"bl"},',
+'    {"op":"link","from":"bl","to":"sp"},{"op":"link","from":"sp","to":"po"},{"op":"link","from":"sh","to":"rf"}',
+"  Здесь блокинг → сплайн → полиш идут цепочкой, потому что это порядок работ, а референсы висят",
+"  на шоте отдельно: их не «выполняют», они нужны на всём протяжении.",
 "  • Не выдумывай id: бери их из снимка. Нет подходящей ноды — создай новую.",
 "  • Удаления добавляй, только если о них попросили прямо.",
 "",
@@ -640,7 +690,11 @@ async function cmdCopy(text){
 function openCmdRunner(){
   const m = el("div", "modal cmd-win");
   m.innerHTML = `
-    <h3><i class="ti ti-code"></i>Общение с нейросетью</h3>
+    <h3><i class="ti ti-sparkles"></i>ИИ и планер</h3>
+    ${/* ДВА РАЗДЕЛА В ОДНОМ ОКНЕ (КРОЛИК, 07.09.2026): пакет от нейросети через буфер обмена и
+         подключение агента по MCP. Это две дороги для ОДНОГО И ТОГО ЖЕ формата команд, и разводить
+         их по разным местам интерфейса — значит делать вид, что это разные вещи. Агент вторым:
+         его настраивают один раз, а пакеты вставляют постоянно. */""}
     <div class="cmd-hint">Скопируй промпт, отдай его любой нейросети вместе со своей просьбой,
       а её ответ вставь сюда. Приложение покажет, что именно будет сделано, — и сделает это только по кнопке.</div>
     <div class="cmd-bar">
@@ -650,6 +704,14 @@ function openCmdRunner(){
     </div>
     <textarea class="cmd-in" id="cmd-in" spellcheck="false" placeholder='Вставь сюда ответ нейросети — {"v":1,"ops":[…]}'></textarea>
     <div class="cmd-out" id="cmd-out"></div>
+    <div class="cmd-sec2"><i class="ti ti-robot"></i>ИИ-агент — управление планером снаружи</div>
+    <div class="cmd-hint">Claude Code и другие агенты смогут читать граф и создавать ноды сами — через локальный порт, только на этом компьютере и только с ключом. Ставить ничего не нужно: сервер живёт внутри приложения.</div>
+    <div class="cmd-bar">
+      <span class="set-val" id="ag-status">…</span>
+      <button class="btn ghost" id="ag-token"><i class="ti ti-refresh"></i>Новый ключ</button>
+      <button class="btn" id="ag-toggle"><i class="ti ti-plug"></i>Включить</button>
+      <button class="btn primary" id="ag-prompt" style="display:none"><i class="ti ti-robot"></i>Промпт для Claude</button>
+    </div>
     <div class="modal-foot">
       <button class="btn ghost" id="cmd-cancel">Закрыть</button>
       <button class="btn primary" id="cmd-run" disabled><i class="ti ti-player-play"></i>Выполнить</button>
@@ -665,10 +727,16 @@ function openCmdRunner(){
     const {ops, errors, warns} = разбор;
     if(!ops.length && !errors.length && !warns.length){ out.innerHTML = ""; кн.disabled = true; return; }
     const строки = cmdPreview(ops);
+    const форма = cmdShape(ops);
     out.innerHTML =
       (errors.length ? `<div class="cmd-sec bad"><i class="ti ti-alert-triangle"></i>Ошибки — пакет не выполнится</div>` +
         errors.map(e => `<div class="cmd-row bad">${esc(e)}</div>`).join("") : "") +
       (warns.length ? warns.map(w => `<div class="cmd-row warn"><i class="ti ti-info-circle"></i>${esc(w)}</div>`).join("") : "") +
+      /* Форма — ПЕРЕД списком операций: по ней видно то, чего в списке не разглядеть — где
+         ветка идёт цепочкой, а где висит веером на одном родителе. */
+      (форма.length ? `<div class="cmd-sec"><i class="ti ti-binary-tree"></i>Что получится</div>` +
+        форма.map(s => `<div class="cmd-row cmd-tree" style="--d:${s.d}"><i class="ti ${s.i}"></i>${esc(s.t)}` +
+          `<em>${esc(s.k)}${s.сколько ? " · ветвей: " + s.сколько : ""}</em></div>`).join("") : "") +
       (строки.length ? `<div class="cmd-sec"><i class="ti ti-list-check"></i>Будет сделано · ${строки.length}</div>` +
         строки.map(s => `<div class="cmd-row${s.danger ? " bad" : ""}"><i class="ti ${s.i}"></i>${esc(s.t)}</div>`).join("") : "");
     кн.disabled = !!errors.length || !ops.length;
@@ -691,6 +759,46 @@ function openCmdRunner(){
     toast(ок ? "Снимок графа скопирован" : "Не удалось скопировать", {icon: ок ? "ti-clipboard-check" : "ti-alert-triangle"});
   };
   $("#cmd-cancel", m).onclick = () => ov.remove();
+
+  /* Блок агента. Переключатель, ключ и одна кнопка — конфиг MCP человек не собирает руками:
+     путь к своей установке знает только само приложение, оно портативное. */
+  {
+    const стат = $("#ag-status", m), кноп = $("#ag-toggle", m), промпт = $("#ag-prompt", m);
+    let сост = null;
+    const покрасить = () => {
+      if(!сост){ стат.textContent = "доступно только в приложении"; кноп.disabled = true; $("#ag-token", m).disabled = true; промпт.style.display = "none"; return; }
+      стат.textContent = сост.enabled ? ("включён · 127.0.0.1:" + сост.port) : (сост.configured ? "выключен · ключ создан" : "выключен");
+      кноп.innerHTML = `<i class="ti ti-${сост.enabled ? "plug-off" : "plug"}"></i>` + (сост.enabled ? "Выключить" : "Включить");
+      промпт.style.display = сост.enabled ? "" : "none";
+    };
+    const обновить = async () => {
+      if(!HasPy() || !window.pywebview.api.agent_status){ сост = null; покрасить(); return; }
+      try { сост = await window.pywebview.api.agent_status(); } catch(e){ сост = null; }
+      покрасить();
+    };
+    обновить();
+    кноп.onclick = async () => {
+      if(!сост) return;
+      кноп.disabled = true;
+      try { await window.pywebview.api.agent_enable(!сост.enabled); } catch(e){}
+      кноп.disabled = false; await обновить();
+      toast(сост && сост.enabled ? "Агент подключён" : "Доступ для агента выключен", {icon: "ti-robot"});
+    };
+    $("#ag-token", m).onclick = async () => {
+      if(!сост) return;
+      const да = await uiConfirm("Прежний ключ перестанет работать — агенту придётся отдать новый конфиг.",
+        {title: "Сменить ключ?", okLabel: "Сменить"});
+      if(!да) return;
+      try { await window.pywebview.api.agent_reset_token(); } catch(e){}
+      await обновить(); toast("Ключ обновлён", {icon: "ti-key"});
+    };
+    промпт.onclick = async () => {
+      if(!сост) return;
+      const ок = await cmdCopy(cmdAgentSetupPrompt(сост));
+      toast(ок ? "Промпт скопирован — вставь его Claude Code" : "Не удалось скопировать",
+        {icon: ок ? "ti-clipboard-check" : "ti-alert-triangle"});
+    };
+  }
 
   $("#cmd-run", m).onclick = async () => {
     const кн = $("#cmd-run", m);

@@ -832,7 +832,14 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
    «Сегодня»: слово в 62 px вылезало из неё в обе стороны и ложилось поверх шевронов. */
 .cal-nav button:not(.btn){width:30px;height:30px;border-radius:8px;border:0.5px solid var(--bd2);color:var(--mut);display:flex;align-items:center;justify-content:center;font-size:16px;}
 .cal-nav button:not(.btn):hover{color:var(--tx);background:var(--surf2);}
-.graph-hint{position:absolute;top:12px;right:12px;font-size:11px;color:var(--mut);background:var(--surf2);border:0.5px solid var(--bd);border-radius:8px;padding:6px 26px 6px 10px;z-index:5;max-width:230px;line-height:1.5;}
+/* КНОПКА «ИИ» — правый верхний угол холста, симметрично тулбару слева. Тем же размером и
+   формой, что кнопки тулбара: это такой же вход, а не украшение. Подсказка ниже уступает ей
+   место (right сдвинут), иначе они наложились бы. */
+.graph-ai{position:absolute;top:12px;right:12px;z-index:6;width:34px;height:34px;border-radius:9px;
+  display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--mut);
+  background:var(--surf2);border:0.5px solid var(--bd);}
+.graph-ai:hover{color:var(--tx);border-color:var(--bd2);box-shadow:0 0 14px var(--glow);}
+.graph-hint{position:absolute;top:56px;right:12px;font-size:11px;color:var(--mut);background:var(--surf2);border:0.5px solid var(--bd);border-radius:8px;padding:6px 26px 6px 10px;z-index:5;max-width:230px;line-height:1.5;}
 .graph-hint.off{display:none;}
 #g-hint-x{position:absolute;top:4px;right:4px;width:18px;height:18px;border-radius:5px;display:flex;
   align-items:center;justify-content:center;color:var(--mut2);font-size:11px;}
@@ -840,6 +847,11 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 /* панель действий над выделением — компактно, в правом нижнем углу, не отвлекает */
 .graph-selbar{position:absolute;right:12px;bottom:12px;display:flex;align-items:center;gap:6px;z-index:8;background:var(--surf2);border:0.5px solid var(--bd);border-radius:999px;padding:3px 4px 3px 10px;box-shadow:0 4px 14px rgba(0,0,0,.35);opacity:.82;transition:opacity .12s;}
 .graph-selbar:hover{opacity:1;}
+/* Кнопка «упорядочить» в полосе выделения: значок без подписи — полоса узкая, а действие
+   объясняет подсказка при наведении (см. _tidySelection в graph.js). */
+.gsb-btn{width:26px;height:26px;border-radius:999px;display:flex;align-items:center;justify-content:center;
+  color:var(--mut);font-size:15px;flex:none;}
+.gsb-btn:hover{background:var(--surf3);color:var(--tx);}
 .gsb-n{font-size:11px;color:var(--mut);white-space:nowrap;}
 .gsb-btn{display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--font);background:var(--acc);color:var(--bg);border:none;border-radius:999px;padding:3px 11px;font-size:12px;font-weight:600;}
 .gsb-btn:hover{filter:brightness(.92);}
@@ -1486,11 +1498,19 @@ button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:va
   text-transform:uppercase;letter-spacing:.04em;margin:10px 0 6px;}
 .cmd-sec:first-child{margin-top:0;}
 .cmd-sec.bad{color:var(--warn);}
+/* Заголовок второго раздела окна (агент): с линией сверху — разделов два, и граница между ними
+   должна читаться без чтения текста */
+.cmd-sec2{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--mut);
+  text-transform:uppercase;letter-spacing:.04em;margin:16px 0 8px;padding-top:14px;
+  border-top:0.5px solid var(--bd);}
 .cmd-row{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:var(--tx);
   padding:5px 8px;border-radius:7px;line-height:1.45;}
 .cmd-row:nth-child(odd){background:var(--surf2);}
 .cmd-row i{font-size:15px;color:var(--mut);flex:none;margin-top:1px;}
 /* Ошибки и удаления — одним цветом: и то, и другое означает «дальше не бездумно» */
+/* Строка дерева: отступ по глубине показывает форму ветки — цепочка это или веер (см. cmdShape) */
+.cmd-tree{padding-left:calc(8px + var(--d,0) * 18px);}
+.cmd-tree em{margin-left:auto;font-style:normal;font-size:11px;color:var(--mut2);white-space:nowrap;padding-left:10px;}
 .cmd-row.bad{color:var(--warn);} .cmd-row.bad i{color:var(--warn);}
 .cmd-row.warn{color:var(--mut);} .cmd-row.warn i{color:var(--mut2);}
 /* «Одинокие ноды» */

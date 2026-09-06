@@ -1315,22 +1315,9 @@ function openSettings(tab){
         <span class="set-val">Резервная копия текущих данных</span>
         <div class="right"><button class="btn ghost" id="set-backup"><i class="ti ti-shield-check"></i>Сделать бэкап</button></div>
       </div>
-      ${/* ДОСТУП ДЛЯ ИИ-АГЕНТА. По умолчанию выключен: порт в личный планер не открывают
-           «на всякий случай». Кнопка отдаёт готовый промпт — человек не должен собирать
-           конфиг MCP руками и знать, где лежит его собственная установка. */""}
-      <div class="set-sec">ИИ-агент — управление планером снаружи</div>
-      <div class="set-hint" style="margin-bottom:10px;">Claude Code и другие агенты смогут читать граф и создавать в нём ноды — через локальный порт, только на этом компьютере и только с ключом. По умолчанию выключено.</div>
-      <div class="set-row">
-        <span class="set-val" id="ag-status">…</span>
-        <div class="right">
-          <button class="btn ghost" id="ag-token"><i class="ti ti-refresh"></i>Новый ключ</button>
-          <button class="btn" id="ag-toggle"><i class="ti ti-plug"></i>Включить</button>
-        </div>
-      </div>
-      <div class="set-row" id="ag-connect-row" style="display:none">
-        <span class="set-val">Подключить агента</span>
-        <div class="right"><button class="btn primary" id="ag-prompt"><i class="ti ti-robot"></i>Скопировать промпт для Claude</button></div>
-      </div>
+      ${/* ИИ-агента здесь НЕТ намеренно: и он, и пакеты команд от нейросети — две дороги для
+           одного формата, и живут они вместе, в окне по кнопке в углу графа (см. openCmdRunner).
+           Дубль настройки в двух местах разошёлся бы состоянием при первой же правке. */""}
       <div class="set-sec">Telegram — захват заметок с телефона</div>
       <div class="field"><label>Токен бота (от @BotFather)</label>
         <input type="password" id="tg-token" placeholder="123456:ABC-Def…" autocomplete="off" spellcheck="false"></div>
@@ -1359,46 +1346,6 @@ function openSettings(tab){
   const ov=overlay(m);
   if(typeof aiRenderSettings==="function") aiRenderSettings($("#set-ai-panel",m));   // вкладка «ИИ» — вся начинка в ai.js (вырезаемо)
   $("#set-backup",m).onclick=doBackup;
-  /* ИИ-АГЕНТ. Всё, что нужно человеку, — переключатель и одна кнопка: конфиг MCP собирается
-     за него (путь к своей установке знает только само приложение, оно портативное), а промпт
-     объясняет агенту, куда этот конфиг положить и как потом работать. */
-  {
-    const стат=$("#ag-status",m), кноп=$("#ag-toggle",m), ряд=$("#ag-connect-row",m);
-    let сост=null;
-    const покрасить=()=>{
-      if(!сост){ стат.textContent="доступно только в приложении"; кноп.disabled=true; $("#ag-token",m).disabled=true; return; }
-      стат.textContent = сост.enabled ? ("включён · 127.0.0.1:" + сост.port) : (сост.configured ? "выключен · ключ создан" : "выключен");
-      кноп.innerHTML = `<i class="ti ti-${сост.enabled?"plug-off":"plug"}"></i>` + (сост.enabled ? "Выключить" : "Включить");
-      ряд.style.display = сост.enabled ? "" : "none";
-    };
-    const обновить=async()=>{
-      if(!HasPy() || !window.pywebview.api.agent_status){ сост=null; покрасить(); return; }
-      try{ сост=await window.pywebview.api.agent_status(); }catch(e){ сост=null; }
-      покрасить();
-    };
-    обновить();
-    кноп.onclick=async()=>{
-      if(!сост) return;
-      кноп.disabled=true;
-      try{ await window.pywebview.api.agent_enable(!сост.enabled); }catch(e){}
-      кноп.disabled=false; await обновить();
-      toast(сост && сост.enabled ? "Агент подключён" : "Доступ для агента выключен",{icon:"ti-robot"});
-    };
-    $("#ag-token",m).onclick=async()=>{
-      if(!сост) return;
-      const да=await uiConfirm("Прежний ключ перестанет работать — агенту придётся отдать новый конфиг.",
-        {title:"Сменить ключ?", okLabel:"Сменить"});
-      if(!да) return;
-      try{ await window.pywebview.api.agent_reset_token(); }catch(e){}
-      await обновить(); toast("Ключ обновлён",{icon:"ti-key"});
-    };
-    $("#ag-prompt",m).onclick=async()=>{
-      if(!сост) return;
-      const ок=await cmdCopy(cmdAgentSetupPrompt(сост));
-      toast(ок?"Промпт скопирован — вставь его Claude Code":"Не удалось скопировать",
-        {icon: ок?"ti-clipboard-check":"ti-alert-triangle"});
-    };
-  }
   // Telegram: статус подтягиваем асинхронно (не блокируем открытие модалки IPC-round-trip'ом)
   const tgStatus=$("#tg-status",m), tgToken=$("#tg-token",m), tgClear=$("#tg-clear",m);
   const renderTgStatus=async()=>{

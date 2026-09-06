@@ -153,8 +153,6 @@ function renderNotes(v){
     <div class="graph-more" id="g-more-menu" style="display:none">
       <button class="gm-it" id="g-refit"><i class="ti ti-arrows-shuffle"></i>Перераскладка</button>
       <button class="gm-it" id="g-tags"><i class="ti ti-tags"></i>Теги со стилем</button>
-      <!-- пакет команд от сторонней нейросети: промпт со снимком графа наружу, её ответ внутрь -->
-      <button class="gm-it" id="g-cmd"><i class="ti ti-code"></i>Общение с нейросетью</button>
       <button class="gm-it" id="g-hint-on"><i class="ti ti-help-circle"></i>Показать подсказку</button>
       <!-- Тур показывается сам ОДИН раз после обновления. Отсюда его можно открыть снова:
            иначе посмотреть второй раз можно было только правкой файла данных.
@@ -178,11 +176,18 @@ function renderNotes(v){
       <span><span class="lg-dot flow"></span>полотно</span>
       <span><span class="lg-dot sub"></span>подграф</span>
     </div>
+    ${/* ИИ — СВОЯ КНОПКА В УГЛУ, а не пункт в меню «…» (КРОЛИК, 07.09.2026). Пунктом она стояла
+         в одном ряду с перераскладкой и счётчиком кадров — среди редких служебных действий, тогда
+         как работа с нейросетью это отдельный вход, к которому возвращаются постоянно. Правый
+         верхний угол свободен и симметричен тулбару слева. */""}
+    <button class="graph-ai" id="g-ai" title="ИИ: пакеты команд от нейросети и подключение агента"><i class="ti ti-sparkles"></i></button>
     <!-- подсказку можно закрыть: висеть постоянно ей незачем, а вернуть — из меню «…» -->
     <div class="graph-hint${S.settings.graphHint===false?" off":""}" id="g-hint"><span>Alt+тащи от ноды — связь/заметка · Ctrl+тащи — копия выделенного · ПКМ — меню / создать · ЛКМ-рамка — выделить · двойной клик — открыть (подграф — войти внутрь) · средняя кнопка — двигать · колесо — зум · Delete — удалить</span><button id="g-hint-x" title="Скрыть подсказку"><i class="ti ti-x"></i></button></div>
     <!-- только счётчик: кнопка «Отчёт» уехала в правую панель, где отчёт и собирается -->
     <div class="graph-selbar" id="g-selbar" style="display:none">
       <span class="gsb-n"></span>
+      <!-- разложить выделенное дерево домами: ноды доедут сами, форму потом доводят руками -->
+      <button class="gsb-btn" id="g-tidy" title="Упорядочить выделенное: разложить деревом, без наложений и пересечений"><i class="ti ti-layout-grid"></i></button>
     </div>
     <div class="graph-tray" id="g-tray" style="display:none">
       <button class="gt-tab" id="gt-tab" title="Неразобранные мысли"><i class="ti ti-inbox"></i><span class="gt-n"></span></button>
@@ -234,7 +239,7 @@ function renderNotes(v){
     if(формаБыла) undoPushLayout(формаБыла);
     graph.refit(); };
   $("#g-tags").onclick=()=>{ closeMore(); openTagManager(); };
-  if($("#g-cmd")) $("#g-cmd").onclick=()=>{ closeMore(); openCmdRunner(); };
+  if($("#g-ai")) $("#g-ai").onclick=()=>openCmdRunner();
   // подсказка по управлению: закрывается крестиком, возвращается отсюда
   if($("#g-hint-x")) $("#g-hint-x").onclick=()=>{ S.settings.graphHint=false; persist(); $("#g-hint").classList.add("off"); };
   $("#g-hint-on").onclick=()=>{ closeMore(); S.settings.graphHint=true; persist(); $("#g-hint").classList.remove("off"); };
@@ -623,6 +628,8 @@ class Graph{
     if(!ids.length){ bar.style.display="none"; return; }
     bar.style.display="";
     const nEl=bar.querySelector(".gsb-n"); if(nEl) nEl.textContent="Выделено: "+ids.length;
+    const tidy=bar.querySelector("#g-tidy");
+    if(tidy){ tidy.style.display=ids.length>2?"":"none"; tidy.onclick=()=>this._tidySelection(); }
   }
   // ноды выделения — для кнопки «Отчёт» в правой панели
   selectedItems(){ return [...this.selNodes].map(id=>this.byId[id]&&this.byId[id].ref).filter(Boolean); }
@@ -3204,17 +3211,147 @@ class Graph{
      два режима не смешиваются, и физика у закреплённой всё равно отключена. */
   _homeFromDrag(it){
     if(!it || it.pin || it.x==null) return false;
-    /* Внутри подграфа владелец — корень, и только у ПРИЦЕПЛЕННЫХ к нему нод. Связь считаем
-       ПО ФАКТУ (subRootHolds), а не по кешу _уКорня: кеш собирается в build, а сюда приходят
-       ПЕРЕД ним — _quickAdd зовёт нас сразу после addLink, и кеш ещё не знает о только что
-       созданной связи. Владелец «не находился», дом стирался (ветка ниже), и нода оставалась
-       без дома: её носила физика, а ребёнок с домом ехал следом — обе улетали от корня
-       (КРОЛИК, 06.09.2026). Здесь это дёшево: жест случается раз в секунду, не раз в кадр. */
-    const о = it.parent ? this.byId[it.parent]
-            : it.area ? this.byId["hub_"+it.area]
-            : (subRootHolds(it) ? this.byId[subRootCur()||""]||null : null);
+    // владельца разбирает _ownerNode — одна формула на жест, раскладку выделенного и физику
+    const о = this._ownerNode(it);
     if(!о){ delete it.hx; delete it.hy; return false; }   // владельца нет — дому не от чего считаться
     it.hx=Math.round(it.x-о.x); it.hy=Math.round(it.y-о.y); return true;
+  }
+  /* ---------- УПОРЯДОЧИТЬ ВЫДЕЛЕННОЕ ----------
+     Зачем. Дерево, насыпанное пакетом команд (а то и руками), приходится разбирать вручную:
+     ноды лежат друг на друге, связи пересекаются, читать нечего. Физика тут не помощник — она
+     разводит узлы «в среднем», а не строит дерево.
+
+     ЧТО ДЕЛАЕМ. Раскладываем ТОЛЬКО выделенное и ТОЛЬКО домами: считаем целевые места и пишем
+     их в hx/hy, а до места ноды доезжают сами, домашней пружиной. Так у человека остаётся всё,
+     чем он привык доводить форму: сбросить дом одной ноде, подвинуть другую, откатить целиком
+     (шаг раскладки, Ctrl+Z). Переставь мы x/y напрямую — физика тут же начала бы растаскивать
+     наведённый порядок обратно.
+
+     РАСКЛАДКА РАДИАЛЬНАЯ, ПО СЛОЯМ, и это не вкус: у радиального дерева рёбра не пересекаются
+     ПО ПОСТРОЕНИЮ, если каждому поддереву отдать свой угловой сектор, а радиусы слоёв растут.
+     Сектор делится пропорционально числу ЛИСТЬЕВ поддерева — тогда широкая ветка получает
+     широкий сектор, и внутри неё тоже ничего не слипается. Наложение нод снимает второе
+     условие: радиус слоя поднимается, пока хорда между соседями не станет больше их размеров.
+
+     КОРЕНЬ НЕ ДВИГАЕМ ВОВСЕ. «Дерево остаётся примерно там же» — это про него: ветки растут
+     от той точки, где корень уже стоит, а не съезжают к центру экрана. Если у корня есть
+     владелец снаружи выделения, дерево ещё и разворачивается В СТОРОНУ ОТ НЕГО — то есть туда,
+     куда оно и росло.
+
+     Поперечные связи (не вошедшие в остовное дерево) пересекаться могут — в общем графе это
+     неизбежно, и обещать обратное было бы неправдой. */
+  _tidySelection(){
+    const ids=[...this.selNodes].filter(id=>!isHubId(id) && this.byId[id] && this.byId[id].ref);
+    if(ids.length<3){ toast("Выдели хотя бы три ноды — раскладывать нечего",{icon:"ti-layout-grid"}); return false; }
+    const набор=new Set(ids);
+    // связи ВНУТРИ выделения: по ним и строим дерево
+    const смеж={}; ids.forEach(id=>{ смеж[id]=[]; });
+    (S.links||[]).forEach(l=>{ if(!Array.isArray(l)) return;
+      if(набор.has(l[0]) && набор.has(l[1])){ смеж[l[0]].push(l[1]); смеж[l[1]].push(l[0]); } });
+
+    /* Корни — те, чей владелец ВНЕ выделения: с них дерево и начинается. Не нашлось ни одного
+       (выделили кольцо или кусок середины) — берём самую связную ноду: она центр этого куска. */
+    let корни=ids.filter(id=>{ const it=this.byId[id].ref; return !(it.parent && набор.has(it.parent)); });
+    if(!корни.length) корни=[ids.slice().sort((a,b)=>смеж[b].length-смеж[a].length)[0]];
+
+    // остовное дерево обходом в ширину: поперечные рёбра в раскладке не участвуют
+    const родитель={}, дети={}, порядок=[], виден=new Set();
+    ids.forEach(id=>{ дети[id]=[]; });
+    корни.forEach(к=>{
+      if(виден.has(к)) return;
+      виден.add(к); родитель[к]=null; порядок.push(к);
+      const очередь=[к];
+      while(очередь.length){
+        const c=очередь.shift();
+        смеж[c].forEach(сос=>{ if(виден.has(сос)) return;
+          виден.add(сос); родитель[сос]=c; дети[c].push(сос); порядок.push(сос); очередь.push(сос); });
+      }
+    });
+    ids.forEach(id=>{ if(!виден.has(id)){ виден.add(id); родитель[id]=null; корни.push(id); порядок.push(id); } });
+
+    // вес поддерева = число листьев: по нему делится угол (обход с конца — дети уже посчитаны)
+    const вес={};
+    for(let i=порядок.length-1;i>=0;i--){ const id=порядок[i];
+      вес[id]=дети[id].length ? дети[id].reduce((s,d)=>s+вес[d],0) : 1; }
+
+    const цель={};
+    const ШАГ=Math.max(130, 90+ids.length*0.6);      // базовое расстояние между слоями
+    корни.forEach(к=>{
+      const у=this.byId[к];
+      цель[к]={x:у.x, y:у.y};                        // корень остаётся на месте — см. разбор выше
+      /* Куда разворачивать дерево. Есть владелец снаружи — растим В ПРОТИВОПОЛОЖНУЮ от него
+         сторону сектором в 220°: так ветка уходит наружу, а не наползает на своего же хозяина.
+         Владельца нет — полный круг. */
+      const вл=this._ownerNode(this.byId[к].ref);
+      let a0=-Math.PI, a1=Math.PI;
+      if(вл && вл.id!==к){
+        const прочь=Math.atan2(у.y-вл.y, у.x-вл.x);
+        const пол=Math.PI*220/360;
+        a0=прочь-пол/2; a1=прочь+пол/2;
+      }
+      const слои=[];                                  // сколько узлов на каждом слое — для радиусов
+      const обход=[{id:к, d:0, a0, a1}];
+      const очередь=[];
+      while(обход.length){ const у2=обход.shift(); очередь.push(у2);
+        слои[у2.d]=(слои[у2.d]||0)+1;
+        const дд=дети[у2.id]; if(!дд.length) continue;
+        const всего=дд.reduce((s,d)=>s+вес[d],0)||1;
+        let a=у2.a0;
+        дд.forEach(d=>{ const ш=(у2.a1-у2.a0)*(вес[d]/всего);
+          обход.push({id:d, d:у2.d+1, a0:a, a1:a+ш}); a+=ш; });
+      }
+      /* Радиус слоя: не меньше базового шага и не меньше того, при котором соседям на этом слое
+         хватает хорды. Монотонность обязательна — иначе внешний слой заедет внутрь предыдущего. */
+      const R=[0]; let пред=0;
+      for(let d=1;d<слои.length;d++){
+        const н=слои[d]||1;
+        const нужен=(н*95)/((a1-a0)||(Math.PI*2));   // длина дуги на узел ≈ 95 px
+        R[d]=пред=Math.max(пред+ШАГ, нужен);
+      }
+      очередь.forEach(у2=>{ if(у2.d===0) return;
+        const a=(у2.a0+у2.a1)/2, r=R[у2.d]||(у2.d*ШАГ);
+        цель[у2.id]={x:цель[к].x+Math.cos(a)*r, y:цель[к].y+Math.sin(a)*r}; });
+    });
+
+    /* Пишем ДОМАМИ. Смещение считается от ЦЕЛЕВОГО места владельца, если он тоже в выделении:
+       иначе дом ребёнка мерился бы от точки, откуда владелец через секунду уедет. */
+    const было=this.layoutSnap();
+    let n=0;
+    ids.forEach(id=>{
+      const it=this.byId[id].ref, ц=цель[id]; if(!it || !ц || it.pin) return;
+      const вл=this._ownerNode(it);
+      const оп=вл ? (цель[вл.id] || {x:вл.x, y:вл.y}) : null;
+      if(!оп) return;                                 // владельца нет — дому не от чего считаться
+      it.hx=Math.round(ц.x-оп.x); it.hy=Math.round(ц.y-оп.y); n++;
+    });
+    if(!n){ toast("Не от чего считать дома: у выделенного нет владельцев",{icon:"ti-layout-grid"}); return false; }
+    undoPushLayout(было);
+    /* Без «Держать раскладку» дома не действуют вовсе, и наведённый порядок физика растащит
+       за пару секунд. Поэтому режим включаем сами и говорим об этом — молча менять настройку
+       нельзя, а спрашивать посреди жеста незачем: без неё действие просто не имеет смысла. */
+    let включили=false;
+    if(!S.settings.graphHome){ S.settings.graphHome=true; включили=true;
+      const b=$("#g-home"); if(b) b.classList.add("on"); }
+    persist();
+    /* РАЗОГРЕВ — СТРОГО ПОСЛЕ build(). Тот не берёт максимум, а ПЕРЕЗАПИСЫВАЕТ alpha (см. его
+       хвост: у размещённых нод она становится нулём — «позиции уже сохранены, не дёргаем»).
+       Поднимешь до сборки — она затрётся, физика уснёт, и ноды поедут по новым домам только
+       после первого жеста, который её разбудит (КРОЛИК: «двигает не сразу, а когда совершу
+       какое-либо действие»). */
+    this.build();
+    this.alpha=Math.max(this.alpha,0.5); this._wake();
+    toast("Упорядочено · нод: "+n+(включили?" · «Держать раскладку» включено":""),
+      {icon:"ti-layout-grid", label:"Вернуть", onAction:()=>{ undoStep(); }});
+    return true;
+  }
+  /* Владелец ноды как УЗЕЛ на холсте — та же формула, что у _homeFromDrag и физики в _tick.
+     Держим её одной функцией: разъедься эти три места, дома поехали бы вразнобой. */
+  _ownerNode(it){
+    if(!it) return null;
+    if(it.parent && this.byId[it.parent]) return this.byId[it.parent];
+    if(it.area && this.byId["hub_"+it.area]) return this.byId["hub_"+it.area];
+    if(subRootHolds(it)) return this.byId[subRootCur()||""] || null;
+    return null;
   }
   /* СБРОС ДОМА — НА ВЫДЕЛЕНИЕ, как цвет и статус (2026-09-01).
      Зачем нужен: «Держать раскладку» назначает дом всем разом, и одна нода, которую однажды
@@ -3243,9 +3380,10 @@ class Graph{
     /* Раскладку надо РАЗОГРЕТЬ: без этого нода останется стоять там же, где стояла, и человек
        решит, что кнопка не сработала. Физика доведёт её до места родителя за те же полсекунды,
        что и после любого другого изменения формы. */
-    this.alpha=Math.max(this.alpha,0.35); this._wake(); this.build();
+    // разогрев ПОСЛЕ сборки: build перезаписывает alpha нулём, и поднятая до него затирается
+    this.build(); this.alpha=Math.max(this.alpha,0.35); this._wake();
     const back=()=>{ undo.forEach(([id,hx,hy])=>{ const it=S.items.find(x=>x.id===id); if(it){ it.hx=hx; it.hy=hy; } });
-      persist(); this.alpha=Math.max(this.alpha,0.35); this._wake(); this.build(); };
+      persist(); this.build(); this.alpha=Math.max(this.alpha,0.35); this._wake(); };
     toast(nn<2 ? "Дом сброшен · встанет по родителю" : ("Дом сброшен · нод: "+nn),
           {icon:"ti-home-off", label:"Вернуть", onAction:back});
   }
@@ -5109,6 +5247,11 @@ class Graph{
            в свободном режиме кнопка ничего не значит, а у ноды без дома сбрасывать нечего —
            неактивная кнопка в окне из шести строк только занимала бы место. Считаем по ВСЕМУ
            выделению, потому что и действие идёт на него: выделил ветку, сбросил разом. */""}
+      ${/* УПОРЯДОЧИТЬ — только когда выделено дерево, а не одна нода: раскладывать нечего,
+           и кнопка без дела занимала бы строку в окне из шести пунктов. */""}
+      ${(this.selNodes.has(n.id) && this.selNodes.size>2) ? `<div class="np-row" style="margin-bottom:6px;">
+        <button class="btn" data-pop="tidy" title="Разложить выделенное деревом: без наложений и пересечений связей. Ноды доедут по домам, форму потом доводишь руками."><i class="ti ti-layout-grid"></i>Упорядочить · ${this.selNodes.size}</button>
+      </div>` : ""}
       ${(()=>{
         if(!S.settings.graphHome) return "";
         const ids=(this.selNodes.has(n.id) && this.selNodes.size>1) ? [...this.selNodes] : [n.id];
@@ -5127,6 +5270,7 @@ class Graph{
     $("#graph-wrap").appendChild(pop);
     this._posPop(pop,n);
     $$(".np-sw .swatch",pop).forEach(b=>b.onclick=()=>this._paintColor(n, PALETTE[+b.dataset.ci]||null));
+    if(pop.querySelector('[data-pop="tidy"]')) pop.querySelector('[data-pop="tidy"]').onclick=()=>{ this._closePop(); this._tidySelection(); };
     // «Открыть» у подграфа = вход внутрь, тем же путём, что и двойной клик (см. _openNode)
     if(pop.querySelector('[data-pop="open"]')) pop.querySelector('[data-pop="open"]').onclick=()=>{
       if(it.kind==="sub"){ this._openNode(n); return; }
