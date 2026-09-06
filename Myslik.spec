@@ -3,7 +3,10 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('ui', 'ui')]
 binaries = []
-hiddenimports = ['win32gui', 'win32con', 'win32process']
+# mcp_server — режим «Myslik.exe --mcp»: приложение работает MCP-сервером для ИИ-агента.
+# Импорт в app.py статический, но лежит он за условием, поэтому называем явно — иначе анализатор
+# может его не втянуть, и exe с ключом --mcp упадёт на ModuleNotFoundError уже у пользователя.
+hiddenimports = ['win32gui', 'win32con', 'win32process', 'mcp_server']
 tmp_ret = collect_all('webview')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('clr_loader')

@@ -28,6 +28,7 @@ function openPalette(){
     {t:"Переключить тему",i:"ti-sun",run:()=>{closeOverlays();toggleTheme();}},
     {t:"Сообщить о проблеме",i:"ti-message-report",run:()=>{closeOverlays();openFeedback();}},
     {t:"Настройки",i:"ti-settings",run:()=>{closeOverlays();openSettings();}},
+    {t:"Общение с нейросетью (пакет команд)",i:"ti-code",run:()=>{closeOverlays();openCmdRunner();}},
     {t:"Теги со стилем",i:"ti-tags",run:()=>{closeOverlays();openTagManager();}},
     {t:"Шаблоны нод",i:"ti-layout-list",run:()=>{closeOverlays();openTemplateManager();}},
     {t:"Удалить пустые заметки",i:"ti-eraser",run:()=>{closeOverlays();cleanEmptyNotes();}},

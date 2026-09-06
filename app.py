@@ -17,6 +17,14 @@ import traceback
 import tempfile
 import html
 
+# РЕЖИМ MCP-СЕРВЕРА. Проверяем ДО импорта webview: окна тут нет вовсе, а оконный слой и грузится
+# долго, и падает там, где нет WebView2. Именно так Мыслик приезжает пользователю MCP-сервером —
+# ставить отдельный пакет, venv и Python ему не нужно, всё уже внутри exe (см. mcp_server.py).
+if "--mcp" in sys.argv:
+    import mcp_server
+    mcp_server.main()
+    raise SystemExit(0)
+
 # Уровень лога pywebview задаём ДО импорта: свой логгер он настраивает в момент импорта
 # (webview/__init__.py, _setup_logger) и переменную больше не перечитывает. Нужен он вот зачем:
 # guilib.py ловит ЛЮБОЙ ImportError оконного слоя и подменяет его одной фразой «You must have
@@ -364,6 +372,192 @@ def _atomic_write(path, text):
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, path)
+
+
+AGENT_FILE = os.path.join(DATA_DIR, "agent.json")
+AGENT_PORTS = range(8766, 8776)          # первый свободный из десятка; фактический пишем в конфиг
+
+# ---------- ДОСТУП ДЛЯ ИИ-АГЕНТА ----------
+# Локальный HTTP только на 127.0.0.1 и только с токеном. Наружу не смотрит вовсе: агент живёт
+# на этой же машине (Claude Code, MCP-сервер), а открытый порт в личный планер — это не «удобно»,
+# это дыра. По умолчанию ВЫКЛЮЧЕНО: включают руками в настройках, там же берут токен.
+_AGENT_SRV = None
+_AGENT_PORT = 0
+
+
+def _agent_load():
+    try:
+        with open(AGENT_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _agent_beacon():
+    """«Маячок» в стандартном месте профиля. Мыслик портативный — его каталог заранее не знает
+    никто, в том числе MCP-сервер, запущенный отдельно. Поэтому порт и токен дублируются сюда:
+    один известный путь на любой установке, искать нечего."""
+    appdata = os.environ.get("APPDATA")
+    return os.path.join(appdata, "Myslik", "agent.json") if appdata else ""
+
+
+def _agent_save(cfg):
+    _ensure_dirs(safe=True)
+    try:
+        _atomic_write(AGENT_FILE, json.dumps(cfg, ensure_ascii=False, indent=1))
+    except Exception as e:
+        print("agent save error:", e)
+    b = _agent_beacon()
+    if not b:
+        return
+    try:
+        os.makedirs(os.path.dirname(b), exist_ok=True)
+        _atomic_write(b, json.dumps(cfg, ensure_ascii=False, indent=1))
+    except Exception as e:
+        print("agent beacon error:", e)
+
+
+def _agent_token(create=False):
+    cfg = _agent_load()
+    tok = cfg.get("token") or ""
+    if not tok and create:
+        import secrets
+        tok = secrets.token_urlsafe(24)
+        cfg["token"] = tok
+        _agent_save(cfg)
+    return tok
+
+
+def _agent_prepare(params):
+    """Картинки читает ПИТОН, а не фронт. evaluate_js возвращает значение выражения и промис
+    не ждёт — значит внутри cmdAgent нельзя ничего дочитывать с диска. Подставляем готовый
+    data-URL заранее; фронт кладёт его как есть."""
+    ops = params.get("ops")
+    if not isinstance(ops, list):
+        return params
+    for o in ops:
+        if not isinstance(o, dict) or o.get("op") != "field" or o.get("type") != "image":
+            continue
+        if o.get("data") or not o.get("path"):
+            continue
+        url = Api().read_image(o.get("path"))
+        if url:
+            # без ужатия: fieldShrink живёт на фронте и тоже асинхронный. Отсюда и лимит ниже,
+            # он строже человеческого — мегабайты base64 гоняются через мост при каждой записи.
+            if len(url) > 6 * 1024 * 1024:
+                o["_err"] = "картинка слишком большая для агента"
+            else:
+                o["data"] = url
+                o.pop("path", None)
+    return params
+
+
+def _agent_call(method, params):
+    if _WINDOW is None:
+        return {"ok": False, "error": "окно приложения ещё не готово"}
+    try:
+        if method in ("apply", "preview"):
+            params = _agent_prepare(params or {})
+        js = "window.cmdAgent ? window.cmdAgent(%s,%s) : ''" % (
+            json.dumps(method), json.dumps(json.dumps(params or {}, ensure_ascii=False)))
+        # ВАЖНО: зовём из потока HTTP-сервера, а НЕ из UI-потока. evaluate_js ждёт ответа
+        # браузера, а ответ приходит в UI-поток — вызов оттуда подвесил бы окно намертво
+        # (та же грабля, что у кнопки закрытия, см. _install_native_titlebar).
+        raw = _WINDOW.evaluate_js(js)
+        if not raw:
+            return {"ok": False, "error": "фронт не ответил (окно занято или модуль не загружен)"}
+        return json.loads(raw) if isinstance(raw, str) else raw
+    except Exception as e:
+        return {"ok": False, "error": "мост: %s" % e}
+
+
+def _agent_handler_class():
+    from http.server import BaseHTTPRequestHandler
+
+    class H(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *a):
+            pass                       # не сорим в консоль приложения на каждый запрос
+
+        def _send(self, code, obj):
+            body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except Exception:
+                pass
+
+        def do_GET(self):
+            # единственный открытый метод: проверить, что приложение на этом порту то самое
+            if self.path.rstrip("/") == "/health":
+                self._send(200, {"ok": True, "app": "myslik"})
+            else:
+                self._send(404, {"ok": False, "error": "нет такого адреса"})
+
+        def do_POST(self):
+            if self.path.rstrip("/") != "/rpc":
+                self._send(404, {"ok": False, "error": "нет такого адреса"})
+                return
+            tok = _agent_token()
+            if not tok or self.headers.get("X-Myslik-Token") != tok:
+                self._send(401, {"ok": False, "error": "нет или неверный токен"})
+                return
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                data = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+            except Exception as e:
+                self._send(400, {"ok": False, "error": "тело запроса не разобралось: %s" % e})
+                return
+            method = str(data.get("method") or "")
+            if method not in ("ping", "snapshot", "prompt", "graphs", "preview", "apply", "undo"):
+                self._send(400, {"ok": False, "error": "неизвестный метод: %s" % method})
+                return
+            self._send(200, _agent_call(method, data.get("params") or {}))
+
+    return H
+
+
+def agent_start():
+    """Поднять приёмник. Порт берём первый свободный из десятка и ПИШЕМ В КОНФИГ: MCP-сервер
+    читает его оттуда, а не угадывает. Уже поднят — ничего не делаем."""
+    global _AGENT_SRV, _AGENT_PORT
+    if _AGENT_SRV is not None:
+        return _AGENT_PORT
+    from http.server import ThreadingHTTPServer
+    H = _agent_handler_class()
+    for port in AGENT_PORTS:
+        try:
+            srv = ThreadingHTTPServer(("127.0.0.1", port), H)
+        except OSError:
+            continue
+        _AGENT_SRV, _AGENT_PORT = srv, port
+        cfg = _agent_load()
+        cfg["port"] = port
+        cfg["enabled"] = True
+        if not cfg.get("token"):
+            cfg["token"] = _agent_token(create=True)
+        _agent_save(cfg)
+        threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.4}, daemon=True).start()
+        trace("agent server on 127.0.0.1:%d" % port)
+        return port
+    print("agent server: свободного порта не нашлось")
+    return 0
+
+
+def agent_stop():
+    global _AGENT_SRV, _AGENT_PORT
+    if _AGENT_SRV is None:
+        return
+    try:
+        _AGENT_SRV.shutdown()
+        _AGENT_SRV.server_close()
+    except Exception as e:
+        print("agent stop error:", e)
+    _AGENT_SRV, _AGENT_PORT = None, 0
 
 
 def _tg_load():
@@ -777,6 +971,73 @@ class Api:
         except Exception as e:
             print("open_path error:", e)
             return False
+
+    def read_image(self, path):
+        """Прочитать картинку с диска в data-URL — для команды {"op":"field","type":"image"}.
+        Только ЧТЕНИЕ и только картинку: пакет команд приходит из чужой нейросети, и отдавать
+        ему произвольные файлы нельзя. Потолок 25 МБ — дальше это уже не скриншот, а видео,
+        и ужимать такое в JSON смысла нет (фронт всё равно прогонит через fieldShrink)."""
+        try:
+            p = (path or "").strip().strip('"')
+            if not p or not isinstance(path, str):
+                return ""
+            ext = os.path.splitext(p)[1].lower()
+            mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                    ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp"}.get(ext)
+            if not mime:
+                trace("read_image() rejected (не картинка):", p)
+                return ""
+            if not os.path.isfile(p):
+                trace("read_image() rejected (нет файла):", p)
+                return ""
+            if os.path.getsize(p) > 25 * 1024 * 1024:
+                trace("read_image() rejected (слишком большой):", p)
+                return ""
+            import base64
+            with open(p, "rb") as f:
+                data = base64.b64encode(f.read()).decode("ascii")
+            return "data:%s;base64,%s" % (mime, data)
+        except Exception as e:
+            print("read_image error:", e)
+            return ""
+
+    # ---------- доступ для ИИ-агента (локальный HTTP + токен, см. agent_start) ----------
+    def agent_status(self):
+        # Отдаём и КОМАНДУ ЗАПУСКА: конфиг MCP пользователь не должен собирать руками, а путь
+        # к своей установке знает только само приложение — оно портативное.
+        cfg = _agent_load()
+        frozen = bool(getattr(sys, "frozen", False))
+        cmd = sys.executable
+        args = ["--mcp"] if frozen else [os.path.abspath(__file__), "--mcp"]
+        return {"enabled": _AGENT_SRV is not None, "port": _AGENT_PORT,
+                "token": cfg.get("token") or "", "configured": bool(cfg.get("token")),
+                "command": cmd, "args": args, "frozen": frozen, "beacon": _agent_beacon()}
+
+    def agent_enable(self, on):
+        try:
+            if on:
+                _agent_token(create=True)
+                port = agent_start()
+                return {"ok": bool(port), "port": port, "token": _agent_token()}
+            agent_stop()
+            cfg = _agent_load()
+            cfg["enabled"] = False
+            _agent_save(cfg)
+            return {"ok": True, "port": 0}
+        except Exception as e:
+            print("agent_enable error:", e)
+            return {"ok": False, "error": str(e)}
+
+    def agent_reset_token(self):
+        """Сменить токен: прежние ключи, которые могли утечь в чужой конфиг, перестают работать."""
+        try:
+            cfg = _agent_load()
+            cfg.pop("token", None)
+            _agent_save(cfg)
+            return {"ok": True, "token": _agent_token(create=True)}
+        except Exception as e:
+            print("agent_reset_token error:", e)
+            return {"ok": False}
 
     def open_url(self, url):
         # открыть http(s)-ссылку в браузере (для «как получить ключ»). Только http/https.
@@ -2340,6 +2601,11 @@ def main():
         text_select=False,
     )
     _WINDOW = window
+
+    # Приёмник для ИИ-агента поднимаем, только если его включали раньше: по умолчанию
+    # порт не открывается вовсе (см. agent_start).
+    if _agent_load().get("enabled") is True:
+        threading.Thread(target=agent_start, daemon=True).start()
 
     # Приём брошенных из проводника папок. pywebview складывает пути от WebView2 только тогда,
     # когда на drop кто-то подписан (edgechromium.on_script_notify), — но своих DOM-подписок мы

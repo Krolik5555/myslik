@@ -1467,6 +1467,32 @@ button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:va
 .set-tab i{font-size:15px;}
 .set-panel[hidden]{display:none;}
 .set-hint{font-size:12px;color:var(--mut);margin:0 0 12px;line-height:1.5;}
+
+/* ===== окно «Общение с нейросетью»: пакет команд (см. ui/js/cmd.js) =====
+   Шире обычного окна: и вставленный JSON, и предпросмотр — длинные строки, а перенос по
+   середине команды читается хуже, чем прокрутка. */
+.cmd-win{width:760px;}
+.cmd-hint{font-size:12px;color:var(--mut);margin:0 0 12px;line-height:1.5;}
+.cmd-bar{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
+.cmd-size{font-size:11.5px;color:var(--mut2);margin-left:auto;}
+/* Моноширинный: сюда вставляют JSON, и глазами по нему ходят как по коду */
+.cmd-in{width:100%;min-height:150px;max-height:34vh;resize:vertical;padding:10px 12px;
+  background:var(--surf2);border:0.5px solid var(--bd);border-radius:var(--r-m);color:var(--tx);
+  font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:12px;line-height:1.5;outline:none;}
+.cmd-in:focus{border-color:var(--bd2);}
+.cmd-out{max-height:30vh;overflow-y:auto;margin:12px 0 4px;}
+.cmd-out:empty{display:none;}
+.cmd-sec{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--mut);
+  text-transform:uppercase;letter-spacing:.04em;margin:10px 0 6px;}
+.cmd-sec:first-child{margin-top:0;}
+.cmd-sec.bad{color:var(--warn);}
+.cmd-row{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:var(--tx);
+  padding:5px 8px;border-radius:7px;line-height:1.45;}
+.cmd-row:nth-child(odd){background:var(--surf2);}
+.cmd-row i{font-size:15px;color:var(--mut);flex:none;margin-top:1px;}
+/* Ошибки и удаления — одним цветом: и то, и другое означает «дальше не бездумно» */
+.cmd-row.bad{color:var(--warn);} .cmd-row.bad i{color:var(--warn);}
+.cmd-row.warn{color:var(--mut);} .cmd-row.warn i{color:var(--mut2);}
 /* «Одинокие ноды» */
 .ln-list{max-height:300px;overflow:auto;margin:4px 0 10px;}
 .ln-row{display:flex;align-items:center;gap:9px;padding:8px 10px;border:0.5px solid var(--bd);border-radius:8px;margin-bottom:6px;background:var(--surf2);}

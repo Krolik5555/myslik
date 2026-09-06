@@ -153,6 +153,8 @@ function renderNotes(v){
     <div class="graph-more" id="g-more-menu" style="display:none">
       <button class="gm-it" id="g-refit"><i class="ti ti-arrows-shuffle"></i>Перераскладка</button>
       <button class="gm-it" id="g-tags"><i class="ti ti-tags"></i>Теги со стилем</button>
+      <!-- пакет команд от сторонней нейросети: промпт со снимком графа наружу, её ответ внутрь -->
+      <button class="gm-it" id="g-cmd"><i class="ti ti-code"></i>Общение с нейросетью</button>
       <button class="gm-it" id="g-hint-on"><i class="ti ti-help-circle"></i>Показать подсказку</button>
       <!-- Тур показывается сам ОДИН раз после обновления. Отсюда его можно открыть снова:
            иначе посмотреть второй раз можно было только правкой файла данных.
@@ -213,6 +215,10 @@ function renderNotes(v){
      человек жмёт домик снова, и дома назначаются по новым местам. Ctrl+Z возвращает прежнюю
      форму: hx/hy лежат в самих нодах, а снимок отката сериализует items целиком. */
   $("#g-refit").onclick=async ()=>{ closeMore();
+    /* Точка «до» — ДО вопроса и до сноса домов: диалог обещает, что прежняя форма вернётся по
+       Ctrl+Z, и с тех пор как раскладка перестала попадать в обычный шаг истории (см. _noXY),
+       держать это обещание может только свой шаг. */
+    const формаБыла=graph?graph.layoutSnap():null;
     if(S.settings.graphHome){
       /* Формулировка проверена жестом: Ctrl+Z возвращает hx/hy (они лежат в items и уезжают в
          снимок отката), но НЕ тумблер — настройки в снимок не входят. Поэтому обещаем ровно
@@ -225,8 +231,10 @@ function renderNotes(v){
       S.settings.graphHome=false; persist();
       if($("#g-home")) $("#g-home").classList.remove("on");
     }
+    if(формаБыла) undoPushLayout(формаБыла);
     graph.refit(); };
   $("#g-tags").onclick=()=>{ closeMore(); openTagManager(); };
+  if($("#g-cmd")) $("#g-cmd").onclick=()=>{ closeMore(); openCmdRunner(); };
   // подсказка по управлению: закрывается крестиком, возвращается отсюда
   if($("#g-hint-x")) $("#g-hint-x").onclick=()=>{ S.settings.graphHint=false; persist(); $("#g-hint").classList.add("off"); };
   $("#g-hint-on").onclick=()=>{ closeMore(); S.settings.graphHint=true; persist(); $("#g-hint").classList.remove("off"); };
@@ -1056,6 +1064,12 @@ class Graph{
       const p=prev[rid];
       const x = p ? p.x : (_влГраф.x!=null ? _влГраф.x : cx);
       const y = p ? p.y : (_влГраф.y!=null ? _влГраф.y : cy);
+      /* МЕСТО КОРНЯ ЗАКРЕПЛЯЕМ СРАЗУ, а не когда его первый раз потянут рукой. Дом служебного
+         узла — это его собственные x/y в данных (см. _tick), и пока их нет, дома у корня нет
+         тоже: физика таскала его за первой же прицепленной нодой, будто он рядовой узел
+         (КРОЛИК, 06.09.2026). У хаба области это терпимо — их много и они равноправны, — а
+         корень подграфа один и он точка отсчёта: ему стоять положено с первой секунды. */
+      if(_влГраф.x==null || _влГраф.y==null){ _влГраф.x=Math.round(x); _влГраф.y=Math.round(y); persist(true); }
       this.nodes.push({id:rid, subRoot:_влГраф, subOwner:_вл.item,
         label:(_вл.item.title||"").trim()||_влГраф.name||"Подграф",
         type:"hub", r:13, fixed:!!_влГраф.pin, color:_вл.item.color||_влГраф.color||null,
@@ -1609,8 +1623,15 @@ class Graph{
           const f=this._dragFrom;
           if(f && Math.hypot(e.clientX-f.x, e.clientY-f.y) < 4) return;
           this.drag._moved=true;
-          // порог пройден — значит это настоящая протяжка, и копию создавать не рано
-          if(this.copyDrag){ this.copyDrag=false; this._startCopyDrag(); }
+          /* ТОЧКА «ДО» ДЛЯ ОТКАТА снимается ровно здесь — на пороге настоящей протяжки, пока
+             нода ещё не сдвинулась (координаты меняются строкой ниже). Раньше по клику снимать
+             нельзя: клик протяжкой не становится, и история заполнялась бы пустыми шагами. */
+          this._layoutBefore=this.layoutSnap();
+          /* Порог пройден — значит это настоящая протяжка, и копию создавать не рано.
+             Шаг раскладки для копирования не нужен и мешает: копии рождаются вместе со своими
+             координатами, их снимет обычный откат создания, а лишний шаг заставил бы жать
+             Ctrl+Z дважды — сперва «копии прыгнули на место оригиналов», потом «исчезли». */
+          if(this.copyDrag){ this.copyDrag=false; this._startCopyDrag(); this._layoutBefore=null; }
         }
         // тянем за ТУ ЖЕ точку, за которую взялись (см. _grab) — нода не прыгает центром под курсор
         const p=this._pt(e), g=this._grab||{dx:0,dy:0};
@@ -1693,6 +1714,10 @@ class Graph{
              Хабу области дом не нужен вовсе: его x/y И ЕСТЬ дом, а дома детей — смещения от
              него, и за хабом они едут сами, без единой дополнительной строки. */
           if(S.settings.graphHome) группа.forEach(q=>{ if(q.ref) this._homeFromDrag(q.ref); });
+          /* ЖЕСТ — ОДИН ШАГ ИСТОРИИ. Кладём его ПЕРЕД persist: тот откроет окно дебаунса и снимет
+             свой, обычный шаг, а раскладка в него не входит (см. _noXY в core.js). Без этой
+             строки Ctrl+Z после перетаскивания не возвращал ничего. */
+          if(this._layoutBefore){ undoPushLayout(this._layoutBefore); this._layoutBefore=null; }
           // с БОЛЬШИМ дебаунсом: серия «тащу — отпускаю — снова тащу» обязана уехать на диск
           // одной записью после того, как рука остановилась (разбор — у ЗАПИСЬ_ЖЕСТ_МС в core.js)
           persist(false, ЗАПИСЬ_ЖЕСТ_МС);
@@ -3179,10 +3204,15 @@ class Graph{
      два режима не смешиваются, и физика у закреплённой всё равно отключена. */
   _homeFromDrag(it){
     if(!it || it.pin || it.x==null) return false;
-    // внутри подграфа владелец — корень, и только у ПРИЦЕПЛЕННЫХ к нему нод (тот же расчёт, что homeOwner)
+    /* Внутри подграфа владелец — корень, и только у ПРИЦЕПЛЕННЫХ к нему нод. Связь считаем
+       ПО ФАКТУ (subRootHolds), а не по кешу _уКорня: кеш собирается в build, а сюда приходят
+       ПЕРЕД ним — _quickAdd зовёт нас сразу после addLink, и кеш ещё не знает о только что
+       созданной связи. Владелец «не находился», дом стирался (ветка ниже), и нода оставалась
+       без дома: её носила физика, а ребёнок с домом ехал следом — обе улетали от корня
+       (КРОЛИК, 06.09.2026). Здесь это дёшево: жест случается раз в секунду, не раз в кадр. */
     const о = it.parent ? this.byId[it.parent]
             : it.area ? this.byId["hub_"+it.area]
-            : ((this._уКорня && this._уКорня.has(it.id)) ? this.byId[subRootCur()||""]||null : null);
+            : (subRootHolds(it) ? this.byId[subRootCur()||""]||null : null);
     if(!о){ delete it.hx; delete it.hy; return false; }   // владельца нет — дому не от чего считаться
     it.hx=Math.round(it.x-о.x); it.hy=Math.round(it.y-о.y); return true;
   }
@@ -3197,6 +3227,8 @@ class Graph{
      нет — только она. ПКМ выделения не трогает, и молча чинить «те пять из прошлой рамки» нельзя. */
   _resetHome(n){
     const ids=(this.selNodes.has(n.id) && this.selNodes.size>1) ? [...this.selNodes] : [n.id];
+    // сброс дома — это раскладка, а не содержимое: своим шагом (hx/hy из ключа истории выброшены)
+    const было=this.layoutSnap();
     const undo=[]; let nn=0;
     ids.forEach(id=>{
       if(isHubId(id)) return;                         // у области и у корня подграфа дом абсолютный — это их собственные x/y
@@ -3206,6 +3238,7 @@ class Graph{
       delete it.hx; delete it.hy; nn++;
     });
     if(!nn) return;
+    undoPushLayout(было);
     persist(); this._closePop();
     /* Раскладку надо РАЗОГРЕТЬ: без этого нода останется стоять там же, где стояла, и человек
        решит, что кнопка не сработала. Физика доведёт её до места родителя за те же полсекунды,
@@ -5211,6 +5244,18 @@ class Graph{
      Тот же приём и та же причина, что у drawFlush() для доски перед закрытием окна.
      Пишем ТОЛЬКО после заметной активности (_moved), иначе каждая перерисовка графа тащила бы
      на диск ту же самую раскладку. */
+  /* СНИМОК РАСКЛАДКИ для шага отката (см. undoPushLayout в core.js). Берём ЖИВЫЕ координаты
+     узлов, а не данные: в данные они уезжают только по остыванию физики, то есть на момент
+     начала жеста там лежит вчерашняя картина. Снимаем ВСЕ узлы, а не схваченные: тем же
+     движением физика растолкает соседей, и вернуть надо всю картину целиком. */
+  layoutSnap(){
+    const out=[];
+    this.nodes.forEach(n=>{
+      if(n.ref) out.push([n.id, n.x, n.y, n.ref.hx, n.ref.hy]);
+      else if(n.hubArea || n.subRoot) out.push([n.id, n.x, n.y]);
+    });
+    return out;
+  }
   flushLayout(){
     if(!this._moved) return false;
     this._moved=false;

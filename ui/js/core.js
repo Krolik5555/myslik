@@ -1336,11 +1336,18 @@ function trashRevive(items){
   });
 }
 const _undoSnap=()=>JSON.stringify({items:S.items, links:S.links, areas:S.areas, tags:S.tags});
-// ключ — для сравнения: без x/y, но с признаком «стоит на холсте»
-const _noXY=o=>{ const r=Object.assign({},o); delete r.x; delete r.y; r._on=(o.x!=null); return r; };
+/* Ключ — для сравнения: БЕЗ раскладки, но с признаком «стоит на холсте». Из ключа выброшены
+   и координаты (x/y), и дома (hx/hy): физика двигает узлы сама, и попади это в ключ, история
+   заполнялась бы шагами «нода дрогнула на пиксель». Раскладка откатывается СВОИМ видом шага —
+   см. undoPushLayout ниже, — а не через сравнение состояний. */
+const _noXY=o=>{ const r=Object.assign({},o); delete r.x; delete r.y; delete r.hx; delete r.hy; r._on=(o.x!=null); return r; };
 const _undoKey=()=>JSON.stringify({items:S.items.map(_noXY), links:S.links, areas:S.areas.map(_noXY), tags:S.tags});
-const _undoTrim=a=>{ let n=a.reduce((s,x)=>s+x.length,0);
-  while(a.length>UNDO_STEPS || (a.length>1 && n>UNDO_BYTES)) n-=a.shift().length; };
+// вес шага: обычный — строка-снимок, раскладка — список координат, транзакция — снимок всех графов
+const _шагВес=x=>(typeof x==="string") ? x.length
+  : (x && x.layout) ? x.layout.length*48
+  : (x && x.full) ? x.full.length : 0;
+const _undoTrim=a=>{ let n=a.reduce((s,x)=>s+_шагВес(x),0);
+  while(a.length>UNDO_STEPS || (a.length>1 && n>UNDO_BYTES)) n-=_шагВес(a.shift()); };
 function undoInit(){ _undoLast=_undoSnap(); _undoKeyLast=_undoKey(); _undoStack=[]; _redoStack=[]; }
 function undoPush(){
   if(_undoLast===null || _undoBusy) return;
@@ -1378,9 +1385,104 @@ function _undoApply(snap){
      позже и одним разом, если шагов подряд несколько. */
   _scheduleWrite(writeNow);
 }
+/* ---------- ШАГ РАСКЛАДКИ ----------
+   Перемещение ноды в обычный шаг истории не попадает намеренно (см. _noXY): ключ выбрасывает
+   координаты и дома, иначе физика плодила бы шаги пачками. Из-за этого Ctrl+Z после «перетащил
+   как дурак» не возвращал НИЧЕГО: в режиме «дом» откатывались одни hx/hy, ноды оставались на
+   месте — и уезжали в старые дома при следующем пробуждении физики (КРОЛИК, 06.09.2026).
+
+   Поэтому у раскладки СВОЙ вид шага. Он хранит не снимок состояния, а координаты узлов на момент
+   НАЧАЛА жеста: пять чисел на узел вместо сериализации всего графа (перетаскивание случается
+   десятки раз в минуту — полный снимок на каждое было бы мегабайтами в истории), и точка «до»
+   берётся из самого жеста, а не из того, когда закрылось окно дебаунса записи.
+
+   Снимаются ВСЕ узлы графа, а не только схваченные: физика растолкала соседей тем же движением,
+   и вернуть надо всю картину, иначе откат оставил бы полработы. Хабы областей и корень подграфа
+   идут в тот же список — их место лежит в области и в графе, а не в ноде. */
+function undoPushLayout(снимок){
+  if(!Array.isArray(снимок) || !снимок.length || _undoBusy) return false;
+  _undoStack.push({layout:снимок}); _undoTrim(_undoStack);
+  _redoStack.length=0;                  // новое действие обрывает ветку повтора — как везде
+  return true;
+}
+/* Координаты перечисленных узлов ПРЯМО СЕЙЧАС — чтобы Ctrl+Shift+Z вернул то, что откатили.
+   Живой узел важнее данных: в данные раскладка уезжает только по остыванию физики. */
+function _layoutNow(снимок){
+  const жив=(typeof graph!=="undefined" && graph) ? graph.byId : null;
+  return снимок.map(([id])=>{
+    const у=жив?жив[id]:null;
+    if(id.indexOf("hub_")===0){ const a=areaById(id.slice(4)); return [id, у?у.x:(a?a.x:null), у?у.y:(a?a.y:null)]; }
+    if(isRootId(id)){ const g=graphCurrent(); return [id, у?у.x:(g?g.x:null), у?у.y:(g?g.y:null)]; }
+    const it=S.items.find(i=>i.id===id);
+    if(!it) return [id, null, null];
+    return [id, у?у.x:it.x, у?у.y:it.y, it.hx, it.hy];
+  });
+}
+function _layoutApply(снимок){
+  const жив=(typeof graph!=="undefined" && graph) ? graph.byId : null;
+  снимок.forEach(([id,x,y,hx,hy])=>{
+    if(x==null||y==null) return;
+    if(id.indexOf("hub_")===0){ const a=areaById(id.slice(4)); if(a){ a.x=x; a.y=y; } }
+    else if(isRootId(id)){ const g=graphCurrent(); if(g && isSubGraph(g)){ g.x=x; g.y=y; } }
+    else { const it=S.items.find(i=>i.id===id); if(!it) return;
+      it.x=x; it.y=y;
+      if(hx==null||hy==null){ delete it.hx; delete it.hy; } else { it.hx=hx; it.hy=hy; } }
+    /* Живой узел правим ТОЖЕ. build() берёт позицию у прежнего экземпляра (prev=this.byId) и
+       данные бы проигнорировал — нода осталась бы стоять там, откуда её только что вернули. */
+    const у=жив?жив[id]:null; if(у){ у.x=x; у.y=y; у.vx=0; у.vy=0; }
+  });
+  /* Физику НЕ будим: ноды только что поставлены туда, где были, и разогрев тут же начал бы
+     растаскивать их заново — откат выглядел бы «сработал и сразу отменился». Признак _moved
+     снимаем, иначе flushLayout при следующем сносе графа записал бы уже применённое повторно. */
+  if(typeof graph!=="undefined" && graph){ graph._moved=false; graph.build(); }
+  _scheduleWrite(writeNow);
+}
+/* ---------- ТРАНЗАКЦИЯ: шаг, который возвращает ВСЁ ----------
+   Обычный шаг сериализует items ТОЛЬКО активного графа (см. _undoSnap) — этого хватает, пока одно
+   действие человека правит один граф. Пакетная правка так не умещается: команда от нейросети
+   создаёт ноды сразу в нескольких подграфах, а откат обязан снять её целиком, иначе «ИИ сделал
+   пакость» лечится только руками. Такой шаг хранит все графы, теги и шаблоны разом.
+   Дорого по памяти, поэтому только для пакетных операций — обычной правке хватает обычного шага. */
+const _fullNow=()=>JSON.stringify({graphs:S.graphs, tags:S.tags, templates:S.templates, graph:S.settings.graph});
+function undoPushFull(){
+  if(_undoBusy) return false;
+  _undoStack.push({full:_fullNow()}); _undoTrim(_undoStack);
+  _redoStack.length=0;
+  return true;
+}
+/* ПАКЕТНАЯ ПРАВКА — ОДНО ДЕЙСТВИЕ. Внутри пакета addItem/addLink/toggleDone зовут persist по
+   десять раз, и каждый вызов открывал бы своё окно шага: Ctrl+Z пришлось бы жать по разу на
+   команду, а половина шагов вернула бы полуприменённый пакет. Поэтому транзакция кладёт ОДИН
+   шаг (снимок всех графов, см. undoPushFull) и на время применения глушит обычные — тем же
+   флагом _undoBusy, которым пользуется сам откат. */
+function txBegin(){ const ок=undoPushFull(); _undoBusy=true; return ок; }
+function txEnd(){ _undoBusy=false; _undoLast=_undoSnap(); _undoKeyLast=_undoKey(); }
+function _fullApply(snap){
+  _undoBusy=true;
+  const d=JSON.parse(snap);
+  S.graphs=d.graphs;                       // геттеры S.items читают S.graphs динамически — перепривязка не нужна
+  if(Array.isArray(d.tags)) S.tags=d.tags;
+  if(Array.isArray(d.templates)) S.templates=d.templates;
+  // граф, на котором стояли в момент снимка: его могло не стать вовсе (пакет создал и откатили)
+  if(d.graph && S.graphs.some(g=>g.id===d.graph)) S.settings.graph=d.graph;
+  else if(!S.graphs.some(g=>g.id===S.settings.graph)) S.settings.graph=(S.graphs.find(g=>!isSubGraph(g))||S.graphs[0]).id;
+  // воскресшим нодам вернуть их доски и картинки — по ВСЕМ графам, содержимое лежит вне нод
+  S.graphs.forEach(g=>trashRevive(g.items));
+  areaFilter=null; asideId=null;
+  render();
+  _undoBusy=false;
+  _undoLast=_undoSnap(); _undoKeyLast=_undoKey();
+  _scheduleWrite(writeNow);
+}
 function undoStep(){ if(!_undoStack.length) return false;
+  const шаг=_undoStack[_undoStack.length-1];
+  if(шаг && шаг.layout){ _undoStack.pop(); _redoStack.push({layout:_layoutNow(шаг.layout)}); _undoTrim(_redoStack); _layoutApply(шаг.layout); return true; }
+  if(шаг && шаг.full){ _undoStack.pop(); _redoStack.push({full:_fullNow()}); _undoTrim(_redoStack); _fullApply(шаг.full); return true; }
   _redoStack.push(_undoLast); _undoTrim(_redoStack); _undoApply(_undoStack.pop()); return true; }
 function redoStep(){ if(!_redoStack.length) return false;
+  const шаг=_redoStack[_redoStack.length-1];
+  if(шаг && шаг.layout){ _redoStack.pop(); _undoStack.push({layout:_layoutNow(шаг.layout)}); _undoTrim(_undoStack); _layoutApply(шаг.layout); return true; }
+  if(шаг && шаг.full){ _redoStack.pop(); _undoStack.push({full:_fullNow()}); _undoTrim(_undoStack); _fullApply(шаг.full); return true; }
   _undoStack.push(_undoLast); _undoTrim(_undoStack); _undoApply(_redoStack.pop()); return true; }
 function touch(it){ it.updated=Date.now(); }
 
