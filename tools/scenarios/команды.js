@@ -372,6 +372,26 @@ const былоНод = S.items.length;
               ок: полосы.length === 2 && полосы[0] !== полосы[1],
               факт: "обходов " + полосы.length + ", полосы: " + полосы.join(", ")});
     }
+    /* Промпт велит модели раскладывать схему самой и не давать стрелкам пересекаться. Проверяем
+       на ЕГО ЖЕ примере: если рекомендованная раскладка сама требует обходов, значит промпт
+       советует то, что не работает (КРОЛИК: «если попрошу без пересечений — он сделает»). */
+    {
+      const р = cmdParse(JSON.stringify({ops:[{op:"draw", node:пол.id, blocks:[
+        {id:"a", type:"terminal", text:"Идея", col:1, row:0},
+        {id:"b", type:"proc", text:"Прототип", col:1, row:1},
+        {id:"c", type:"decision", text:"Годится?", col:1, row:2},
+        {id:"d", type:"proc", text:"Выпустить", col:0, row:3},
+        {id:"e", type:"proc", text:"Доработать", col:2, row:3}],
+        edges:[{from:"a", to:"b"}, {from:"b", to:"c"},
+               {from:"c", to:"d", label:"да"}, {from:"c", to:"e", label:"нет"}]}]}));
+      await cmdBuildBoards(р.ops);
+      const эл = (р.ops[0] || {})._els || [];
+      const стрелок = эл.filter(э => э.type === "arrow").length;
+      const обходы = эл.filter(э => э.type === "arrow" && (э.points || []).length > 2).length;
+      t.push({имя:"пример раскладки из промпта рисуется без единого обхода",
+              ок: !р.errors.length && стрелок === 4 && обходы === 0,
+              факт: "стрелок " + стрелок + ", из них в обход " + обходы + " · " + р.errors.join(" | ")});
+    }
     {
       const косые = сц().filter(э => э.type === "arrow" && Math.abs(+э.width || 0) > 2);
       t.push({имя:"вертикальные стрелки остались вертикальными, а не уехали вбок",
