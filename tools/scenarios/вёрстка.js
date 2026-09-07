@@ -48,15 +48,33 @@ const вылезло = (корень, хозяин) => {
     return r.right > r0.right + 2 || r.left < r0.left - 2;
   });
 };
-// наложение кнопок: клик уходит не туда, куда целятся
+/* Ближайший ПЛАВАЮЩИЙ предок — sticky/fixed/absolute. Такой блок намеренно ложится поверх
+   соседнего содержимого, и пересечение с ним — не дефект вёрстки, а его работа. Ровно по этой
+   же причине попапы и модалки исключены из «вылезло» выше. */
+const слой = (n, корень) => {
+  for (let e = n; e && e !== корень; e = e.parentElement) {
+    const p = getComputedStyle(e).position;
+    if (p === "sticky" || p === "fixed" || p === "absolute") return e;
+  }
+  return null;
+};
+/* наложение кнопок: клик уходит не туда, куда целятся.
+   СРАВНИВАЕМ ТОЛЬКО КНОПКИ ОДНОГО СЛОЯ. Окно правки прокручивается само (.modal:
+   max-height:88vh; overflow-y:auto), а полоса действий внизу — липкая и с непрозрачным фоном
+   (.modal-foot: position:sticky; background:var(--surf), af7cf8e от 25.08.2026). Строка,
+   уехавшая под полосу, геометрически с ней пересекается, но человек её там не видит и мимо не
+   жмёт — на этом линейка и ловила ложное «кнопки налезают» (приоритет ↔ «Удалить»). Две кнопки
+   ВНУТРИ самой полосы друг на друга налезть по-прежнему не имеют права. */
 const наложения = корень => {
   const кн = [...корень.querySelectorAll("button")].filter(b => {
     const c = getComputedStyle(b); const r = пр(b);
     return c.display !== "none" && c.visibility !== "hidden" && r.width > 4 && r.height > 4;
   });
+  const слои = кн.map(b => слой(b, корень));
   const пары = [];
   for (let i = 0; i < кн.length; i++) for (let j = i + 1; j < кн.length; j++) {
     if (кн[i].contains(кн[j]) || кн[j].contains(кн[i])) continue;
+    if (слои[i] !== слои[j]) continue;
     const a = пр(кн[i]), b = пр(кн[j]);
     if (Math.min(a.right,b.right) - Math.max(a.left,b.left) > 2 &&
         Math.min(a.bottom,b.bottom) - Math.max(a.top,b.top) > 2) пары.push(имяУзла(кн[i]) + " ↔ " + имяУзла(кн[j]));

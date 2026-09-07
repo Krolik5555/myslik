@@ -8,7 +8,16 @@ const шир = el => Math.round(document.getElementById(el).getBoundingClientRec
 t.push({имя:"панель и разделитель на месте",
         ок: !!document.getElementById("aside") && !!document.getElementById("splitter"),
         факт:"панель " + шир("aside") + " px, вид " + шир("view") + " px"});
-t.push({имя:"без выбора панель подсказывает", ок: !!document.querySelector(".aside-empty"), факт:""});
+/* ВЫБОР СНИМАЕМ ЯВНО, А НЕ НАДЕЕМСЯ НА ПОРЯДОК ФАЙЛОВ. asideGroup и asideId — модульное
+   состояние (core.js), render() его не трогает, а все сценарии идут одной страницей подряд: к
+   нам приезжает выделение, оставленное предыдущим («дом» выделяет группу через asideMany и назад
+   её не убирает). renderAside тогда уходит в ветку сводки и рисует «Выделено: 0» вместо
+   подсказки — проверка падала на чужом хвосте, а не на панели. Пустой выбор — это условие самой
+   проверки, его и выставляем; остальные проверки файла своё состояние тоже создают сами. */
+asideSelect(null); await ж(80);
+t.push({имя:"без выбора панель подсказывает", ок: !!document.querySelector(".aside-empty"),
+        факт: document.querySelector(".aside-empty") ? "" :
+              "в панели: " + ((document.getElementById("aside")||{}).innerHTML||"").slice(0, 70).replace(/\s+/g, " ")});
 
 const нота = addItem({kind:"note", title:"Нота для панели", body:"Текст заметки"});
 asideSelect(нота.id); await ж(200);
