@@ -162,7 +162,18 @@ document.querySelector("#tour-next").click(); await ж(240); доиграть();
   }
 }
 
-// ================== ШАГ 3: УПОРЯДОЧИВАНИЕ, СРАВНЕНИЕ «БЫЛО — СТАЛО» ==================
+/* ================== ШАГ 3: ИИ-АГЕНТ ==================
+   Отдельный шаг, а не строка в шаге про нейросети: агент — своя дорога (MCP, доступ по ключу,
+   правки без копипаста), и в заметках к релизу он тоже отдельным разделом. */
+document.querySelector("#tour-next").click(); await ж(200); доиграть();
+{
+  const p = document.querySelector("#tour-pop");
+  t.push({имя: "шаг про ИИ-агента со схемой «агент ↔ граф»",
+          ок: /агент/i.test(p.querySelector(".tour-head b").textContent) && !!p.querySelector(".tm-ag-box"),
+          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», схема: " + !!p.querySelector(".tm-ag-box")});
+}
+
+// ================== ШАГ 4: УПОРЯДОЧИВАНИЕ, СРАВНЕНИЕ «БЫЛО — СТАЛО» ==================
 document.querySelector("#tour-next").click(); await ж(200); доиграть();
 {
   const p = document.querySelector("#tour-pop");
@@ -173,7 +184,7 @@ document.querySelector("#tour-next").click(); await ж(200); доиграть();
                 p.querySelectorAll(".tm-tidy-one").length});
 }
 
-// ================== ШАГ 4: ОТКАТ РАСКЛАДКИ, ПОСЛЕДНИЙ ==================
+// ================== ШАГ 5: ОТКАТ РАСКЛАДКИ, ПОСЛЕДНИЙ ==================
 document.querySelector("#tour-next").click(); await ж(200); доиграть();
 const последняя = document.querySelector("#tour-pop #tour-next").textContent;
 t.push({имя: "последний шаг — про откат раскладки, кнопка «Понятно»",

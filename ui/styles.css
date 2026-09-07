@@ -1221,6 +1221,10 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
   clip-path:polygon(25% 0%,75% 0%,100% 50%,75% 100%,25% 100%,0% 50%);}
 .tm-sub-arrow{color:var(--mut2);font-size:18px;flex:none;}
 .tm-sub-svg{width:132px;height:76px;flex:none;}
+/* АГЕНТ ↔ ГРАФ: слева сам агент, справа граф, между ними обмен в обе стороны. */
+.tm-ag{justify-content:center;gap:16px;}
+.tm-ag-box{width:64px;height:56px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+  background:var(--surf3);border:0.5px solid var(--bd2);color:var(--acc);font-size:26px;}
 /* РАСКЛАДКА: «как легло» → «после кнопки». Сравнение честное: слева связи действительно
    пересекаются, справа — нет, ради этого шаг и существует. */
 .tm-tidy{justify-content:center;gap:12px;}
