@@ -183,7 +183,45 @@ t.push({имя:"мусорная сцена отсеивается при заг
         ок: битая.boards.x.elements.length === 1 && typeof битая.boards.x.files === "object",
         факт: "осталось элементов: " + битая.boards.x.elements.length});
 
+// ---------- пакет команд при ОТКРЫТОЙ доске ----------
+// Разойтись с тем, что человек видит на экране, нельзя: пакет пишет в S.boards, а живая сцена
+// сама туда не заглядывает. Плюс между штрихом и применением лежит дебаунс 900 мс — без дожатия
+// отложенная запись сработала бы ПОСЛЕ пакета и вернула доску к виду до него.
+openItemSmart(схема);
+await ждать(живо);
+await ж(500);
+if(живо() && typeof cmdBuildBoards === "function"){
+  // штрих «только что», ещё не записанный: ждём меньше дебаунса, в S.boards его пока нет
+  drawApi.updateScene({elements: drawApi.getSceneElements().concat(
+    ExcalidrawLib.convertToExcalidrawElements([{type:"text", x:60, y:700, text:"штрих до пакета", fontSize:18}]))});
+  await ж(150);
+  const доПакета = drawApi.getSceneElements().length;
+
+  const р = cmdParse(JSON.stringify({ops:[{op:"draw", node:схема.id, blocks:[
+      {id:"n1", type:"proc", text:"От пакета"}, {id:"n2", type:"proc", text:"Второй"}],
+    edges:[{from:"n1", to:"n2"}]}]}));
+  const беды = await cmdBuildBoards(р.ops);
+  cmdApply(р.ops);
+  await ж(500);
+  t.push({имя:"пакет обновил ЖИВУЮ доску, а не только данные",
+          ок: !р.errors.length && !беды.length && живо() && drawApi.getSceneElements().length === доПакета + 5,
+          факт: "на холсте " + (живо() ? drawApi.getSceneElements().length : -1) + ", было " + доПакета});
+  t.push({имя:"штрих, сделанный перед пакетом, не потерялся",
+          ок: живо() && drawApi.getSceneElements().some(э => э.type === "text" && э.text === "штрих до пакета"),
+          факт: "текстов на холсте: " + (живо() ? drawApi.getSceneElements().filter(э => э.type === "text").length : -1)});
+  drawFlush();
+  t.push({имя:"живая сцена и S.boards сошлись",
+          ок: живо() && (S.boards[схема.id].elements || []).length === drawApi.getSceneElements().length,
+          факт: "в S.boards " + (S.boards[схема.id].elements || []).length + ", на холсте " + (живо() ? drawApi.getSceneElements().length : -1)});
+
+  undoStep(); await ж(600);
+  t.push({имя:"Ctrl+Z вернул и живую доску, а не только данные",
+          ок: живо() && drawApi.getSceneElements().length === доПакета,
+          факт: "на холсте " + (живо() ? drawApi.getSceneElements().length : -1) + ", ждали " + доПакета});
+}
+
 // убираем за собой
+if(document.getElementById("draw-screen")) drawClose();
 hardDeleteItem(схема.id);
 render();
 return t;

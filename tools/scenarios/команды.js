@@ -275,6 +275,147 @@ const былоНод = S.items.length;
   t.push({имя:"пакет агента снялся целиком", ок: !S.items.some(i => /^КОМ-токен/.test(i.title || "")), факт: ""});
 }
 
+// ---------- полотно: схема пакетом ----------
+// Доска лежит ВНЕ ноды (S.boards), и в обычный снимок отката не входит — поэтому здесь больше
+// всего проверок именно на откат: обещание «весь пакет отменяется одним Ctrl+Z» дано в туре.
+{
+  /* Форма схемы — на чистой функции, без доски и вендора. Первая версия раскладки клала детей
+     развилки подряд от нулевого столбца: получалась цепочка, сбоку от которой что-то висит,
+     и по схеме было не видно, где ветвление (КРОЛИК, снимок 07.09.2026). */
+  {
+    const бл = [{id:"r", w:1}, {id:"y", w:1}, {id:"n", w:1}];
+    drawAutoGrid(бл, [{from:"r", to:"y"}, {from:"r", to:"n"}]);
+    const [r, y, n] = бл;
+    t.push({имя:"развилка расходится симметрично: родитель по центру между ветками",
+            ок: y.row === 1 && n.row === 1 && y.col !== n.col && Math.abs((y.col + n.col) / 2 - r.col) < 0.01,
+            факт: "родитель " + r.col + ", ветки " + y.col + " и " + n.col});
+  }
+  {
+    const бл = [{id:"r", w:1}, {id:"y", w:1}, {id:"n", w:1}, {id:"m", w:1}];
+    drawAutoGrid(бл, [{from:"r", to:"y"}, {from:"r", to:"n"}, {from:"y", to:"m"}, {from:"n", to:"m"}]);
+    const r = бл[0], m = бл[3];
+    t.push({имя:"схождение веток встало под их середину, а не под одну из них",
+            ок: m.row === 2 && Math.abs(m.col - r.col) < 0.01,
+            факт: "схождение " + m.col + ", развилка " + r.col});
+  }
+
+  const готова = (typeof drawLibReady === "function") ? await drawLibReady() : false;
+  t.push({имя:"вендор доски загрузился (без него схему не собрать)", ок: готова === true, факт: String(готова)});
+  if(готова){
+    const пол = addItem({kind:"flow", title:"КОМ-полотно"});
+    const зад = addItem({kind:"task", title:"КОМ-задача"});
+    render(); await ж(90);
+    const сц = () => (((S.boards || {})[пол.id]) || {}).elements || [];
+    const шт = вид => сц().filter(э => э.type === вид).length;
+
+    {
+      const п = cmdParse(JSON.stringify({ops:[{op:"draw", node:зад.id, blocks:[{id:"b1", text:"а"}]}]}));
+      t.push({имя:"рисовать на задаче нельзя — ошибка разбора", ок: п.errors.length === 1 && !п.ops.length, факт: п.errors[0] || ""});
+    }
+    {
+      const п = cmdParse(JSON.stringify({ops:[{op:"draw", node:пол.id, blocks:[{id:"b1", type:"пирамида", text:"а"}]}]}));
+      t.push({имя:"вид блока не из реестра — ошибка", ок: п.errors.length === 1, факт: п.errors[0] || ""});
+    }
+    {
+      const п = cmdParse(JSON.stringify({ops:[{op:"draw", node:пол.id, blocks:[{id:"b1", text:"а"}], edges:[{from:"b1", to:"b9"}]}]}));
+      t.push({имя:"стрелка на несуществующий блок — ошибка", ок: п.errors.length === 1, факт: п.errors[0] || ""});
+    }
+    {
+      const много = []; for(let i = 0; i <= CMD_DRAW_BLOCKS; i++) много.push({id:"b" + i, text:"x"});
+      const п = cmdParse(JSON.stringify({ops:[{op:"draw", node:пол.id, blocks:много}]}));
+      t.push({имя:"блоков больше потолка — ошибка", ок: п.errors.length === 1, факт: п.errors[0] || ""});
+    }
+
+    // применение: четыре блока цепочкой, координат в пакете нет — раскладывает приложение
+    const р = cmdParse(JSON.stringify({ops:[{op:"draw", node:пол.id, blocks:[
+        {id:"a", type:"terminal", text:"Идея"}, {id:"b", type:"proc", text:"Прототип"},
+        {id:"c", type:"decision", text:"Годится?"}, {id:"d", type:"comment", text:"замеры"}],
+      edges:[{from:"a", to:"b"}, {from:"b", to:"c"}, {from:"c", to:"d", label:"нет"}]}]}));
+    const беды = await cmdBuildBoards(р.ops);
+    t.push({имя:"схема собралась без ошибок", ок: !р.errors.length && !беды.length, факт: р.errors.concat(беды).join(" | ")});
+    cmdApply(р.ops); await ж(140);
+    t.push({имя:"на доске появились блоки и стрелки", ок: шт("rectangle") === 4 && шт("arrow") === 3,
+            факт: "прямоугольников " + шт("rectangle") + ", стрелок " + шт("arrow")});
+    t.push({имя:"подписи блоков не потерялись",
+            ок: сц().filter(э => э.type === "text").map(э => э.text).join("|").indexOf("Прототип") >= 0,
+            факт: сц().filter(э => э.type === "text").map(э => э.text).join(", ")});
+    t.push({имя:"без координат схема разложена по связям, а не в одну точку",
+            ок: new Set(сц().filter(э => э.type === "rectangle").map(э => э.y)).size >= 3,
+            факт: "рядов: " + new Set(сц().filter(э => э.type === "rectangle").map(э => э.y)).size});
+    /* Цепочка идёт одним столбцом — значит все три стрелки строго вертикальные. Вендор у стрелки
+       берёт габариты через `||`, и ширину 0 подменял дефолтной: стрелки уезжали вправо на сотню
+       пикселей и втыкались в правый край следующего блока (КРОЛИК, снимок 07.09.2026). */
+    {
+      const косые = сц().filter(э => э.type === "arrow" && Math.abs(+э.width || 0) > 2);
+      t.push({имя:"вертикальные стрелки остались вертикальными, а не уехали вбок",
+              ок: косые.length === 0,
+              факт: "стрелок с уходом вбок: " + косые.length + " · ширины: " +
+                    сц().filter(э => э.type === "arrow").map(э => Math.round(+э.width || 0)).join(", ")});
+    }
+    t.push({имя:"доска записана в S.boards, а не в ноду", ок: пол.elements === undefined && сц().length > 0, факт: "элементов: " + сц().length});
+
+    // дорисовка: старое на месте, новое ниже
+    const былоЭл = сц().length, низПрежних = Math.max.apply(null, сц().map(э => (+э.y || 0) + (+э.height || 0)));
+    const р2 = cmdParse(JSON.stringify({ops:[{op:"draw", node:пол.id, blocks:[{id:"z", text:"Дописано"}]}]}));
+    await cmdBuildBoards(р2.ops);
+    cmdApply(р2.ops); await ж(140);
+    t.push({имя:"append дорисовывает, а не стирает", ок: сц().length === былоЭл + 2,
+            факт: "было " + былоЭл + ", стало " + сц().length});
+    t.push({имя:"дописанное легло НИЖЕ прежнего, а не поверх",
+            ок: Math.min.apply(null, сц().slice(былоЭл).map(э => +э.y || 0)) >= низПрежних,
+            факт: "низ прежних " + низПрежних + ", верх нового " + Math.min.apply(null, сц().slice(былоЭл).map(э => +э.y || 0))});
+
+    // замена непустой доски = удаление: агент без согласия её не делает
+    {
+      const пакет = JSON.stringify({ops:[{op:"draw", node:пол.id, mode:"replace", blocks:[{id:"q", text:"Замена"}]}]});
+      const отк = JSON.parse(cmdAgent("apply", JSON.stringify({ops: пакет})));
+      t.push({имя:"замена непустой доски требует allowDelete", ок: отк.ok === false && сц().length === былоЭл + 2,
+              факт: (отк.errors || [отк.error]).join(" | ")});
+    }
+
+    // откат и повтор
+    const отпечаток = () => JSON.stringify(сц().map(э => [э.type, Math.round(+э.x || 0), Math.round(+э.y || 0)]));
+    const послеПакета = отпечаток();
+    undoStep(); await ж(180);
+    t.push({имя:"Ctrl+Z вернул доску к виду до пакета", ок: сц().length === былоЭл,
+            факт: "элементов " + сц().length + ", ждали " + былоЭл});
+    redoStep(); await ж(180);
+    t.push({имя:"повтор вернул дорисованное", ок: отпечаток() === послеПакета,
+            факт: "элементов " + сц().length + ", ждали " + (былоЭл + 2)});
+
+    // полотно, созданное этим же пакетом: откат обязан унести и ноду, и её доску
+    {
+      const р3 = cmdParse(JSON.stringify({ops:[
+        {op:"node", as:"m", kind:"flow", title:"КОМ-новое полотно"},
+        {op:"draw", node:"m", blocks:[{id:"x", text:"раз"}, {id:"y", text:"два"}], edges:[{from:"x", to:"y"}]}]}));
+      await cmdBuildBoards(р3.ops);
+      const итог = cmdApply(р3.ops); await ж(140);
+      const нов = итог && итог.alias && итог.alias["m"];
+      t.push({имя:"полотно и схема создаются одним пакетом",
+              ок: !!нов && ((((S.boards || {})[нов]) || {}).elements || []).length > 0, факт: "id " + нов});
+      undoStep(); await ж(180);
+      t.push({имя:"откат унёс и ноду, и её доску",
+              ок: !!нов && !cmdFindAny(нов) && !((S.boards || {})[нов]),
+              факт: нов ? ("нода " + (cmdFindAny(нов) ? "жива" : "снята") + ", доска " + (((S.boards || {})[нов]) ? "осталась" : "снята")) : "не создалась"});
+    }
+
+    // чтение доски агентом
+    {
+      const д = JSON.parse(cmdAgent("board", JSON.stringify({node: пол.id})));
+      const b = д.board || {};
+      t.push({имя:"агент читает доску блоками и стрелками",
+              ок: д.ok === true && (b.blocks || []).length >= 4 && (b.edges || []).length >= 3,
+              факт: "блоков " + (b.blocks || []).length + ", стрелок " + (b.edges || []).length});
+      t.push({имя:"в ответе нет base64 картинок", ок: JSON.stringify(д).indexOf("data:") < 0,
+              факт: "длина ответа " + JSON.stringify(д).length});
+      const пл = JSON.parse(cmdAgent("board", JSON.stringify({node: зад.id})));
+      t.push({имя:"доски у задачи нет — честный отказ", ок: пл.ok === false, факт: пл.error || ""});
+    }
+
+    hardDeleteItem(пол.id); hardDeleteItem(зад.id); render(); await ж(80);
+  }
+}
+
 render(); await ж(120);
 console.error = прежний;
 t.push({имя:"консоль чистая", ок: ошибки.length === 0, факт: ошибки.slice(0, 2).join(" | ")});

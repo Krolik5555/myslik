@@ -157,9 +157,157 @@ const DRAW_FLOW_STYLE = {
   frame:    { roundness:null, strokeStyle:"dotted" }
 };
 
-function flowToExcalidraw(flow){
-  const blocks = (flow && Array.isArray(flow.blocks)) ? flow.blocks : [];
-  const edges  = (flow && Array.isArray(flow.edges))  ? flow.edges  : [];
+/* ---------- сетка для пакета команд ----------
+   Нейросеть ставит блоки В КЛЕТКАХ (col/row/w/h целыми), а не в пикселях: пиксели она
+   раскладывает вразнобой, а клетки читаются как таблица и почти не дают ошибок. Реестр видов
+   блоков — тот же DRAW_FLOW_STYLE, второго не заводим: cmdPrompt перечисляет модели ровно его
+   ключи, как перечисляет KINDS и СТАТУСЫ. Плюс "text" — подпись без рамки, заголовок раздела. */
+/* КЕГЛЬ ПОДПИСЕЙ — «L» по шкале самого Excalidraw (S 16, M 20, L 28, XL 36). На доску смотрят
+   издалека и целиком, и мелкий текст в блоке читается плохо (КРОЛИК, 07.09.2026).
+   Клетка под него подобрана, а не оставлена прежней: на 28 px строка вроде «Разбор по белому
+   списку» занимает около 300 px, и в блоке 200×80 её рвало бы на три строки с вылезанием.
+   ПЕРЕНОС СТАРЫХ СХЕМ кегль не трогает (там остаётся 14): у их блоков свои габариты, снятые
+   с прежнего полотна, и крупный текст в них просто не поместится. */
+const DRAW_FONT = 28;
+const DRAW_GRID = {x:360, y:200, w:320, h:140};  // шаг клетки и размер блока в ней; разница — зазор
+const DRAW_BLOCK_TYPES = Object.keys(DRAW_FLOW_STYLE).concat("text");
+
+/* КЕГЛЬ ПОДБИРАЕТСЯ ПОД ТЕКСТ, а не текст ломается под кегль. Длинная подпись на L не влезает
+   в блок, и рвать её на пять строк с вылезанием хуже, чем нарисовать кеглем поменьше. Шаги — те
+   же, что в самом Excalidraw: L 28, M 20, S 16; ниже S не опускаемся, там уже не прочитать.
+   Меряем НАСТОЯЩИМ измерителем браузера и той же гарнитурой, которой вендор потом рисует:
+   считать по числу символов значит разойтись с отрисовкой на первом же длинном слове. */
+const DRAW_FONT_STEPS = [28, 20, 16];
+const DRAW_TEXT_PAD = 10;                        // отступ подписи внутри фигуры, как у вендора
+const DRAW_MAX_CELLS = 4;                        // выше четырёх клеток блок не растим — это уже не схема
+let _drawMeter = null;
+// сколько строк займёт подпись при этом кегле и влезает ли она по ширине вообще
+function drawTextLines(текст, шир, кегль){
+  const с = String(текст == null ? "" : текст).trim();
+  if(!с) return {строк:0, влезло:true};
+  if(!_drawMeter){ try{ _drawMeter = document.createElement("canvas").getContext("2d"); }catch(e){ _drawMeter = null; } }
+  if(!_drawMeter) return {строк:1, влезло:true};
+  _drawMeter.font = кегль + "px Excalifont";
+  const пробел = _drawMeter.measureText(" ").width;
+  let строк = 1, длина = 0, влезло = true;
+  с.split(/\s+/).forEach(сл=>{
+    const ш = _drawMeter.measureText(сл).width;
+    if(ш > шир) влезло = false;                  // одно слово шире блока — переносом не спасти
+    if(длина && длина + пробел + ш > шир){ строк++; длина = ш; }
+    else длина += (длина ? пробел : 0) + ш;
+  });
+  return {строк, влезло};
+}
+function drawTextFits(текст, w, h, кегль){
+  const р = drawTextLines(текст, Math.max(20, (+w || 0) - DRAW_TEXT_PAD), кегль);
+  return р.влезло && р.строк * кегль * 1.25 <= Math.max(20, (+h || 0) - DRAW_TEXT_PAD);
+}
+function drawFitFont(текст, w, h){
+  if(!String(текст == null ? "" : текст).trim()) return DRAW_FONT;
+  for(const кегль of DRAW_FONT_STEPS) if(drawTextFits(текст, w, h, кегль)) return кегль;
+  return DRAW_FONT_STEPS[DRAW_FONT_STEPS.length - 1];
+}
+/* Столбец бывает ДРОБНЫМ, и это не оплошность: родитель встаёт ровно посередине между двумя
+   ветками, то есть на половине клетки. Округляем не номер клетки, а готовый пиксель. */
+const drawGridBox = (col, row, w, h) => ({
+  x: Math.round((+col || 0) * DRAW_GRID.x),
+  y: Math.round((+row || 0) * DRAW_GRID.y),
+  w: Math.max(1, Math.round(w)) * DRAW_GRID.x - (DRAW_GRID.x - DRAW_GRID.w),
+  h: Math.max(1, Math.round(h)) * DRAW_GRID.y - (DRAW_GRID.y - DRAW_GRID.h)
+});
+
+/* РАСКЛАДКА ПО СВЯЗЯМ, когда координат не дали. Раскладываем ДЕРЕВОМ, как блок-схему рисуют
+   руками: ширина поддерева = сумма ширин веток, родитель встаёт ПО ЦЕНТРУ своего поддерева.
+   Тогда от развилки ветки расходятся симметрично — «да» влево, «нет» вправо.
+
+   Первая версия клала детей подряд от нулевого столбца, и вилка читалась как цепочка, сбоку от
+   которой что-то висит: по такой схеме не видно, где ветвление, а где продолжение (КРОЛИК,
+   снимок 07.09.2026). Алгоритм смысла не знает и знать не может — зато обязан не врать формой.
+
+   Граф бывает не деревом (ветки сходятся обратно). Ряд считаем по САМОМУ ДЛИННОМУ пути от
+   корня, иначе место схождения оказалось бы в одном ряду со своей же веткой; дерево строим по
+   первому родителю сверху, а место схождения в конце подтягиваем под середину его родителей. */
+const DRAW_AUTO_ROWS = 64;
+function drawAutoGrid(blocks, edges){
+  if(!blocks.length) return blocks;
+  const по = new Map(blocks.map(b=>[b.id, b]));
+  const своя = b => Math.max(1, Math.round(+b.w || 1));
+  const дети = new Map(), родители = new Map();
+  blocks.forEach(b=>{ дети.set(b.id, []); родители.set(b.id, []); });
+  (edges||[]).forEach(e=>{
+    if(!по.has(e.from) || !по.has(e.to) || e.from === e.to) return;
+    дети.get(e.from).push(e.to); родители.get(e.to).push(e.from);
+  });
+
+  // ряд = самый длинный путь от корня; корень — тот, в кого не ведёт ни одна стрелка
+  const ряд = new Map(), очередь = [];
+  blocks.forEach(b=>{ if(!родители.get(b.id).length){ ряд.set(b.id, 0); очередь.push(b.id); } });
+  if(!очередь.length){ ряд.set(blocks[0].id, 0); очередь.push(blocks[0].id); }   // связи кольцом
+  const предел = blocks.length * DRAW_AUTO_ROWS;
+  for(let i=0; i<очередь.length && i<предел; i++){
+    const a = очередь[i], р = ряд.get(a) + 1;
+    if(р > DRAW_AUTO_ROWS) continue;
+    дети.get(a).forEach(x=>{
+      if(ряд.has(x) && ряд.get(x) >= р) return;      // уже стоит не выше — трогать незачем
+      ряд.set(x, р); очередь.push(x);
+    });
+  }
+  blocks.forEach(b=>{ if(!ряд.has(b.id)) ряд.set(b.id, 0); });   // до кого не добрались вовсе
+
+  // дерево раскладки: родитель — первый, кто стоит ВЫШЕ по ряду (связи вбок и назад не считаем)
+  const тдети = new Map(), корни = [];
+  blocks.forEach(b=>{ тдети.set(b.id, []); });
+  blocks.forEach(b=>{
+    const св = родители.get(b.id).filter(x => ряд.get(x) < ряд.get(b.id));
+    if(св.length) тдети.get(св[0]).push(b.id); else корни.push(b.id);
+  });
+
+  const шир = new Map();
+  const ширина = id => {
+    if(шир.has(id)) return шир.get(id);
+    const б = по.get(id), с = тдети.get(id);
+    шир.set(id, своя(б));                                  // страховка, если связи всё же закольцевались
+    const w = с.length ? Math.max(своя(б), с.reduce((s, x) => s + ширина(x), 0)) : своя(б);
+    шир.set(id, w); return w;
+  };
+  const поставить = (id, лево) => {
+    let x = лево;
+    тдети.get(id).forEach(д => { поставить(д, x); x += ширина(д); });
+    const б = по.get(id);
+    б.row = ряд.get(id);
+    б.col = лево + (ширина(id) - своя(б)) / 2;              // ровно посередине своего поддерева
+  };
+  let край = 0;
+  корни.forEach(к => { поставить(к, край); край += ширина(к) + 1; });
+
+  // схождение веток: тянем под середину родителей, но только если в ряду свободно
+  const вРяду = new Map();
+  blocks.forEach(б => { const с = вРяду.get(б.row) || []; с.push(б); вРяду.set(б.row, с); });
+  blocks.forEach(б => {
+    const св = родители.get(б.id).filter(x => ряд.get(x) < б.row);
+    if(св.length < 2) return;
+    const центр = св.reduce((s, x) => { const p = по.get(x); return s + p.col + своя(p) / 2; }, 0) / св.length;
+    const цель = центр - своя(б) / 2;
+    const мешает = (вРяду.get(б.row) || []).some(x => x !== б &&
+      цель < x.col + своя(x) && x.col < цель + своя(б));
+    if(!мешает) б.col = цель;
+  });
+
+  // сдвигаем всё к нулю: отрицательные столбцы законны, но по холсту схема должна начинаться слева
+  const мин = blocks.reduce((m, б) => Math.min(m, б.col), Infinity);
+  if(isFinite(мин) && мин) blocks.forEach(б => { б.col -= мин; });
+  return blocks;
+}
+
+/* ОБЩИЙ СТРОИТЕЛЬ СЦЕНЫ. Принимает компактное {blocks, edges} в ПИКСЕЛЯХ и отдаёт готовые
+   элементы Excalidraw. Два входа, один слой: перенос старых схем (flowToExcalidraw ниже) и
+   рисование пакетом команд от нейросети (cmd.js). Второй такой же слой заводить нельзя — здесь
+   обойдены грабли вендора (привязка стрелок, габариты рамок), и в двух местах они разъедутся
+   молча. Служебных полей вендора (seed, versionNonce, версии) на входе не ждём: их дописывает
+   сам convertToExcalidrawElements. */
+function drawBuild(blocks, edges){
+  blocks = Array.isArray(blocks) ? blocks : [];
+  edges  = Array.isArray(edges)  ? edges  : [];
   const скелет = [], годен = new Set();
 
   blocks.forEach(b=>{
@@ -189,15 +337,26 @@ function flowToExcalidraw(flow){
       годен.add(b.id);
       return;
     }
+    if(b.type==="text"){
+      /* Подпись без рамки — заголовок раздела на доске. Габариты НЕ задаём: вендор считает их
+         сам по метрикам шрифта, а навязанная ширина ломает перенос строк. */
+      const т = { type:"text", id:b.id, x:общее.x, y:общее.y, text: текст || " ",
+                  fontSize: Math.max(16, Math.round(+b.fontSize) || 20) };
+      if(b.color) т.strokeColor = b.color;
+      скелет.push(т);
+      годен.add(b.id);
+      return;
+    }
     const ст = DRAW_FLOW_STYLE[b.type] || DRAW_FLOW_STYLE.proc;
     const эл = Object.assign({ type:"rectangle" }, ст, общее);
     /* Цвет блока в полотне красил РАМКУ и давал лёгкую подложку. Прямой backgroundColor дал бы
        сплошную заливку и другой рисунок схемы, поэтому цвет уходит в обводку. */
     if(b.color){ эл.strokeColor = b.color; эл.backgroundColor = "transparent"; }
     if(b.type==="comment" && !b.color) эл.strokeColor = "#868e96";
-    // 14 против вендорских 20 по умолчанию: в полотне подпись была 13.5 px, и на крупном кегле
-    // длинные тексты КРОЛИКА (до 147 символов) не влезали бы в исходный размер блока
-    if(текст) эл.label = { text: текст, fontSize: 14 };
+    /* Кегль берём ИЗ БЛОКА, а по умолчанию 14. Это размер для ПЕРЕНОСА СТАРЫХ СХЕМ: там подпись
+       была 13.5 px, а габариты блоков сняты с прежнего полотна, и крупный кегль в них не влезет.
+       Схемы от нейросети приходят со своим кеглем — его подбирает drawFitFont. */
+    if(текст) эл.label = { text: текст, fontSize: Math.round(+b.fontSize) || 14 };
     // ссылка на элемент Мыслика (в полотне это был refId) — сохраняем, чтобы не потерять связь
     if(b.refId) эл.customData = { refId: b.refId };
     скелет.push(эл);
@@ -228,13 +387,20 @@ function flowToExcalidraw(flow){
     const цy = п => Math.round(+п.y||0) + (Math.abs(Math.round(+п.h||64))||64)/2;
     const dx = цx(b) - цx(a), dy = цy(b) - цy(a);
     const н = край(a, dx, dy, 4), к = край(b, -dx, -dy, 4);
+    /* ТОЧКИ ЗАДАЁМ ЯВНО, а не через width/height. Внутри вендора стрелка берёт габариты через
+       `||` (`o.width||дефолт`), и у СТРОГО ВЕРТИКАЛЬНОЙ стрелки ширина ровно 0 молча
+       заменяется дефолтной: точки строятся по подменённой, потом габариты пересчитываются
+       по точкам — и стрелка уезжает вправо на сотню пикселей (КРОЛИК, снимок 07.09.2026).
+       Свои `points` вендор берёт как есть, потому что спред нашего объекта идёт ПОСЛЕ них.
+       Та же грабля с `||`, что у рамки ниже. */
+    const дл = Math.round(к.x - н.x), дв = Math.round(к.y - н.y);
     const стрелка = { type:"arrow", x: Math.round(н.x), y: Math.round(н.y),
-                      width: Math.round(к.x - н.x), height: Math.round(к.y - н.y) };
+                      width: дл, height: дв, points: [[0, 0], [дл, дв]] };
     /* Привязку даём только к прямоугольникам: для image/frame внутренняя фабрика вендора не
        имеет ветки и падает с TypeError, унося всю сцену — доска открылась бы пустой. */
     if(формы.get(e.from)==="rectangle") стрелка.start = { id: e.from };
     if(формы.get(e.to)==="rectangle")   стрелка.end   = { id: e.to };
-    if(e.label) стрелка.label = { text: String(e.label), fontSize: 14 };
+    if(e.label) стрелка.label = { text: String(e.label), fontSize: Math.round(+e.fontSize) || 14 };
     скелет.push(стрелка);
   });
 
@@ -253,6 +419,210 @@ function flowToExcalidraw(flow){
     э.height = Math.abs(Math.round(+b.h||220)) || 220;
   });
   return элементы;
+}
+
+// Перенос старой схемы — тонкий переходник: формат it.flow это те же {blocks, edges} в пикселях.
+function flowToExcalidraw(flow){
+  return drawBuild(flow && flow.blocks, flow && flow.edges);
+}
+
+/* СЦЕНА ИЗМЕНИЛАСЬ СНАРУЖИ — обновить то, что человек видит прямо сейчас. Зовут пакет команд
+   и откат: разойтись с картинкой на экране нельзя, а сама доска в S не заглядывает.
+   Живая доска в приложении одна, и её ключ — ВСЕГДА drawItem.id: у полотна это id ноды, у врезки
+   поля fieldBoardItem подсовывает искусственную ноду с id, равным ключу доски. Чужой ключ —
+   выходим молча, при следующем открытии сцена прочитается из S сама. */
+function drawSyncFrom(key){
+  if(!drawApi || !drawItem || drawItem.id !== key) return false;
+  const d = boardOf(key) || {elements:[], files:{}};
+  /* Отложенную запись снимаем и объявляем живую сцену «уже сохранённой». Иначе незаписанный
+     штрих (дебаунс 900 мс) лёг бы поверх того, что мы кладём: он относится к сцене, которую
+     как раз и заменяют. Отпечаток при этом НЕ обнуляем — вендор применяет updateScene своим
+     чередом, и обнулённый отпечаток дал бы запись старой сцены как новой. */
+  if(drawSaveTimer){ clearTimeout(drawSaveTimer); drawSaveTimer = null; }
+  try{ drawSeen = drawFingerprint(); }catch(e){}
+  try{
+    /* Порядок обязателен: публичный updateScene не принимает files, и картинки, пришедшие
+       снаружи, иначе просто не отрисовались бы. */
+    /* Отдаём КОПИИ верхнего слоя, а не сами объекты из S. Вендор нормализует пришедшее и
+       дописывает элементам служебные поля (version, versionNonce, updated) — а на эти же
+       объекты ссылается шаг отката, который держит прежние сцены ссылкой (см. txBoardMark).
+       Копия мелкая и дешёвая: тяжёлое (base64 картинок, points стрелок) остаётся общим. */
+    const ф = d.files || {};
+    const список = Object.keys(ф).map(k=>ф[k]).filter(Boolean).map(x=>Object.assign({}, x));
+    if(список.length && drawApi.addFiles) drawApi.addFiles(список);
+    drawApi.updateScene({elements: (Array.isArray(d.elements) ? d.elements : []).map(э=>Object.assign({}, э))});
+    return true;
+  }catch(e){
+    /* Не вышло — полный ремонтаж: он дороже, но между «медленно» и «человек смотрит на рисунок,
+       которого в данных нет» выбора нет. Отпечаток выше уже снят, поэтому drawStash внутри
+       drawDestroy ничего не затрёт. Врезку в панели пересоберёт ближайший render(). */
+    const it = drawItem, полный = !!$("#draw-screen");
+    drawDestroy();
+    if(полный) openBoard(it);
+    return false;
+  }
+}
+
+/* ---------- рисование пакетом команд ----------
+   Всё, что знает про формат сцены и грабли вендора, живёт ЗДЕСЬ, а не в cmd.js: там язык
+   команд — разбор, белый список, предпросмотр. */
+
+/* Готовность собирать сцену: библиотека вендора грузится лениво, и ШРИФТЫ — не мелочь. Вендор
+   считает перенос строк по метрикам шрифта, и без Excalifont подписи вылезают за края блоков
+   (та же грабля, что у переноса старых схем, см. drawFontsReady). */
+function drawLibReady(){
+  return drawLoadLib().then(ок=>{
+    if(!ок || !window.ExcalidrawLib) return false;
+    return drawFontsReady().then(()=>true);   // не дождались шрифтов — рисуем как есть, это лучше зависания
+  });
+}
+/* Тот же вопрос, но СИНХРОННО — для агента: cmdAgent синхронен целиком (evaluate_js не ждёт
+   промиса), и ждать загрузку ему нечем. Поэтому ответ «пока нет» плюс запуск загрузки, а ждёт
+   и опрашивает Python (app.py: _agent_prepare), где этому и место. */
+function drawLibState(){
+  const lib = !!(window.ExcalidrawLib && ExcalidrawLib.convertToExcalidrawElements);
+  let fonts = true;
+  try{ fonts = document.fonts.check('16px Excalifont'); }catch(e){ fonts = true; }
+  if(!lib) drawLoadLib();
+  /* Шрифт ПРОСИМ, а не ждём. document.fonts.ready дожидается только уже начатых загрузок, и если
+     доску в этой сессии не открывали, гарнитуру никто не запрашивал — check() остался бы ложным
+     навсегда, а агент ждал бы впустую до самого предела. load() загрузку начинает. */
+  else if(!fonts){ try{ document.fonts.load('16px Excalifont'); }catch(e){} }
+  return {lib, fonts};
+}
+
+/* Спецификация от нейросети → готовые элементы. Сдвига «под уже нарисованное» здесь НЕТ: между
+   предпросмотром и применением доска могла измениться, поэтому сдвиг считает drawApplyBoard в
+   момент записи. */
+function drawBuildSpec(оп){
+  const блоки = (оп.blocks || []).map(b=>Object.assign({}, b));
+  // координаты дали не всем — раскладываем сами, иначе безымянные лягут друг на друга в углу
+  if(блоки.some(b=>b.col == null || b.row == null)) drawAutoGrid(блоки, оп.edges);
+  /* СВОИ id БЛОКОВ В СЦЕНУ НЕЛЬЗЯ. convertToExcalidrawElements зовём с regenerateIds:false
+     (иначе развалятся привязки стрелок), и второй пакет с теми же "b1"/"b2" дал бы на доске
+     два элемента с одним id — вендор от этого ломается. Отсюда свой префикс у каждой операции. */
+  const пр = "ai" + uid() + "_";
+  /* Кегль и высота подбираются ВМЕСТЕ: сперва пробуем уместить подпись в блок ступенями кегля,
+     а если не влезло и на самом мелком — растим блок клетками. Текст, вылезающий за рамку,
+     читается как поломка; высокий блок — нет. */
+  блоки.forEach(b=>{
+    b.h = Math.max(1, Math.round(+b.h || 1));
+    let г = drawGridBox(0, 0, b.w || 1, b.h);
+    b.fontSize = drawFitFont(b.text, г.w, г.h);
+    while(b.h < DRAW_MAX_CELLS && !drawTextFits(b.text, г.w, г.h, b.fontSize)){
+      b.h++;
+      г = drawGridBox(0, 0, b.w || 1, b.h);
+      b.fontSize = drawFitFont(b.text, г.w, г.h);   // стало выше — может влезть и кегль покрупнее
+    }
+  });
+  /* ВЫСОТА РЯДА — по самому высокому блоку в нём, а не жёсткий шаг сетки: блок в две клетки
+     иначе налез бы на следующий ряд. Верх ряда считаем накоплением сверху вниз. */
+  const высРяда = new Map();
+  блоки.forEach(b=>{ const р = Math.round(+b.row || 0);
+    высРяда.set(р, Math.max(высРяда.get(р) || 1, b.h)); });
+  const верх = new Map();
+  let нак = 0;
+  Array.from(высРяда.keys()).sort((a, б) => a - б).forEach(р=>{ верх.set(р, нак); нак += высРяда.get(р); });
+
+  const впикселях = блоки.map(b=>{
+    const г = drawGridBox(b.col || 0, верх.get(Math.round(+b.row || 0)) || 0, b.w || 1, b.h);
+    const н = {id: пр+b.id, type: b.type, text: b.text, x: г.x, y: г.y, w: г.w, h: г.h,
+               fontSize: b.fontSize};
+    if(b.color) н.color = b.color;
+    if(b.parent) н.parent = пр + b.parent;
+    return н;
+  });
+  // подпись стрелки — короткая («да», «нет»), подбирать ей кегль не по чему: даём тот же L
+  const рёбра = (оп.edges || []).map(e=>({from: пр+e.from, to: пр+e.to, label: e.label, fontSize: DRAW_FONT}));
+  return drawBuild(впикселях, рёбра);
+}
+
+/* Запись собранной сцены в доску ноды. Возвращает, сколько элементов добавлено. */
+function drawApplyBoard(it, оп){
+  /* Незаписанный штрих дожимаем ПЕРЕД чтением доски. Между штрихом человека и применением
+     лежит дебаунс 900 мс: без этого отложенный drawStash сработал бы ПОСЛЕ нас и вернул доску
+     к виду до пакета. Та же болезнь и то же лечение, что у раскладки графа (flushLayout). */
+  if(drawItem && drawItem.id === it.id) drawFlush();
+  /* Пометка — СРАЗУ ПОСЛЕ дожатия и ДО всякой записи. После дожатия, потому что штрих человека
+     сделан ДО пакета и обязан вернуться откатом; до записи — потому что дальше прежней сцены
+     уже не будет. И до переноса схемы ниже: иначе шаг запомнил бы «была сконвертированная
+     доска» вместо честного «доски не было вовсе». */
+  txBoardMark(it.id);
+  /* Нода со старой схемой, которую ни разу не открывали: доски ещё нет, а it.flow есть. Запиши
+     мы сцену напрямую — boardOf перестал бы быть пустым, и схема не перенеслась бы уже НИКОГДА
+     (drawSeedFromFlow выходит сразу, если доска есть). Поэтому сперва перенос, потом дорисовка. */
+  if(!boardOf(it.id)) drawSeedFromFlow(it);
+  const прежняя = boardOf(it.id) || {};
+  const было = (оп.mode === "replace") ? [] : (Array.isArray(прежняя.elements) ? прежняя.elements : []);
+  const новые = (оп._els || []).map(э=>Object.assign({}, э));
+  /* Дорисовка не должна ложиться ПОВЕРХ нарисованного: сдвигаем новое под нижний край того, что
+     уже есть, с выравниванием по клетке. Тот же приём, которым cmdApply кладёт новые ноды
+     справа от всего дерева. Сдвиг общий и по одной оси — так у стрелок и подписей, привязанных
+     к фигурам, не разъезжаются координаты. */
+  let низ = -Infinity;
+  было.forEach(э=>{ if(э && !э.isDeleted && isFinite(э.y)) низ = Math.max(низ, (+э.y||0) + (+э.height||0)); });
+  const сдвиг = isFinite(низ) ? Math.ceil((низ + DRAW_GRID.y) / DRAW_GRID.y) * DRAW_GRID.y : 0;
+  if(сдвиг) новые.forEach(э=>{ э.y = (+э.y||0) + сдвиг; });
+  boardSet(it.id, {
+    elements: было.concat(новые),
+    // при замене уходят и картинки: на них больше некому ссылаться, а это мегабайты base64
+    files: (оп.mode === "replace") ? {} : (прежняя.files || {}),
+    appState: прежняя.appState || {},
+    fromFlow: !!прежняя.fromFlow
+  });
+  drawSyncFrom(it.id);                // доска открыта — обновить то, что человек видит сейчас
+  return новые.length;
+}
+
+/* СЦЕНА → КОМПАКТНЫЙ ВИД, обратное drawBuildSpec. Без этого агент умеет только рисовать с нуля:
+   дописать существующую схему он не может, потому что не знает, что на ней.
+
+   Картинки не отдаются НИКОГДА — ни целиком, ни кусками: это мегабайты base64 и чужие
+   фотографии, у них наружу выходит только место и размер. Вид блока определяется ПРИБЛИЗИТЕЛЬНО
+   (в сцене от стиля осталась только обводка), и это честно сказано в описании инструмента.
+   Чего не разобрали — считаем в skipped: модель обязана знать, что видит не всё, иначе
+   «заменить доску» сотрёт то, чего ей не показали. */
+function drawSpecFromScene(elements){
+  const els = (Array.isArray(elements) ? elements : []).filter(э=>э && !э.isDeleted);
+  const подписи = {};       // containerId → текст: подпись сливается в свой блок, отдельной не выезжает
+  els.forEach(э=>{ if(э.type==="text" && э.containerId) подписи[э.containerId] = String(э.text||""); });
+  const блоки = [], рёбра = [], пропущено = {};
+  const мимо = к => { пропущено[к] = (пропущено[к]||0) + 1; };
+  const кл = (v, шаг) => Math.round((+v||0)/шаг);
+  const разм = (v, шаг) => Math.max(1, Math.round((+v||0)/шаг));
+  els.forEach(э=>{
+    const общее = () => ({id:э.id, col:кл(э.x, DRAW_GRID.x), row:кл(э.y, DRAW_GRID.y),
+                          w:разм(э.width, DRAW_GRID.x), h:разм(э.height, DRAW_GRID.y)});
+    if(э.type==="text"){
+      if(э.containerId) return;                       // ушла в свой блок или в подпись стрелки
+      блоки.push(Object.assign(общее(), {type:"text", text:String(э.text||"")}));
+      return;
+    }
+    if(э.type==="arrow"){
+      const от = (э.startBinding && э.startBinding.elementId) || null;
+      const к  = (э.endBinding   && э.endBinding.elementId)   || null;
+      if(!от && !к) мимо("свободные стрелки");
+      const р = {from:от, to:к};
+      if(подписи[э.id]) р.label = подписи[э.id];
+      рёбра.push(р);
+      return;
+    }
+    if(э.type==="frame" || э.type==="magicframe"){
+      блоки.push(Object.assign(общее(), {type:"frame", text:String(э.name||"")}));
+      return;
+    }
+    if(э.type==="image"){
+      блоки.push(Object.assign(общее(), {type:"image", text:""}));
+      return;
+    }
+    if(э.type==="rectangle" || э.type==="ellipse" || э.type==="diamond"){
+      блоки.push(Object.assign(общее(), {type: э.strokeStyle==="dashed" ? "comment" : "proc",
+                                         text: подписи[э.id] || ""}));
+      return;
+    }
+    мимо(э.type || "прочее");
+  });
+  return {blocks:блоки, edges:рёбра, skipped:пропущено};
 }
 
 // картинки старой схемы: data-URL блока → файл сцены
@@ -386,8 +756,17 @@ function drawFontsReady(){
   const готовы = ()=>{ try{ return document.fonts.check('16px Excalifont'); }catch(e){ return true; } };
   if(готовы()) return Promise.resolve(true);
   return new Promise(res=>{
-    const край = setTimeout(()=>res(false), 2000);
-    Promise.resolve(document.fonts.ready).then(()=>{ clearTimeout(край); res(готовы()); }).catch(()=>{ clearTimeout(край); res(false); });
+    const край = setTimeout(()=>res(false), 3000);
+    /* Шрифт ПРОСИМ загрузиться, а не ждём у моря погоды. document.fonts.ready дожидается только
+       уже НАЧАТЫХ загрузок: если доску в этой сессии не открывали, гарнитуру никто не запрашивал,
+       ready резолвится мгновенно, а check() остаётся ложным. Тогда перенос строк считался по
+       подменной гарнитуре, и подписи вылезали за края блоков (КРОЛИК, снимок 07.09.2026).
+       load() загрузку начинает и ждёт по-настоящему. */
+    let ждём;
+    try{ ждём = document.fonts.load('16px Excalifont'); }catch(e){ ждём = null; }
+    Promise.all([Promise.resolve(ждём), Promise.resolve(document.fonts.ready)])
+      .then(()=>{ clearTimeout(край); res(готовы()); })
+      .catch(()=>{ clearTimeout(край); res(готовы()); });
   });
 }
 

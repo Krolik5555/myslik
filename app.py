@@ -452,12 +452,53 @@ def _agent_prepare(params):
     return params
 
 
+def _agent_wait_draw(params):
+    """Пакет рисует на полотне — дождаться доски ПЕРЕД применением.
+
+    Вендор Excalidraw весит мегабайты и грузится лениво, при первом открытии полотна; без него
+    схему не собрать. Ждать этого во фронте нечем: cmdAgent синхронен целиком (evaluate_js
+    промиса не ждёт), поэтому ожидание живёт здесь — там же, где чтение картинок с диска, и по
+    тому же правилу: всё, что умеет не получиться, делается ДО применения.
+
+    Шрифты ждём вместе с библиотекой, но мягко: вендор считает перенос строк по их метрикам, и
+    без Excalifont подписи вылезают за края блоков. Не дождались шрифтов, а библиотека есть —
+    рисуем как есть: кривой перенос строк лучше отказа."""
+    ops = params.get("ops")
+    if isinstance(ops, str):
+        # пакет приходит и строкой (агент отдаёт текст модели как есть). Разбираем по-настоящему:
+        # по подстроке "draw" ждали бы восемь секунд из-за слова в чужом заголовке
+        try:
+            d = json.loads(ops)
+            ops = d.get("ops") if isinstance(d, dict) else d
+        except Exception:
+            ops = [{"op": "draw"}] if '"op"' in ops and '"draw"' in ops else None
+    if not isinstance(ops, list):
+        return
+    if not any(isinstance(o, dict) and o.get("op") == "draw" for o in ops):
+        return
+    предел = time.time() + 8            # столько ждём саму библиотеку; нет её — cmdAgent откажет внятно
+    шрифты = None                       # а шрифтам сверх того даём всего пару секунд
+    while time.time() < предел:
+        r = _agent_call("drawlib", {})
+        if not isinstance(r, dict) or not r.get("ok"):
+            return                      # окно не ответило — отказ соберёт сам cmdAgent, там понятнее
+        if r.get("lib"):
+            if r.get("fonts"):
+                return
+            if шрифты is None:
+                шрифты = time.time() + 3
+            elif time.time() > шрифты:
+                return                  # рисуем как есть: кривой перенос строк лучше отказа
+        time.sleep(0.3)
+
+
 def _agent_call(method, params):
     if _WINDOW is None:
         return {"ok": False, "error": "окно приложения ещё не готово"}
     try:
         if method in ("apply", "preview"):
             params = _agent_prepare(params or {})
+            _agent_wait_draw(params)
         js = "window.cmdAgent ? window.cmdAgent(%s,%s) : ''" % (
             json.dumps(method), json.dumps(json.dumps(params or {}, ensure_ascii=False)))
         # ВАЖНО: зовём из потока HTTP-сервера, а НЕ из UI-потока. evaluate_js ждёт ответа
@@ -514,7 +555,9 @@ def _agent_handler_class():
                 return
             method = str(data.get("method") or "")
             # "rules" — те же правила, что и "prompt", но без снимка графа (см. cmdPrompt)
-            if method not in ("ping", "snapshot", "prompt", "rules", "graphs", "preview", "apply", "undo"):
+            # "board" — доска полотна для чтения, "drawlib" — служебный: готов ли вендор доски
+            if method not in ("ping", "snapshot", "prompt", "rules", "graphs", "preview", "apply",
+                              "undo", "board", "drawlib"):
                 self._send(400, {"ok": False, "error": "неизвестный метод: %s" % method})
                 return
             self._send(200, _agent_call(method, data.get("params") or {}))

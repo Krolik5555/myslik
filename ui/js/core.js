@@ -1342,10 +1342,19 @@ const _undoSnap=()=>JSON.stringify({items:S.items, links:S.links, areas:S.areas,
    см. undoPushLayout ниже, — а не через сравнение состояний. */
 const _noXY=o=>{ const r=Object.assign({},o); delete r.x; delete r.y; delete r.hx; delete r.hy; r._on=(o.x!=null); return r; };
 const _undoKey=()=>JSON.stringify({items:S.items.map(_noXY), links:S.links, areas:S.areas.map(_noXY), tags:S.tags});
+/* Вес досок в шаге считаем БЕЗ сериализации: она стоила бы ровно тех мегабайт, ради которых
+   доски в снимок и не кладут. Элемент ≈ 300 байт, а весь настоящий вес — в картинках, их
+   меряем по длине base64. */
+const _досокВес=b=>{ let n=0;
+  Object.keys(b||{}).forEach(к=>{ const d=b[к]; if(!d) return;
+    n+=((d.elements||[]).length)*300;
+    const f=d.files||{}; Object.keys(f).forEach(x=>{ n+=((f[x]&&f[x].dataURL)||"").length; });
+  });
+  return n; };
 // вес шага: обычный — строка-снимок, раскладка — список координат, транзакция — снимок всех графов
 const _шагВес=x=>(typeof x==="string") ? x.length
   : (x && x.layout) ? x.layout.length*48
-  : (x && x.full) ? x.full.length : 0;
+  : (x && x.full) ? (x.full.length + (x.boards ? _досокВес(x.boards) : 0)) : 0;
 const _undoTrim=a=>{ let n=a.reduce((s,x)=>s+_шагВес(x),0);
   while(a.length>UNDO_STEPS || (a.length>1 && n>UNDO_BYTES)) n-=_шагВес(a.shift()); };
 function undoInit(){ _undoLast=_undoSnap(); _undoKeyLast=_undoKey(); _undoStack=[]; _redoStack=[]; }
@@ -1444,10 +1453,44 @@ function _layoutApply(снимок){
    пакость» лечится только руками. Такой шаг хранит все графы, теги и шаблоны разом.
    Дорого по памяти, поэтому только для пакетных операций — обычной правке хватает обычного шага. */
 const _fullNow=()=>JSON.stringify({graphs:S.graphs, tags:S.tags, templates:S.templates, graph:S.settings.graph});
+/* ДОСКИ В ШАГЕ — ТОЛЬКО ЗАТРОНУТЫЕ И ССЫЛКОЙ. Сцены полотен лежат вне нод (S.boards, ключ — id
+   ноды либо fld_<id поля>) и в снимок выше не входят намеренно: там base64 картинок, и все доски
+   разом съели бы UNDO_BYTES за пару шагов. Но пакет, который РИСУЕТ, обязан отменяться целиком —
+   значит помним прежние сцены ровно тех досок, которые он трогает. Ключей нет — нет и лишней
+   работы: обычная пакетная правка досок не касается вовсе.
+   Ссылкой, а не копией: объекты в S.boards неизменяемы по соглашению — правит их только boardSet
+   и всегда НОВЫМ объектом, поэтому прежняя сцена после подмены никем не меняется. Тем же приёмом
+   держит содержимое карман удалённых (см. trashKeep выше).
+   null в значении = доски не было вовсе; откат обязан её снести, иначе на месте отменённого
+   полотна останется рисунок, которого до пакета не существовало. */
+const _boardsNow=ключи=>{ const был={};
+  (ключи||[]).forEach(к=>{ был[к]=(S.boards && к in S.boards) ? S.boards[к] : null; });
+  return был; };
+// шаг транзакции: снимок всех графов плюс прежние сцены затронутых досок
+const _fullStep=ключи=>{ const ш={full:_fullNow()};
+  if(ключи && ключи.length){ ш.boardKeys=ключи.slice(); ш.boards=_boardsNow(ключи); }
+  return ш; };
 function undoPushFull(){
   if(_undoBusy) return false;
-  _undoStack.push({full:_fullNow()}); _undoTrim(_undoStack);
+  _undoStack.push(_fullStep()); _undoTrim(_undoStack);
   _redoStack.length=0;
+  return true;
+}
+/* «ЭТУ ДОСКУ СЕЙЧАС ТРОНУ» — зовут ПЕРЕД записью, изнутри уже открытой транзакции. Списком
+   на старте это не собрать: полотно может создавать сам пакет, и его ключ становится известен
+   только в момент создания. Прежнюю сцену снимаем при ПЕРВОМ касании — до записи она ещё цела,
+   а повторные касания той же доски ничего не меняют.
+   Доски не было вовсе — запоминаем null: откат обязан её снести, иначе на месте отменённого
+   полотна останется рисунок, которого до пакета не существовало. */
+let _txStep=null;                       // шаг, который открыла txBegin — в него и дописываем доски
+function txBoardMark(key){
+  // только в СВОЙ шаг: транзакция могла не открыться (_undoBusy), и дописывать чужой нельзя
+  const шаг=_txStep;
+  if(!key || !шаг) return false;
+  if(!шаг.boards){ шаг.boards={}; шаг.boardKeys=[]; }
+  if(key in шаг.boards) return true;
+  шаг.boards[key]=(S.boards && key in S.boards) ? S.boards[key] : null;
+  шаг.boardKeys.push(key);
   return true;
 }
 /* ПАКЕТНАЯ ПРАВКА — ОДНО ДЕЙСТВИЕ. Внутри пакета addItem/addLink/toggleDone зовут persist по
@@ -1455,11 +1498,11 @@ function undoPushFull(){
    команду, а половина шагов вернула бы полуприменённый пакет. Поэтому транзакция кладёт ОДИН
    шаг (снимок всех графов, см. undoPushFull) и на время применения глушит обычные — тем же
    флагом _undoBusy, которым пользуется сам откат. */
-function txBegin(){ const ок=undoPushFull(); _undoBusy=true; return ок; }
-function txEnd(){ _undoBusy=false; _undoLast=_undoSnap(); _undoKeyLast=_undoKey(); }
-function _fullApply(snap){
+function txBegin(){ const ок=undoPushFull(); _txStep=ок?_undoStack[_undoStack.length-1]:null; _undoBusy=true; return ок; }
+function txEnd(){ _txStep=null; _undoBusy=false; _undoLast=_undoSnap(); _undoKeyLast=_undoKey(); }
+function _fullApply(шаг){
   _undoBusy=true;
-  const d=JSON.parse(snap);
+  const d=JSON.parse(шаг.full);
   S.graphs=d.graphs;                       // геттеры S.items читают S.graphs динамически — перепривязка не нужна
   if(Array.isArray(d.tags)) S.tags=d.tags;
   if(Array.isArray(d.templates)) S.templates=d.templates;
@@ -1468,6 +1511,17 @@ function _fullApply(snap){
   else if(!S.graphs.some(g=>g.id===S.settings.graph)) S.settings.graph=(S.graphs.find(g=>!isSubGraph(g))||S.graphs[0]).id;
   // воскресшим нодам вернуть их доски и картинки — по ВСЕМ графам, содержимое лежит вне нод
   S.graphs.forEach(g=>trashRevive(g.items));
+  /* Доски возвращаем ПОСЛЕ кармана: карман поднимает только то, чего в S.boards нет, а шаг знает
+     точнее — он помнит и «доски здесь не было». Иначе отменённое полотно осталось бы с рисунком,
+     воскрешённым карманом. */
+  const доски=шаг.boards||null;
+  if(доски) Object.keys(доски).forEach(к=>{ if(доски[к]==null) boardDelete(к); else boardSet(к, доски[к]); });
+  /* Живую сцену синхронизируем ДО render(), и порядок здесь не вкусовщина. Полноэкранную доску
+     render() не закрывает намеренно — сама она не перечитается, и человек смотрел бы на рисунок,
+     которого в данных уже нет. А врезку в правой панели render() как раз пересобирает, и на этом
+     пути drawDestroy успевает позвать drawStash — незаписанный штрих лёг бы поверх только что
+     восстановленного. drawSyncFrom объявляет живую сцену сохранённой и снимает отложенную запись. */
+  if(доски && typeof drawSyncFrom==="function") Object.keys(доски).forEach(drawSyncFrom);
   areaFilter=null; asideId=null;
   render();
   _undoBusy=false;
@@ -1477,12 +1531,13 @@ function _fullApply(snap){
 function undoStep(){ if(!_undoStack.length) return false;
   const шаг=_undoStack[_undoStack.length-1];
   if(шаг && шаг.layout){ _undoStack.pop(); _redoStack.push({layout:_layoutNow(шаг.layout)}); _undoTrim(_redoStack); _layoutApply(шаг.layout); return true; }
-  if(шаг && шаг.full){ _undoStack.pop(); _redoStack.push({full:_fullNow()}); _undoTrim(_redoStack); _fullApply(шаг.full); return true; }
+  // встречный шаг снимаем ПО ТОМУ ЖЕ списку ключей — иначе повтор вернул бы графы без досок
+  if(шаг && шаг.full){ _undoStack.pop(); _redoStack.push(_fullStep(шаг.boardKeys)); _undoTrim(_redoStack); _fullApply(шаг); return true; }
   _redoStack.push(_undoLast); _undoTrim(_redoStack); _undoApply(_undoStack.pop()); return true; }
 function redoStep(){ if(!_redoStack.length) return false;
   const шаг=_redoStack[_redoStack.length-1];
   if(шаг && шаг.layout){ _redoStack.pop(); _undoStack.push({layout:_layoutNow(шаг.layout)}); _undoTrim(_undoStack); _layoutApply(шаг.layout); return true; }
-  if(шаг && шаг.full){ _redoStack.pop(); _undoStack.push({full:_fullNow()}); _undoTrim(_undoStack); _fullApply(шаг.full); return true; }
+  if(шаг && шаг.full){ _redoStack.pop(); _undoStack.push(_fullStep(шаг.boardKeys)); _undoTrim(_undoStack); _fullApply(шаг); return true; }
   _undoStack.push(_undoLast); _undoTrim(_undoStack); _undoApply(_redoStack.pop()); return true; }
 function touch(it){ it.updated=Date.now(); }
 

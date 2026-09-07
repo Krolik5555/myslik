@@ -187,9 +187,9 @@ def _code_symbols():
     # событие DOM, а не объявленное имя; подписи быстрых кнопок срока (БЫСТРЫЙ_СРОК), не символы
     "keydown", "зв", "пт", "сег",
     # методы и аргументы моста для ИИ-агента (cmdAgent / mcp_server.py) и значение CSS — не символы
-    "ping", "snapshot", "prompt", "rules", "graphs", "preview", "apply", "undo",
+    "ping", "snapshot", "prompt", "rules", "graphs", "preview", "apply", "undo", "drawlib",
     "root", "depth", "graph", "limit", "cursor", "format", "token", "absolute", "position",
-    "myslik_rules", "tight",
+    "myslik_rules", "myslik_board", "tight",
     # инструменты, которыми работают, а не код проекта
     "Edit", "Grep", "Read", "search_graph", "trace_path", "get_code_snippet", "get_architecture",
     "check_index_coverage", "index_status", "index_repository", "detect_changes", "codebase-memory",

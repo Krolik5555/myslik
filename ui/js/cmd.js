@@ -14,17 +14,24 @@
    makeDate, PALETTE, ICONS). Плюс замерено на локальной модели: JSON по схеме надёжнее уговоров
    в промпте — потому весь ИИ в проекте и говорит с приложением через JSON.
 
-   ЧТО ПАКЕТ НЕ ДЕЛАЕТ. Не трогает настройки, не переключает графы, не лезет в доски полотна
-   (вендорский формат Excalidraw модель собирает плохо) и не удаляет ничего без отдельного
-   подтверждения человеком. ============================================================= */
+   ЧТО ПАКЕТ НЕ ДЕЛАЕТ. Не трогает настройки, не переключает графы и не удаляет ничего без
+   отдельного подтверждения человеком.
+
+   ПОЛОТНО (op "draw") РИСУЕТСЯ НЕ ВЕНДОРСКИМ ФОРМАТОМ. Служебные поля элементов Excalidraw
+   (seed, versionNonce, привязки стрелок) модель собирает плохо, и требовать их от неё нельзя.
+   Поэтому пакет несёт КОМПАКТНЫЙ скелет — блоки и стрелки в клетках сетки, — а разворачивает
+   его в настоящую сцену draw.js (drawBuildSpec), где и живут обходы граблей вендора.
+   ============================================================================ */
 
 const CMD_V = 1;
 const CMD_MAX_OPS = 300;          // потолок на пакет: защита от «модель выдала простыню», не от человека
 const CMD_SNAP_NODES = 400;       // сколько нод влезает в снимок для нейросети, дальше срезаем
+const CMD_DRAW_BLOCKS = 120;      // блоков в одной операции draw: дальше схему всё равно не прочитать
+const CMD_DRAW_EDGES = 200;
 /* БЕЛЫЙ СПИСОК КОМАНД. Всё, чего здесь нет, отвергается на разборе с внятной ошибкой — пакет не
    может сделать ничего, что не перечислено. Сама обработка живёт одним проходом в cmdApply,
    чтобы порядок операций и общие локальные имена были видны в одном месте. */
-const CMD_HANDLERS = {node:1, edit:1, link:1, unlink:1, field:1, done:1, area:1, delete:1};
+const CMD_HANDLERS = {node:1, edit:1, link:1, unlink:1, field:1, done:1, area:1, delete:1, draw:1};
 
 /* ---------- разбор ----------
    Модели почти всегда оборачивают ответ в ```json … ``` и добавляют пару слов от себя.
@@ -248,6 +255,95 @@ function cmdParse(text){
       o.node = ссылка(сырое.node != null ? сырое.node : сырое.id, "node", true);
       if(!o.node) плохо = true;
     }
+    else if(op === "draw"){
+      o.node = ссылка(сырое.node != null ? сырое.node : сырое.id, "node", true);
+      if(!o.node) плохо = true;
+      else {
+        /* Доска есть только у ПОЛОТНА (см. openFlowEditor): у задачи её негде показать, и
+           запись ушла бы в никуда. Проверяем на разборе, как «in» проверяет подграф — тихо
+           не туда худший из возможных исходов. */
+        const вид = (видПоИмени[o.node] !== undefined) ? видПоИмени[o.node] : ((cmdFindAny(o.node) || {}).kind);
+        if(вид !== "flow"){
+          бед('рисовать можно только на полотне (kind "flow"), а «node» указывает на «' + kindRu(вид || "task") + '».');
+          плохо = true;
+        }
+      }
+      const реж = String(сырое.mode || "append");
+      if(реж !== "append" && реж !== "replace"){ бед('«mode» бывает "append" (дорисовать) или "replace" (заменить).'); плохо = true; }
+      else o.mode = реж;
+
+      const цел = (v, мин, макс) => { const x = Math.round(+v); return (isFinite(x) && x >= мин && x <= макс) ? x : null; };
+      const имена = new Set();
+      const сб = Array.isArray(сырое.blocks) ? сырое.blocks : null;
+      if(!сб || !сб.length){ бед("в «blocks» нужен хотя бы один блок."); плохо = true; }
+      else if(сб.length > CMD_DRAW_BLOCKS){ бед("блоков " + сб.length + ", потолок " + CMD_DRAW_BLOCKS + ". Раздели схему."); плохо = true; }
+      else {
+        o.blocks = [];
+        сб.forEach((b, j) => {
+          const где = "блок " + (j + 1);
+          if(!b || typeof b !== "object" || Array.isArray(b)){ бед(где + " — не объект."); плохо = true; return; }
+          const id = String(b.id == null ? "" : b.id).trim();
+          if(!id){ бед(где + " без «id» — на него ссылаются стрелки."); плохо = true; return; }
+          if(имена.has(id)){ бед('id блока "' + id + '" повторяется.'); плохо = true; return; }
+          имена.add(id);
+          const t = String(b.type == null || b.type === "" ? "proc" : b.type);
+          if(DRAW_BLOCK_TYPES.indexOf(t) < 0){
+            бед(где + ': вид "' + t + '" не из списка: ' + DRAW_BLOCK_TYPES.join(", ") + ".");
+            плохо = true; return;
+          }
+          const бл = {id: id, type: t, text: String(b.text == null ? "" : b.text).slice(0, 300)};
+          if(b.color != null && b.color !== ""){
+            const c = String(b.color);
+            if(/^#[0-9a-fA-F]{3,8}$/.test(c)) бл.color = c;
+            else warns.push("Операция " + н + ": цвет блока «" + id + "» отброшен, ждал #rrggbb.");
+          }
+          // клетки, а не пиксели: 0…200 по каждой оси хватает любой читаемой схеме
+          if(b.col != null) бл.col = цел(b.col, 0, 200);
+          if(b.row != null) бл.row = цел(b.row, 0, 200);
+          бл.w = (b.w != null ? цел(b.w, 1, 12) : null) || 1;
+          бл.h = (b.h != null ? цел(b.h, 1, 12) : null) || 1;
+          if(b.parent != null && b.parent !== "") бл.parent = String(b.parent);
+          o.blocks.push(бл);
+        });
+        (o.blocks || []).forEach(б => {
+          if(б.parent && !имена.has(б.parent)) warns.push("Операция " + н + ": блок «" + б.id + "» указывает на рамку «" + б.parent + "», которой в пакете нет — ляжет сам по себе.");
+        });
+        /* Координаты либо у ВСЕХ блоков, либо ни у кого. Смешивать нельзя: заданные и
+           вычисленные ложатся друг на друга, и это читается как поломка раскладки, а не как
+           неполный ответ модели. Поэтому не ошибка, а замечание — и раскладываем всё сами. */
+        const своих = (o.blocks || []).filter(б => б.col != null && б.row != null).length;
+        if(своих && своих < (o.blocks || []).length)
+          warns.push("Операция " + н + ": координаты есть не у всех блоков — раскладываю всю схему сам, по связям.");
+      }
+
+      const се = Array.isArray(сырое.edges) ? сырое.edges : [];
+      if(се.length > CMD_DRAW_EDGES){ бед("стрелок " + се.length + ", потолок " + CMD_DRAW_EDGES + "."); плохо = true; }
+      else {
+        o.edges = [];
+        се.forEach((e, j) => {
+          const где = "стрелка " + (j + 1);
+          if(!e || typeof e !== "object" || Array.isArray(e)){ бед(где + " — не объект."); плохо = true; return; }
+          const от = String(e.from == null ? "" : e.from), к = String(e.to == null ? "" : e.to);
+          if(!имена.has(от) || !имена.has(к)){
+            бед(где + ': ведёт к блоку, которого нет в «blocks» ("' + от + '" → "' + к + '").');
+            плохо = true; return;
+          }
+          if(от === к){ бед(где + ": блок сам на себя."); плохо = true; return; }
+          const р = {from: от, to: к};
+          if(e.label != null && e.label !== "") р.label = String(e.label).slice(0, 120);
+          o.edges.push(р);
+        });
+      }
+
+      /* ЗАМЕНА НЕПУСТОЙ ДОСКИ — ЭТО УДАЛЕНИЕ, и спрашивается отдельно: корзины нет, а рисунок
+         человека пропал бы молча. Считаем прямо здесь, чтобы предпросмотр назвал число.
+         У ноды, создаваемой этим же пакетом (локальное имя), стирать нечего по определению. */
+      if(!плохо && o.mode === "replace"){
+        const цель = cmdFindAny(o.node);
+        const д = цель ? ((S.boards || {})[цель.id]) : null;
+        o.wipes = (д && Array.isArray(д.elements)) ? д.elements.length : 0;
+      }
+    }
 
     if(!плохо) ops.push(o);
   });
@@ -282,10 +378,19 @@ function cmdPreview(ops){
     if(o.op === "done")   return {i: o.value ? "ti-check" : "ti-rotate", t: (o.value ? "Завершить " : "Вернуть в работу ") + имя(o.node)};
     if(o.op === "area")   return {i: o.icon || "ti-folder", t: "Создать область «" + o.name + "»"};
     if(o.op === "delete") return {i: "ti-trash", t: "УДАЛИТЬ " + имя(o.node) + " со всем содержимым", danger: true};
+    if(o.op === "draw"){
+      const сколько = "блоков " + (o.blocks || []).length + ", стрелок " + (o.edges || []).length;
+      // draw: сама операция — по ней окно рисует миниатюру будущей схемы (см. openCmdRunner)
+      if(o.wipes) return {i: "ti-artboard", danger: true, draw: o,
+        t: "ЗАМЕНИТЬ доску " + имя(o.node) + " · сотрётся элементов: " + o.wipes + " · " + сколько};
+      return {i: "ti-artboard", draw: o, t: "Нарисовать на полотне " + имя(o.node) + " · " + сколько};
+    }
     return {i: "ti-question-mark", t: o.op};
   });
 }
-const cmdHasDelete = ops => (ops || []).some(o => o.op === "delete");
+/* Замена непустой доски идёт по той же дороге, что и удаление ноды: рисунок человека не
+   вернуть ничем, кроме отката, и «ИИ так решил» тут не оправдание. */
+const cmdHasDelete = ops => (ops || []).some(o => o.op === "delete" || (o.op === "draw" && o.wipes > 0));
 
 /* ФОРМА ТОГО, ЧТО ПОСТРОИТСЯ. Плоский список операций отвечает на вопрос «что произойдёт», но
    не на главный — «как это будет выглядеть». А ошибаются как раз в форме: последовательные шаги
@@ -338,6 +443,40 @@ async function cmdLoadImages(ops){
   return беды;
 }
 
+/* ---------- полотно ----------
+   Сцену собираем ДО применения и по той же причине, что и картинки: вендор доски грузится
+   лениво, а его фабрика умеет бросить на непредусмотренном сочетании фигур — отказ на середине
+   применённого пакета оставил бы половину работы. Собранное кладём на саму операцию (`_els`):
+   токен предпросмотра унесёт его с собой, и второй раз ничего не собирается. */
+function _cmdBuildOps(рисуют, беды){
+  рисуют.forEach(o => {
+    if(o._els) return;                       // уже собрано (повторный предпросмотр того же пакета)
+    try { o._els = drawBuildSpec(o); }
+    catch(e){ беды.push("Операция " + o._n + ": схема не собралась — " + String((e && e.message) || e)); }
+  });
+  return беды;
+}
+// в окне ждать загрузку можно: обработчик кнопки асинхронный, как и у чтения картинок
+async function cmdBuildBoards(ops){
+  const беды = [], рисуют = (ops || []).filter(o => o.op === "draw");
+  if(!рисуют.length) return беды;
+  if(typeof drawLibReady !== "function" || !(await drawLibReady())){
+    беды.push("Доска не загрузилась — рисовать нечем. Проверь ui/vendor/excalidraw/.");
+    return беды;
+  }
+  return _cmdBuildOps(рисуют, беды);
+}
+/* У АГЕНТА ЖДАТЬ НЕЧЕМ: cmdAgent синхронен целиком. Загрузку вендора дожидается Python
+   (app.py: _agent_prepare опрашивает метод "drawlib"), сюда пакет приходит уже к готовой
+   библиотеке — а если нет, честный отказ ДО применения. */
+function cmdBuildBoardsSync(ops){
+  const беды = [], рисуют = (ops || []).filter(o => o.op === "draw");
+  if(!рисуют.length) return беды;
+  const сост = (typeof drawLibState === "function") ? drawLibState() : {lib: false};
+  if(!сост.lib){ беды.push("Доска ещё загружается — повтори запрос через пару секунд."); return беды; }
+  return _cmdBuildOps(рисуют, беды);
+}
+
 /* ---------- применение ----------
    ОДИН шаг истории на весь пакет (txBegin/txEnd в core.js): внутри addItem и addLink зовут
    persist десятки раз, и без транзакции Ctrl+Z пришлось бы жать по разу на команду.
@@ -346,7 +485,7 @@ async function cmdLoadImages(ops){
 function cmdApply(ops){
   if(!Array.isArray(ops) || !ops.length) return null;
   const alias = {};                       // локальное имя → настоящий id
-  const счёт = {создано:0, изменено:0, связей:0, развязано:0, полей:0, завершено:0, областей:0, удалено:0};
+  const счёт = {создано:0, изменено:0, связей:0, развязано:0, полей:0, завершено:0, областей:0, удалено:0, нарисовано:0};
   const созданные = [];
   const рез = x => (x == null ? null : (alias[x] != null ? alias[x] : String(x)));
   const нода = x => cmdFindAny(рез(x));
@@ -474,6 +613,13 @@ function cmdApply(ops){
         const gid = cmdGraphOf(it.id);
         вГрафе(gid, () => deletePack([it.id]));
         затронут(gid); счёт.удалено++;
+      }
+      else if(o.op === "draw"){
+        const it = нода(o.node); if(!it || it.kind !== "flow") return;
+        /* Подмена активного графа доске НЕ нужна: доски общие для всех графов и адресуются по
+           id ноды (см. инвариант про S.boards). Полотно внутри подграфа пишется тем же ходом. */
+        if(drawApplyBoard(it, o) != null) счёт.нарисовано++;
+        затронут(cmdGraphOf(it.id));
       }
     });
   } finally { txEnd(); }
@@ -670,6 +816,42 @@ function cmdSnapshot(opts){
   return (String(o.format || "").toLowerCase() === "compact") ? cmdSnapCompact(снимок) : снимок;
 }
 
+/* ---------- чтение доски ----------
+   Тот же принцип, что у снимка графа: отдаём то, по чему можно работать, и НЕ отдаём объём.
+   Картинки не выходят наружу вовсе (см. drawSpecFromScene), а число блоков режется потолком —
+   доска на две сотни фигур в ответ агента всё равно не влезет. */
+const CMD_BOARD_BLOCKS = 200;
+function cmdBoard(it, opts){
+  const o = opts || {};
+  const д = (S.boards || {})[it.id] || null;
+  const сцена = (typeof drawSpecFromScene === "function")
+    ? drawSpecFromScene(д && д.elements) : {blocks:[], edges:[], skipped:{}};
+  const предел = Math.max(1, Math.min(1000, Math.round(+o.limit || CMD_BOARD_BLOCKS)));
+  const блоки = сцена.blocks.slice(0, предел);
+  const взяты = new Set(блоки.map(b => b.id));
+  // стрелка попадает в ответ, только если ОБА её конца отданы: иначе ребро ведёт в никуда
+  const рёбра = сцена.edges.filter(e => (!e.from || взяты.has(e.from)) && (!e.to || взяты.has(e.to)));
+  const рез = {node:it.id, title:it.title || "", blocks:блоки, edges:рёбра,
+               total:сцена.blocks.length, returned:блоки.length};
+  if(сцена.blocks.length > блоки.length) рез.truncated = true;
+  if(Object.keys(сцена.skipped || {}).length) рез.skipped = сцена.skipped;
+  return (String(o.format || "") === "compact") ? cmdBoardCompact(рез) : рез;
+}
+function cmdBoardCompact(b){
+  const стр = ["board: " + b.title + " (" + b.node + ")",
+               "blocks: " + b.returned + " из " + b.total + (b.truncated ? " (срезано)" : "")];
+  if(b.skipped) стр.push("skipped: " + Object.keys(b.skipped).map(k => k + "=" + b.skipped[k]).join(", "));
+  стр.push("cols: id, type, col, row, w, h, text — через табуляцию");
+  (b.blocks || []).forEach(x => {
+    // текст чистим от переводов строк: один блок обязан остаться одной строкой
+    const т = String(x.text || "").replace(/\s+/g, " ").trim();
+    стр.push([x.id, x.type, x.col, x.row, x.w, x.h, т].join("\t").replace(/\t+$/, ""));
+  });
+  if((b.edges || []).length)
+    стр.push("edges: " + b.edges.map(e => (e.from || "?") + ">" + (e.to || "?") + (e.label ? "(" + e.label + ")" : "")).join(", "));
+  return стр.join("\n");
+}
+
 /* ---------- промпт ----------
    Это ДАННЫЕ, а не код: текст уезжает в чужую нейросеть целиком. Держим его коротким и
    конкретным — длинные объяснения модели читают хуже, чем примеры.
@@ -682,6 +864,8 @@ function cmdPrompt(opts){
   const o = opts || {};
   const виды = Object.keys(KINDS).map(k => k + " — " + kindRu(k)).join(", ");
   const статусы = Object.keys(СТАТУСЫ).map(k => k + " (" + СТАТУСЫ[k].имя.toLowerCase() + ")").join(", ");
+  // виды блоков доски — из ТОГО ЖЕ реестра, что рисует сцену (draw.js), второго списка тут быть не должно
+  const видыБлоков = (typeof DRAW_BLOCK_TYPES !== "undefined") ? DRAW_BLOCK_TYPES.join(", ") : "proc, terminal, decision, comment, frame, text";
   const текст = [
 "Ты помогаешь работать с «Мысликом» — личным планером, где мысли живут графом: ноды и связи между ними.",
 "Отвечай ПАКЕТОМ КОМАНД в JSON. Ничего, кроме пакета, писать не надо — приложение выполнит его как есть.",
@@ -697,6 +881,7 @@ function cmdPrompt(opts){
 '  {"op":"done","node":"a","value":true}                  — завершить или вернуть в работу',
 '  {"op":"area","as":"z","name":"…"}                      — создать область',
 '  {"op":"delete","node":"a"}                             — удалить (спросят отдельно)',
+'  {"op":"draw","node":"a","blocks":[…],"edges":[…]}      — нарисовать схему на полотне',
 "",
 "Правила:",
 /* «из снимка» — БЕЗ «ниже»: правила уезжают и отдельно от снимка (myslik_rules), и там никакого
@@ -736,13 +921,30 @@ function cmdPrompt(opts){
 '    {"op":"link","from":"bl","to":"sp"},{"op":"link","from":"sp","to":"po"},{"op":"link","from":"sh","to":"rf"}',
 "  Здесь блокинг → сплайн → полиш идут цепочкой, потому что это порядок работ, а референсы висят",
 "  на шоте отдельно: их не «выполняют», они нужны на всём протяжении.",
+"",
+'  СХЕМА НА ПОЛОТНЕ (op "draw") — для роадмапа, плана этапов, блок-схемы. Ветка графа отвечает на',
+"  вопрос «что за чем», схема — на вопрос «как это устроено»; не дублируй одно другим.",
+'  • Рисуют ТОЛЬКО на полотне — ноде вида "flow". Нет подходящей — создай её этим же пакетом и сошлись по "as".',
+'  • Блок: {"id":"b1","type":"proc","text":"…","col":0,"row":0,"w":1,"h":1}. "id" — имя внутри ЭТОЙ операции, по нему цепляются стрелки.',
+"  • Подпись блока — КОРОТКАЯ, три-шесть слов. Рисуется она крупно; длинную приложение уменьшит на ступень кегля, совсем длинную — растянет блок, но схема из абзацев всё равно не читается. Подробности держи в ноде, а не в блоке.",
+"  • Виды блоков: " + видыБлоков + ". proc — обычный, terminal — начало и конец, decision — развилка, comment — сноска, frame — рамка вокруг группы, text — подпись без рамки.",
+'  • Координаты — В КЛЕТКАХ, а не в пикселях: "col" — столбец, "row" — ряд, "w"/"h" — сколько клеток занимает блок. Целые от нуля.',
+"  • Можно не указывать вовсе: без col/row приложение раскладывает схему деревом — родитель по центру над своими ветками, развилка расходится симметрично. Указывай, только если нужен ИМЕННО свой порядок веток («да» слева, «нет» справа), и тогда ВСЕМ блокам сразу: половине укажешь — остальные лягут друг на друга.",
+'  • Стрелка: {"from":"b1","to":"b2","label":"да"}. Концы — только id блоков этой же операции.',
+'  • "mode":"append" (по умолчанию) дорисовывает ПОД тем, что на доске уже есть. "mode":"replace" стирает доску целиком — это удаление, его спросят отдельно; на чужой рисунок его не бери.',
+'    {"op":"node","as":"map","kind":"flow","title":"Роадмап"},',
+'    {"op":"draw","node":"map","blocks":[{"id":"a","type":"terminal","text":"Идея"},{"id":"b","type":"proc","text":"Прототип"},',
+'      {"id":"c","type":"decision","text":"Годится?"},{"id":"d","type":"comment","text":"замеры под рукой"}],',
+'     "edges":[{"from":"a","to":"b"},{"from":"b","to":"c"},{"from":"c","to":"d","label":"нет"}]}',
+"",
 "  • Не выдумывай id: бери их из снимка. Нет подходящей ноды — создай новую.",
 "  • Удаления добавляй, только если о них попросили прямо."
   ];
   if(o.snapshot === false){
     текст.push("",
       "Настоящие id спрашивай снимком — myslik_snapshot с `root` (одна ветка), `area` или `limit`.",
-      "Весь граф целиком не тяни: он может весить десятки килобайт, и ответ уедет в файл вместо ответа.");
+      "Весь граф целиком не тяни: он может весить десятки килобайт, и ответ уедет в файл вместо ответа.",
+      "Что уже нарисовано на полотне, показывает myslik_board — спрашивай его ПЕРЕД тем, как дорисовывать.");
   } else {
     текст.push("", "Текущее состояние графа (id нод — настоящие, ими и ссылайся):", JSON.stringify(cmdSnapshot()));
   }
@@ -821,6 +1023,17 @@ function cmdAgent(method, paramsJson){
       const ок = undoStep() === true;
       return ответ(Object.assign({ok:ок, graph:(graphCurrent() || {}).name || ""}, cmdCounts()));
     }
+    /* ГОТОВА ЛИ ДОСКА. Вендор весит мегабайты и тянется лениво, при первом открытии полотна;
+       без него схему не собрать. Метод отвечает синхронно и попутно запускает загрузку —
+       ждать и опрашивать будет Python (_agent_prepare), где ожиданию и место. */
+    if(method === "drawlib")
+      return ответ(Object.assign({ok:true}, (typeof drawLibState === "function") ? drawLibState() : {lib:false, fonts:false}));
+    if(method === "board"){
+      const it = cmdFindAny(String(p.node || p.id || ""));
+      if(!it) return ответ({ok:false, error:"ноды с таким id нет"});
+      if(it.kind !== "flow") return ответ({ok:false, error:"доска есть только у полотна (kind \"flow\")"});
+      return ответ({ok:true, board:cmdBoard(it, p)});
+    }
 
     if(method === "preview" || method === "apply"){
       let ops = null, warns = [];
@@ -836,14 +1049,17 @@ function cmdAgent(method, paramsJson){
         const р = cmdParse(текст);
         if(р.errors.length) return ответ({ok:false, errors:р.errors, warns:р.warns});
         ops = р.ops; warns = р.warns;
+        // схемы полотна собираем ЗДЕСЬ, до применения: см. cmdBuildBoardsSync
+        const беды = cmdBuildBoardsSync(ops);
+        if(беды.length) return ответ({ok:false, errors:беды, warns:warns});
       }
       if(method === "preview"){
         const превью = cmdPreview(ops).map(s => (s.danger ? "! " : "") + s.t);
         /* СКОЛЬКО ЧЕГО ПОЯВИТСЯ — числом, а не только строками списка: расхождение с задуманным
            («ждал 41 ноду, в пакете 39») видно ДО применения, без пересчёта строк глазами. */
-        const будет = {nodes:0, links:0, fields:0, edits:0, areas:0, unlinks:0, dones:0, deletes:0};
+        const будет = {nodes:0, links:0, fields:0, edits:0, areas:0, unlinks:0, dones:0, deletes:0, draws:0};
         const поле = {node:"nodes", link:"links", field:"fields", edit:"edits", area:"areas",
-                      unlink:"unlinks", done:"dones", delete:"deletes"};
+                      unlink:"unlinks", done:"dones", delete:"deletes", draw:"draws"};
         ops.forEach(o => { const k = поле[o.op]; if(k) будет[k]++; });
         return ответ({ok:true, ops:ops.length, will:будет, preview:превью, warns,
                       deletes:cmdHasDelete(ops), token:cmdTokenMake(ops)});
@@ -853,7 +1069,7 @@ function cmdAgent(method, paramsJson){
          ничем, кроме отката. Флаг обязан прийти отдельным полем — «случайно» его не поставишь.
          Токен от этого не освобождает: согласие на удаление даётся в том же запросе, что и оно. */
       if(cmdHasDelete(ops) && p.allowDelete !== true)
-        return ответ({ok:false, errors:['В пакете есть удаления. Повтори запрос с allowDelete:true, если это осознанно.']});
+        return ответ({ok:false, errors:['В пакете есть удаления (снос ноды либо замена непустой доски). Повтори запрос с allowDelete:true, если это осознанно.']});
       const итог = cmdApply(ops);
       const c = итог ? итог.счёт : {};
       /* Человек обязан УВИДЕТЬ, что в его планер что-то написали снаружи, и иметь возможность
@@ -921,6 +1137,33 @@ async function cmdCopy(text){
 }
 
 /* ---------- окно ---------- */
+/* МИНИАТЮРА БУДУЩЕЙ СХЕМЫ. Числа в строке предпросмотра не отвечают на вопрос, ради которого
+   предпросмотр и делают: схему видно только схемой. Снимок светлый в обеих темах — по той же
+   причине, что и во врезке поля: тёмную доску Excalidraw делает фильтром поверх холста,
+   а в SVG фильтра нет (см. fieldBoardPreview). */
+function cmdDrawThumbs(out, строки){
+  const места = out.querySelectorAll("[data-draw]");
+  if(!места.length) return;
+  const рисуют = [].map.call(места, м => ({м, o: строки[+м.dataset.draw] && строки[+м.dataset.draw].draw})).filter(x => x.o);
+  if(!рисуют.length) return;
+  cmdBuildBoards(рисуют.map(x => x.o)).then(беды => {
+    рисуют.forEach(({м, o}) => {
+      if(!м.isConnected) return;
+      if(беды.length || !o._els || !window.ExcalidrawLib || !ExcalidrawLib.exportToSvg){
+        м.innerHTML = `<div class="cmd-draw-none">${esc(беды[0] || "Схему показать не удалось")}</div>`;
+        return;
+      }
+      ExcalidrawLib.exportToSvg({elements: o._els, files: {}, exportPadding: 8,
+                                 appState: {exportBackground: false}})
+        .then(svg => {
+          if(!м.isConnected) return;
+          svg.setAttribute("width", "100%"); svg.removeAttribute("height"); svg.style.display = "block";
+          м.innerHTML = ""; м.appendChild(svg);
+        }, () => {});
+    });
+  });
+}
+
 function openCmdRunner(){
   const m = el("div", "modal cmd-win");
   m.innerHTML = `
@@ -972,7 +1215,12 @@ function openCmdRunner(){
         форма.map(s => `<div class="cmd-row cmd-tree" style="--d:${s.d}"><i class="ti ${s.i}"></i>${esc(s.t)}` +
           `<em>${esc(s.k)}${s.сколько ? " · ветвей: " + s.сколько : ""}</em></div>`).join("") : "") +
       (строки.length ? `<div class="cmd-sec"><i class="ti ti-list-check"></i>Будет сделано · ${строки.length}</div>` +
-        строки.map(s => `<div class="cmd-row${s.danger ? " bad" : ""}"><i class="ti ${s.i}"></i>${esc(s.t)}</div>`).join("") : "");
+        /* У строки про полотно — место под миниатюру: «блоков 8, стрелок 7» не отвечает на
+           главный вопрос «что получится», а схему видно только схемой. Рисуется отложенно:
+           вендор доски грузится лениво, а покрасить() синхронна. */
+        строки.map((s, i) => `<div class="cmd-row${s.danger ? " bad" : ""}"><i class="ti ${s.i}"></i>${esc(s.t)}</div>` +
+          (s.draw ? `<div class="cmd-draw" data-draw="${i}"></div>` : "")).join("") : "");
+    cmdDrawThumbs(out, строки);
     кн.disabled = !!errors.length || !ops.length;
     кн.innerHTML = `<i class="ti ti-player-play"></i>Выполнить${ops.length ? " · " + ops.length : ""}`;
     кн.classList.toggle("danger-txt", cmdHasDelete(ops));
@@ -1040,13 +1288,19 @@ function openCmdRunner(){
     /* УДАЛЕНИЯ СПРАШИВАЕМ ОТДЕЛЬНО. Всё остальное вернёт Ctrl+Z, а снесённая нода уходит
        насовсем — корзины в приложении нет, и «ИИ так сказал» тут не оправдание. */
     const сносим = разбор.ops.filter(o => o.op === "delete");
-    if(сносим.length){
-      const да = await uiConfirm("Пакет удалит нод: " + сносим.length + ". Вернуть можно будет только откатом (Ctrl+Z).",
+    // замена непустой доски стирает рисунок так же насовсем, как снос ноды — спрашиваем вместе
+    const стираем = разбор.ops.filter(o => o.op === "draw" && o.wipes > 0);
+    if(сносим.length || стираем.length){
+      const что = [сносим.length ? "удалит нод: " + сносим.length : "",
+                   стираем.length ? "заменит досок: " + стираем.length + " (сотрётся элементов: " +
+                     стираем.reduce((s, o) => s + o.wipes, 0) + ")" : ""].filter(Boolean).join(", ");
+      const да = await uiConfirm("Пакет " + что + ". Вернуть можно будет только откатом (Ctrl+Z).",
         {danger: true, title: "В пакете есть удаления", okLabel: "Всё равно выполнить"});
       if(!да) return;
     }
     кн.disabled = true; кн.innerHTML = `<i class="ti ti-loader"></i>Выполняю…`;
-    const беды = await cmdLoadImages(разбор.ops);
+    // всё, что умеет не получиться, — ДО применения: чтение картинок с диска и сборка схем
+    const беды = (await cmdLoadImages(разбор.ops)).concat(await cmdBuildBoards(разбор.ops));
     if(беды.length){ разбор.errors = беды; покрасить(); return; }
     const итог = cmdApply(разбор.ops);
     ov.remove();
@@ -1054,6 +1308,7 @@ function openCmdRunner(){
     const части = [c.создано ? "создано: " + c.создано : "", c.изменено ? "изменено: " + c.изменено : "",
                    c.связей ? "связей: " + c.связей : "", c.полей ? "полей: " + c.полей : "",
                    c.завершено ? "завершено: " + c.завершено : "", c.областей ? "областей: " + c.областей : "",
+                   c.нарисовано ? "схем: " + c.нарисовано : "",
                    c.удалено ? "удалено: " + c.удалено : ""].filter(Boolean);
     /* «Вернуть» рядом с тостом — не роскошь: пакет мог наделать десяток дел, и искать Ctrl+Z
        после чужого решения человек не обязан. Откат транзакционный, вернёт всё разом. */
