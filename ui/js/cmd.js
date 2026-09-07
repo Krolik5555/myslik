@@ -487,51 +487,202 @@ function cmdApply(ops){
     graph.selNodes = new Set(созданные.filter(id => graph.byId[id]));
     graph._paintSel();
   }
-  return {счёт, созданные};
+  /* `alias` отдаём наружу (имя из пакета → настоящий id): агент называет ноды сам («root», «e1»),
+     а в ответ получал безымянный массив id в порядке создания и сопоставлял их на глаз. */
+  return {счёт, созданные, alias};
 }
 
 /* ---------- снимок для нейросети ----------
    Без него модель умеет только создавать с нуля: дописать существующее она не может, потому что
    не знает id. Тело нод и содержимое полей НЕ отдаём — это и лишний объём, и лишняя приватность;
-   для «что здесь есть» хватает названия, вида, статуса и связей. */
-function cmdSnapshot(){
-  const гр = graphCurrent();
-  const узлы = (S.items || []).filter(inWeb).slice(0, CMD_SNAP_NODES);
-  const срезано = Math.max(0, (S.items || []).filter(inWeb).length - узлы.length);
+   для «что здесь есть» хватает названия, вида, статуса и связей.
+
+   СНИМОК ЦЕЛИКОМ — РЕДКОСТЬ, А НЕ НОРМА. Замер 07.09.2026 (docs/ПЛАН-MCP.md): 424 ноды это
+   74 КБ и 4 590 строк, такой ответ хост агенту уже не показывает, а сбрасывает в файл на диск —
+   и пять ходов уходит на то, чтобы разобрать выгрузку обратно. Поэтому у снимка есть фильтры:
+   ветка (`root`), область (`area`), соседний граф (`graph`), потолок (`limit`) и компактный
+   формат. Нужна одна ветка — приезжает одна ветка, а не весь граф. */
+
+/* Какой граф снимаем: по id, по имени или активный. Подграф тоже доступен — у него id вида
+   gs_<id ноды-владельца>, и на снимок он ничем не отличается от обычного графа. */
+function cmdGraphPick(x){
+  if(!x) return graphCurrent();
+  const s = String(x).trim().toLowerCase();
+  return (S.graphs || []).find(g => g.id === x) ||
+         (S.graphs || []).find(g => (g.name || "").trim().toLowerCase() === s) || null;
+}
+/* Набор полей ноды. `null` — отдаём всё (так зовут промпт и окно приложения), список — только
+   перечисленное. `id` в наборе всегда: без него снимок бесполезен, ссылаться будет не на что. */
+function cmdSnapFields(x){
+  if(!x) return null;
+  const s = new Set((Array.isArray(x) ? x : String(x).split(/[,\s]+/)).map(k => String(k).trim()).filter(Boolean));
+  s.add("id");
+  return s;
+}
+/* Дети ВНУТРИ выборки: родитель, оставшийся снаружи, делает ноду корнем — по этому же признаку
+   считаются и глубина, и порядок веток, поэтому карта одна на оба места. Корни лежат под "". */
+function cmdSnapKids(список){
+  const свои = new Set(список.map(it => it.id)), дети = new Map();
+  список.forEach(it => { const к = (it.parent && свои.has(it.parent)) ? it.parent : "";
+                         if(!дети.has(к)) дети.set(к, []); дети.get(к).push(it); });
+  return дети;
+}
+/* Обход в ширину от заданных корней с потолком по уровню (1 — только сами корни). */
+function cmdSnapDepth(список, корни, предел){
+  const дети = cmdSnapKids(список), собрано = [], видели = new Set();
+  const очередь = (корни || []).filter(Boolean).map(it => [it, 1]);
+  очередь.forEach(п => видели.add(п[0].id));
+  while(очередь.length){
+    const п = очередь.shift(), it = п[0], ур = п[1];
+    собрано.push(it);
+    if(ур >= предел) continue;
+    (дети.get(it.id) || []).forEach(ch => { if(видели.has(ch.id)) return; видели.add(ch.id); очередь.push([ch, ур + 1]); });
+  }
+  return собрано;
+}
+function cmdSnapNode(it, поля){
+  const надо = k => !поля || поля.has(k);
+  const n = {id: it.id};
+  if(надо("kind")) n.kind = it.kind;
+  if(надо("title")) n.title = (it.title || "").slice(0, 200);
+  if(надо("status") && it.status && it.status !== нейтральныйСтатус(it.kind)) n.status = it.status;
+  if(надо("done") && it.done) n.done = true;
+  if(надо("due") && it.due) n.due = it.due;
+  if(надо("priority") && it.priority) n.priority = it.priority;
+  if(надо("tags") && (it.tags || []).length) n.tags = it.tags.slice(0, 10);
+  /* ОБЛАСТЬ ОТДАЁМ ТОЛЬКО СВОЮ (areaAuto!==true). Унаследованная стоит почти на каждой ноде
+     ветки — её проставляет recomputeHierarchy, — и в снимке она выглядела бы так же, как
+     заданная руками. Модель повторяла бы её у КАЖДОЙ созданной ноды, а это ребро к хабу
+     области: дерево схлопнулось бы в один уровень, и вместо веток получился бы веер лучей
+     из центра (тот же разбор — у addEdge в recomputeHierarchy). */
+  if(надо("area") && it.area && it.areaAuto !== true) n.area = it.area;
+  if(надо("parent") && it.parent) n.parent = it.parent;
+  if(надо("tray") && it.x == null) n.tray = true;           // лежит в лотке, на холст ещё не вынесена
+  /* ЕСТЬ ЛИ ТЕЛО — ДА, САМО ТЕЛО — НЕТ. `edit body` затирает текст ЦЕЛИКОМ, и не зная, пусто
+     там или нет, дописывать в существующую ноду опасно вслепую: агент обходил `body` стороной
+     и складывал пояснения в отдельные поля. Наружу уезжает один факт наличия, не текст. */
+  if(надо("has_body") && (it.body || "").trim()) n.has_body = true;
+  if(надо("inside") && it.kind === "sub"){ const g = subGraphOf(it.id); n.inside = g ? (g.items || []).length : 0; }
+  return n;
+}
+/* КОМПАКТНЫЙ ВИД — строка на ноду, разделитель табуляция. Дерево читается глазами и не требует
+   парсера, а отступы JSON на четырёхстах нодах весят больше самих данных. */
+function cmdSnapCompact(s){
+  const стр = ["graph: " + s.graph + " (" + s.graph_id + ")"];
+  if((s.areas || []).length) стр.push("areas: " + s.areas.map(a => a.id + "=" + a.name).join(", "));
+  стр.push("nodes: " + s.returned + " из " + s.graph_nodes + (s.total !== s.graph_nodes ? " (под фильтр подошло " + s.total + ")" : ""));
+  if(s.truncated) стр.push("truncated: true, next_cursor: " + s.next_cursor);
+  стр.push("cols: id, kind, status, parent, title, ещё — через табуляцию");
+  (s.nodes || []).forEach(n => {
+    const ещё = [];
+    if(n.done) ещё.push("done");
+    if(n.due) ещё.push("due=" + n.due);
+    if(n.priority) ещё.push("!" + n.priority);
+    if(n.area) ещё.push("area=" + n.area);
+    if((n.tags || []).length) ещё.push(n.tags.map(x => "#" + x).join(" "));
+    if(n.has_body) ещё.push("body");
+    if(n.inside != null) ещё.push("inside=" + n.inside);
+    if(n.tray) ещё.push("tray");
+    // название чистим от переводов строк и табуляций: одна нода обязана остаться одной строкой
+    const имя = (n.title || "").replace(/\s+/g, " ").trim();
+    стр.push([n.id, n.kind || "", n.status || "-", n.parent || "-", имя, ещё.join(" ")].join("\t").replace(/\t+$/, ""));
+  });
+  if((s.links || []).length) стр.push("links: " + s.links.map(l => l[0] + ">" + l[1]).join(", "));
+  return стр.join("\n");
+}
+function cmdSnapshot(opts){
+  const o = opts || {};
+  const гр = cmdGraphPick(o.graph);
+  if(!гр) throw new Error("нет такого графа: " + o.graph);
+  const все = (гр.items || []).filter(inWeb);
+  let выбор = все;
+
+  if(o.area){
+    const ключ = String(o.area).trim().toLowerCase();
+    // область принимаем и id, и именем: у агента на руках чаще имя, и лишний ход за id ни к чему
+    const обл = (гр.areas || []).find(a => a.id === o.area) ||
+                (гр.areas || []).find(a => (a.name || "").trim().toLowerCase() === ключ);
+    if(!обл) throw new Error("нет такой области: " + o.area);
+    выбор = выбор.filter(it => it.area === обл.id);
+  }
+  /* ВЕТКА — ЭТО ПОДДЕРЕВО ПО `parent`, а не обход связей в обе стороны. `parent` считает
+     recomputeHierarchy, и ровно это дерево человек видит в приложении; обход по связям ушёл бы
+     наверх, к родителю и его соседям, то есть отдал бы не ветку, а окрестность. */
+  const предел = (o.depth == null || o.depth === "") ? Infinity : Math.max(1, parseInt(o.depth, 10) || 1);
+  if(o.root){
+    if(!выбор.some(it => it.id === o.root)) throw new Error("нет такой ноды в выборке: " + o.root);
+    выбор = cmdSnapDepth(выбор, [выбор.find(it => it.id === o.root)], предел);
+  }
+  /* ГЛУБИНА РАБОТАЕТ И БЕЗ `root` — от корней выборки. Иначе `{area, depth:2}` молча отдавал всю
+     область целиком (проверка КРОЛИКА 07.09.2026): параметр принимался и не делал ничего. */
+  else if(предел !== Infinity){
+    выбор = cmdSnapDepth(выбор, cmdSnapKids(выбор).get("") || [], предел);
+  }
+
+  /* ПОРЯДОК — ПО ВЕТКАМ, а не по хранению, и срез обрывается на ГРАНИЦЕ ветки. Раньше резалось
+     `.slice(0,400)` по порядку `S.items`: срез приходился на середину дерева, и в снимок
+     попадали ноды без своих корней. */
+  const детиВ = cmdSnapKids(выбор);
+  const порядок = [], границы = [], пройдено = new Set();
+  // `пройдено` — не перестраховка: битый parent из чужих данных может замкнуться в кольцо
+  const обход = it => { if(пройдено.has(it.id)) return; пройдено.add(it.id); порядок.push(it);
+                        (детиВ.get(it.id) || []).forEach(обход); };
+  (детиВ.get("") || []).forEach(r => { границы.push(порядок.length); обход(r); });
+  выбор.forEach(it => { if(!пройдено.has(it.id)){ границы.push(порядок.length); обход(it); } });
+
+  const лимит = Math.max(1, parseInt(o.limit, 10) || CMD_SNAP_NODES);
+  const старт = Math.max(0, parseInt(o.cursor, 10) || 0);
+  let конец = Math.max(0, Math.min(порядок.length - старт, лимит));
+  if(старт + конец < порядок.length){
+    const б = границы.filter(i => i > старт && i - старт <= конец);
+    /* Обрыв на границе ветки — чтобы не рвать дерево посередине. НО не любой ценой: у КРОЛИКА
+       `limit:100` отдавал 56 нод, потому что следующая ветка в 74 ноды целиком не влезала, и
+       четверть порции уходила в пустоту. Если так теряется больше четверти запрошенного, режем
+       ровно по лимиту: висячих ссылок это не создаёт (связи фильтруются по отданным нодам),
+       а порция получается плотной, и остаток дочитывается курсором. */
+    if(б.length && б[б.length - 1] - старт >= конец * 0.75) конец = б[б.length - 1] - старт;
+  }
+  const узлы = порядок.slice(старт, старт + конец);
+  const отдано = new Set(узлы.map(it => it.id));
+  const поля = cmdSnapFields(o.fields);
   const снимок = {
-    graph: гр ? гр.name : "",
-    areas: (S.areas || []).map(a => ({id: a.id, name: a.name})),
-    nodes: узлы.map(it => {
-      const n = {id: it.id, kind: it.kind, title: (it.title || "").slice(0, 200)};
-      if(it.status && it.status !== нейтральныйСтатус(it.kind)) n.status = it.status;
-      if(it.done) n.done = true;
-      if(it.due) n.due = it.due;
-      if(it.priority) n.priority = it.priority;
-      if((it.tags || []).length) n.tags = it.tags.slice(0, 10);
-      /* ОБЛАСТЬ ОТДАЁМ ТОЛЬКО СВОЮ (areaAuto!==true). Унаследованная стоит почти на каждой ноде
-         ветки — её проставляет recomputeHierarchy, — и в снимке она выглядела бы так же, как
-         заданная руками. Модель повторяла бы её у КАЖДОЙ созданной ноды, а это ребро к хабу
-         области: дерево схлопнулось бы в один уровень, и вместо веток получился бы веер лучей
-         из центра (тот же разбор — у addEdge в recomputeHierarchy). */
-      if(it.area && it.areaAuto !== true) n.area = it.area;
-      if(it.parent) n.parent = it.parent;
-      if(it.x == null) n.tray = true;                       // лежит в лотке, на холст ещё не вынесена
-      if(it.kind === "sub"){ const g = subGraphOf(it.id); n.inside = g ? (g.items || []).length : 0; }
-      return n;
-    }),
-    links: (S.links || []).filter(l => !isHubId(l[0]) && !isHubId(l[1])).map(l => [l[0], l[1]])
+    graph: гр.name || "",
+    graph_id: гр.id,
+    graph_nodes: все.length,          // сколько всего в графе — считается ТАК ЖЕ, как в ping
+    total: порядок.length,            // сколько подошло под фильтры
+    returned: узлы.length,
+    areas: (гр.areas || []).map(a => ({id: a.id, name: a.name})),
+    nodes: узлы.map(it => cmdSnapNode(it, поля)),
+    /* СВЯЗИ — ТОЛЬКО МЕЖДУ ОТДАННЫМИ НОДАМИ. Раньше `links` уезжали целиком, включая рёбра на
+       срезанные ноды: снимок обещал ноды, которых в нём нет, и модель ссылалась на id, которого
+       не видела. */
+    links: (гр.links || []).filter(l => отдано.has(l[0]) && отдано.has(l[1])).map(l => [l[0], l[1]])
   };
-  if(срезано) снимок.note = "показаны первые " + узлы.length + " нод из " + (узлы.length + срезано);
-  return снимок;
+  if(старт + узлы.length < порядок.length){
+    /* МАШИННЫЕ ПОЛЯ, А НЕ ТОЛЬКО СТРОКА. `note` лежала рядом с `nodes` и терялась при разборе —
+       агент прочитал 400 нод и решил, что в графе их 400 (было 424). Прозу оставили человеку,
+       машине отвечают `truncated`/`total`/`returned`/`next_cursor`. */
+    снимок.truncated = true;
+    снимок.next_cursor = старт + узлы.length;
+    снимок.note = "показаны ноды " + (старт + 1) + "–" + (старт + узлы.length) + " из " + порядок.length +
+                  "; дальше — cursor:" + снимок.next_cursor;
+  }
+  return (String(o.format || "").toLowerCase() === "compact") ? cmdSnapCompact(снимок) : снимок;
 }
 
 /* ---------- промпт ----------
    Это ДАННЫЕ, а не код: текст уезжает в чужую нейросеть целиком. Держим его коротким и
-   конкретным — длинные объяснения модели читают хуже, чем примеры. */
-function cmdPrompt(){
+   конкретным — длинные объяснения модели читают хуже, чем примеры.
+
+   `opts.snapshot === false` — ПРАВИЛА БЕЗ СНИМКА. Правила весят около 8 КБ и меняются раз в
+   полгода, снимок целого графа — под 70 КБ и меняется каждую минуту; склеенные в один ответ,
+   они заставляли агента тянуть весь граф первым же ходом. Человеку в буфер по-прежнему уезжает
+   всё вместе: он несёт текст в чужой чат, где второго вызова взять неоткуда. */
+function cmdPrompt(opts){
+  const o = opts || {};
   const виды = Object.keys(KINDS).map(k => k + " — " + kindRu(k)).join(", ");
   const статусы = Object.keys(СТАТУСЫ).map(k => k + " (" + СТАТУСЫ[k].имя.toLowerCase() + ")").join(", ");
-  return [
+  const текст = [
 "Ты помогаешь работать с «Мысликом» — личным планером, где мысли живут графом: ноды и связи между ними.",
 "Отвечай ПАКЕТОМ КОМАНД в JSON. Ничего, кроме пакета, писать не надо — приложение выполнит его как есть.",
 "",
@@ -548,7 +699,9 @@ function cmdPrompt(){
 '  {"op":"delete","node":"a"}                             — удалить (спросят отдельно)',
 "",
 "Правила:",
-'  • "as" даёт ноде временное имя, чтобы сослаться на неё в этом же пакете. Ссылаться можно и на настоящий id из снимка ниже.',
+/* «из снимка» — БЕЗ «ниже»: правила уезжают и отдельно от снимка (myslik_rules), и там никакого
+   «ниже» нет — агент шёл искать несуществующий кусок текста (КРОЛИК, проверка 07.09.2026). */
+'  • "as" даёт ноде временное имя, чтобы сослаться на неё в этом же пакете. Ссылаться можно и на настоящий id ноды из снимка графа.',
 '  • Виды нод: ' + виды + ".",
 '  • Подграф (sub) — нода, внутри которой ОТДЕЛЬНЫЙ граф. "in" кладёт ноду внутрь него и работает ТОЛЬКО с подграфом: на задачу или заметку так сослаться нельзя.',
 '  • СВЯЗЫВАТЬ МОЖНО ТОЛЬКО НОДЫ ОДНОГО ГРАФА. Ноды из разных подграфов (и нода снаружи с нодой внутри) не связываются никак — для одного графа второй просто не существует. Нужна связь между этапами — держи их в одном месте, а подграфы заводи только там, где содержимое действительно живёт отдельно.',
@@ -584,11 +737,16 @@ function cmdPrompt(){
 "  Здесь блокинг → сплайн → полиш идут цепочкой, потому что это порядок работ, а референсы висят",
 "  на шоте отдельно: их не «выполняют», они нужны на всём протяжении.",
 "  • Не выдумывай id: бери их из снимка. Нет подходящей ноды — создай новую.",
-"  • Удаления добавляй, только если о них попросили прямо.",
-"",
-"Текущее состояние графа (id нод — настоящие, ими и ссылайся):",
-JSON.stringify(cmdSnapshot())
-  ].join("\n");
+"  • Удаления добавляй, только если о них попросили прямо."
+  ];
+  if(o.snapshot === false){
+    текст.push("",
+      "Настоящие id спрашивай снимком — myslik_snapshot с `root` (одна ветка), `area` или `limit`.",
+      "Весь граф целиком не тяни: он может весить десятки килобайт, и ответ уедет в файл вместо ответа.");
+  } else {
+    текст.push("", "Текущее состояние графа (id нод — настоящие, ими и ссылайся):", JSON.stringify(cmdSnapshot()));
+  }
+  return текст.join("\n");
 }
 
 /* ============================================================================
@@ -601,6 +759,46 @@ JSON.stringify(cmdSnapshot())
 
    Ответ всегда {ok:…}: агент не человек, ему нужен разбираемый результат, а не тост. Отказ —
    это тоже ответ, поэтому исключения ловим и возвращаем текстом, а не роняем мост. */
+
+/* ТОКЕН ПРЕДПРОСМОТРА. Один и тот же пакет уезжал по мосту ДВАЖДЫ — сперва в `preview`, потом
+   тем же текстом в `apply`; на пакете в 10 КБ это 10 лишних килобайт за правку. Теперь `preview`
+   оставляет разобранный пакет у себя и возвращает короткий токен, а `apply` принимает его вместо
+   `ops`. Токен ОДНОРАЗОВЫЙ: повтор `apply` иначе создал бы второй такой же куст.
+   Подпись состояния проверяем при погашении — за минуту между вызовами человек мог сам что-то
+   поменять, а предпросмотр обещал результат для ПРЕЖНЕГО графа. */
+const CMD_TOKEN_TTL = 180000;                  // 3 минуты: столько живёт разобранный пакет
+const _cmdTokens = new Map();                  // токен → {ops, at, sig}
+function cmdStateSig(){
+  let нод = 0, связей = 0, правка = 0;
+  (S.graphs || []).forEach(g => {
+    нод += (g.items || []).length; связей += (g.links || []).length;
+    (g.items || []).forEach(it => { if(it.updated > правка) правка = it.updated; });
+  });
+  return (S.settings.graph || "") + ":" + нод + ":" + связей + ":" + правка;
+}
+function cmdTokenMake(ops){
+  const т = "pv_" + uid();
+  const сейчас = Date.now();
+  // протухшие подметаем здесь же: таймеру взяться неоткуда, а Map иначе растёт до перезапуска
+  _cmdTokens.forEach((v, k) => { if(сейчас - v.at > CMD_TOKEN_TTL) _cmdTokens.delete(k); });
+  _cmdTokens.set(т, {ops, at: сейчас, sig: cmdStateSig()});
+  return т;
+}
+function cmdTokenTake(т){
+  const з = _cmdTokens.get(т);
+  if(!з) return {ok: false, error: "токен не найден — он одноразовый и живёт минуты; повтори preview"};
+  _cmdTokens.delete(т);
+  if(Date.now() - з.at > CMD_TOKEN_TTL) return {ok: false, error: "токен устарел; повтори preview"};
+  if(з.sig !== cmdStateSig()) return {ok: false, error: "граф изменился после предпросмотра; повтори preview"};
+  return {ok: true, ops: з.ops};
+}
+/* Считаем нод ОДИНАКОВО везде — в ping, в снимке и в ответе undo. Раньше ping брал
+   `S.items.length`, а снимок фильтровал через `inWeb`, и числа расходились сами по себе:
+   агент видел 409 против 383 и искал гонку там, где её не было. */
+function cmdCounts(){
+  const все = (S.items || []).length, вСети = (S.items || []).filter(inWeb).length;
+  return {nodes: вСети, nodes_total: все, nodes_in_web: вСети};
+}
 function cmdAgent(method, paramsJson){
   const ответ = o => JSON.stringify(o);
   let p = {};
@@ -608,37 +806,71 @@ function cmdAgent(method, paramsJson){
   catch(e){ return ответ({ok:false, error:"параметры не разобрались: " + e.message}); }
   try {
     if(method === "ping")
-      return ответ({ok:true, app:"Мыслик", version:(typeof APP_VER !== "undefined" ? APP_VER : ""),
-                    graph:(graphCurrent() || {}).name || "", nodes:(S.items || []).length});
-    if(method === "snapshot") return ответ({ok:true, snapshot:cmdSnapshot()});
-    if(method === "prompt")   return ответ({ok:true, prompt:cmdPrompt()});
+      return ответ(Object.assign({ok:true, app:"Мыслик", version:(typeof APP_VER !== "undefined" ? APP_VER : ""),
+                    graph:(graphCurrent() || {}).name || "", graph_id:(graphCurrent() || {}).id || ""}, cmdCounts()));
+    if(method === "snapshot") return ответ({ok:true, snapshot:cmdSnapshot(p)});
+    if(method === "prompt")   return ответ({ok:true, prompt:cmdPrompt(p)});
+    if(method === "rules")    return ответ({ok:true, rules:cmdPrompt({snapshot:false})});
     if(method === "graphs")
       return ответ({ok:true, graphs:graphsTop().map(g => ({id:g.id, name:g.name,
         nodes:(g.items || []).length, active:g.id === S.settings.graph}))});
-    if(method === "undo")     return ответ({ok:undoStep() === true});
+    /* ОТВЕЧАЕМ ЧИСЛАМИ ПОСЛЕ ОТКАТА, а не голым {ok:true}. `undoStep` синхронный, состояние к
+       этой строке уже приведено — значит и счёт честный, и следующий вызов ping не нужен вовсе
+       (агент звал его следом и видел расхождение, принимая за гонку разницу счётов). */
+    if(method === "undo"){
+      const ок = undoStep() === true;
+      return ответ(Object.assign({ok:ок, graph:(graphCurrent() || {}).name || ""}, cmdCounts()));
+    }
 
     if(method === "preview" || method === "apply"){
-      /* Пакет принимаем и объектом, и строкой: агент может отдать разобранный JSON, а может —
-         текст, который сам получил от модели. cmdParse умеет и то, и другое. */
-      const текст = (typeof p.ops === "string") ? p.ops
-                  : JSON.stringify(Array.isArray(p.ops) ? {v:CMD_V, ops:p.ops} : p);
-      const р = cmdParse(текст);
-      if(р.errors.length) return ответ({ok:false, errors:р.errors, warns:р.warns});
-      const превью = cmdPreview(р.ops).map(s => (s.danger ? "! " : "") + s.t);
-      if(method === "preview")
-        return ответ({ok:true, ops:р.ops.length, preview:превью, warns:р.warns, deletes:cmdHasDelete(р.ops)});
+      let ops = null, warns = [];
+      if(method === "apply" && p.token && p.ops == null){
+        const т = cmdTokenTake(String(p.token));
+        if(!т.ok) return ответ({ok:false, error:т.error});
+        ops = т.ops;                       // пакет уже разобран предпросмотром — второй раз не гоняем
+      } else {
+        /* Пакет принимаем и объектом, и строкой: агент может отдать разобранный JSON, а может —
+           текст, который сам получил от модели. cmdParse умеет и то, и другое. */
+        const текст = (typeof p.ops === "string") ? p.ops
+                    : JSON.stringify(Array.isArray(p.ops) ? {v:CMD_V, ops:p.ops} : p);
+        const р = cmdParse(текст);
+        if(р.errors.length) return ответ({ok:false, errors:р.errors, warns:р.warns});
+        ops = р.ops; warns = р.warns;
+      }
+      if(method === "preview"){
+        const превью = cmdPreview(ops).map(s => (s.danger ? "! " : "") + s.t);
+        /* СКОЛЬКО ЧЕГО ПОЯВИТСЯ — числом, а не только строками списка: расхождение с задуманным
+           («ждал 41 ноду, в пакете 39») видно ДО применения, без пересчёта строк глазами. */
+        const будет = {nodes:0, links:0, fields:0, edits:0, areas:0, unlinks:0, dones:0, deletes:0};
+        const поле = {node:"nodes", link:"links", field:"fields", edit:"edits", area:"areas",
+                      unlink:"unlinks", done:"dones", delete:"deletes"};
+        ops.forEach(o => { const k = поле[o.op]; if(k) будет[k]++; });
+        return ответ({ok:true, ops:ops.length, will:будет, preview:превью, warns,
+                      deletes:cmdHasDelete(ops), token:cmdTokenMake(ops)});
+      }
       /* УДАЛЕНИЯ ЧЕРЕЗ АГЕНТА ТРЕБУЮТ ЯВНОГО СОГЛАСИЯ В САМОМ ЗАПРОСЕ. В окне это спрашивают у
          человека, а тут спросить некого: корзины нет, и снесённое чужой командой не вернуть
-         ничем, кроме отката. Флаг обязан прийти отдельным полем — «случайно» его не поставишь. */
-      if(cmdHasDelete(р.ops) && p.allowDelete !== true)
+         ничем, кроме отката. Флаг обязан прийти отдельным полем — «случайно» его не поставишь.
+         Токен от этого не освобождает: согласие на удаление даётся в том же запросе, что и оно. */
+      if(cmdHasDelete(ops) && p.allowDelete !== true)
         return ответ({ok:false, errors:['В пакете есть удаления. Повтори запрос с allowDelete:true, если это осознанно.']});
-      const итог = cmdApply(р.ops);
+      const итог = cmdApply(ops);
       const c = итог ? итог.счёт : {};
       /* Человек обязан УВИДЕТЬ, что в его планер что-то написали снаружи, и иметь возможность
          это снять одним нажатием — тем же тостом, что и при ручном применении. */
       toast("ИИ-агент · " + (Object.keys(c).filter(k => c[k]).map(k => k + ": " + c[k]).join(", ") || "без изменений"),
         {icon:"ti-robot", label:"Вернуть", onAction:() => { undoStep(); toast("Пакет агента отменён", {icon:"ti-arrow-back-up"}); }});
-      return ответ({ok:true, applied:р.ops.length, result:c, created:итог ? итог.созданные : []});
+      /* СОЗДАННОЕ ОТДАЁМ ИМЕНАМИ ИЗ ПАКЕТА: {"root":"mtq6…","e1":"mtq6…"}. Массив id в порядке
+         создания заставлял угадывать, какое `as` какому id досталось, — а следующий пакет
+         ссылается именно на них. Ноды без `as` идут под своим id. */
+      const создано = {};
+      if(итог){
+        const поId = {};
+        Object.keys(итог.alias || {}).forEach(имя => { поId[итог.alias[имя]] = имя; });
+        (итог.созданные || []).forEach(id => { создано[поId[id] || id] = id; });
+        Object.keys(итог.alias || {}).forEach(имя => { if(!(имя in создано)) создано[имя] = итог.alias[имя]; });
+      }
+      return ответ({ok:true, applied:ops.length, result:c, created:создано});
     }
     return ответ({ok:false, error:"неизвестный метод: " + method});
   } catch(e){ return ответ({ok:false, error:String((e && e.message) || e)}); }
@@ -660,9 +892,11 @@ function cmdAgentSetupPrompt(st){
 "",
 "2. Перезапусти подключение MCP и проверь связь инструментом myslik_ping.",
 "",
-"3. Дальше работай так: ПЕРВЫМ делом зови myslik_format — он вернёт формат пакета команд и снимок",
-"   моего графа с настоящими id. Правки собирай пакетом и прогоняй через myslik_preview, прежде",
-"   чем применять myslik_apply. Удаления делай только если я попросил прямо.",
+"3. Дальше работай так: myslik_rules — формат пакета команд и правила, снимка там нет намеренно.",
+"   Настоящие id бери myslik_snapshot и НЕ весь граф: root — одна ветка, area — одна область,",
+"   limit — потолок, format:\"compact\" — короткий вид. Правки собирай пакетом, прогоняй через",
+"   myslik_preview и применяй myslik_apply с токеном из предпросмотра — пакет не придётся слать",
+"   дважды. Удаления делай только если я попросил прямо.",
 "",
 "Если myslik_ping отвечает, что приложение не найдено, — скажи мне: значит, я забыл включить",
 "«Доступ для ИИ-агента» в настройках Мыслика или закрыл само приложение.",

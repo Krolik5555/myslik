@@ -93,7 +93,9 @@ def _check_assets_version():
 
 def _check_python():
     out = []
-    for f in ("app.py", "ai.py"):
+    # mcp_server.py тоже сюда: он уезжает внутрь exe и правится вместе с мостом, а падал бы уже
+    # у агента — «сервер отключился» без единой строки о причине
+    for f in ("app.py", "ai.py", "mcp_server.py"):
         r = subprocess.run([sys.executable, "-m", "py_compile", os.path.join(ROOT, f)],
                            capture_output=True, text=True)
         out.append(("%s компилируется" % f, r.returncode == 0, (r.stderr or "").strip()[:200]))
@@ -161,7 +163,8 @@ def _code_symbols():
         # поля объекта: карта цитирует и их (this._glCache, this.drag)
         for m in re.findall(r'this\.([A-Za-zА-Яа-я_$][\w$]*)\s*=', s):
             имена.add(m)
-    for f in ("app.py", "ai.py"):
+    # mcp_server.py — тоже код проекта: карта ссылается на его схемы и умолчания (SNAP_FIELDS_DEF)
+    for f in ("app.py", "ai.py", "mcp_server.py"):
         s = _read(f)
         for a, b in re.findall(r'^(?:class|def)\s+(\w+)|^\s+def\s+(\w+)', s, re.M):
             имена.add(a or b)
@@ -183,6 +186,10 @@ def _code_symbols():
     "hub_", "fld_", "arealen", "lenMul", "restLen", "max", "parse_partial", "prevStatus",
     # событие DOM, а не объявленное имя; подписи быстрых кнопок срока (БЫСТРЫЙ_СРОК), не символы
     "keydown", "зв", "пт", "сег",
+    # методы и аргументы моста для ИИ-агента (cmdAgent / mcp_server.py) и значение CSS — не символы
+    "ping", "snapshot", "prompt", "rules", "graphs", "preview", "apply", "undo",
+    "root", "depth", "graph", "limit", "cursor", "format", "token", "absolute", "position",
+    "myslik_rules", "tight",
     # инструменты, которыми работают, а не код проекта
     "Edit", "Grep", "Read", "search_graph", "trace_path", "get_code_snippet", "get_architecture",
     "check_index_coverage", "index_status", "index_repository", "detect_changes", "codebase-memory",

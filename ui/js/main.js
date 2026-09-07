@@ -787,9 +787,12 @@ function turOpen(все){
   turStep(0);
 }
 let _турШаг=0, _турУзел=null;
+/* Снятие подсветки — ОДНОЙ функцией: классов у неё два (кольцо и relative для статичных целей),
+   а мест, где её снимают, тоже два — начало шага и конец тура. Разъехались бы молча. */
+function turUnlit(){ document.querySelectorAll(".tour-lit").forEach(n=>n.classList.remove("tour-lit","tour-lit-rel")); }
 function turDone(){
   if(_турУзел){ _турУзел.remove(); _турУзел=null; }
-  document.querySelectorAll(".tour-lit").forEach(n=>n.classList.remove("tour-lit"));
+  turUnlit();
   document.removeEventListener("keydown", turEsc, true);
   window.removeEventListener("resize", turPlace);
   if(S.settings.tourSeen!==ТУР_ID){ S.settings.tourSeen=ТУР_ID; persist(); }
@@ -845,7 +848,7 @@ function turStep(n){
   _турШаг=n;
   const шаг=_турПоказ[n]; if(!шаг){ turDone(); return; }
   if(шаг.before) try{ шаг.before(); }catch(e){ console.warn("[тур] шаг не подготовился:", e); }
-  document.querySelectorAll(".tour-lit").forEach(k=>k.classList.remove("tour-lit"));
+  turUnlit();
   if(!_турУзел){
     _турУзел=el("div","tour-pop"); _турУзел.id="tour-pop";
     document.body.appendChild(_турУзел);
@@ -895,7 +898,13 @@ function turStep(n){
   const подсветить=()=>{
     const ц=шаг.цель ? document.querySelector(шаг.цель) : null;
     if(!ц || ц.classList.contains("tour-lit")) return ц;
-    ц.classList.add("tour-lit"); turPlace();
+    ц.classList.add("tour-lit");
+    /* RELATIVE — ТОЛЬКО СТАТИЧНОЙ ЦЕЛИ. Кольцу нужен z-index, а он работает лишь у
+       позиционированных узлов — но position у цели бывает и свой. У кнопки ИИ он `absolute`
+       (угол холста), и подмена на relative роняла её в поток под холст, за нижнюю кромку с
+       overflow:hidden: кнопка пропадала, а выноска приезжала к её призраку внизу слева. */
+    if(getComputedStyle(ц).position==="static") ц.classList.add("tour-lit-rel");
+    turPlace();
     return ц;
   };
   const цель=подсветить();

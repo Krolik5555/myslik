@@ -1261,9 +1261,18 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
   background:linear-gradient(to top,var(--surf2),transparent);}
 .td-one.good .td-lbl{color:var(--acc);}
 /* ПОДСВЕТКА ЦЕЛИ — кольцом снаружи, а не рамкой: рамка сдвинула бы кнопку в потоке, и
-   выноска, посчитанная по её прежнему месту, показала бы мимо. */
-.tour-lit{position:relative;z-index:361;box-shadow:0 0 0 2px var(--acc),0 0 18px var(--glow)!important;
+   выноска, посчитанная по её прежнему месту, показала бы мимо.
+   POSITION ЗДЕСЬ НЕ ТРОГАЕМ, И ЭТО ГЛАВНОЕ. Раньше класс ставил `position:relative` ради
+   z-index — и отбирал у цели её собственный `position`. У кнопки ИИ он `absolute` (угол
+   холста), подмена выбрасывала кнопку в поток: там она вставала ПОД `#graph` высотой 100%,
+   за нижней кромкой `#graph-wrap` с `overflow:hidden`. Кнопка исчезала с экрана ровно на том
+   шаге, который на неё показывает, а выноска честно приезжала к её призраку — внизу слева
+   (КРОЛИК, два снимка шага про нейросети). Статичным целям relative добавляет JS отдельным
+   классом `.tour-lit-rel`: у кнопок тулбара своего position нет, и без него кольцо потерялось
+   бы под соседями. */
+.tour-lit{z-index:361;box-shadow:0 0 0 2px var(--acc),0 0 18px var(--glow)!important;
   border-radius:9px;animation:tourPulse 1.6s ease-in-out infinite;}
+.tour-lit-rel{position:relative;}
 @keyframes tourPulse{0%,100%{box-shadow:0 0 0 2px var(--acc),0 0 14px var(--glow);}
                      50%{box-shadow:0 0 0 3px var(--acc),0 0 26px var(--glow);}}
 /* ===== toast ===== */

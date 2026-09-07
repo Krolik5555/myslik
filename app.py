@@ -513,7 +513,8 @@ def _agent_handler_class():
                 self._send(400, {"ok": False, "error": "тело запроса не разобралось: %s" % e})
                 return
             method = str(data.get("method") or "")
-            if method not in ("ping", "snapshot", "prompt", "graphs", "preview", "apply", "undo"):
+            # "rules" — те же правила, что и "prompt", но без снимка графа (см. cmdPrompt)
+            if method not in ("ping", "snapshot", "prompt", "rules", "graphs", "preview", "apply", "undo"):
                 self._send(400, {"ok": False, "error": "неизвестный метод: %s" % method})
                 return
             self._send(200, _agent_call(method, data.get("params") or {}))

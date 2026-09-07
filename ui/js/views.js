@@ -245,7 +245,16 @@ function renderAside(){
     if(drawRoot && !$("#draw-screen")) drawDestroy();
     const ноды = asideGroup.map(liveById).filter(Boolean);
     const счёт = k => ноды.filter(n=>n.kind===k).length;
-    a.innerHTML = `<div class="as-head"><h2 class="as-title">Выделено: ${ноды.length}</h2></div>
+    /* КНОПКИ РАСКЛАДКИ В ШАПКЕ СВОДКИ (КРОЛИК, 09.09.2026): «Упорядочить» и «Сбросить дом» жили
+       только в ПКМ-меню графа, а панель при выделении рамкой открывается сама и оказывается
+       ближе руки. Показываем ровно по тем же правилам, что и меню: упорядочить — от трёх нод,
+       сброс дома — при включённой раскладке и только если дом у кого-то из выделенных есть. */
+    const сДомом = S.settings.graphHome ? ноды.filter(n=>n.hx!=null && n.hy!=null).length : 0;
+    a.innerHTML = `<div class="as-head"><h2 class="as-title">Выделено: ${ноды.length}</h2>
+        <div class="as-acts">
+          ${ноды.length>2 ? `<button class="as-ic" data-tidy="1" title="Упорядочить выделенное: разложить деревом, без наложений и пересечений связей"><i class="ti ti-layout-grid"></i></button>` : ""}
+          ${сДомом ? `<button class="as-ic" data-home-off="1" title="Сбросить дом · ${сДомом}: ноды перестанут держаться за своё место и встанут по родителю"><i class="ti ti-home-off"></i></button>` : ""}
+        </div></div>
       <div class="as-rows">
         <div class="as-row"><span class="as-k">Задачи</span><span class="as-ico"><i class="ti ti-checkbox"></i></span><span class="as-v">${счёт("task")}</span></div>
         <div class="as-row"><span class="as-k">Заметки</span><span class="as-ico"><i class="ti ${kindIcon("note")}"></i></span><span class="as-v">${счёт("note")}</span></div>
@@ -295,6 +304,18 @@ function renderAside(){
       ${(typeof repPanelHtml==="function") ? repPanelHtml() : ""}`;
     const кнОтчёт = a.querySelector("[data-report]");
     if(кнОтчёт) кнОтчёт.onclick = ()=>{ if(typeof repOpen==="function") repOpen(ноды); };
+    /* Обе кнопки идут через граф: у него и выделение, и откат, и тост с «Вернуть». Выделение
+       графа обязано совпадать со сводкой — панель рисуется от него же; на всякий случай
+       подставляем ноды сводки, если граф пересоздан и выделение опустело. */
+    const кнТиди = a.querySelector("[data-tidy]");
+    if(кнТиди) кнТиди.onclick = ()=>{ if(!graph) return;
+      if(graph.selNodes.size<3) graph.selNodes = new Set(ноды.map(n=>n.id));
+      graph._tidySelection(); };
+    const кнДом = a.querySelector("[data-home-off]");
+    if(кнДом) кнДом.onclick = ()=>{ if(!graph) return;
+      if(graph.selNodes.size<2) graph.selNodes = new Set(ноды.map(n=>n.id));
+      const первый = graph.byId[ноды[0].id]; if(!первый) return;
+      graph._resetHome(первый); renderAside(); };
     if(typeof repPanelWire==="function") repPanelWire(a);
     a.querySelectorAll("[data-go]").forEach(el=>{ el.onclick=()=>{ asideSelect(el.dataset.go); if(graph) graph.focusNode(el.dataset.go); }; });
 

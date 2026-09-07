@@ -116,17 +116,29 @@ def _rpc(method, params=None):
 
 
 # ---------------------------------------------------------------- инструменты
+# Поля ноды по умолчанию — ровно то, по чему строят дерево и на что ссылаются. Остальное (срок,
+# теги, область, приоритет) агент просит через fields: снимок на четыреста нод растёт вдвое
+# от полей, которые в конкретной задаче не нужны.
+# has_body здесь НЕ ради полноты: без него не видно, есть ли в ноде текст, а `edit body` затирает
+# его целиком — то есть дописывать в существующую ноду пришлось бы вслепую. Флаг стоит 13 байт
+# и только у нод с телом; завершённость видна и так, через status.
+SNAP_FIELDS_DEF = "id,kind,title,parent,status,has_body"
+_SNAP_KEYS = ("graph", "area", "root", "depth", "fields", "limit", "cursor", "format")
+
+
 def _t_ping(_):
     return _rpc("ping")
 
 
-def _t_format(_):
-    r = _rpc("prompt")
-    return r.get("prompt", "") if r.get("ok") else r
+def _t_rules(_):
+    r = _rpc("rules")
+    return r.get("rules", "") if r.get("ok") else r
 
 
-def _t_snapshot(_):
-    r = _rpc("snapshot")
+def _t_snapshot(a):
+    p = {k: a[k] for k in _SNAP_KEYS if a.get(k) not in (None, "")}
+    p.setdefault("fields", SNAP_FIELDS_DEF)
+    r = _rpc("snapshot", p)
     return r.get("snapshot") if r.get("ok") else r
 
 
@@ -139,7 +151,13 @@ def _t_preview(a):
 
 
 def _t_apply(a):
-    return _rpc("apply", {"ops": a.get("ops"), "allowDelete": bool(a.get("allow_delete"))})
+    # токен ИЛИ пакет: с токеном от preview пакет второй раз по мосту не едет (см. cmdTokenTake)
+    p = {"allowDelete": bool(a.get("allow_delete"))}
+    if a.get("token") and not a.get("ops"):
+        p["token"] = a["token"]
+    else:
+        p["ops"] = a.get("ops")
+    return _rpc("apply", p)
 
 
 def _t_undo(_):
@@ -152,29 +170,55 @@ _OPS_SCHEMA = {"type": "object",
                "required": ["ops"]}
 _NO_ARGS = {"type": "object", "properties": {}}
 
+_SNAP_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "root": {"type": "string",
+                 "description": "id ноды: отдать её и всё поддерево. Главный способ не тянуть весь граф."},
+        "area": {"type": "string", "description": "Только ноды этой области — id или название."},
+        "depth": {"type": "integer",
+                  "description": "Сколько уровней отдавать: от root, а без него — от корней выборки (1 — только они сами). По умолчанию без предела."},
+        "graph": {"type": "string", "description": "id или название графа. По умолчанию открытый; подграф — id вида gs_<id ноды>."},
+        "limit": {"type": "integer", "description": "Потолок нод в ответе (по умолчанию 400). Срез идёт по границе ветки."},
+        "cursor": {"type": "integer", "description": "Продолжить с этой позиции — значение next_cursor из прошлого ответа."},
+        "fields": {"type": "string",
+                   "description": ("Поля нод через запятую. По умолчанию " + SNAP_FIELDS_DEF +
+                                   "; сверх того бывают done, due, priority, tags, area, tray, inside.")},
+        "format": {"type": "string", "enum": ["json", "compact"],
+                   "description": "compact — строка на ноду через табуляцию (id, вид, статус, родитель, название). Заметно короче json."}}}
+
 TOOLS = [
-    {"name": "myslik_format", "fn": _t_format, "schema": _NO_ARGS,
-     "desc": ("Формат пакета команд ВМЕСТЕ со снимком текущего графа. Вызывать ПЕРВЫМ перед любой "
-              "правкой: там перечислены операции, виды нод, статусы и правила, а в конце — настоящие "
-              "id нод, которыми и надо ссылаться.")},
-    {"name": "myslik_snapshot", "fn": _t_snapshot, "schema": _NO_ARGS,
-     "desc": ("Снимок текущего графа: ноды (id, вид, название, статус, срок, теги, родитель) и связи. "
-              "Тело нод и содержимое полей не отдаются — это личные записи, и объём ни к чему.")},
+    {"name": "myslik_rules", "fn": _t_rules, "schema": _NO_ARGS,
+     "desc": ("Правила и формат пакета команд: операции, виды нод, статусы, как строить ветку. "
+              "Звать ПЕРВЫМ перед любой правкой. Снимка графа тут нет намеренно — id берут "
+              "отдельно, myslik_snapshot по нужной ветке.")},
+    {"name": "myslik_snapshot", "fn": _t_snapshot, "schema": _SNAP_SCHEMA, "tight": True,
+     "desc": ("Ноды и связи графа: id, вид, название, родитель, статус. БЕЗ АРГУМЕНТОВ ОТДАЁТ ВЕСЬ "
+              "ГРАФ — на сотнях нод это десятки килобайт; спрашивай узко: root (ветка), area "
+              "(область), limit + cursor (частями), format:\"compact\" (короткий вид), fields "
+              "(лишние поля не тянуть). В ответе total, returned и truncated — сколько всего "
+              "подошло и сколько отдано. Тело нод и содержимое полей не отдаются никогда: это "
+              "личные записи; есть ли текст в ноде, показывает has_body.")},
     {"name": "myslik_graphs", "fn": _t_graphs, "schema": _NO_ARGS,
      "desc": "Графы верхнего уровня: id, название, число нод и какой сейчас открыт."},
     {"name": "myslik_preview", "fn": _t_preview, "schema": _OPS_SCHEMA,
-     "desc": ("Проверить пакет и получить список «что будет сделано», НИЧЕГО не применяя. Звать до "
-              "myslik_apply: разбор вернёт ошибки по номерам операций.")},
+     "desc": ("Проверить пакет и получить «что будет сделано», НИЧЕГО не применяя: разбор вернёт "
+              "ошибки по номерам операций, will — сколько появится нод и связей, token — короткий "
+              "ключ для myslik_apply, чтобы не слать пакет вторым разом.")},
     {"name": "myslik_apply", "fn": _t_apply, "schema": {
         "type": "object",
         "properties": {"ops": _OPS_SCHEMA["properties"]["ops"],
+                       "token": {"type": "string",
+                                 "description": "Ключ из myslik_preview вместо ops. Одноразовый, живёт три минуты; изменился граф — попросит повторить предпросмотр."},
                        "allow_delete": {"type": "boolean",
-                                        "description": "Разрешить удаления. Корзины в приложении нет — только откат."}},
-        "required": ["ops"]},
-     "desc": ("Применить пакет к планеру. Весь пакет — ОДИН шаг истории; любая ошибка разбора "
-              "отменяет его целиком. Человек увидит в приложении сообщение и сможет отменить нажатием.")},
+                                        "description": "Разрешить удаления. Корзины в приложении нет — только откат."}}},
+     "desc": ("Применить пакет к планеру — по token из myslik_preview либо целиком в ops. Весь "
+              "пакет — ОДИН шаг истории; любая ошибка разбора отменяет его целиком. В ответе "
+              "created: имя из пакета → настоящий id. Человек увидит в приложении сообщение и "
+              "сможет отменить нажатием.")},
     {"name": "myslik_undo", "fn": _t_undo, "schema": _NO_ARGS,
-     "desc": "Отменить последнее действие в планере — в том числе целиком пакет, применённый агентом."},
+     "desc": ("Отменить последнее действие в планере — в том числе целиком пакет, применённый "
+              "агентом. Отвечает уже после отката и сразу числом нод: отдельный ping не нужен.")},
     {"name": "myslik_ping", "fn": _t_ping, "schema": _NO_ARGS,
      "desc": "Проверить связь: открыто ли приложение, какой граф активен, сколько в нём нод."},
 ]
@@ -219,7 +263,14 @@ def _handle(msg):
             res = t["fn"](p.get("arguments") or {})
         except Exception as e:
             res = {"ok": False, "error": "сбой инструмента: %s" % e}
-        text = res if isinstance(res, str) else json.dumps(res, ensure_ascii=False, indent=1)
+        if isinstance(res, str):
+            text = res
+        elif t.get("tight"):
+            # снимок читает машина, а не человек: отступы на четырёхстах нодах — это четыре
+            # тысячи лишних строк и заметная часть объёма ответа (замер — docs/ПЛАН-MCP.md)
+            text = json.dumps(res, ensure_ascii=False, separators=(",", ":"))
+        else:
+            text = json.dumps(res, ensure_ascii=False, indent=1)
         return {"jsonrpc": "2.0", "id": mid,
                 "result": {"content": [{"type": "text", "text": text}],
                            "isError": bool(isinstance(res, dict) and res.get("ok") is False)}}

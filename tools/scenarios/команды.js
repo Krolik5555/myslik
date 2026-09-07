@@ -156,6 +156,123 @@ const былоНод = S.items.length;
   const p = cmdPrompt();
   t.push({имя:"промпт содержит формат и снимок", ок: p.indexOf('"op":"node"') > 0 && p.indexOf('"nodes"') > 0,
           факт: Math.round(p.length / 1024) + " КБ"});
+  const пр = cmdPrompt({snapshot: false});
+  t.push({имя:"правила без снимка не тащат ни одного id ноды",
+          ок: пр.indexOf('"op":"node"') > 0 && пр.indexOf('"nodes"') < 0 && пр.length < 10240,
+          факт: Math.round(пр.length / 1024) + " КБ"});
+}
+
+/* ---------- снимок с фильтрами ----------
+   Снимок целого графа хост агенту не показывает, а сбрасывает в файл (замер — docs/ПЛАН-MCP.md:
+   424 ноды = 74 КБ). Всё, что ниже, держит обещание «приезжает ровно нужный кусок»: ветка,
+   область, потолок, курсор, компактный вид — и связи, не ссылающиеся в пустоту. */
+{
+  const всего = (S.items || []).filter(inWeb).length;
+  const корень = (S.items || []).filter(inWeb).find(it => (S.items || []).some(x => x.parent === it.id));
+  if(корень){
+    const в = cmdSnapshot({root: корень.id});
+    const свои = new Set(в.nodes.map(n => n.id));
+    t.push({имя:"снимок по root отдаёт ТОЛЬКО ветку", ок: свои.has(корень.id) && в.nodes.length >= 2 && в.nodes.length < всего,
+            факт: в.nodes.length + " из " + всего});
+    t.push({имя:"в ветке нет связей на ноды вне её", ок: (в.links || []).every(l => свои.has(l[0]) && свои.has(l[1])), факт: ""});
+    const гл = cmdSnapshot({root: корень.id, depth: 1});
+    t.push({имя:"depth:1 отдаёт один корень", ок: гл.nodes.length === 1 && гл.nodes[0].id === корень.id, факт: гл.nodes.length + " нод"});
+  }
+  const ср = cmdSnapshot({limit: 3});
+  t.push({имя:"срез помечен МАШИННЫМИ полями, а не прозой",
+          ок: ср.truncated === true && ср.total === всего && ср.returned === ср.nodes.length && typeof ср.next_cursor === "number",
+          факт: "returned " + ср.returned + " из " + ср.total + ", next_cursor " + ср.next_cursor});
+  {
+    const свои = new Set(ср.nodes.map(n => n.id));
+    t.push({имя:"в срезе НЕТ связей на срезанные ноды", ок: (ср.links || []).every(l => свои.has(l[0]) && свои.has(l[1])), факт: ""});
+    const дальше = cmdSnapshot({limit: 3, cursor: ср.next_cursor});
+    const повторов = дальше.nodes.filter(n => свои.has(n.id)).length;
+    t.push({имя:"cursor продолжает снимок, а не повторяет его", ок: дальше.nodes.length > 0 && повторов === 0, факт: "повторов: " + повторов});
+  }
+  {
+    const о = cmdSnapshot({limit: 5}), c = cmdSnapshot({limit: 5, format: "compact"});
+    const строк = String(c).split("\n").filter(s => s.indexOf("\t") > 0);
+    t.push({имя:"compact — одна строка на ноду, через табуляцию",
+            ок: typeof c === "string" && строк.length === о.returned && c.indexOf("nodes: ") >= 0,
+            факт: строк.length + " строк против " + о.returned + " нод"});
+  }
+  {
+    const обл = (S.areas || [])[0];
+    if(обл){
+      const в = cmdSnapshot({area: обл.id});
+      const ждём = (S.items || []).filter(it => inWeb(it) && it.area === обл.id).length;
+      t.push({имя:"снимок по area отдаёт только её ноды", ок: в.nodes.length === ждём,
+              факт: в.nodes.length + " из " + ждём + " в области «" + обл.name + "»"});
+      /* depth БЕЗ root: принимался и не делал ничего — {area, depth:2} отдавал всю область
+         (КРОЛИК, проверка 07.09.2026). Теперь глубина считается от корней выборки. */
+      const свои = new Set(в.nodes.map(n => n.id));
+      const сДетьми = в.nodes.some(n => n.parent && свои.has(n.parent));
+      const гл = cmdSnapshot({area: обл.id, depth: 1});
+      t.push({имя:"depth работает и без root — от корней выборки",
+              ок: сДетьми ? гл.nodes.length < в.nodes.length : гл.nodes.length === в.nodes.length,
+              факт: "depth:1 — " + гл.nodes.length + " нод против " + в.nodes.length + " без глубины"});
+    }
+  }
+  {
+    /* ПЛОТНОСТЬ ПОРЦИИ. Обрыв на границе ветки не должен съедать пол-лимита: limit:100 отдавал
+       56 нод, потому что следующая ветка целиком не влезала. */
+    const всего = (S.items || []).filter(inWeb).length;
+    if(всего > 12){
+      const п = cmdSnapshot({limit: 12});
+      t.push({имя:"срез добирает порцию, а не рвётся на первой же ветке", ок: п.returned >= 9,
+              факт: п.returned + " нод из запрошенных 12"});
+    }
+  }
+  {
+    const в = cmdSnapshot({fields: "id,title"});
+    t.push({имя:"fields выбрасывает лишние поля", ок: в.nodes.every(n => n.kind === undefined && n.parent === undefined && n.id), факт: ""});
+  }
+  {
+    // тело в снимок не уезжало и раньше; новое — что видно САМ ФАКТ его наличия
+    const сТелом = (S.items || []).filter(inWeb).find(it => (it.body || "").trim());
+    const в = cmdSnapshot();
+    const n = сТелом ? в.nodes.find(x => x.id === сТелом.id) : null;
+    t.push({имя:"has_body показывает наличие тела, но не текст",
+            ок: (!сТелом || (n && n.has_body === true)) && в.nodes.every(x => x.body === undefined),
+            факт: сТелом ? "нода с телом: " + (сТелом.title || "") : "нод с телом в демо нет"});
+  }
+}
+
+/* ---------- мост агента: токен, created, счёт нод ----------
+   Проверяем ровно то, ради чего мост правился: пакет уезжает ОДИН раз, ответ называет созданное
+   именами из пакета, а число нод после отката не приходится переспрашивать. */
+{
+  const пакет = JSON.stringify({v:1, ops:[
+    {op:"node", as:"корень", kind:"task", title:"КОМ-токен корень"},
+    {op:"node", as:"лист", kind:"task", title:"КОМ-токен лист"},
+    {op:"link", from:"корень", to:"лист"}]});
+  const пв = JSON.parse(cmdAgent("preview", JSON.stringify({ops: пакет})));
+  t.push({имя:"preview считает, сколько появится нод и связей",
+          ок: пв.ok === true && !!пв.will && пв.will.nodes === 2 && пв.will.links === 1, факт: JSON.stringify(пв.will || {})});
+  t.push({имя:"preview отдаёт токен", ок: typeof пв.token === "string" && пв.token.length > 3, факт: пв.token || "нет"});
+
+  const пр = JSON.parse(cmdAgent("apply", JSON.stringify({token: пв.token})));
+  await ж(180);
+  const созд = S.items.find(i => i.title === "КОМ-токен корень");
+  t.push({имя:"apply по токену применяет пакет без повторной пересылки",
+          ок: пр.ok === true && пр.applied === 3 && !!созд, факт: JSON.stringify(пр.result || {})});
+  t.push({имя:"created называет созданное именами из пакета",
+          ок: !!пр.created && !Array.isArray(пр.created) && !!созд && пр.created["корень"] === созд.id,
+          факт: JSON.stringify(пр.created || {})});
+  const повтор = JSON.parse(cmdAgent("apply", JSON.stringify({token: пв.token})));
+  t.push({имя:"токен ОДНОРАЗОВЫЙ — второй apply отвергается", ок: повтор.ok === false, факт: повтор.error || "применился дважды!"});
+
+  const до = (S.items || []).filter(inWeb).length;
+  const отк = JSON.parse(cmdAgent("undo", "{}"));
+  await ж(180);
+  const пинг = JSON.parse(cmdAgent("ping", "{}"));
+  t.push({имя:"undo отвечает числом нод уже ПОСЛЕ отката",
+          ок: отк.ok === true && отк.nodes === (S.items || []).filter(inWeb).length && отк.nodes < до,
+          факт: "было " + до + ", стало " + отк.nodes});
+  t.push({имя:"ping и снимок считают ноды ОДИНАКОВО",
+          ок: пинг.nodes === cmdSnapshot().graph_nodes && пинг.nodes_in_web === пинг.nodes,
+          факт: пинг.nodes + " у ping против " + cmdSnapshot().graph_nodes + " у снимка"});
+  t.push({имя:"пакет агента снялся целиком", ок: !S.items.some(i => /^КОМ-токен/.test(i.title || "")), факт: ""});
 }
 
 render(); await ж(120);
