@@ -507,7 +507,10 @@ def _agent_call(method, params):
         raw = _WINDOW.evaluate_js(js)
         if not raw:
             return {"ok": False, "error": "фронт не ответил (окно занято или модуль не загружен)"}
-        return json.loads(raw) if isinstance(raw, str) else raw
+        r = json.loads(raw) if isinstance(raw, str) else raw
+        if method == "ping" and isinstance(r, dict) and r.get("ok"):
+            r["version"] = APP_VERSION      # версию знает Python, фронт её не хранит
+        return r
     except Exception as e:
         return {"ok": False, "error": "мост: %s" % e}
 
@@ -571,11 +574,33 @@ def agent_start():
     global _AGENT_SRV, _AGENT_PORT
     if _AGENT_SRV is not None:
         return _AGENT_PORT
+    import socket
     from http.server import ThreadingHTTPServer
+
+    class _Srv(ThreadingHTTPServer):
+        """ПОРТ — ТОЛЬКО СВОЙ. У HTTPServer allow_reuse_address включён, а на Windows это
+        SO_REUSEADDR, который даёт ВТОРОЙ копии приложения сесть на УЖЕ ЗАНЯТЫЙ порт: обе
+        считали 8766 своим, маячок переписывала последняя, а запросы принимала та, что
+        успела первой, — и агент получал «токен не подошёл» (сквозная проверка 08.09.2026:
+        второй экземпляр рядом с живым). Без флага занятый порт даёт OSError, и перебор
+        честно уходит на следующий. SO_EXCLUSIVEADDRUSE сверх того не даёт чужому процессу
+        подсесть на наш порт тем же SO_REUSEADDR — чтобы токен из маячка не ушёл не туда."""
+        allow_reuse_address = False
+        daemon_threads = True
+
+        def server_bind(self):
+            excl = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+            if excl is not None:
+                try:
+                    self.socket.setsockopt(socket.SOL_SOCKET, excl, 1)
+                except OSError:
+                    pass
+            super().server_bind()
+
     H = _agent_handler_class()
     for port in AGENT_PORTS:
         try:
-            srv = ThreadingHTTPServer(("127.0.0.1", port), H)
+            srv = _Srv(("127.0.0.1", port), H)
         except OSError:
             continue
         _AGENT_SRV, _AGENT_PORT = srv, port

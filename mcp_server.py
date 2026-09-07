@@ -28,8 +28,12 @@ import urllib.request
 # если мы её понимаем: так соединение переживает и обновление Claude Code, и старую сборку
 # Мыслика у соседа. Версия не из набора — отвечаем своей, клиент решает сам, работать с ней
 # или нет. Набор пополнять по мере выхода новых; порядок в нём значения не имеет.
+# Отвечать чужой версией безопасно, потому что нового от сервера с одними инструментами
+# эти ревизии не требуют: всё, что они добавили (структурированный ответ, elicitation,
+# задачи), — по желанию. Единственное, что убрали (пакеты JSON-RPC массивом), мы и так не
+# принимали. Claude Code 2.1 шлёт 2025-11-25; без неё в наборе он считал сервер устаревшим.
 PROTOCOL = "2024-11-05"                 # своя: с ней сервер точно совместим
-PROTOCOLS_OK = {"2024-11-05", "2025-03-26", "2025-06-18"}
+PROTOCOLS_OK = {"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"}
 TIMEOUT = 20          # применение идёт через мост в браузер — секунды, но не мгновенно
 
 
@@ -130,14 +134,20 @@ def _t_ping(_):
     return _rpc("ping")
 
 
-def _t_rules(_):
-    r = _rpc("rules")
+def _t_rules(a):
+    # без topic — основные правила БЕЗ раздела про схему на полотне (треть текста, нужна
+    # только когда рисуют); topic:"draw" — один этот раздел. Режет их cmdPrompt, не мы.
+    p = {"topic": a["topic"]} if a.get("topic") else {}
+    r = _rpc("rules", p)
     return r.get("rules", "") if r.get("ok") else r
 
 
 def _t_snapshot(a):
     p = {k: a[k] for k in _SNAP_KEYS if a.get(k) not in (None, "")}
     p.setdefault("fields", SNAP_FIELDS_DEF)
+    # compact по умолчанию: на том же графе он на 35–40 % короче json (замер — docs/ПЛАН-MCP.md),
+    # а читает его модель одинаково. json — по явной просьбе, когда нужны именованные поля.
+    p.setdefault("format", "compact")
     r = _rpc("snapshot", p)
     return r.get("snapshot") if r.get("ok") else r
 
@@ -162,6 +172,7 @@ def _t_apply(a):
 
 def _t_board(a):
     p = {k: a[k] for k in ("node", "limit", "format") if a.get(k) not in (None, "")}
+    p.setdefault("format", "compact")   # та же причина, что у снимка
     r = _rpc("board", p)
     return r.get("board") if r.get("ok") else r
 
@@ -175,8 +186,8 @@ _BOARD_SCHEMA = {
     "properties": {
         "node": {"type": "string", "description": "id ноды-полотна (kind \"flow\"). Берётся из снимка графа."},
         "limit": {"type": "integer", "description": "Потолок блоков в ответе (по умолчанию 200)."},
-        "format": {"type": "string", "enum": ["json", "compact"],
-                   "description": "compact — строка на блок через табуляцию. Заметно короче json."}},
+        "format": {"type": "string", "enum": ["compact", "json"],
+                   "description": "По умолчанию compact — строка на блок через табуляцию. json — если нужны именованные поля."}},
     "required": ["node"]}
 
 _OPS_SCHEMA = {"type": "object",
@@ -184,6 +195,12 @@ _OPS_SCHEMA = {"type": "object",
                                       "description": 'Пакет команд в JSON: {"v":1,"ops":[…]} либо просто массив операций.'}},
                "required": ["ops"]}
 _NO_ARGS = {"type": "object", "properties": {}}
+_RULES_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "topic": {"type": "string", "enum": ["draw"],
+                  "description": ("draw — только правила схемы на полотне (op \"draw\"): блоки, стрелки, "
+                                  "раскладка. Без topic — основные правила, схема в них лишь упомянута.")}}}
 
 _SNAP_SCHEMA = {
     "type": "object",
@@ -199,21 +216,22 @@ _SNAP_SCHEMA = {
         "fields": {"type": "string",
                    "description": ("Поля нод через запятую. По умолчанию " + SNAP_FIELDS_DEF +
                                    "; сверх того бывают done, due, priority, tags, area, tray, inside.")},
-        "format": {"type": "string", "enum": ["json", "compact"],
-                   "description": "compact — строка на ноду через табуляцию (id, вид, статус, родитель, название). Заметно короче json."}}}
+        "format": {"type": "string", "enum": ["compact", "json"],
+                   "description": "По умолчанию compact — строка на ноду через табуляцию (id, вид, статус, родитель, название). json — если нужны именованные поля."}}}
 
 TOOLS = [
-    {"name": "myslik_rules", "fn": _t_rules, "schema": _NO_ARGS,
-     "desc": ("Правила и формат пакета команд: операции, виды нод, статусы, как строить ветку и "
-              "как рисовать схему на полотне. Звать ПЕРВЫМ перед любой правкой. Снимка графа тут "
-              "нет намеренно — id берут отдельно, myslik_snapshot по нужной ветке.")},
+    {"name": "myslik_rules", "fn": _t_rules, "schema": _RULES_SCHEMA,
+     "desc": ("Правила и формат пакета команд: операции, виды нод, статусы, как строить ветку. "
+              "Звать ПЕРВЫМ перед любой правкой, один раз за сессию. Правила схемы на полотне "
+              "сюда не входят — topic:\"draw\", когда собираешься рисовать. Снимка графа тут нет "
+              "намеренно — id берут отдельно, myslik_snapshot по нужной ветке.")},
     {"name": "myslik_snapshot", "fn": _t_snapshot, "schema": _SNAP_SCHEMA, "tight": True,
-     "desc": ("Ноды и связи графа: id, вид, название, родитель, статус. БЕЗ АРГУМЕНТОВ ОТДАЁТ ВЕСЬ "
-              "ГРАФ — на сотнях нод это десятки килобайт; спрашивай узко: root (ветка), area "
-              "(область), limit + cursor (частями), format:\"compact\" (короткий вид), fields "
-              "(лишние поля не тянуть). В ответе total, returned и truncated — сколько всего "
-              "подошло и сколько отдано. Тело нод и содержимое полей не отдаются никогда: это "
-              "личные записи; есть ли текст в ноде, показывает has_body.")},
+     "desc": ("Ноды и связи графа: id, вид, название, родитель, статус — строка на ноду. БЕЗ "
+              "АРГУМЕНТОВ ОТДАЁТ ВЕСЬ ГРАФ — на сотнях нод это десятки килобайт; спрашивай узко: "
+              "root (ветка), area (область), limit + cursor (частями), fields (лишние поля не "
+              "тянуть). В ответе total, returned и truncated — сколько всего подошло и сколько "
+              "отдано. Тело нод и содержимое полей не отдаются никогда: это личные записи; есть "
+              "ли текст в ноде, показывает has_body.")},
     {"name": "myslik_graphs", "fn": _t_graphs, "schema": _NO_ARGS,
      "desc": "Графы верхнего уровня: id, название, число нод и какой сейчас открыт."},
     {"name": "myslik_board", "fn": _t_board, "schema": _BOARD_SCHEMA, "tight": True,
@@ -268,11 +286,19 @@ def _handle(msg):
         return {"jsonrpc": "2.0", "id": mid, "result": {
             "protocolVersion": asked if asked in PROTOCOLS_OK else PROTOCOL,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "myslik", "version": "1.0"}}}
+            "serverInfo": {"name": "myslik", "version": "1.1"}}}
     if method in ("notifications/initialized", "notifications/cancelled"):
         return None                     # уведомления ответа не требуют — на них нельзя отвечать вовсе
     if method == "ping":
         return {"jsonrpc": "2.0", "id": mid, "result": {}}
+    # ресурсов и промптов у сервера нет; пустой список вместо ошибки — ради клиентов, которые
+    # спрашивают их, не глядя в capabilities (Claude Code смотрит, другие — не все)
+    if method == "resources/list":
+        return {"jsonrpc": "2.0", "id": mid, "result": {"resources": []}}
+    if method == "resources/templates/list":
+        return {"jsonrpc": "2.0", "id": mid, "result": {"resourceTemplates": []}}
+    if method == "prompts/list":
+        return {"jsonrpc": "2.0", "id": mid, "result": {"prompts": []}}
     if method == "tools/list":
         return {"jsonrpc": "2.0", "id": mid, "result": {"tools": [
             {"name": t["name"], "description": t["desc"], "inputSchema": t["schema"]} for t in TOOLS]}}
@@ -349,6 +375,12 @@ def _loop():
             msg = json.loads(line)
         except Exception:
             continue                    # мусорную строку молча пропускаем: рвать сессию из-за неё незачем
+        if not isinstance(msg, dict):
+            # массив (пакет JSON-RPC) или голое значение: отвечать некому — id нет, а пакеты
+            # из протокола убраны в 2025-06-18. Раньше это давало -32603 с внутренней ошибкой.
+            _write({"jsonrpc": "2.0", "id": None,
+                    "error": {"code": -32600, "message": "ожидается объект JSON-RPC"}}, out)
+            continue
         try:
             ans = _handle(msg)
         except Exception as e:
