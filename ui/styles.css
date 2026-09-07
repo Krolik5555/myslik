@@ -671,7 +671,12 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
   white-space:pre-wrap;word-break:break-word;color:var(--mut);user-select:text;cursor:text;}
 .node-preview .pv-body i{color:var(--mut2);}
 .g-pin{fill:none;stroke:var(--acc);stroke-width:1;stroke-dasharray:2 2;opacity:.7;}
-.graph-toolbar{position:absolute;top:12px;left:12px;display:flex;gap:7px;z-index:5;}
+/* ПЕРЕНОС, А НЕ ВЫЕЗД ЗА КРАЙ. Пять кнопок по 44px с зазорами — это 260px, а холст графа
+   становится уже, когда правую панель растягивают до предела: в окне минимального размера
+   (920x640) под граф остаётся 236px, и кнопка «…» уезжала под панель (замер 08.09.2026:
+   тулбар 249 при холсте 236, выход 26px). max-width держит тулбар внутри холста, wrap
+   переносит лишние кнопки на вторую строку. Пока места хватает, ничего не меняется. */
+.graph-toolbar{position:absolute;top:12px;left:12px;display:flex;flex-wrap:wrap;gap:7px;max-width:calc(100% - 24px);z-index:5;}
 /* Тумблер в тулбаре («Держать раскладку»): подписи рядом нет и ставить её негде,
    поэтому включённое состояние обязано читаться по самой кнопке — заливкой акцентом. */
 .graph-toolbar .btn.on{background:var(--acc);color:var(--bg);border-color:var(--acc);}
@@ -1616,12 +1621,21 @@ kbd{display:inline-block;font-family:var(--font);font-size:11px;line-height:1;pa
 .embers-foot{font-size:12px;color:var(--mut);margin-top:10px;}
 
 /* баланс областей */
-.home-card.areas-card{display:flex;flex-direction:column;gap:9px;}
+/* СТРОКИ ОБЛАСТЕЙ ТЯНЕМ НА ВСЮ КАРТОЧКУ. align-items достаётся карточке от общего .card
+   (flex-start), и в колоночном flex это ужимало КАЖДУЮ строку по её содержимому: полоска
+   прогресса (.ab-track, flex:1) получала ровно ноль ширины и не показывалась НИКОГДА, а
+   длинное имя области растягивало строку за край карточки (замер 08.09.2026: карточка 344,
+   содержимое 440). stretch чинит и то, и другое. */
+.home-card.areas-card{display:flex;flex-direction:column;gap:9px;align-items:stretch;}
 .area-bar{display:flex;align-items:center;gap:9px;cursor:pointer;padding:2px 0;}
 .area-bar i{font-size:15px;width:18px;text-align:center;color:var(--mut);flex:none;}
 .area-bar.lead i{color:var(--tx);}
-.ab-name{font-size:12.5px;color:var(--tx);min-width:64px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.ab-track{flex:1;height:6px;border-radius:6px;background:var(--surf3);overflow:hidden;}
+/* flex:0 1 auto, а НЕ none: при `none` многоточие не срабатывает вовсе — элемент берёт
+   ширину текста и просто выносит строку наружу. Нижняя граница 64px оставлена, чтобы
+   короткие имена стояли одной колонкой. */
+.ab-name{font-size:12.5px;color:var(--tx);min-width:64px;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* min-width полоске: иначе длинное имя съедает её до нуля, и строка выглядит иначе соседних */
+.ab-track{flex:1;min-width:48px;height:6px;border-radius:6px;background:var(--surf3);overflow:hidden;}
 .ab-fill{display:block;height:100%;background:var(--acc);border-radius:6px;transition:width .5s;}
 .area-bar.lead .ab-fill{box-shadow:0 0 8px var(--glow);}
 .ab-meta{font-size:11.5px;color:var(--mut);min-width:54px;text-align:right;flex:none;font-variant-numeric:tabular-nums;}
