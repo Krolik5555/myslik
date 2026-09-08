@@ -301,7 +301,24 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .as-tag button:hover{background:var(--surf3);color:var(--warn);}
 .as-add{display:inline-flex;align-items:center;color:var(--mut);cursor:pointer;}
 .as-add:hover{color:var(--tx);border-color:var(--bd3);}
-.as-taginp{width:86px;outline:none;color:var(--tx);}
+.as-taginp{width:104px;outline:none;color:var(--tx);}
+/* Своя выпадашка выбора тега (вместо нативного <datalist> — тот не красится вовсе): теги СО
+   СТИЛЕМ идут первой группой, в своём цвете и с иконкой; текстовые — приглушённой второй. */
+.as-tagpop{position:fixed;z-index:200;display:flex;flex-direction:column;gap:2px;padding:6px;
+  background:var(--surf);border:0.5px solid var(--bd2);border-radius:11px;
+  box-shadow:0 12px 34px var(--sh),0 2px 8px var(--sh);max-height:262px;overflow:auto;max-width:min(280px,82vw);}
+.tp-grp{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut2);padding:5px 7px 2px;}
+.tp-grp:first-child{padding-top:1px;}
+.tp-opt{display:flex;align-items:center;gap:7px;width:100%;text-align:left;font-size:12px;color:var(--tx);
+  padding:5px 8px;border-radius:7px;border:0.5px solid transparent;background:transparent;cursor:pointer;transition:.1s;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tp-opt i{font-size:13px;flex:none;}
+.tp-opt:hover{background:var(--surf2);}
+.tp-styled{font-weight:600;}                 /* стилизованный: цвет и рамка из tagInk + жирнее */
+.tp-plain{color:var(--mut);}                 /* просто текстовый тег: приглушён, хэш */
+.tp-plain i{color:var(--mut2);}
+.tp-new{color:var(--acc);}
+.tp-empty{font-size:11.5px;color:var(--mut2);padding:6px 8px;}
 .as-title{outline:none;}
 .as-title:focus{border-bottom:0.5px solid var(--acc);}
 .as-title:empty:before{content:attr(data-ph);color:var(--mut2);}

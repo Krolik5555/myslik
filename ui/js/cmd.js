@@ -161,6 +161,11 @@ function cmdParse(text){
         const c = String(сырое.color);
         if(!/^#[0-9a-fA-F]{3,8}$/.test(c)) { бед('цвет "' + c + '" не в виде #rrggbb.'); плохо = true; } else o.color = c;
       }
+      if(сырое.folder != null && сырое.folder !== ""){
+        // папка ноды — та же строка-путь, что кладёт мышью setItemFolder (core.js): даёт кнопку
+        // «открыть папку». Через пакет раньше не выставлялась вовсе — только диалогом и броском.
+        o.folder = String(сырое.folder).slice(0, 2000);
+      } else if(сырое.folder === null || сырое.folder === "") o.folder = null;
       if(сырое.x != null && isFinite(сырое.x)) o.x = Math.round(+сырое.x);
       if(сырое.y != null && isFinite(сырое.y)) o.y = Math.round(+сырое.y);
       if(сырое.area != null && сырое.area !== ""){
@@ -563,6 +568,7 @@ function cmdApply(ops){
           // область внутри подграфа не живёт (см. SUB_PREFIX в core.js) — там её просто нет
           данные.area = gid ? null : (o.area ? (alias[o.area] || o.area) : null);
           const it = addItem(данные);
+          if(o.folder) it.folder = o.folder;   // папка — прямое свойство ноды (см. setItemFolder)
           const п = (o.x != null && o.y != null) ? {x: o.x, y: o.y} : место(gid);
           it.x = п.x; it.y = п.y;
           if(o.as) alias[o.as] = it.id;
@@ -581,6 +587,7 @@ function cmdApply(ops){
         if(o.repeat && kindIsTask(it.kind)) it.repeat = o.repeat;
         if(o.tags) it.tags = o.tags.slice();
         if(o.color) it.color = o.color;
+        if(o.folder !== undefined){ if(o.folder) it.folder = o.folder; else delete it.folder; }
         if(o.area){ it.area = alias[o.area] || o.area; it.areaAuto = false; }
         // статус ставим ПОСЛЕ вида: он от вида и зависит (см. статусыДляВида)
         if(o.status && статусыДляВида(it.kind).indexOf(o.status) >= 0){ it.status = o.status; if(o.status !== "done") it.done = false; }
@@ -744,6 +751,7 @@ function cmdSnapNode(it, поля){
      там или нет, дописывать в существующую ноду опасно вслепую: агент обходил `body` стороной
      и складывал пояснения в отдельные поля. Наружу уезжает один факт наличия, не текст. */
   if(надо("has_body") && (it.body || "").trim()) n.has_body = true;
+  if(надо("folder") && it.folder) n.folder = it.folder;
   if(надо("inside") && it.kind === "sub"){ const g = subGraphOf(it.id); n.inside = g ? (g.items || []).length : 0; }
   return n;
 }
@@ -763,6 +771,7 @@ function cmdSnapCompact(s){
     if(n.area) ещё.push("area=" + n.area);
     if((n.tags || []).length) ещё.push(n.tags.map(x => "#" + x).join(" "));
     if(n.has_body) ещё.push("body");
+    if(n.folder) ещё.push("folder=" + n.folder);
     if(n.inside != null) ещё.push("inside=" + n.inside);
     if(n.tray) ещё.push("tray");
     // название чистим от переводов строк и табуляций: одна нода обязана остаться одной строкой
@@ -909,7 +918,7 @@ function cmdPrompt(opts){
 "Формат: {\"v\":1,\"ops\":[ …операции… ]}",
 "",
 "Операции:",
-'  {"op":"node","as":"a","kind":"task","title":"…","body":"…","due":"ГГГГ-ММ-ДД","status":"…","priority":0-3,"repeat":"none|daily|weekly|monthly","tags":["…"],"in":"b"}',
+'  {"op":"node","as":"a","kind":"task","title":"…","body":"…","due":"ГГГГ-ММ-ДД","status":"…","priority":0-3,"repeat":"none|daily|weekly|monthly","tags":["…"],"folder":"путь к папке","in":"b"}',
 '  {"op":"edit","id":"<id ноды>","title":"…"}            — менять можно те же поля',
 '  {"op":"link","from":"a","to":"b"}                      — связать',
 '  {"op":"unlink","from":"a","to":"b"}                    — развязать',
@@ -924,6 +933,7 @@ function cmdPrompt(opts){
    «ниже» нет — агент шёл искать несуществующий кусок текста (КРОЛИК, проверка 07.09.2026). */
 '  • "as" даёт ноде временное имя, чтобы сослаться на неё в этом же пакете. Ссылаться можно и на настоящий id ноды из снимка графа.',
 '  • Виды нод: ' + виды + ".",
+'  • "folder" привязывает к ноде НАСТОЯЩУЮ папку на диске (полный путь) — на ноде появляется кнопка «открыть папку». Годится любой ноде, и задаче, и заметке. Пустая строка отвязывает.',
 '  • Подграф (sub) — нода, внутри которой ОТДЕЛЬНЫЙ граф. "in" кладёт ноду внутрь него и работает ТОЛЬКО с подграфом: на задачу или заметку так сослаться нельзя. Верх куста, созданного внутри подграфа, приложение само свяжет с корнем подграфа — это его верхний уровень; глубже строй связями как обычно.',
 '  • СВЯЗЫВАТЬ МОЖНО ТОЛЬКО НОДЫ ОДНОГО ГРАФА. Ноды из разных подграфов (и нода снаружи с нодой внутри) не связываются никак — для одного графа второй просто не существует. Нужна связь между этапами — держи их в одном месте, а подграфы заводи только там, где содержимое действительно живёт отдельно.',
 '  • Не увлекайся подграфами: обычная ветка из связанных нод видна целиком, а каждый подграф прячет содержимое за двойным кликом. Раздел плана — это чаще всего просто нода с детьми, а не подграф.',

@@ -648,30 +648,56 @@ function wireAside(it){
     const кнопка = a.querySelector("[data-addtag]");
     const поле = el("input","as-chip as-taginp");
     поле.placeholder = "тег";
-    /* Подсказываем уже существующие теги: и те, что со стилем, и просто встречавшиеся на
-       других нодах. Без этого один и тот же тег легко завести дважды в разном написании. */
-    const все = new Set((S.tags||[]).map(t=>t.name));
-    S.items.forEach(i=>(i.tags||[]).forEach(t=>все.add(t)));
-    (it.tags||[]).forEach(t=>все.delete(t));
-    const список = el("datalist"); список.id = "as-taglist";
-    список.innerHTML = [...все].sort().map(t=>`<option value="${esc(t)}"></option>`).join("");
-    поле.setAttribute("list","as-taglist");
     кнопка.replaceWith(поле);
-    поле.after(список);
-    поле.focus();
-    const принять = ()=>{
-      const t = поле.value.trim().replace(/^#/,"");
-      поле.onblur = null;
-      if(t){
-        if(!it.tags) it.tags=[];
-        if(!it.tags.includes(t)) it.tags.push(t);
-        обновить();
-      } else renderAside();
+    /* Своя выпадашка вместо нативного <datalist>: тот не показывает ни цвета, ни иконки, и тег
+       СО СТИЛЕМ в нём неотличим от текстового — а среди множества текстовых стилизованный ещё и
+       теряется. Здесь стилизованные (S.tags) идут ПЕРВОЙ группой, в своём цвете; текстовые —
+       второй, приглушённо. Без этого один тег легко завести дважды в разном написании. */
+    const занято = new Set(it.tags||[]);
+    const стильные = (S.tags||[]).filter(t=>!занято.has(t.name));
+    const текстовыеSet = new Set();
+    S.items.forEach(i=>(i.tags||[]).forEach(t=>текстовыеSet.add(t)));
+    занято.forEach(t=>текстовыеSet.delete(t));
+    (S.tags||[]).forEach(t=>текстовыеSet.delete(t.name));   // стилизованные не дублировать текстом
+    const текстовые = [...текстовыеSet].sort((x,y)=>x.localeCompare(y,"ru"));
+
+    const pop = el("div","as-tagpop");
+    document.body.appendChild(pop);
+    const место = ()=>{ const r=поле.getBoundingClientRect();
+      pop.style.left=Math.round(r.left)+"px"; pop.style.top=Math.round(r.bottom+5)+"px";
+      pop.style.minWidth=Math.max(Math.round(r.width),150)+"px"; };
+    const опция = (name,ts)=> ts
+      ? `<button type="button" class="tp-opt tp-styled" data-add="${esc(name)}" ${ts.color?tagInk(ts.color):""}><i class="ti ${ts.icon||"ti-hash"}"></i>${esc(name)}</button>`
+      : `<button type="button" class="tp-opt tp-plain" data-add="${esc(name)}"><i class="ti ti-hash"></i>${esc(name)}</button>`;
+    const закрыть = ()=>{ pop.remove(); window.removeEventListener("scroll",приСкролле,true); };
+    const добавить = raw=>{
+      const t=(raw||"").trim().replace(/^#/,""); поле.onblur=null; закрыть();
+      if(t){ if(!it.tags) it.tags=[]; if(!it.tags.includes(t)) it.tags.push(t); обновить(); }
+      else renderAside();
     };
-    поле.onblur = принять;
+    const приСкролле = e=>{ if(pop.contains(e.target)) return;   // прокрутка ВНУТРИ списка тегов popup не закрывает
+      поле.onblur=null; закрыть(); renderAside(); };             // а вот уехала панель — снять popup
+    const нарисовать = ()=>{
+      const q=поле.value.trim().toLowerCase().replace(/^#/,"");
+      const годен = n => !q || n.toLowerCase().includes(q);
+      const st=стильные.filter(t=>годен(t.name)), pl=текстовые.filter(годен);
+      let h="";
+      if(st.length) h+=`<div class="tp-grp">Со стилем</div>`+st.map(t=>опция(t.name,t)).join("");
+      if(pl.length) h+=`<div class="tp-grp">Теги</div>`+pl.map(n=>опция(n,null)).join("");
+      const естьТакой=[...стильные.map(t=>t.name),...текстовые].some(n=>n.toLowerCase()===q);
+      if(q && !естьТакой) h+=`<button type="button" class="tp-opt tp-new" data-new="1"><i class="ti ti-plus"></i>Создать «${esc(поле.value.trim().replace(/^#/,""))}»</button>`;
+      pop.innerHTML = h || `<div class="tp-empty">впиши тег и Enter</div>`;
+      // mousedown, а не click: срабатывает ДО blur поля, иначе blur снял бы popup раньше выбора
+      pop.querySelectorAll("[data-add]").forEach(o=>o.addEventListener("mousedown",e=>{ e.preventDefault(); добавить(o.dataset.add); }));
+      const nb=pop.querySelector("[data-new]"); if(nb) nb.addEventListener("mousedown",e=>{ e.preventDefault(); добавить(поле.value); });
+    };
+    место(); нарисовать(); поле.focus();
+    window.addEventListener("scroll",приСкролле,true);
+    поле.oninput = ()=>{ место(); нарисовать(); };
+    поле.onblur = ()=>добавить(поле.value);
     поле.onkeydown = e=>{
-      if(e.key==="Enter"){ e.preventDefault(); принять(); }
-      if(e.key==="Escape"){ e.preventDefault(); поле.onblur=null; renderAside(); }
+      if(e.key==="Enter"){ e.preventDefault(); добавить(поле.value); }
+      if(e.key==="Escape"){ e.preventDefault(); поле.onblur=null; закрыть(); renderAside(); }
     };
   });
 
