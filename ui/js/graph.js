@@ -795,7 +795,10 @@ class Graph{
     const rc=this.svg.getBoundingClientRect();
     const с=this._hovScr;
     const внутри = с && с.x>=rc.left && с.x<=rc.right && с.y>=rc.top && с.y<=rc.bottom;
-    return this._pt(внутри ? с : {clientX:rc.left+rc.width/2, clientY:rc.top+rc.height/2});
+    /* _hovScr хранится как {x,y}, а _pt читает clientX/clientY — передать его как есть значило
+       получить NaN и вставить копию в никуда (нода создавалась, тост врал «вставлено»). */
+    return this._pt(внутри ? {clientX:с.x, clientY:с.y}
+                           : {clientX:rc.left+rc.width/2, clientY:rc.top+rc.height/2});
   }
   pasteClip(off, тихо){
     if(!graphClip||!graphClip.items.length) return null; const map={}, newIds=[], пары=[];

@@ -671,6 +671,28 @@ t.push({имя:"возврат на вкладку пересобирает гр
   }
 }
 
+/* ===== Ctrl+V кладёт копию НА ХОЛСТ, а не в никуда =====
+   _hovScr хранится как {x,y}, а _pt читает clientX/clientY — передача его в _pt как есть
+   давала NaN, и вставка при курсоре НАД холстом (то есть почти всегда) создавала ноду с
+   нерисуемыми координатами: тост честно говорил «Вставлено», а на холсте не появлялось
+   ничего. Проверка соседнего блока это пропускала — она смотрит только на область. */
+{
+  const И = addItem({kind:"task", title:"вставКуда"}); И.x = 15000; И.y = 15000;
+  recomputeHierarchy(); graph.build();
+  const rc = graph.svg.getBoundingClientRect();
+  // курсор ставим в середину холста: именно эта ветка _pasteAim и ломалась
+  graph._hovScr = {x: rc.left + rc.width / 2, y: rc.top + rc.height / 2};
+  graph.selNodes = new Set([И.id]);
+  graph.copySelection(); graph.pasteClip();
+  const коп = S.items.filter(i => !i.deleted && i.title === "вставКуда" && i.id !== И.id)[0];
+  t.push({имя:"Ctrl+V при курсоре над холстом даёт копии живые координаты",
+          ок: !!коп && Number.isFinite(коп.x) && Number.isFinite(коп.y),
+          факт: коп ? "копия в " + коп.x + "," + коп.y : "копии нет вовсе"});
+  graph._hovScr = null;
+  S.items.filter(i => !i.deleted && i.title === "вставКуда").forEach(i => hardDeleteItem(i.id));
+  recomputeHierarchy(); graph.build();
+}
+
 /* ===== много выделенных — свечение снимается =====
    У выделенной ноды ДВА drop-shadow, а ноды дрейфуют: браузер пересчитывает размытия каждый
    кадр, и на большом выделении граф ощутимо подлагивал. Заметность даёт геометрия — обводка. */
