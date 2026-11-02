@@ -5338,18 +5338,19 @@ class Graph{
       let ид=начало;
       for(let шаг=0; шаг<16; шаг++){ const р=родитель(ид); if(!р) break; const l=this._pairLinks.get(ид+"|"+р); if(!l) break; путь.push(l); ид=р; }
       if(путь.length){
-        /* Цвет пути — белый (цвет текста темы), а не цвет ноды и не янтарь: цветом ноды путь
-           читался как перекраска связи области, а янтарь — как ещё один статус (КРОЛИК). */
-        ctx.lineCap="round"; ctx.strokeStyle=пал.текст;
-        for(const [ширина, прозр] of [[6, 0.22], [2, 0.95]]){
-          ctx.lineWidth=толщ(ширина); ctx.globalAlpha=прозр; ctx.beginPath();
-          for(const l of путь){
-            const a=this.byId[l.a], b=this.byId[l.b], bd=l._bendC;
-            путьСвязи([эx(a),эy(a),эx(b),эy(b), bd?bd.t:0, bd?bd.ox:0, bd?bd.oy:0]);
-          }
-          ctx.stroke();
+        /* ПУТЬ — ТЕМИ ЖЕ ЦВЕТАМИ, ЧТО У САМИХ СВЯЗЕЙ, ТОЛЬКО ТОЛЩЕ И ПЛОТНЕЕ. Чужой цвет (цвет
+           выбранной ноды, янтарь, белый) перекрашивал связь области и читался как новый смысл —
+           КРОЛИК трижды забраковал: «пусть становится жирнее и не меняет цвет». Цвет каждой
+           связи — от её концов, как в общем проходе (одноцветная — цветом, разноцветная —
+           градиентом). Связей в пути единицы, поштучный stroke тут по карману. */
+        ctx.lineCap="round"; ctx.lineWidth=толщ(2.8); ctx.globalAlpha=1;
+        for(const l of путь){
+          const a=this.byId[l.a], b=this.byId[l.b], bd=l._bendC;
+          const ax=эx(a), ay=эy(a), bx=эx(b), by=эy(b), ca=цветКонца(a), cb=цветКонца(b);
+          if(ca===cb) ctx.strokeStyle=ca;
+          else { const гр=ctx.createLinearGradient(ax,ay,bx,by); гр.addColorStop(0,ca); гр.addColorStop(1,cb); ctx.strokeStyle=гр; }
+          ctx.beginPath(); путьСвязи([ax,ay,bx,by, bd?bd.t:0, bd?bd.ox:0, bd?bd.oy:0]); ctx.stroke();
         }
-        ctx.globalAlpha=1;
       }
     }
     /* УЗЛЫ. Вид повторяет правила styles.css — иначе переключение рендера меняло бы не скорость,
@@ -5462,7 +5463,7 @@ class Graph{
       const вс=подзВсего.get(n.id);
       if(вс && n.type!=="hub" && !n.done && !n.archived && !n.hollow){
         const гот=подзГотово.get(n.id)||0;
-        if(гот) прогресс.push({x, y, r:r-толщ(лw)*0.5, форма, альфа, доля:гот/вс, цвет:this._mix(свой, пал.фонУзла, n.doing?0.55:0.42)});
+        if(гот) прогресс.push({x, y, r:r-толщ(лw)*0.5, форма, альфа, доля:гот/вс, цвет:this._mix(свой, пал.фонУзла, n.doing?0.85:0.72)});
       }
       /* СТАТУС — ГЛИФОМ ВНУТРИ НОДЫ (правка по просьбе КРОЛИКА): песочные часы у «ждёт»,
          стрелка у «на очереди». Раньше это были кольцевые дуги и значок в углу — они читались
@@ -5653,9 +5654,14 @@ class Graph{
     // значок тега — глиф шрифта Tabler, тем же шрифтом, что и в SVG
     if(значки.length){
       ctx.textAlign="center"; ctx.textBaseline="middle";
+      /* Подложка тёмной обводкой, как у подписей: значок цветом ноды на заливке прогресса ТОГО ЖЕ
+         цвета иначе пропадал (камера на наполовину залитом шоте). На тоне без заливки обводка
+         цветом фона ноды не видна вовсе — вид остальных значков не меняется. */
+      ctx.lineJoin="round"; ctx.strokeStyle=пал.фонУзла;
       for(const з of значки){
         ctx.globalAlpha=з.альфа; ctx.fillStyle=з.цвет;
         ctx.font=з.кегль.toFixed(1)+'px "tabler-icons"';
+        ctx.lineWidth=Math.max(2, з.кегль*0.16); ctx.strokeText(з.гл, з.x, з.y);
         ctx.fillText(з.гл, з.x, з.y);
       }
       ctx.globalAlpha=1;
