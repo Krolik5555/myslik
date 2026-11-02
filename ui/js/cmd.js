@@ -594,6 +594,8 @@ function cmdApply(ops){
           данные.area = gid ? null : (o.area ? (alias[o.area] || o.area) : null);
           const it = addItem(данные);
           if(o.folder) it.folder = o.folder;   // папка — прямое свойство ноды (см. setItemFolder)
+          // созданная сразу «Готово» — завершённая, как после галочки (повтор у новой не плодим)
+          if(it.status === "done" && kindIsTask(it.kind) && !it.done){ it.done = true; it.doneAt = Date.now(); }
           const п = (o.x != null && o.y != null) ? {x: o.x, y: o.y} : место(gid);
           it.x = п.x; it.y = п.y;
           if(o.as) alias[o.as] = it.id;
@@ -615,7 +617,11 @@ function cmdApply(ops){
         if(o.folder !== undefined){ if(o.folder) it.folder = o.folder; else delete it.folder; }
         if(o.area){ it.area = alias[o.area] || o.area; it.areaAuto = false; }
         // статус ставим ПОСЛЕ вида: он от вида и зависит (см. статусыДляВида)
-        if(o.status && статусыДляВида(it.kind).indexOf(o.status) >= 0){ it.status = o.status; if(o.status !== "done") it.done = false; }
+        /* «Готово» — тем же путём, что галочка (toggleDone): одним статусом без done нода
+           оставалась незавершённой на графе, в «Сегодня» и в отчёте, хотя таблица уже считала её
+           готовой. Через toggleDone же — дата выполнения и следующий повтор. */
+        if(o.status === "done" && kindIsTask(it.kind)){ if(!it.done) toggleDone(it); }
+        else if(o.status && статусыДляВида(it.kind).indexOf(o.status) >= 0){ it.status = o.status; if(o.status !== "done") it.done = false; }
         touch(it); счёт.изменено++;
       }
       else if(o.op === "link"){

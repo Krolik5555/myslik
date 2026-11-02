@@ -786,6 +786,25 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
   max-width:200px;white-space:nowrap;opacity:.95;}
 .gt-ghost span{overflow:hidden;text-overflow:ellipsis;}
 .graph-legend{position:absolute;bottom:12px;left:12px;display:flex;gap:16px;font-size:11px;color:var(--mut);z-index:5;flex-wrap:wrap;}
+/* ПАНЕЛЬ «ЧТО ГОРИТ» (graph.js _heatPanel): островок стиля A — тон l2 и подъём, без рамки.
+   Номер — та же плашка цветом жара, что на ноде, чтобы строка и нода читались одним предметом. */
+#heat-panel{position:absolute;right:12px;bottom:12px;z-index:6;width:292px;max-height:calc(100% - 120px);display:flex;flex-direction:column;
+  border-radius:var(--r-l);background:var(--l2);box-shadow:inset 0 0 0 .5px var(--bd),var(--lift);overflow:hidden;}
+#heat-panel .hp-head{display:flex;align-items:center;gap:8px;padding:9px 8px 9px 14px;font-size:var(--fs-m);font-weight:600;color:var(--tx);}
+#heat-panel .hp-head > .ti{color:var(--ur3);font-size:16px;}
+#heat-panel .hp-head b{font-weight:600;font-size:var(--fs-xs);color:var(--mut);background:var(--l3);border-radius:99px;padding:1px 7px;margin-right:auto;}
+#heat-panel .hp-btn{width:26px;height:26px;border-radius:var(--r-s);display:inline-flex;align-items:center;justify-content:center;color:var(--mut);}
+#heat-panel .hp-btn:hover{background:var(--l4);color:var(--tx);}
+#heat-panel.min{width:auto;}
+#heat-panel .hp-list{overflow:auto;padding:0 6px 6px;}
+#heat-panel .hp-row{display:flex;align-items:flex-start;gap:10px;width:100%;text-align:left;padding:7px 8px;border-radius:var(--r-s);color:var(--tx);}
+#heat-panel .hp-row:hover{background:var(--l3);}
+#heat-panel .hp-n{flex:0 0 auto;min-width:22px;height:18px;padding:0 6px;border-radius:99px;font-size:var(--fs-xs);font-weight:600;
+  display:inline-flex;align-items:center;justify-content:center;color:var(--bg);margin-top:1px;}
+#heat-panel .hp-n.l1{background:var(--ur1);} #heat-panel .hp-n.l2{background:var(--ur2);} #heat-panel .hp-n.l3{background:var(--ur3);}
+#heat-panel .hp-t{display:flex;flex-direction:column;min-width:0;gap:2px;}
+#heat-panel .hp-name{font-size:var(--fs-m);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#heat-panel .hp-why{font-size:var(--fs-xs);color:var(--mut);line-height:1.35;}
 .graph-legend span{display:inline-flex;align-items:center;gap:6px;}
 .lg-dot{width:11px;height:11px;border-radius:50%;display:inline-block;}
 .lg-dot.hub{background:var(--acc);}
@@ -1989,6 +2008,9 @@ html.canvas-ui .graph-more{top:auto;bottom:62px;left:50%;transform:translateX(-5
 html.canvas-ui .graph-hint{top:64px;}
 /* легенда — наверх, под левый островок: внизу слева она ложилась на док в окне меньше ~1300 px */
 html.canvas-ui .graph-legend{left:14px;top:64px;bottom:auto;}
+/* «Что горит» — в левый нижний угол (справа в каркасе плавает панель ноды), правее столбика
+   областей: с left:14px панель ложилась на его кнопки */
+html.canvas-ui #heat-panel{right:auto;left:72px;bottom:14px;max-height:calc(50% - 60px);}
 /* островки */
 .cv-isl{position:absolute;z-index:30;display:flex;align-items:center;gap:2px;padding:4px;border-radius:var(--r-m);
   background:var(--l2);box-shadow:inset 0 0 0 .5px var(--bd),0 10px 30px var(--sh);user-select:none;}

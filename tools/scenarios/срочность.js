@@ -145,6 +145,38 @@ if (typeof отобратьГорящие === "function"){
           факт:"функция отобратьГорящие появится в core.js рядом с urgency"});
 }
 
+/* ПОЧЕМУ ГОРИТ (стиль A, шаг 3.4): причины словами — те же слагаемые, что считают балл, и по
+   убыванию веса. Просрочка весит больше приоритета — значит, стоит первой. */
+const причины = urgencyReasons({kind:"task", status:"doing", due: Д(-3), priority:2, updated: Date.now()}, 2).map(р => р.т);
+t.push({имя:"причины: первой идёт просрочка с числом дней", ок: /^просрочено на 3 дн\./.test(причины[0] || ""), факт: причины.join(" · ")});
+t.push({имя:"причины: приоритет, подзадачи и «в работе» названы",
+        ок: причины.some(x => /средний приоритет/.test(x)) && причины.some(x => /подзадач: 2/.test(x)) && причины.some(x => /в работе/.test(x)),
+        факт: причины.join(" · ")});
+
+// панель «Что горит» появляется с режимом и уходит вместе с ним
+const ж = ms => new Promise(r => setTimeout(r, ms));
+// через пакет, как человек или агент: голый addItem не пересчитывает дерево, и нода не попадает в граф
+const рп = cmdParse(JSON.stringify({ops:[{op:"node", as:"g", kind:"task", title:"ГОРИТ-ПАНЕЛЬ", due: Д(-2), priority:3, area:(S.areas[0] || {}).id}]}));
+const ип = рп.errors.length ? null : cmdApply(рп.ops);
+const горящая = (ип && S.items.find(x => x.id === ип.alias.g)) || {id:null};
+if (горящая.id) мусор.push(горящая);
+view = "notes"; notesMode = "graph"; render(); await ж(250);
+if (typeof graph === "undefined" || !graph) t.push({имя:"граф поднялся для проверки панели", ок:false, факт:""});
+else {
+  const было = graph._показатьЖар;
+  if (!было) graph.toggleHeat(); await ж(200);
+  const строки = [...document.querySelectorAll("#heat-panel .hp-row")];
+  const своя = строки.find(r => r.textContent.indexOf("ГОРИТ-ПАНЕЛЬ") >= 0);
+  t.push({имя:"панель «Что горит» перечисляет горящие с причинами",
+          ок: !!своя && /просрочено на 2 дн\./.test(своя.textContent),
+          факт: строки.length + " строк: " + строки.map(r => r.querySelector(".hp-name").textContent).join(", ") + " | в графе: " + !!graph.byId[горящая.id] + " | балл " + urgency(горящая).toFixed(2)});
+  if (своя) { своя.click(); await ж(150); }
+  t.push({имя:"клик по строке панели выделяет ноду на графе", ок: !!своя && graph.selNodes.has(горящая.id), факт: ""});
+  graph.toggleHeat(); await ж(150);
+  t.push({имя:"режим выключен — панели нет", ок: !document.querySelector("#heat-panel"), факт: ""});
+  if (было) graph.toggleHeat();
+}
+
 // прибираем за собой: сценарии крутятся на демо-данных, но мусор из 70 задач сломал бы
 // следующие проверки в этом же прогоне
 мусор.forEach(it => hardDeleteItem(it.id));

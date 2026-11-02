@@ -728,7 +728,7 @@ class Graph{
     this._жарИдx=-1;
     this.build();
     const n=(this._горящие||[]).length;
-    if(включаем && !n){ this._показатьЖар=false; }   // включить было нечего — остаёмся выключенными
+    if(включаем && !n){ this._показатьЖар=false; this._heatPanel(); }   // включить было нечего — остаёмся выключенными
     S.settings.graphShowHeat=this._показатьЖар; persist();   // переживает перезапуск — см. конструктор
     /* РАЗБУДИТЬ ЦИКЛ КАДРОВ — этой строки не хватало (правка по разбору бага КРОЛИКА: «на
        большой ноде не видно обводки приоритета»). Без неё build() рисует РОВНО ОДИН кадр и
@@ -743,6 +743,43 @@ class Graph{
     if(включаем && !n){ toast("Сейчас ничего не горит",{icon:"ti-flame-off"}); return; }
     toast(this._показатьЖар ? ("Горит: "+n+" · Ctrl+Shift+G — к следующей") : "Показываю всё",
           {icon:this._показатьЖар?"ti-flame":"ti-eye"});
+  }
+  /* ПАНЕЛЬ «ЧТО ГОРИТ» (стиль A, шаг 3.4). Номер очереди на ноде говорит «куда», но не «почему»,
+     а горящая за кадром нода видна только стрелкой на краю. Панель — список очереди целиком:
+     номер цветом жара, название и причины (urgencyReasons — те же слагаемые, что считают балл).
+     Клик по строке подводит камеру к ноде (_flyTo — как поиск и Ctrl+Shift+G), наведение
+     подсвечивает её на графе. Перестраивается только в build(), не в кадре: строк максимум восемь. */
+  _heatPanel(){
+    const wrap=$("#graph-wrap"); if(!wrap) return;
+    let п=wrap.querySelector("#heat-panel");
+    const m=this._показатьЖар ? (this._горящие||[]) : [];
+    if(!m.length){ if(п) п.remove(); return; }
+    if(!п){ п=document.createElement("div"); п.id="heat-panel"; wrap.appendChild(п); }
+    const свёрнута=!!S.settings.heatPanelMin;
+    п.classList.toggle("min", свёрнута);
+    п.innerHTML=`<div class="hp-head"><i class="ti ti-flame"></i><span>Что горит</span><b>${m.length}</b>
+        <button class="hp-btn" data-hp="min" title="${свёрнута?"Развернуть":"Свернуть"}"><i class="ti ti-chevron-${свёрнута?"up":"down"}"></i></button>
+        <button class="hp-btn" data-hp="off" title="Выключить режим (Ctrl+G)"><i class="ti ti-x"></i></button></div>`
+      +(свёрнута?"":`<div class="hp-list">${m.map(у=>`<button class="hp-row" data-hp-id="${esc(у.id)}">
+        <span class="hp-n l${Math.max(1,Math.min(3,у.жар||1))}">${у.ранг}</span>
+        <span class="hp-t"><span class="hp-name">${esc(у.label||"(без названия)")}</span>
+        <span class="hp-why">${esc((у._почему||[]).join(" · "))}</span></span></button>`).join("")}</div>`);
+    п.onclick=e=>{
+      const б=e.target.closest("[data-hp]");
+      if(б){ e.stopPropagation();
+        if(б.dataset.hp==="off") this.toggleHeat();
+        else { S.settings.heatPanelMin=!S.settings.heatPanelMin; persist(); this._heatPanel(); }
+        return; }
+      const стр=e.target.closest(".hp-row"); if(!стр) return;
+      const n=this.byId[стр.dataset.hpId]; if(!n) return;
+      this._жарИдx=m.indexOf(n); this._flyTo(n);
+      if(typeof asideSelect==="function") asideSelect(n.id);
+    };
+    п.onmouseover=e=>{ const стр=e.target.closest(".hp-row"); const id=стр?стр.dataset.hpId:null;
+      if(id!==this._hovId){ this._hovId=id; this._wake(); } };
+    п.onmouseleave=()=>{ this._hovId=null; this._wake(); };
+    // колесо и жесты над панелью — её собственные, граф под ней не крутится
+    п.onwheel=e=>e.stopPropagation(); п.onmousedown=e=>e.stopPropagation();
   }
   heatNext(){
     const m=this._горящие; if(!m||!m.length) return;
@@ -1351,8 +1388,10 @@ class Graph{
       const у=this.byId[it.id]; if(!у) return;
       у.жар=urgencyLevel(it, живые.filter(x=>x.parent===it.id).length) || 1;   // уровень 0 сюда не попадает: отбор уже отсёк
       у.ранг=i+1;                                                             // номер в очереди захода
+      у._почему=urgencyReasons(it, живые.filter(x=>x.parent===it.id).length).slice(0,3).map(р=>р.т);
       this._горящие.push(у);
     });
+    this._heatPanel();
 
     while(this.svg.firstChild) this.svg.removeChild(this.svg.firstChild);
     this.root=document.createElementNS(NS,"g"); this.svg.appendChild(this.root);
@@ -2128,7 +2167,21 @@ class Graph{
        рисуется на любом зуме, и её нельзя было греть shadowBlur на каждый кадр (см. ниже). */
     const приорГлоу=this.nodes.filter(n=>n.type==="task" && n.ref && !n.ref.done && n.ref.priority && !n.done && !n.archived)
       .map(n=>({x:n.x, y:n.y, _ix:n._ix, _iy:n._iy, ур:Math.min(+n.ref.priority,3)}));
-    if(!doing.length && !paused.length && !waiting.length && !review.length && !приорГлоу.length) return;
+    // «что горит» — тёплый свет у горящих нод (стиль A): в режиме он и есть главный признак, а не второй контур
+    const жарГлоу=(this._показатьЖар && this._горящие) ? this._горящие : [];
+    if(!doing.length && !paused.length && !waiting.length && !review.length && !приорГлоу.length && !жарГлоу.length) return;
+    /* ЦВЕТА ТЕМЫ — ИЗ КЭША, а не getComputedStyle на каждом кадре (аудит 2.1, Ц4): до шести вызовов
+       за кадр, и когда стили «грязные» (правая панель только что перестроилась), каждый оплачивал
+       пересчёт стилей прямо внутри кадра — та же грабля, что была с clientWidth. Ключ кэша —
+       класс body: тема меняется только им. */
+    const тема=document.body.className;
+    if(!this._glowCss || this._glowCss.тема!==тема){
+      const cs=getComputedStyle(document.documentElement), bs=getComputedStyle(document.body);
+      const в=k=>(bs.getPropertyValue(k)||cs.getPropertyValue(k));
+      this._glowCss={тема, mut:в("--mut"), wait:в("--st-wait-glow"), review:в("--st-review-glow"),
+        pri:[в("--pri1"), в("--pri2"), в("--pri3")], ur:[в("--ur1"), в("--ur2"), в("--ur3")]};
+    }
+    const css=this._glowCss;
     const z=this.zoom, tx=this.tx, ty=this.ty;
     const R=(s.graphDoingGlowRadius!=null?s.graphDoingGlowRadius:110)*z;
     const inten=(s.graphDoingGlowBright!=null?s.graphDoingGlowBright:0.3);
@@ -2151,7 +2204,7 @@ class Graph{
        глазом на большом графе, но перебивать работу он не должен. Цвет ноды здесь не берём
        намеренно — по цвету свечения и отличают «в работе» от «на паузе». */
     if(paused.length){
-      const сер=rgbOf(getComputedStyle(document.documentElement).getPropertyValue("--mut"))||[150,150,150];
+      const сер=rgbOf(css.mut)||[150,150,150];
       // ярче прежнего (0.38 → 0.52): отложенную ветку надо НАХОДИТЬ глазом на большом графе,
       // а прежний свет терялся рядом с работающими нодами
       paused.forEach(n=>блоб(n, сер, inten*0.52, R*0.9));
@@ -2160,11 +2213,11 @@ class Graph{
        переменной темы, а не из цвета ноды. По цвету свечения эти три состояния и различаются
        на расстоянии, когда сам глиф внутри ноды уже не читается. */
     if(waiting.length){
-      const син=rgbOf(getComputedStyle(document.documentElement).getPropertyValue("--st-wait-glow"))||[63,95,143];
+      const син=rgbOf(css.wait)||[63,95,143];
       waiting.forEach(n=>блоб(n, син, inten*0.5, R*0.9));
     }
     if(review.length){
-      const крас=rgbOf(getComputedStyle(document.documentElement).getPropertyValue("--st-review-glow"))||[143,63,66];
+      const крас=rgbOf(css.review)||[143,63,66];
       review.forEach(n=>блоб(n, крас, inten*0.5, R*0.9));
     }
     /* ПРИОРИТЕТ — СВЕЧЕНИЕ ЧЕРЕЗ ЭТОТ ЖЕ СЛОЙ, А НЕ shadowBlur НА ХОЛСТЕ (правка 2026-09-01
@@ -2177,16 +2230,19 @@ class Graph{
        (см. `_glowSprite`) вместо gradient+blur на каждом кадре — тем же приёмом, что уже
        работает для doing/paused/waiting/review. */
     if(приорГлоу.length){
-      const при=[
-        rgbOf(getComputedStyle(document.documentElement).getPropertyValue("--pri1"))||[95,185,142],
-        rgbOf(getComputedStyle(document.documentElement).getPropertyValue("--pri2"))||[232,161,75],
-        rgbOf(getComputedStyle(document.documentElement).getPropertyValue("--pri3"))||[224,98,90],
-      ];
+      const при=[rgbOf(css.pri[0])||[95,185,142], rgbOf(css.pri[1])||[232,161,75], rgbOf(css.pri[2])||[224,98,90]];
       const сила=[0.35,0.5,0.68];
-      for(const п of приорГлоу){
+      // в режиме «что горит» свет приоритета гасим: тёплый свет горящих должен читаться один
+      if(!жарГлоу.length) for(const п of приорГлоу){
         const rgb=при[п.ур-1]||при[0];
         блоб(п, rgb, inten*сила[п.ур-1], R*0.55);
       }
+    }
+    // горящие: свет цвета уровня жара, сильнее у верхних — первым взгляд цепляет №1
+    if(жарГлоу.length){
+      const жар=[rgbOf(css.ur[0])||[185,160,106], rgbOf(css.ur[1])||[217,139,70], rgbOf(css.ur[2])||[224,98,90]];
+      for(const у of жарГлоу){ const ур=Math.max(1, Math.min(3, у.жар||1));
+        блоб(у, жар[ур-1], inten*(0.55+0.2*ур), R*(0.6+0.12*ур)); }
     }
     ctx.restore();
     // Ни одно пятно не попало в кадр — стирать не из чего, а обход всех связей стоит своего.
@@ -4910,6 +4966,28 @@ class Graph{
     }
     ctx.moveTo(x+r,y); ctx.arc(x,y,r,0,6.283);
   }
+  /* «УГОЛ» ФИГУРЫ — точка на её краю по диагонали (sx, sy = ±1), куда крепятся плашки срока и
+     очереди и булавка (стиль A, шаг 3.4). У квадрата это сам угол, у круга — точка под 45°, у
+     ромба и шестиугольника — середина диагональной грани. Плашка, приколотая к краю ФОРМЫ, читается
+     как часть ноды; прежние метки на круге вокруг квадрата висели в воздухе отдельно от неё. */
+  _cornerAt(форма, x, y, r, sx, sy){
+    if(форма==="square") return [x+sx*r, y+sy*r];
+    if(форма==="hexagon") return [x+sx*r*0.433, y+sy*r*0.75];
+    const k=форма==="diamond" ? r*0.705 : r*0.707;
+    return [x+sx*k, y+sy*k];
+  }
+  /* ВЕРХНИЙ УЧАСТОК КОНТУРА — приоритет рисуется ПО САМОЙ обводке ноды, от верхней точки в обе
+     стороны на долю t, а не отдельной дужкой над ней. Квадрат — верхняя грань от центра, ромб и
+     шестиугольник — от верхней вершины по сходящимся граням, круг — дуга от −90°. */
+  _topSegPath(ctx, форма, x, y, r, t){
+    if(форма==="square"){ const w=r*Math.min(1, t*1.3); ctx.moveTo(x-w, y-r); ctx.lineTo(x+w, y-r); return; }
+    if(форма==="diamond"){ const D=r*1.41;
+      ctx.moveTo(x-D*t, y-D*(1-t)); ctx.lineTo(x, y-D); ctx.lineTo(x+D*t, y-D*(1-t)); return; }
+    if(форма==="hexagon"){ const vx=r*0.866, vy=r*0.5;           // соседние вершины: (±0.866r, −0.5r)
+      ctx.moveTo(x-vx*t, y-r+(r-vy)*t); ctx.lineTo(x, y-r); ctx.lineTo(x+vx*t, y-r+(r-vy)*t); return; }
+    const a=Math.PI/2*t; ctx.moveTo(x+r*Math.cos(-Math.PI/2-a), y+r*Math.sin(-Math.PI/2-a));
+    ctx.arc(x, y, r, -Math.PI/2-a, -Math.PI/2+a);
+  }
   /* ПУТЬ «ПЛАШКИ» — полностью скруглённый прямоугольник, общий для всех залитых бейджей с
      текстом (просрочка, номер очереди у горящих). Радиус скругления — половина высоты, поэтому
      плашка на одну-две цифры выглядит капсулой, а не прямоугольником со скруглёнными углами. */
@@ -5232,17 +5310,66 @@ class Graph{
       }
       ctx.restore();
     }
+    /* ПУТЬ К ВЫБРАННОЙ НОДЕ (стиль A, аудит 2.1, шаг 3.4): от неё вверх по дереву до области — её
+       цветом, поверх остальных связей. На большом графе «где эта нода живёт» иначе приходилось
+       выслеживать по линиям глазами. Дерево здесь — древесные связи build() ({a: нода, b: родитель
+       или хаб}, не ручные), по одной на ноду; индекс строим раз на сборку, а не в каждом кадре.
+       Свечение — широкой полупрозрачной линией под основной, без shadowBlur (см. ПЛАН-СПРАЙТЫ). */
+    /* Родитель — из ДАННЫХ (ref.parent), а не из связей: пара «нода → родитель», протянутая
+       руками или пакетом, лежит ручной связью, и древесной для неё build() не заводит (pairs).
+       Корень ветки идёт к своей области — по древесной связи (она же знает про пустышку).
+       Связь для рисования — любая между этой парой, ручная или древесная: от неё и прогиб. */
+    const treeIndex=()=>{
+      if(this._treeSrc===this.links) return;
+      this._treeSrc=this.links; this._treeLinks=new Map(); this._pairLinks=new Map();
+      for(let i=0;i<this.links.length;i++){ const l=this.links[i];
+        if(!l.manual && !this._treeLinks.has(l.a)) this._treeLinks.set(l.a, l);
+        this._pairLinks.set(l.a+"|"+l.b, l); this._pairLinks.set(l.b+"|"+l.a, l); }
+    };
+    const родитель=(id)=>{ const n=this.byId[id], p=n&&n.ref&&n.ref.parent;
+      if(p && this.byId[p]) return p;
+      const l=this._treeLinks.get(id); return (l && this.byId[l.b]) ? l.b : null; };
+    if(this.selNodes && this.selNodes.size===1){
+      treeIndex();
+      const [начало]=this.selNodes, путь=[];
+      let ид=начало;
+      for(let шаг=0; шаг<16; шаг++){ const р=родитель(ид); if(!р) break; const l=this._pairLinks.get(ид+"|"+р); if(!l) break; путь.push(l); ид=р; }
+      if(путь.length){
+        const см=this.byId[начало], цвет=(см&&см.color)||пал.текст;
+        ctx.lineCap="round"; ctx.strokeStyle=цвет;
+        for(const [ширина, прозр] of [[6, 0.16], [2.4, 0.95]]){
+          ctx.lineWidth=толщ(ширина); ctx.globalAlpha=прозр; ctx.beginPath();
+          for(const l of путь){
+            const a=this.byId[l.a], b=this.byId[l.b], bd=l._bendC;
+            путьСвязи([эx(a),эy(a),эx(b),эy(b), bd?bd.t:0, bd?bd.ox:0, bd?bd.oy:0]);
+          }
+          ctx.stroke();
+        }
+        ctx.globalAlpha=1;
+      }
+    }
     /* УЗЛЫ. Вид повторяет правила styles.css — иначе переключение рендера меняло бы не скорость,
        а картинку. Группируем по ВИДУ (форма, заливка, обводка, толщина, пунктир, прозрачность):
        смена стиля рвёт пакет отрисовки, и тысяча узлов превратилась бы в тысячу вызовов.
        Мелочь (ореолы, кольца паузы, приоритет, галочки, булавки, значки, подписи) копим в списки
        и рисуем следом отдельными проходами — их всегда меньше, чем узлов. */
     const группы=new Map();
-    const ореолы=[], паузы=[], приор=[], галочки=[], булавки=[], значки=[], подписи=[], выдел=[], навед=[];
+    const ореолы=[], приор=[], галочки=[], булавки=[], значки=[], подписи=[], выдел=[], навед=[];
     /* Новые признаки — своими списками и своими проходами: смена стиля внутри цикла узлов рвёт
        пакет отрисовки. Статусы «ждёт» и «на очереди» своего списка НЕ имеют — они рисуются
        глифом внутри ноды и едут общим проходом «значки», вместе со значками тегов. */
-    const сроки=[], жар=[], рангЖар=[];
+    const сроки=[], рангЖар=[], прогресс=[];
+    /* ПРОГРЕСС ПОДЗАДАЧ (аудит 2.1, Р1): сколько детей-задач готово. Дети — по ДАННЫМ (ref.parent),
+       как подсветка пути; «Готово» бывает и одним статусом без done (данные из пакета) — считаем,
+       как таблица. Каждый кадр: на тысяче нод это сотые доли миллисекунды, зато статус, сменённый
+       без пересборки, виден сразу. */
+    const подзВсего=new Map(), подзГотово=new Map();
+    for(let i=0;i<this.nodes.length;i++){
+      const c=this.nodes[i], p=c.ref && c.ref.parent;
+      if(!p || !this.byId[p] || !kindIsTask(c.type) || c.archived) continue;
+      подзВсего.set(p, (подзВсего.get(p)||0)+1);
+      if(c.done || c.ref.status==="done") подзГотово.set(p, (подзГотово.get(p)||0)+1);
+    }
     /* УРОВНИ ДЕТАЛИЗАЦИИ. Мелкие узлы деталей не показывают: на общем виде дерева их всё равно
        не видно, а стоят они как крупные. Подписи — только когда узел различим глазом; в SVG они
        жили ВСЕГДА, и 651 текстовый элемент был одной из главных статей расхода. */
@@ -5269,10 +5396,13 @@ class Graph{
       if(x+r<вид.x1||x-r>вид.x2||y+r<вид.y1||y-r>вид.y2) continue;    // вне кадра — не рисуем вовсе
       const свой=n.color||пал.узел;
       const форма=this._shape(n);
-      let зал=пал.фонУзла, обв=свой, лw=1.7, пункт=false, альфа=1;
+      /* СТИЛЬ A (аудит 2.1, шаг 3.4): нода залита ТОНОМ своего цвета, а не фоном холста. Пустой
+         контур на чёрном читался как дырка, и цвет ноды держала одна тонкая обводка. «В работе»
+         при этом обязано остаться отличимым — у него тон вдвое плотнее (плюс своё свечение). */
+      let зал=this._mix(свой, пал.фонУзла, 0.14), обв=свой, лw=1.7, пункт=false, альфа=1;
       if(n.type==="hub"){ зал=свой; обв=свой; лw=1; }
       else if(n.done){ зал=свой; }                                    // выполненная задача — залита своим цветом
-      if(n.doing) зал=this._mix(свой, пал.фонУзла, 0.15);           // «в работе»: еле заметный тон цвета ноды
+      if(n.doing) зал=this._mix(свой, пал.фонУзла, 0.30);           // «в работе»: тон заметно плотнее обычного
       /* «НА ПАУЗЕ» СОХРАНЯЕТ СВОЙ ЦВЕТ, но приглушённый. В SVG цвет уходил в серый целиком, и на
          цветном графе КРОЛИКА отложенные ветки переставали читаться как свои: «оставить им цвет,
          но приглушить, плюс пунктир и кольцо». Пунктир и серое кольцо (ниже) остаются признаком
@@ -5304,22 +5434,25 @@ class Graph{
          нельзя: он про важность, а не про подробности. Всё прочее (кольца, глифы, подписи)
          порогу по-прежнему подчиняется — иначе 245 нод дадут кашу. */
       if(n.type==="task" && n.ref && !n.ref.done && n.ref.priority && !n.done && !n.archived)
-        приор.push({x, y, r, форма, ур:Math.min(+n.ref.priority,3)});
+        приор.push({x, y, r, форма, лw, альфа, ур:Math.min(+n.ref.priority,3)});
       /* ЖАР — ТОЖЕ ДО ПОРОГА ДЕТАЛЕЙ (правка по просьбе КРОЛИКА: «при сильном отдалении не видно
          номеров»). Тот же довод, что у приоритета: горящих не больше восьми (СРОЧНОСТЬ_ПРЕДЕЛ),
          и именно на общем виде — где всё остальное уже спрятал порог — нужно видеть, что вообще
-         горит. Показываем ТОЛЬКО в режиме «что горит» (Ctrl+G), иначе простая простановка срока
-         снова обводила бы ноду кругом. */
-      if(n.жар && !n.archived && this._показатьЖар){
-        // форму и r кладём как есть — второй контур ПОВТОРЯЕТ форму ноды, а не рисует круг вокруг неё
-        жар.push({x, y, r, форма, ур:n.жар});
-        рангЖар.push({x, y, r, ранг:n.ранг, ур:n.жар});
-      }
+         горит. Показываем ТОЛЬКО в режиме «что горит» (Ctrl+G). Сам жар — тёплым светом в слое
+         свечения (_drawGlow); здесь только номер очереди плашкой. Второй контур вокруг ноды
+         убран: вместе с кольцом прогресса и дужкой приоритета он давал три обводки на одной ноде. */
+      if(n.жар && !n.archived && this._показатьЖар) рангЖар.push({x, y, r, форма, ранг:n.ранг, ур:n.жар});
       if(!детали(r)) continue;
       // ореол — и у хаба, и у пустышки: одна и та же рамка читается как «это про область»,
-      // а не как случайный пунктирный кружок
-      if(n.type==="hub"||n.hollow) ореолы.push(x,y,r+5*z, свой);
-      if(n.paused) паузы.push(x,y,r+5*z);
+      // а не как случайный пунктирный кружок. Повторяет форму ноды, как и всё прочее
+      if(n.type==="hub"||n.hollow) ореолы.push({x, y, r:r+5*z, форма, цвет:свой});
+      /* ЗАЛИВКА ПРОГРЕССА — снизу вверх внутри самой фигуры: нода «наполняется» по мере готовности
+         детей. Прежнее кольцо вокруг ноды читалось как отдельный кружок поверх неё. */
+      const вс=подзВсего.get(n.id);
+      if(вс && n.type!=="hub" && !n.done && !n.archived && !n.hollow){
+        const гот=подзГотово.get(n.id)||0;
+        if(гот) прогресс.push({x, y, r:r-толщ(лw)*0.5, форма, альфа, доля:гот/вс, цвет:this._mix(свой, пал.фонУзла, n.doing?0.5:0.36)});
+      }
       /* СТАТУС — ГЛИФОМ ВНУТРИ НОДЫ (правка по просьбе КРОЛИКА): песочные часы у «ждёт»,
          стрелка у «на очереди». Раньше это были кольцевые дуги и значок в углу — они читались
          как украшение: терялись среди других колец, а угловой значок ещё и отсекался порогом
@@ -5333,11 +5466,9 @@ class Graph{
         : n.next    ? {и:СТАТУСЫ.next.иконка,    ц:пал.очередь}
         : n.review  ? {и:СТАТУСЫ.review.иконка,  ц:пал.проверка}
         : null;
-      /* СРОК ЦИФРАМИ в верхнем правом. Угол −0.14π (−25°), а не по диагонали: дужка приоритета
-         идёт до −0.2π (−36°), и ровно на 45° цифра ложилась на её конец. Радиус r+9z — дальше
-         пунктирного кольца булавки (r+8z), иначе пунктир проходил бы сквозь цифры. */
-      if(n.дней!=null && подписьВидна(r)) сроки.push({x, y, r, дней:n.дней});
-      if(n.fixed) булавки.push(x,y,r+8*z);
+      // срок — плашкой на правом верхнем «углу» фигуры, булавка — значком на левом нижнем
+      if(n.дней!=null && подписьВидна(r)) сроки.push({x, y, r, форма, альфа, дней:n.дней});
+      if(n.fixed) булавки.push({x, y, r, форма, альфа});
       if(kindIsTask(n.type) && n.done) галочки.push(x,y,r);
       if(статусГлиф){ const гл=iconGlyph(статусГлиф.и);
         if(гл) значки.push({x, y, гл, кегль:Math.max(8,n.r*1.15*z), цвет:статусГлиф.ц, альфа}); }
@@ -5398,39 +5529,28 @@ class Graph{
       ctx.fill(); ctx.stroke();
     });
     ctx.setLineDash([]); ctx.globalAlpha=1;
-    /* ЖАР — ДВОЙНОЙ КОНТУР НОДЫ (вариант E из галереи; правка по замечанию КРОЛИКА). Вторая
-       обводка ПОВТОРЯЕТ ФОРМУ самой ноды с зазором. Зазор — КОНСТАНТА В ЭКРАННЫХ ПИКСЕЛЯХ, а не
-       `*z`: первая версия множила его на зум, и при увеличении контур разъезжался на десятки
-       пикселей от ноды — «своя нода» превращалась в отдельную парящую рамку. Постоянный зазор
-       держит контур ВПЛОТНУЮ к краю при любом масштабе — тесное объятие, а не соседняя фигура.
-       Толщина по-прежнему растёт с зумом через `толщ()`, как у любой другой линии в этом файле.
-       Рисуется ПЕРВЫМ из мелочи, чтобы лечь под булавку и под обводку самой ноды. Свечения нет:
-       жар — не doing/paused, ему не положен слой blur(30px). */
-    if(жар.length){
-      for(const ж of жар){
-        ctx.globalAlpha=0.45+0.15*ж.ур; ctx.strokeStyle=пал.жар[ж.ур-1]||пал.жар[0];
-        ctx.lineWidth=толщ(0.9+ж.ур*0.35);
-        ctx.beginPath(); this._shapePath(ctx, ж.форма, ж.x, ж.y, ж.r+1.6+ж.ур*0.6); ctx.stroke();
+    /* ЗАЛИВКА ПРОГРЕССА ПОДЗАДАЧ — снизу вверх внутри фигуры, по клипу её же контура (чуть внутрь,
+       чтобы не залезть на обводку). Готовность шота или секвенции раньше считалась обходом детей
+       глазами, потом — кольцом вокруг ноды; заливка не добавляет на граф ни одной новой линии.
+       Клип на каждую такую ноду — save/restore, но их единицы-десятки в кадре, не тысячи. */
+    if(прогресс.length){
+      for(const п of прогресс){
+        const выс=п.форма==="diamond" ? п.r*1.41 : п.r, верх=п.y+выс-2*выс*п.доля;
+        ctx.save(); ctx.globalAlpha=п.альфа;
+        ctx.beginPath(); this._shapePath(ctx, п.форма, п.x, п.y, п.r); ctx.clip();
+        ctx.fillStyle=п.цвет; ctx.fillRect(п.x-выс-1, верх, 2*выс+2, п.y+выс-верх+1);
+        ctx.restore();
       }
       ctx.globalAlpha=1;
     }
-    // ореол области: тонкое кольцо её цветом (в SVG — .g-halo)
-    for(let k=0;k<ореолы.length;k+=4){
-      ctx.globalAlpha=0.22; ctx.strokeStyle=ореолы[k+3]||пал.узел; ctx.lineWidth=толщ(1);
-      ctx.beginPath(); ctx.arc(ореолы[k], ореолы[k+1], ореолы[k+2], 0, 6.283); ctx.stroke();
+    // ореол области: тонкий контур её цветом по форме ноды (в SVG — .g-halo)
+    for(const о of ореолы){
+      ctx.globalAlpha=0.22; ctx.strokeStyle=о.цвет||пал.узел; ctx.lineWidth=толщ(1);
+      ctx.beginPath(); this._shapePath(ctx, о.форма, о.x, о.y, о.r); ctx.stroke();
     }
-    // ровное серое кольцо «на паузе» — без свечения, чтобы не спорить с работой
-    if(паузы.length){
-      ctx.globalAlpha=0.45; ctx.strokeStyle=пал.кольцо; ctx.lineWidth=толщ(1.1); ctx.beginPath();
-      for(let k=0;k<паузы.length;k+=3){ ctx.moveTo(паузы[k]+паузы[k+2],паузы[k+1]); ctx.arc(паузы[k],паузы[k+1],паузы[k+2],0,6.283); }
-      ctx.stroke();
-    }
-    // булавка: пунктирное кольцо вокруг закреплённого узла
-    if(булавки.length){
-      ctx.globalAlpha=0.7; ctx.strokeStyle=пал.узел; ctx.lineWidth=толщ(1); ctx.setLineDash([2,2]); ctx.beginPath();
-      for(let k=0;k<булавки.length;k+=3){ ctx.moveTo(булавки[k]+булавки[k+2],булавки[k+1]); ctx.arc(булавки[k],булавки[k+1],булавки[k+2],0,6.283); }
-      ctx.stroke(); ctx.setLineDash([]);
-    }
+    ctx.globalAlpha=1;
+    /* «НА ПАУЗЕ» — только пунктир и приглушённый тон самой ноды (см. цикл узлов): серое кольцо
+       вокруг убрано, оно было третьим контуром на ноде. Свет паузы — в _drawGlow. */
     /* ПРИОРИТЕТ — дужка над узлом цветом уровня. БЕЗ shadowBlur (откат правки, 2026-09-01:
        КРОЛИК просил свечение, но дужка теперь рисуется на ЛЮБОМ зуме без порога деталей — а
        значит тень пересчитывалась бы на каждой приоритетной ноде КАЖДЫЙ кадр, не только при
@@ -5438,45 +5558,53 @@ class Graph{
        Свечение никуда не делось — оно переехало в `_drawGlow` (свой слой, один `blur()` на весь
        кадр вместо N теней на N нод) — см. блок «приорГлоу» там же. Здесь дужка снова крисп,
        ровно как до этой правки. */
-    ctx.globalAlpha=1; ctx.lineWidth=толщ(1.2); ctx.lineCap="round";
+    /* СТИЛЬ A (шаг 3.4): метка — УЧАСТОК САМОЙ ОБВОДКИ ноды сверху, а не дужка над ней на зазоре.
+       Уровень читается дважды: цветом и длиной участка (низкий — короткий, высокий — почти вся
+       верхняя половина). Толщина — как у самой обводки (чуть плотнее): толще она читалась уже
+       отдельной планкой, положенной на ноду. Концы срезаны ровно — это кусок линии, а не капсула. */
+    ctx.globalAlpha=1; ctx.lineCap="butt"; ctx.lineJoin="miter";
     for(const п of приор){
-      ctx.strokeStyle=пал.при[п.ур-1]||пал.при[0];
-      ctx.beginPath();
-      /* Форма метки — та же, что у _priPath в SVG: у квадрата прямая черта над гранью (по дуге
-         она торчала бы за углы), у ромба — вершина с кусками сходящихся граней, у круга дужка. */
-      const R=п.r+5.5*z;
-      if(п.форма==="square"){ const w=п.r*0.92, t=п.y-п.r-5.5*z; ctx.moveTo(п.x-w,t); ctx.lineTo(п.x+w,t); }
-      else if(п.форма==="diamond"){ const D=R*1.41, k=0.55;
-        ctx.moveTo(п.x-D*k, п.y-D*(1-k)); ctx.lineTo(п.x, п.y-D); ctx.lineTo(п.x+D*k, п.y-D*(1-k)); }
-      else if(п.форма==="hexagon"){ const p=deg=>{ const a=Math.PI/180*deg; return [п.x+R*Math.cos(a), п.y+R*Math.sin(a)]; };
-        const A=p(-150), B=p(-90), C=p(-30); ctx.moveTo(A[0],A[1]); ctx.lineTo(B[0],B[1]); ctx.lineTo(C[0],C[1]); }
-      else ctx.arc(п.x, п.y, R, Math.PI*-0.8, Math.PI*-0.2);
-      ctx.stroke();
+      ctx.globalAlpha=п.альфа; ctx.strokeStyle=пал.при[п.ур-1]||пал.при[0];
+      ctx.lineWidth=толщ(Math.max(2, п.лw+0.4));
+      ctx.beginPath(); this._topSegPath(ctx, п.форма, п.x, п.y, п.r, 0.25+0.15*п.ур); ctx.stroke();
     }
+    ctx.globalAlpha=1;
+    /* ПЛАШКА В УГЛУ ФИГУРЫ — общий вид срока и номера очереди: капсула, приколотая к «углу» формы
+       (_cornerAt) и заходящая на него на несколько пикселей — как значок-счётчик на иконке, а не
+       подпись, висящая рядом. Размер в экранных пикселях, как у подписей. */
+    const плашка=(п, sx, sy, текст, кегль, заливка, обводка, цветТекста, жирно)=>{
+      ctx.font=(жирно?"600 ":"500 ")+кегль+"px system-ui, -apple-system, Segoe UI, sans-serif";
+      const ww=Math.max(кегль+5, ctx.measureText(текст).width+9), hh=кегль+5;
+      const у=this._cornerAt(п.форма, п.x, п.y, п.r, sx, sy), зах=Math.min(5, п.r*0.45);
+      const bx=у[0]+sx*(ww/2-зах), by=у[1]+sy*(hh/2-зах);
+      this._pillPath(ctx, bx, by, ww, hh);
+      ctx.fillStyle=заливка; ctx.fill();
+      if(обводка){ ctx.lineWidth=1; ctx.strokeStyle=обводка; ctx.stroke(); }
+      ctx.fillStyle=цветТекста; ctx.fillText(текст, bx, by+0.5);
+    };
     /* СРОК ЦИФРАМИ. Рисуется ПОСЛЕ приоритета, чтобы текст в любом случае лёг поверх линии, а не
        под неё. Кегль в ЭКРАННЫХ пикселях, как у подписей: текст, уменьшенный вместе с зумом,
        читаться перестаёт, а стоит столько же. Просрочка отличается ФОРМОЙ — залитая плашка
        против голых цифр: одним цветом она потерялась бы на цветном графе. */
+    /* Плотность плашки растёт с близостью срока: далёкий — тихая тёмная капсула с цифрой его
+       цветом, ближайшие три дня — капсула, тонированная цветом срока, с обводкой им же,
+       просрочка — сплошная заливка. Один и тот же предмет, громкость по нужде. */
     if(сроки.length){
-      const КОС=Math.cos(-Math.PI*0.14), СИН=Math.sin(-Math.PI*0.14), кегль=11;
       ctx.textAlign="center"; ctx.textBaseline="middle";
       for(const с of сроки){
-        const д=с.дней, прос=д<0, т=короткийСрок(д);
+        const д=с.дней, прос=д<0, т=короткийСрок(д), близко=!прос && д<=3;
         const цв = прос?пал.время.просрочка : д===0?пал.время.сегодня : д===1?пал.время.завтра
                  : д<=3?пал.время.скоро : д<=7?пал.время.неделя : пал.время.далеко;
-        const R=с.r+(прос?10:9)*z, bx=с.x+R*КОС, by=с.y+R*СИН;
-        ctx.font=(прос?"600 ":"")+кегль+"px system-ui, -apple-system, Segoe UI, sans-serif";
-        if(прос){
-          const ww=Math.max(15, ctx.measureText(т).width+8), hh=кегль+4;
-          ctx.fillStyle=цв; this._pillPath(ctx,bx,by,ww,hh); ctx.fill();
-          ctx.fillStyle=пал.фон;
-        } else ctx.fillStyle=цв;
-        ctx.fillText(т, bx, by);
+        ctx.globalAlpha=с.альфа;
+        if(прос) плашка(с, 1, -1, т, 10.5, цв, null, пал.фон, true);
+        else if(близко) плашка(с, 1, -1, т, 10.5, this._mix(цв, пал.фон, 0.24), цв, цв, true);
+        else плашка(с, 1, -1, т, 10.5, пал.фонУзла, this._mix(цв, пал.фон, 0.35), цв, false);
       }
+      ctx.globalAlpha=1;
     }
-    /* НОМЕР В ОЧЕРЕДИ у горящих — слева (угол 160°), а НЕ в левом верхнем углу: дужка приоритета
-       занимает сектор −144°…−36°, и по диагонали цифра ложилась бы на её левый конец, а под 135°
-       почти касалась бы подписи под нодой.
+    /* НОМЕР В ОЧЕРЕДИ у горящих — плашкой на левом верхнем «углу» фигуры, зеркально сроку
+       (стиль A: обе метки прикреплены к форме; прежде номер висел слева под 160°, чтобы не
+       ложиться на дужку приоритета, — теперь приоритет идёт по самой обводке и места хватает).
        ПЛАШКА, А НЕ КРУЖОК (правка по замечанию КРОЛИКА). Кружок с текстом «№1» внутри либо
        давил цифры теснотой, либо раздувался пустым полем — круг плохо облегает текст переменной
        длины. Плашка (та же форма, что у просрочки) обтягивает текст ровно.
@@ -5491,17 +5619,20 @@ class Graph{
        опечатка, — а «№1» от «−4» не отличить только не читая. */
     if(рангЖар.length){
       ctx.textAlign="center"; ctx.textBaseline="middle";
-      const кегльР=10.5;
-      ctx.font="600 "+кегльР+"px system-ui, -apple-system, Segoe UI, sans-serif";
-      const a=Math.PI*160/180, КОС=Math.cos(a), СИН=Math.sin(a);
-      for(const р of рангЖар){
-        const цв=пал.жар[р.ур-1]||пал.жар[0];
-        const текст="№"+р.ранг;
-        const R=р.r+8*z, bx=р.x+R*КОС, by=р.y+R*СИН;
-        const ww=Math.max(20, ctx.measureText(текст).width+11), hh=кегльР+6;
-        ctx.fillStyle=цв; this._pillPath(ctx,bx,by,ww,hh); ctx.fill();
-        ctx.fillStyle=пал.фон;
-        ctx.fillText(текст, bx, by);
+      for(const р of рангЖар) плашка(р, -1, -1, "№"+р.ранг, 10.5, пал.жар[р.ур-1]||пал.жар[0], null, пал.фон, true);
+    }
+    /* БУЛАВКА — глиф ti-pin на левом нижнем «углу» фигуры, с подложкой обводкой цвета фона (как
+       подписи), а не пунктирное кольцо вокруг ноды: кольцо было ещё одним кругом поверх формы. */
+    if(булавки.length){
+      const гл=iconGlyph("pin");
+      if(гл){
+        ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.font='11px "tabler-icons"';
+        ctx.lineJoin="round"; ctx.lineWidth=3.5; ctx.strokeStyle=пал.фон; ctx.fillStyle=пал.текст;
+        for(const б of булавки){
+          const у=this._cornerAt(б.форма, б.x, б.y, б.r, -1, 1);
+          ctx.globalAlpha=б.альфа; ctx.strokeText(гл, у[0]-1, у[1]+1); ctx.fillText(гл, у[0]-1, у[1]+1);
+        }
+        ctx.globalAlpha=1;
       }
     }
     // галочка внутри выполненной задачи — цветом фона, как в SVG (.g-check)
@@ -5540,6 +5671,10 @@ class Graph{
         подписи.length=ПРЕДЕЛ;
       }
       ctx.textAlign="center"; ctx.textBaseline="top";
+      /* ПОДЛОЖКА — ОБВОДКОЙ ТЕКСТА цветом фона, а не shadowBlur (аудит 2.1, Ц3 и стиль A). Размытие
+         на каждой из двухсот подписей — двести проходов фильтра за кадр, а обводка — обычная
+         заливка контура: дешевле и чётче, край подписи перестаёт расплываться на звёздах. */
+      ctx.lineJoin="round"; ctx.lineWidth=4; ctx.strokeStyle=пал.фон;
       for(const п of подписи){
         const n=п.n, хаб=n.type==="hub";
         const пусто=!хаб && !(n.label||"").trim();
@@ -5550,10 +5685,9 @@ class Graph{
         ctx.fillStyle=(хаб||выделен) ? пал.текст
                     : n.paused ? this._mix(пал.подпись2, пал.текст, 0.55)
                                : this._mix(пал.подпись, пал.текст, 0.5);
-        ctx.font=(хаб?"600 13.5px ":(n.paused?"italic 12px ":"12px "))+"system-ui, -apple-system, Segoe UI, sans-serif";
-        ctx.shadowColor=пал.фон; ctx.shadowBlur=4;   // подложка: подпись часто ложится на связь
+        ctx.font=(хаб?"600 13.5px ":(n.paused?"italic 12px ":(выделен?"600 12.5px ":"12px ")))+"system-ui, -apple-system, Segoe UI, sans-serif";
+        ctx.strokeText(текст, п.x, п.y);
         ctx.fillText(текст, п.x, п.y);
-        ctx.shadowBlur=0;
       }
       ctx.globalAlpha=1;
     }
@@ -5562,31 +5696,34 @@ class Graph{
        ноде бесполезен. Стрелка на краю показывает направление, номер — порядок захода (Ctrl+Shift+G
        перелетает к следующей). Рисуем только в режиме «что горит» и только для горящих: их
        максимум восемь, поэтому проход дешёвый и в покое кадра ничего не меняет. */
+    /* СТИЛЬ A: на краю — только стрелка и номер плашкой, тем же предметом, что на самой ноде.
+       Названия переехали в панель «Что горит» (_heatPanel): подписи у края наезжали друг на
+       друга, когда несколько горящих лежали в одной стороне. Плашки раздвигаются вдоль края. */
     if(this._показатьЖар && this._горящие && this._горящие.length){
-      const поле=16;
-      let скрытых=0;
-      ctx.save();
-      this._горящие.forEach((у,i)=>{
+      const поле=22, метки=[];
+      this._горящие.forEach(у=>{
         const x=эx(у), y=эy(у);
         if(x>=поле && x<=cw-поле && y>=поле && y<=ch-поле) return;   // нода в кадре — стрелка не нужна
-        скрытых++;
-        const цx=Math.max(поле, Math.min(cw-поле, x)), цy=Math.max(поле, Math.min(ch-поле, y));
-        const цв=пал.жар[(у.жар||1)-1]||пал.жар[0];
-        ctx.save(); ctx.translate(цx, цy); ctx.rotate(Math.atan2(y-цy, x-цx));
-        ctx.fillStyle=цв; ctx.beginPath(); ctx.moveTo(9,0); ctx.lineTo(-5,6); ctx.lineTo(-5,-6); ctx.closePath(); ctx.fill();
-        ctx.restore();
-        ctx.fillStyle=цв; ctx.textBaseline="middle";
-        ctx.textAlign = x>cw/2 ? "right" : "left";
-        ctx.font="600 11px system-ui, -apple-system, Segoe UI, sans-serif";
-        const имя=(у.label||"").slice(0,18);
-        ctx.fillText((i+1)+" · "+имя, цx+(x>cw/2?-14:14), цy);
+        метки.push({у, x, y, цx:Math.max(поле, Math.min(cw-поле, x)), цy:Math.max(поле, Math.min(ch-поле, y))});
       });
-      /* Счётчик — в ПРАВОМ НИЖНЕМ углу. Левый верх занят кнопками графа, правый верх — панелью
-         подсказки жестов, левый низ — легендой видов нод, низ по центру — тостами. Проверено
-         глазами: во всех трёх других углах надпись ложилась поверх чужого. */
-      ctx.textAlign="right"; ctx.textBaseline="middle"; ctx.fillStyle=пал.жар[2];
-      ctx.font="600 11.5px system-ui, -apple-system, Segoe UI, sans-serif";
-      ctx.fillText("горит: "+this._горящие.length+(скрытых?("  ·  за кадром: "+скрытых):""), cw-14, ch-18);
+      // раздвигаем: метки ближе 24 px друг к другу сдвигаем вдоль края (по y у боковых, по x у верхней и нижней)
+      for(let i=1;i<метки.length;i++) for(let j=0;j<i;j++){
+        const a=метки[i], b=метки[j];
+        if(Math.abs(a.цx-b.цx)<24 && Math.abs(a.цy-b.цy)<24){
+          if(a.цx<=поле || a.цx>=cw-поле) a.цy=Math.min(ch-поле, b.цy+24); else a.цx=Math.min(cw-поле, b.цx+28);
+        }
+      }
+      ctx.save(); ctx.textAlign="center"; ctx.textBaseline="middle";
+      ctx.font="600 10.5px system-ui, -apple-system, Segoe UI, sans-serif";
+      for(const м of метки){
+        const цв=пал.жар[(м.у.жар||1)-1]||пал.жар[0];
+        ctx.save(); ctx.translate(м.цx, м.цy); ctx.rotate(Math.atan2(м.y-м.цy, м.x-м.цx));
+        ctx.fillStyle=цв; ctx.beginPath(); ctx.moveTo(15,0); ctx.lineTo(9,-4.5); ctx.lineTo(9,4.5); ctx.closePath(); ctx.fill();
+        ctx.restore();
+        const т="№"+м.у.ранг, ww=Math.max(20, ctx.measureText(т).width+10);
+        this._pillPath(ctx, м.цx, м.цy, ww, 16); ctx.fillStyle=цв; ctx.fill();
+        ctx.fillStyle=пал.фон; ctx.fillText(т, м.цx, м.цy+0.5);
+      }
       ctx.restore();
     }
   }

@@ -528,6 +528,20 @@ const былоНод = S.items.length;
   }
 }
 
+/* «Готово» статусом из пакета — та же завершённая задача, что после галочки (done и дата
+   выполнения). Раньше ставился один статус, и нода на графе оставалась незавершённой. */
+{
+  const р = cmdParse(JSON.stringify({ops:[{op:"node", as:"g", kind:"task", title:"КОМ-ГОТОВО", status:"done"},
+                                           {op:"node", as:"h", kind:"task", title:"КОМ-ПОТОМ"}]}));
+  const ит = р.errors.length ? null : cmdApply(р.ops); await ж(80);
+  const г = ит && S.items.find(x => x.id === ит.alias.g);
+  t.push({имя:"создание со статусом «Готово» завершает задачу", ок: !!г && г.done === true && !!г.doneAt, факт: г ? "done=" + г.done : "нет ноды"});
+  const h = ит && S.items.find(x => x.id === ит.alias.h);
+  if (h) { const р2 = cmdParse(JSON.stringify({ops:[{op:"edit", id:h.id, status:"done"}]})); cmdApply(р2.ops); await ж(80); }
+  t.push({имя:"правка статуса на «Готово» идёт через toggleDone", ок: !!h && h.done === true && h.status === "done" && !!h.doneAt, факт: h ? "done=" + h.done : "нет ноды"});
+  [г, h].forEach(x => x && hardDeleteItem(x.id));
+}
+
 render(); await ж(120);
 console.error = прежний;
 t.push({имя:"консоль чистая", ок: ошибки.length === 0, факт: ошибки.slice(0, 2).join(" | ")});
