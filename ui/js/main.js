@@ -224,7 +224,9 @@ function wireNoTitleDrag(){
    разойтись им нечем. Разметка самой полосы не меняется, её только прячут и переставляют в CSS. */
 let _cvOn=false;
 function canvasUiWanted(){
-  return document.documentElement.classList.contains("notitle") || /[?&]canvas\b/.test(location.search);
+  const h=document.documentElement;
+  // cv-auto — каркас включён ещё в <head> (index.html), до первой отрисовки
+  return h.classList.contains("notitle") || h.classList.contains("cv-auto") || /[?&]canvas\b/.test(location.search);
 }
 function canvasUiInit(){
   const h=document.documentElement;
@@ -234,9 +236,22 @@ function canvasUiInit(){
   включить();
   // окно без нативной полосы — спрашиваем у Python сами. Раньше класс подсовывал app.py из своего
   // потока после перезагрузки страницы, и эта перезагрузка оставляла окно пустым (03.11.2026)
-  if(HasPy() && window.pywebview.api.win_mode){
-    Promise.resolve(window.pywebview.api.win_mode()).then(r=>{ if(r && r.notitle){ h.classList.add("notitle"); включить(); } }, ()=>{});
-  }
+  const спросить=()=>{
+    if(!(HasPy() && window.pywebview.api.win_mode)) return false;
+    Promise.resolve(window.pywebview.api.win_mode()).then(r=>{
+      if(r && r.notitle){ h.classList.add("notitle"); включить(); return; }
+      /* Приложение просит прежний вид (PLANNER_NOTITLE=0 или окно с рамкой), а каркас уже включён
+         из <head>. Разобрать островки обратно нечем — они забрали узлы полосы, — поэтому одна
+         перезагрузка с меткой: следующий старт этой сессии сразу пойдёт в прежнем виде. */
+      if(r && r.notitle===false && h.classList.contains("cv-auto")){
+        try{ sessionStorage.setItem("myslikClassic","1"); }catch(e){}
+        location.reload();
+      }
+    }, ()=>{});
+    return true;
+  };
+  // мост pywebview может подняться ПОЗЖЕ этого вызова — тогда спрашиваем по его готовности
+  if(!спросить()) window.addEventListener("pywebviewready", ()=>спросить(), {once:true});
 }
 function cvMount(){
   const app=$("#app"); if(!app) return;
