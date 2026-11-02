@@ -2162,3 +2162,15 @@ html.canvas-ui:not(.notitle) #cv-drag{display:none;}     /* в деве окно
 }
 /* SVG-путь графа (запасной, настройки → «Отрисовка графа») — без колец вокруг нод, как и холст */
 .g-halo,.g-node.paused .g-halo-pause{display:none;}
+/* окно ИИ: переключатель «читать тексты» и журнал пакетов агента (MCP 1.2, cmd.js) */
+.cmd-opt{display:flex;gap:10px;align-items:flex-start;margin:4px 0 10px;padding:10px 12px;border-radius:var(--r-m);background:var(--l3);cursor:pointer;}
+.cmd-opt input{margin-top:3px;flex:none;}
+.cmd-opt span{display:flex;flex-direction:column;gap:3px;}
+.cmd-opt b{font-size:13px;font-weight:500;color:var(--tx);}
+.cmd-opt em{font-style:normal;font-size:11.5px;color:var(--mut);line-height:1.45;}
+.ag-log-row{align-items:center;}
+.ag-log-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;}
+.ag-log-t b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ag-log-t em{font-style:normal;font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ag-log-row.undone{opacity:.6;}
+.ag-log-row .btn{height:28px;flex:none;}

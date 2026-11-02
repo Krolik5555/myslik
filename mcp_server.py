@@ -10,8 +10,8 @@
 
 БЕЗ ЕДИНОЙ ЗАВИСИМОСТИ, И ЭТО НЕ АСКЕЗА. Мыслик приезжает пользователю одним exe, Python у него
 может не стоять вовсе — значит ни `pip install mcp`, ни venv потребовать нельзя. Транспорт MCP
-по stdio — это JSON-RPC построчно, а нужных методов ровно четыре (initialize, tools/list,
-tools/call, ping). Поэтому сервер работает и как отдельный скрипт, и внутри самого приложения
+по stdio — это JSON-RPC построчно, а нужных методов горстка (initialize, tools/list,
+tools/call, ping, с 1.2 ещё prompts и resources). Поэтому сервер работает и как отдельный скрипт, и внутри самого приложения
 (`Myslik.exe --mcp`), где он и приезжает пользователю вместе с релизом.
 
 Приложение должно быть ЗАПУЩЕНО, а доступ для агента включён в его настройках: порт в личный
@@ -35,6 +35,7 @@ import urllib.request
 PROTOCOL = "2024-11-05"                 # своя: с ней сервер точно совместим
 PROTOCOLS_OK = {"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"}
 TIMEOUT = 20          # применение идёт через мост в браузер — секунды, но не мгновенно
+SERVER_VERSION = "1.2"   # 1.2: поиск, повестка, карточка, захват, body_append, аннотации, промпты, ресурсы
 
 
 # ---------------------------------------------------------------- поиск приложения
@@ -177,6 +178,29 @@ def _t_board(a):
     return r.get("board") if r.get("ok") else r
 
 
+_FIND_KEYS = ("query", "tags", "status", "kind", "area", "due_before", "due_after", "graph", "limit", "done")
+
+
+def _t_search(a):
+    return _rpc("search", {k: a[k] for k in _FIND_KEYS if a.get(k) not in (None, "")})
+
+
+def _t_agenda(a):
+    return _rpc("agenda", {"range": a.get("range") or "today"})
+
+
+def _t_node(a):
+    r = _rpc("node", {"id": a.get("id")})
+    return r.get("node") if r.get("ok") else r
+
+
+def _t_capture(a):
+    p = {"text": a.get("text") or ""}
+    if a.get("parent"):
+        p["parent"] = a["parent"]
+    return _rpc("capture", p)
+
+
 def _t_undo(a):
     # tx из ответа myslik_apply: откатит ровно этот пакет и откажет, если после него в планере
     # уже что-то делали (проверяет cmd.js: cmdAgent, ветка undo)
@@ -221,33 +245,92 @@ _SNAP_SCHEMA = {
         "format": {"type": "string", "enum": ["compact", "json"],
                    "description": "По умолчанию compact — строка на ноду через табуляцию (id, вид, статус, родитель, название). json — если нужны именованные поля."}}}
 
+_SEARCH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "query": {"type": "string", "description": "Слова через пробел — все должны встретиться в названии или тегах. Текст нод не ищется: он личный."},
+        "tags": {"type": "string", "description": "Теги через запятую — все обязательны."},
+        "status": {"type": "string", "description": "Статусы через запятую: todo, next, doing, waiting, review, paused, done, note."},
+        "kind": {"type": "string", "description": "Виды через запятую: task, note, flow, sub."},
+        "area": {"type": "string", "description": "Область — id или название."},
+        "due_before": {"type": "string", "description": "Срок не позже ГГГГ-ММ-ДД."},
+        "due_after": {"type": "string", "description": "Срок не раньше ГГГГ-ММ-ДД."},
+        "graph": {"type": "string", "description": "id или название графа. По умолчанию открытый."},
+        "done": {"type": "boolean", "description": "Искать и среди выполненных (по умолчанию нет)."},
+        "limit": {"type": "integer", "description": "Сколько отдать (по умолчанию 30, не больше 200)."}}}
+
+_AGENDA_SCHEMA = {
+    "type": "object",
+    "properties": {"range": {"type": "string", "enum": ["today", "week", "overdue", "hot"],
+                             "description": ("today — просроченное, сегодняшнее и «в работе»; week — ещё и семь дней "
+                                             "вперёд; overdue — только просроченное; hot — очередь «что горит» с причинами.")}}}
+
+_NODE_SCHEMA = {"type": "object", "properties": {"id": {"type": "string", "description": "id ноды из поиска или снимка."}},
+                "required": ["id"]}
+
+_CAPTURE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "text": {"type": "string", "description": ("Одна строка, как в строке захвата приложения: «Позвонить в студию "
+                                                     "завтра !! #работа». Понимает даты словами, ! !! !!! (приоритет 1…3), "
+                                                     "#область или #тег, * в начале — заметка.")},
+        "parent": {"type": "string", "description": "id ноды, под которую повесить запись (необязательно)."}},
+    "required": ["text"]}
+
+# Аннотации (M1): чтение помечено readOnlyHint — клиент вправе пускать его без вопроса на каждый
+# вызов; запись — destructiveHint по правде о том, может ли она снести чужое. openWorldHint:false у
+# всех: инструменты ходят только в локальный планер, не в интернет.
+_RO = {"readOnlyHint": True, "openWorldHint": False}
+
 TOOLS = [
-    {"name": "myslik_rules", "fn": _t_rules, "schema": _RULES_SCHEMA,
+    {"name": "myslik_rules", "fn": _t_rules, "schema": _RULES_SCHEMA, "title": "Правила пакета", "ann": _RO,
      "desc": ("Правила и формат пакета команд: операции, виды нод, статусы, как строить ветку. "
               "Звать ПЕРВЫМ перед любой правкой, один раз за сессию. Правила схемы на полотне "
               "сюда не входят — topic:\"draw\", когда собираешься рисовать. Снимка графа тут нет "
               "намеренно — id берут отдельно, myslik_snapshot по нужной ветке.")},
-    {"name": "myslik_snapshot", "fn": _t_snapshot, "schema": _SNAP_SCHEMA, "tight": True,
+    {"name": "myslik_snapshot", "fn": _t_snapshot, "schema": _SNAP_SCHEMA, "tight": True, "title": "Снимок графа", "ann": _RO,
      "desc": ("Ноды и связи графа: id, вид, название, родитель, статус — строка на ноду. БЕЗ "
               "АРГУМЕНТОВ ОТДАЁТ ВЕСЬ ГРАФ — на сотнях нод это десятки килобайт; спрашивай узко: "
               "root (ветка), area (область), limit + cursor (частями), fields (лишние поля не "
               "тянуть). В ответе total, returned и truncated — сколько всего подошло и сколько "
               "отдано. Тело нод и содержимое полей не отдаются никогда: это личные записи; есть "
               "ли текст в ноде, показывает has_body.")},
-    {"name": "myslik_graphs", "fn": _t_graphs, "schema": _NO_ARGS,
+    {"name": "myslik_search", "fn": _t_search, "schema": _SEARCH_SCHEMA, "tight": True, "title": "Поиск нод", "ann": _RO,
+     "desc": ("Найти ноды по словам в названии, тегам, статусу, виду, области и сроку — не вытягивая "
+              "граф снимком. Отдаёт id, вид, статус, название, путь к ноде (предки), срок и приоритет; "
+              "готовые не ищет, пока не попросишь done:true или status done. Порядок: точное "
+              "название, начало названия, затем срочность.")},
+    {"name": "myslik_agenda", "fn": _t_agenda, "schema": _AGENDA_SCHEMA, "tight": True, "title": "Повестка", "ann": _RO,
+     "desc": ("Повестка по ВСЕМ графам: что просрочено, что на сегодня, что в работе, неделя вперёд "
+              "или очередь «что горит» с причинами (why). Для вопросов «что у меня сегодня», "
+              "«что горит», недельного обзора.")},
+    {"name": "myslik_node", "fn": _t_node, "schema": _NODE_SCHEMA, "title": "Карточка ноды", "ann": _RO,
+     "desc": ("Карточка одной ноды: все поля, путь, родитель, дети, боковые связи, имена именованных "
+              "полей. Текст ноды (body) — только если человек разрешил это в приложении; иначе "
+              "body_hidden и has_body. Дописать текст можно всегда: edit с body_append.")},
+    {"name": "myslik_capture", "fn": _t_capture, "schema": _CAPTURE_SCHEMA, "title": "Быстрая запись",
+     "ann": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+     "desc": ("Записать одну мысль строкой — тот же разбор, что у строки захвата в приложении "
+              "(«завтра», «через 3 дня», !! — приоритет, #область, * — заметка). Самый дешёвый путь записи: без пакета и "
+              "без правил. Ложится в открытый граф (или под parent) одним шагом истории; в ответе "
+              "created и tx для myslik_undo.")},
+    {"name": "myslik_graphs", "fn": _t_graphs, "schema": _NO_ARGS, "title": "Графы", "ann": _RO,
      "desc": "Графы верхнего уровня: id, название, число нод и какой сейчас открыт."},
-    {"name": "myslik_board", "fn": _t_board, "schema": _BOARD_SCHEMA, "tight": True,
+    {"name": "myslik_board", "fn": _t_board, "schema": _BOARD_SCHEMA, "tight": True, "title": "Доска полотна", "ann": _RO,
      "desc": ("Что нарисовано на полотне: блоки (id, вид, место в клетках, подпись) и стрелки "
               "между ними. Звать ПЕРЕД тем, как дорисовывать: без этого пакет ляжет вслепую. "
               "Картинки не отдаются — только их место и размер. Вид блока приблизительный: в "
               "сцене от стиля осталась одна обводка. Что не разобралось (линии от руки, чужие "
               "фигуры) считается в skipped — на такой доске бери mode \"append\", а не "
               "\"replace\": заменой сотрёшь и то, чего здесь не видно.")},
-    {"name": "myslik_preview", "fn": _t_preview, "schema": _OPS_SCHEMA,
+    {"name": "myslik_preview", "fn": _t_preview, "schema": _OPS_SCHEMA, "title": "Предпросмотр пакета", "ann": _RO,
      "desc": ("Проверить пакет и получить «что будет сделано», НИЧЕГО не применяя: разбор вернёт "
               "ошибки по номерам операций, will — сколько появится нод и связей, token — короткий "
               "ключ для myslik_apply, чтобы не слать пакет вторым разом.")},
-    {"name": "myslik_apply", "fn": _t_apply, "schema": {
+    {"name": "myslik_apply", "fn": _t_apply, "title": "Применить пакет",
+     # destructive: с allow_delete пакет сносит ноды и заменяет доски
+     "ann": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
+     "schema": {
         "type": "object",
         "properties": {"ops": _OPS_SCHEMA["properties"]["ops"],
                        "token": {"type": "string",
@@ -259,7 +342,9 @@ TOOLS = [
               "пакет — ОДИН шаг истории; любая ошибка разбора отменяет его целиком. В ответе "
               "created: имя из пакета → настоящий id, и tx — метка пакета для myslik_undo. Человек "
               "увидит в приложении сообщение и сможет отменить нажатием.")},
-    {"name": "myslik_undo", "fn": _t_undo, "schema": {
+    {"name": "myslik_undo", "fn": _t_undo, "title": "Откатить свой пакет",
+     "ann": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
+     "schema": {
         "type": "object",
         "properties": {"tx": {"type": "string",
                               "description": "Метка tx из ответа myslik_apply: откатить именно этот пакет."}}},
@@ -267,10 +352,48 @@ TOOLS = [
               "пока пакет последний в истории планера: если после него человек что-то делал, "
               "откат откажет (чужие правки агент не снимает). Отвечает уже после отката и сразу "
               "числом нод: отдельный ping не нужен.")},
-    {"name": "myslik_ping", "fn": _t_ping, "schema": _NO_ARGS,
+    {"name": "myslik_ping", "fn": _t_ping, "schema": _NO_ARGS, "title": "Связь", "ann": _RO,
      "desc": "Проверить связь: открыто ли приложение, какой граф активен, сколько в нём нод."},
 ]
 _BY_NAME = {t["name"]: t for t in TOOLS}
+
+# РЕСУРСЫ (M9): правила как документ — клиент может держать их в контексте и не тратить вызов.
+# Текст берётся у приложения (cmdPrompt), не хранится здесь: правила одни на всех.
+RESOURCES = [
+    {"uri": "myslik://rules", "name": "Правила пакета", "mimeType": "text/plain", "topic": None,
+     "description": "Формат пакета команд Мыслика: операции, виды нод, статусы, как строить ветку."},
+    {"uri": "myslik://rules/draw", "name": "Правила схемы на полотне", "mimeType": "text/plain", "topic": "draw",
+     "description": "Как рисовать схему на полотне (op draw): блоки, стрелки, раскладка."},
+]
+
+# ПРОМПТЫ (M8): готовые сценарии планера — в Claude Code они становятся слэш-командами. Текст —
+# инструкция агенту, какими инструментами и в каком порядке пройти сценарий; данных в нём нет.
+PROMPTS = [
+    {"name": "plan_project", "title": "Разложить проект",
+     "description": "Разложить цель или проект в ветку задач Мыслика: этапы, шаги, сроки.",
+     "arguments": [{"name": "goal", "description": "Что за проект и к какому сроку", "required": True}],
+     "text": ("Разложи проект в моём планере Мыслик. Проект: {goal}\n\n"
+              "1. Вызови myslik_rules — формат пакета и правила веток.\n"
+              "2. myslik_search по ключевым словам проекта: возможно, ветка уже есть — тогда дополняй её, а не создавай вторую.\n"
+              "3. Собери пакет: корень с областью, этапы, внутри этапов последовательные шаги цепочкой; сроки — только если они "
+              "следуют из моих слов.\n4. myslik_preview, покажи мне, что получится, и только после моего «да» — myslik_apply по token.")},
+    {"name": "weekly_review", "title": "Обзор недели",
+     "description": "Недельный обзор: что просрочено, что горит, что на неделе — и предложения, что перенести или закрыть.",
+     "arguments": [],
+     "text": ("Сделай обзор недели по моему планеру Мыслик.\n\n"
+              "1. myslik_agenda range=overdue и range=week, затем range=hot.\n"
+              "2. Коротко: что просрочено и насколько, что горит и почему (поле why), что на неделе по дням.\n"
+              "3. Предложи, что перенести, что разбить, что закрыть. Ничего не меняй сам — сначала спроси меня; "
+              "правки потом одним пакетом через myslik_preview и myslik_apply.")},
+    {"name": "inbox_triage", "title": "Разобрать неразобранное",
+     "description": "Разобрать ноды без области и без родителя: куда повесить, что сделать задачей, что заметкой.",
+     "arguments": [],
+     "text": ("Помоги разобрать неразобранное в моём планере Мыслик.\n\n"
+              "1. myslik_snapshot с fields id,kind,title,parent,area,status и limit 200 — найди ноды без родителя и без области.\n"
+              "2. Для каждой предложи: под какую ветку повесить (myslik_search по смыслу), задача это или заметка, нужен ли срок.\n"
+              "3. Покажи список предложений одной таблицей и после моего «да» примени одним пакетом (link и edit) через "
+              "myslik_preview и myslik_apply.")},
+]
 
 
 # ---------------------------------------------------------------- транспорт
@@ -292,23 +415,44 @@ def _handle(msg):
         asked = ((msg.get("params") or {}).get("protocolVersion") or "")
         return {"jsonrpc": "2.0", "id": mid, "result": {
             "protocolVersion": asked if asked in PROTOCOLS_OK else PROTOCOL,
-            "capabilities": {"tools": {}},
-            "serverInfo": {"name": "myslik", "version": "1.1"}}}
+            "capabilities": {"tools": {}, "prompts": {}, "resources": {}},
+            "serverInfo": {"name": "myslik", "version": SERVER_VERSION}}}
     if method in ("notifications/initialized", "notifications/cancelled"):
         return None                     # уведомления ответа не требуют — на них нельзя отвечать вовсе
     if method == "ping":
         return {"jsonrpc": "2.0", "id": mid, "result": {}}
-    # ресурсов и промптов у сервера нет; пустой список вместо ошибки — ради клиентов, которые
-    # спрашивают их, не глядя в capabilities (Claude Code смотрит, другие — не все)
     if method == "resources/list":
-        return {"jsonrpc": "2.0", "id": mid, "result": {"resources": []}}
+        return {"jsonrpc": "2.0", "id": mid, "result": {"resources": [
+            {k: v for k, v in r.items() if k != "topic"} for r in RESOURCES]}}
     if method == "resources/templates/list":
         return {"jsonrpc": "2.0", "id": mid, "result": {"resourceTemplates": []}}
+    if method == "resources/read":
+        uri = (msg.get("params") or {}).get("uri")
+        r = next((x for x in RESOURCES if x["uri"] == uri), None)
+        if not r:
+            return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32002, "message": "нет такого ресурса: %s" % uri}}
+        text = _t_rules({"topic": r["topic"]} if r["topic"] else {})
+        if not isinstance(text, str):           # приложение не ответило — честно говорим почему
+            return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": (text or {}).get("error") or NOT_READY}}
+        return {"jsonrpc": "2.0", "id": mid, "result": {"contents": [
+            {"uri": uri, "mimeType": "text/plain", "text": text}]}}
     if method == "prompts/list":
-        return {"jsonrpc": "2.0", "id": mid, "result": {"prompts": []}}
+        return {"jsonrpc": "2.0", "id": mid, "result": {"prompts": [
+            {k: v for k, v in pr.items() if k != "text"} for pr in PROMPTS]}}
+    if method == "prompts/get":
+        p = msg.get("params") or {}
+        pr = next((x for x in PROMPTS if x["name"] == p.get("name")), None)
+        if not pr:
+            return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32602, "message": "нет такого промпта: %s" % p.get("name")}}
+        args = p.get("arguments") or {}
+        text = pr["text"].format(**{a["name"]: (args.get(a["name"]) or "").strip() or "—" for a in pr.get("arguments", [])})
+        return {"jsonrpc": "2.0", "id": mid, "result": {"description": pr["description"],
+                "messages": [{"role": "user", "content": {"type": "text", "text": text}}]}}
     if method == "tools/list":
         return {"jsonrpc": "2.0", "id": mid, "result": {"tools": [
-            {"name": t["name"], "description": t["desc"], "inputSchema": t["schema"]} for t in TOOLS]}}
+            {"name": t["name"], "title": t.get("title", t["name"]), "description": t["desc"],
+             "inputSchema": t["schema"],
+             "annotations": dict(t.get("ann", {}), title=t.get("title", t["name"]))} for t in TOOLS]}}
     if method == "tools/call":
         p = msg.get("params") or {}
         t = _BY_NAME.get(p.get("name"))

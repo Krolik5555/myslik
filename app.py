@@ -598,9 +598,11 @@ def _agent_handler_class():
                 return
             method = str(data.get("method") or "")
             # "rules" — те же правила, что и "prompt", но без снимка графа (см. cmdPrompt)
-            # "board" — доска полотна для чтения, "drawlib" — служебный: готов ли вендор доски
+            # "board" — доска полотна для чтения, "drawlib" — служебный: готов ли вендор доски.
+            # MCP 1.2: "search", "agenda", "node" — точечное чтение; "capture" — запись одной
+            # строкой (внутри фронта идёт тем же путём, что "apply": cmd.js: cmdAgent)
             if method not in ("ping", "snapshot", "prompt", "rules", "graphs", "preview", "apply",
-                              "undo", "board", "drawlib"):
+                              "undo", "board", "drawlib", "search", "agenda", "node", "capture"):
                 self._send(400, {"ok": False, "error": "неизвестный метод: %s" % method})
                 return
             params = data.get("params") or {}

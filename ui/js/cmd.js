@@ -132,6 +132,13 @@ function cmdParse(text){
       } else if(op === "node") o.kind = "task";
       if(сырое.title != null) o.title = String(сырое.title).slice(0, 300);
       if(сырое.body != null) o.body = String(сырое.body).slice(0, 20000);
+      /* ДОПИСАТЬ, А НЕ ЗАТЕРЕТЬ (M7). `body` меняет текст целиком, а агент тела не видит (оно
+         личное) — значит дописать в заметку он мог только вслепую, стерев написанное. */
+      if(сырое.body_append != null){
+        if(op !== "edit"){ бед("body_append бывает только у edit — новой ноде текст задают полем body."); плохо = true; }
+        else if(сырое.body != null){ бед("body и body_append в одной операции — выбери одно."); плохо = true; }
+        else o.body_append = String(сырое.body_append).slice(0, 20000);
+      }
       if(сырое.due != null && сырое.due !== ""){
         const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(сырое.due));
         if(!m || !makeDate(m[1], m[2], m[3])) { бед('срок "' + сырое.due + '" не дата вида ГГГГ-ММ-ДД.'); плохо = true; }
@@ -406,6 +413,7 @@ function cmdPreview(ops){
     }
     if(o.op === "edit"){
       const что = ["kind","title","body","due","status","priority","repeat","tags","color","area"].filter(k => o[k] !== undefined);
+      if(o.body_append !== undefined) что.push("дописать текст (" + o.body_append.length + " зн.)");
       /* Предпросмотр обязан называть ВСЁ, что разбор положил в операцию. Папка и место в этот
          список не входили, и пакет, менявший одну папку, показывался как «нечего менять» —
          человек подтверждал правку, которой не видел (аудит 2.1, П1-6). Путь — целиком. */
@@ -609,6 +617,8 @@ function cmdApply(ops){
         if(o.kind && o.kind !== it.kind) applyKind(it, o.kind);
         if(o.title !== undefined) it.title = o.title;
         if(o.body !== undefined) it.body = o.body;
+        // дописка — отдельным абзацем после написанного (хвостовые пробелы и пустые строки снимаем)
+        if(o.body_append !== undefined){ const был = (it.body || "").replace(/\s+$/, ""); it.body = был ? был + "\n\n" + o.body_append : o.body_append; }
         if(o.due !== undefined && kindIsTask(it.kind)) it.due = o.due;
         if(o.priority !== undefined && kindIsTask(it.kind)) it.priority = o.priority;
         if(o.repeat && kindIsTask(it.kind)) it.repeat = o.repeat;
@@ -958,6 +968,7 @@ function cmdPrompt(opts){
 "Операции:",
 '  {"op":"node","as":"a","kind":"task","title":"…","body":"…","due":"ГГГГ-ММ-ДД","status":"…","priority":0-3,"repeat":"none|daily|weekly|monthly","tags":["…"],"folder":"путь к папке","in":"b"}',
 '  {"op":"edit","id":"<id ноды>","title":"…"}            — менять можно те же поля',
+'  {"op":"edit","id":"<id ноды>","body_append":"…"}      — ДОПИСАТЬ абзац в конец текста ноды; "body" заменяет текст ЦЕЛИКОМ',
 '  {"op":"link","from":"a","to":"b"}                      — связать',
 '  {"op":"unlink","from":"a","to":"b"}                    — развязать',
 '  {"op":"field","node":"a","type":"text","name":"…","value":"…"}   — поле внутри ноды',
@@ -1112,6 +1123,163 @@ function cmdTokenTake(т){
 /* Считаем нод ОДИНАКОВО везде — в ping, в снимке и в ответе undo. Раньше ping брал
    `S.items.length`, а снимок фильтровал через `inWeb`, и числа расходились сами по себе:
    агент видел 409 против 383 и искал гонку там, где её не было. */
+/* ===== MCP 1.2: ЧТЕНИЕ ТОЧЕЧНО (аудит 2.1, M3, M4, M6) =====
+   Раньше ради одного id агент тянул снимок графа целиком. Поиск, повестка и карточка отвечают
+   на типовые вопросы планера коротко. ТЕЛО НОДЫ — по-прежнему личное: поиск по нему не идёт
+   (совпадение само по себе пересказывает текст), карточка отдаёт тело, только если человек
+   включил «Агент может читать тексты нод» в окне ИИ (S.settings.agentReadBodies). */
+const CMD_FIND_LIMIT = 30, CMD_FIND_MAX = 200;
+// путь к ноде через предков по parent — до трёх уровней, как крошки в панели
+function cmdPathOf(it, поId){
+  const путь = [];
+  for(let p = it && it.parent ? поId.get(it.parent) : null, k = 0; p && k < 3; k++){
+    путь.unshift((p.title || "").trim() || "без названия"); p = p.parent ? поId.get(p.parent) : null;
+  }
+  return путь.join(" › ");
+}
+// строка результата: только то, по чему решают «та ли это нода», без тела
+function cmdBrief(it, гр, поId){
+  const стат = it.done ? "done" : (it.status || нейтральныйСтатус(it.kind));
+  const r = {id:it.id, kind:it.kind, status:стат, title:(it.title || "").trim()};
+  const путь = cmdPathOf(it, поId); if(путь) r.path = путь;
+  if(it.due) r.due = it.due;
+  if(it.priority) r.priority = it.priority;
+  if((it.tags || []).length) r.tags = it.tags.slice();
+  const обл = it.area && (гр.areas || []).find(a => a.id === it.area); if(обл) r.area = обл.name;
+  if(гр.id !== S.settings.graph) r.graph = гр.name || гр.id;
+  return r;
+}
+const _cmdList = x => x == null || x === "" ? [] : (Array.isArray(x) ? x : String(x).split(/[,\s]+/)).map(s => String(s).trim()).filter(Boolean);
+function cmdSearch(p){
+  const гр = cmdGraphPick(p.graph); if(!гр) throw new Error("нет такого графа: " + p.graph);
+  const все = (гр.items || []).filter(it => it && !it.deleted && inWeb(it));
+  const поId = new Map(все.map(it => [it.id, it]));
+  const слова = String(p.query || "").toLowerCase().split(/\s+/).filter(Boolean);
+  const статусы = new Set(_cmdList(p.status)), виды = new Set(_cmdList(p.kind));
+  const теги = _cmdList(p.tags).map(t => t.replace(/^#/, "").toLowerCase());
+  let обл = null;
+  if(p.area){ const к = String(p.area).trim().toLowerCase();
+    обл = (гр.areas || []).find(a => a.id === p.area) || (гр.areas || []).find(a => (a.name || "").trim().toLowerCase() === к);
+    if(!обл) throw new Error("нет такой области: " + p.area); }
+  const до = p.due_before ? String(p.due_before) : null, после = p.due_after ? String(p.due_after) : null;
+  // готовые по умолчанию не ищем: их не меньше живых, а спрашивают про работу. Явный status done — ищем
+  const сГотовыми = p.done === true || статусы.has("done");
+  const найдено = все.filter(it => {
+    const стат = it.done ? "done" : (it.status || нейтральныйСтатус(it.kind));
+    if(!сГотовыми && стат === "done") return false;
+    if(статусы.size && !статусы.has(стат)) return false;
+    if(виды.size && !виды.has(it.kind)) return false;
+    if(обл && it.area !== обл.id) return false;
+    if((до || после) && !it.due) return false;
+    if(до && it.due > до) return false;
+    if(после && it.due < после) return false;
+    const свои = (it.tags || []).map(t => t.toLowerCase());
+    if(теги.some(t => свои.indexOf(t) < 0)) return false;
+    if(слова.length){
+      const где = ((it.title || "") + " " + свои.join(" ")).toLowerCase();
+      if(!слова.every(w => где.indexOf(w) >= 0)) return false;
+    }
+    return true;
+  });
+  // порядок: точное название, затем начало названия, затем срочность (та же, что «что горит»)
+  const q = слова.join(" ");
+  const вес = it => { const т = (it.title || "").trim().toLowerCase();
+    return (q && т === q ? 2 : q && т.indexOf(q) === 0 ? 1 : 0) + urgency(it); };
+  найдено.sort((a, b) => вес(b) - вес(a));
+  const лимит = Math.min(CMD_FIND_MAX, Math.max(1, parseInt(p.limit, 10) || CMD_FIND_LIMIT));
+  return {graph:гр.name || "", total:найдено.length, returned:Math.min(лимит, найдено.length),
+          results:найдено.slice(0, лимит).map(it => cmdBrief(it, гр, поId))};
+}
+/* ПОВЕСТКА — по ВСЕМ графам: «что у меня сегодня» не спрашивают про один граф. Диапазоны:
+   today — просроченное, сегодняшнее и то, что «в работе»; week — до семи дней вперёд;
+   overdue — только просроченное; hot — очередь «что горит» с причинами. */
+function cmdAgenda(p){
+  const диапазон = String(p.range || "today");
+  if(["today", "week", "overdue", "hot"].indexOf(диапазон) < 0) throw new Error("range: today, week, overdue или hot");
+  const группы = {overdue:[], today:[], week:[], doing:[], hot:[]};
+  const сегодня = today();
+  (S.graphs || []).forEach(гр => {
+    const живые = (гр.items || []).filter(it => it && !it.deleted && !it.done && kindIsTask(it.kind) && it.status !== "done");
+    const поId = new Map((гр.items || []).map(it => [it.id, it]));
+    if(диапазон === "hot"){
+      const детей = {}; живые.forEach(it => { if(it.parent) детей[it.parent] = (детей[it.parent] || 0) + 1; });
+      отобратьГорящие(живые, СРОЧНОСТЬ_ПРЕДЕЛ).forEach(it => группы.hot.push(Object.assign(cmdBrief(it, гр, поId),
+        {why:urgencyReasons(it, детей[it.id] || 0).slice(0, 3).map(р => р.т), score:+urgency(it, детей[it.id] || 0).toFixed(2)})));
+      return;
+    }
+    живые.forEach(it => {
+      const дней = it.due ? daysBetween(parseYmd(it.due), сегодня) : null;
+      const стр = () => Object.assign(cmdBrief(it, гр, поId), дней !== null ? {days:дней} : {});
+      if(дней !== null && дней < 0) группы.overdue.push(стр());
+      else if(дней === 0 && диапазон !== "overdue") группы.today.push(стр());
+      else if(дней !== null && дней <= 7 && диапазон === "week") группы.week.push(стр());
+      else if(дней === null && диапазон === "today" && it.status === "doing") группы.doing.push(стр());
+    });
+  });
+  if(диапазон === "hot") группы.hot.sort((a, b) => b.score - a.score);
+  ["overdue", "today", "week"].forEach(k => группы[k].sort((a, b) => (a.days - b.days) || ((b.priority || 0) - (a.priority || 0))));
+  const ответ = {range:диапазон, date:ymd(сегодня)};
+  Object.keys(группы).forEach(k => { if(группы[k].length) ответ[k] = группы[k]; });
+  ответ.count = Object.keys(группы).reduce((с, k) => с + группы[k].length, 0);
+  return ответ;
+}
+// карточка ноды: все поля, соседи, имена полей; тело — только с разрешения человека
+function cmdNodeCard(p){
+  const id = String(p.id || p.node || "");
+  const it = cmdFindAny(id); if(!it) throw new Error("ноды с таким id нет");
+  const гр = cmdGraphPick(cmdGraphOf(id));
+  const поId = new Map((гр.items || []).map(x => [x.id, x]));
+  const к = cmdBrief(it, гр, поId);
+  if(!к.graph) к.graph = гр.name || гр.id;
+  if(it.repeat && it.repeat !== "none") к.repeat = it.repeat;
+  if(it.folder) к.folder = it.folder;
+  if(it.color) к.color = it.color;
+  if(it.done && it.doneAt) к.done_at = new Date(it.doneAt).toISOString().slice(0, 10);
+  к.updated = it.updated ? new Date(it.updated).toISOString().slice(0, 10) : null;
+  const род = it.parent ? поId.get(it.parent) : null;
+  if(род) к.parent = {id:род.id, title:(род.title || "").trim()};
+  const дети = (гр.items || []).filter(x => x && x.parent === it.id && !x.deleted);
+  if(дети.length) к.children = дети.slice(0, 50).map(x => ({id:x.id, kind:x.kind, status:x.done ? "done" : x.status, title:(x.title || "").trim()}));
+  const рядом = new Set();
+  (гр.links || []).forEach(l => { if(l[0] === it.id) рядом.add(l[1]); else if(l[1] === it.id) рядом.add(l[0]); });
+  const связи = [...рядом].filter(x => x !== it.parent && !дети.some(d => d.id === x)).map(x => поId.get(x)).filter(Boolean);
+  if(связи.length) к.links = связи.slice(0, 50).map(x => ({id:x.id, title:(x.title || "").trim()}));
+  const поля = fieldsOf(it); if(поля.length) к.fields = поля.map(f => ({name:f.name || "", type:f.type}));
+  const тело = (it.body || "").trim();
+  к.has_body = !!тело;
+  if(тело){
+    if(S.settings.agentReadBodies === true) к.body = it.body;
+    else к.body_hidden = "Человек не разрешил агенту читать тексты нод (окно «ИИ и планер» → «Агент может читать тексты»). Дописывать можно: edit с body_append.";
+  }
+  return к;
+}
+/* ЖУРНАЛ АГЕНТА (M10). Тост с «Вернуть» живёт секунды, а пакет агента — это правка личного
+   планера снаружи: человеку нужно и потом видеть, что, когда и чем. Последние 40 записей в
+   настройках (переживают перезапуск); «Вернуть» в окне ИИ — тот же cmdUndoTx, что у тоста. */
+const CMD_AGENT_LOG = 40;
+function cmdAgentLog(запись){
+  const жур = Array.isArray(S.settings.agentLog) ? S.settings.agentLog : [];
+  жур.unshift(Object.assign({at:Date.now()}, запись));
+  S.settings.agentLog = жур.slice(0, CMD_AGENT_LOG);
+}
+function cmdAgentLogMark(tx, поле){
+  (S.settings.agentLog || []).forEach(з => { if(з.tx === tx) з[поле] = true; });
+}
+function cmdAgentLogHtml(){
+  const жур = (S.settings.agentLog || []).slice(0, 12);
+  if(!жур.length) return "";
+  const верх = _undoStack[_undoStack.length - 1];
+  const когда = t => { const d = new Date(t), сег = ymd(d) === ymd(today());
+    return (сег ? "" : d.toLocaleDateString("ru-RU", {day:"numeric", month:"short"}) + " ") +
+           d.toLocaleTimeString("ru-RU", {hour:"2-digit", minute:"2-digit"}); };
+  return `<div class="cmd-sec"><i class="ti ti-history"></i>Журнал агента · ${(S.settings.agentLog || []).length}</div>` +
+    жур.map(з => {
+      const можно = !з.undone && верх && верх.tx === з.tx && верх.agent;
+      return `<div class="cmd-row ag-log-row${з.undone ? " undone" : ""}"><i class="ti ti-${з.undone ? "arrow-back-up" : "robot"}"></i>
+        <span class="ag-log-t"><b>${esc(з.first || з.summary)}</b><em>${esc(когда(з.at))} · ${esc(з.summary)}${з.graph ? " · " + esc(з.graph) : ""}${з.undone ? " · отменён" : ""}</em></span>
+        ${можно ? `<button class="btn ghost" data-aglog-undo="${esc(з.tx)}"><i class="ti ti-arrow-back-up"></i>Вернуть</button>` : ""}</div>`;
+    }).join("");
+}
 function cmdCounts(){
   const все = (S.items || []).length, вСети = (S.items || []).filter(inWeb).length;
   return {nodes: вСети, nodes_total: все, nodes_in_web: вСети};
@@ -1132,6 +1300,29 @@ function cmdAgent(method, paramsJson){
     if(method === "graphs")
       return ответ({ok:true, graphs:graphsTop().map(g => ({id:g.id, name:g.name,
         nodes:(g.items || []).length, active:g.id === S.settings.graph}))});
+    if(method === "search") return ответ(Object.assign({ok:true}, cmdSearch(p)));
+    if(method === "agenda") return ответ(Object.assign({ok:true}, cmdAgenda(p)));
+    if(method === "node")   return ответ({ok:true, node:cmdNodeCard(p)});
+    /* ЗАХВАТ ОДНОЙ СТРОКОЙ (M5) — тот же разбор, что у строки захвата в приложении
+       (parseCapture: #область, завтра, !2, *заметка), а дальше — ОБЫЧНЫЙ пакет из одной
+       операции: та же проверка, тот же шаг истории с tx, тот же тост и журнал. Своего пути
+       записи у захвата нет намеренно — второй путь разошёлся бы с первым. */
+    if(method === "capture"){
+      const текст = String(p.text || "").trim();
+      if(!текст) return ответ({ok:false, error:"пустая строка: нечего записать"});
+      const раз = parseCapture(текст);
+      if(!раз.title) return ответ({ok:false, error:"после разбора не осталось названия"});
+      const оп = {op:"node", as:"captured", kind:раз.kind || "task", title:раз.title};
+      if(раз.due) оп.due = раз.due;
+      if(раз.priority) оп.priority = раз.priority;
+      if(раз.repeat && раз.repeat !== "none") оп.repeat = раз.repeat;
+      if((раз.tags || []).length) оп.tags = раз.tags;
+      if(раз.area && !p.parent) оп.area = раз.area;
+      const пакет = [оп];   // в открытый граф, как и строка захвата; под родителя — связью
+      if(p.parent) пакет.push({op:"link", from:String(p.parent), to:"captured"});
+      p = {ops:JSON.stringify({v:CMD_V, ops:пакет})};
+      method = "apply";
+    }
     /* ОТВЕЧАЕМ ЧИСЛАМИ ПОСЛЕ ОТКАТА, а не голым {ok:true}. `undoStep` синхронный, состояние к
        этой строке уже приведено — значит и счёт честный, и следующий вызов ping не нужен вовсе
        (агент звал его следом и видел расхождение, принимая за гонку разницу счётов). */
@@ -1148,7 +1339,7 @@ function cmdAgent(method, paramsJson){
       if(p.tx && String(p.tx) !== шаг.tx)
         return ответ(Object.assign({ok:false, error:"После этого пакета в планере уже были другие действия — откатить его отсюда нельзя."}, граф, cmdCounts()));
       const ок = cmdUndoTx(шаг.tx);
-      if(ок) toast("ИИ-агент отменил свой пакет", {icon:"ti-arrow-back-up"});
+      if(ок){ toast("ИИ-агент отменил свой пакет", {icon:"ti-arrow-back-up"}); cmdAgentLogMark(шаг.tx, "undone"); persist(); }
       return ответ(Object.assign({ok:ок, undone:ок ? шаг.tx : null}, граф, cmdCounts()));
     }
     /* ГОТОВА ЛИ ДОСКА. Вендор весит мегабайты и тянется лениво, при первом открытии полотна;
@@ -1213,12 +1404,20 @@ function cmdAgent(method, paramsJson){
       // пакет агента помечаем отдельно от ручного: myslik_undo вправе снимать только такие
       const шагПакета = _undoStack[_undoStack.length - 1];
       if(tx && шагПакета && шагПакета.tx === tx) шагПакета.agent = true;
+      if(tx){
+        const сводка = Object.keys(c).filter(k => c[k]).map(k => k + ": " + c[k]).join(", ") || "без изменений";
+        const первая = ops.find(o => o.op === "node" && o.title) || ops.find(o => o.op === "edit");
+        cmdAgentLog({tx, summary:сводка, ops:ops.length,
+                     first:первая ? (первая.title || ("правка " + ((cmdFindAny(первая.id) || {}).title || ""))).slice(0, 80) : "",
+                     graph:(graphCurrent() || {}).name || ""});
+        persist();
+      }
       /* Человек обязан УВИДЕТЬ, что в его планер что-то написали снаружи, и иметь возможность
          это снять одним нажатием — тем же тостом, что и при ручном применении. Снимается ИМЕННО
          пакет: после него человек мог что-то поправить, и «Вернуть» откатило бы его правку. */
       toast("ИИ-агент · " + (Object.keys(c).filter(k => c[k]).map(k => k + ": " + c[k]).join(", ") || "без изменений"),
         {icon:"ti-robot", label:"Вернуть", onAction:() => {
-          if(cmdUndoTx(tx)) toast("Пакет агента отменён", {icon:"ti-arrow-back-up"});
+          if(cmdUndoTx(tx)){ toast("Пакет агента отменён", {icon:"ti-arrow-back-up"}); cmdAgentLogMark(tx, "undone"); persist(); }
           else toast("После пакета были другие правки — отменяй по шагам, Ctrl+Z", {icon:"ti-alert-triangle"});
         }});
       /* СОЗДАННОЕ ОТДАЁМ ИМЕНАМИ ИЗ ПАКЕТА: {"root":"mtq6…","e1":"mtq6…"}. Массив id в порядке
@@ -1260,6 +1459,12 @@ function cmdAgentSetupPrompt(st){
 "   myslik_preview и применяй myslik_apply с токеном из предпросмотра — пакет не придётся слать",
 "   дважды. Удаления делай только если я попросил прямо. Правила схем на полотне — отдельно,",
 "   myslik_rules {topic:\"draw\"}: читай их перед тем, как рисовать.",
+"",
+"4. Для частых вопросов есть короткие пути, без снимка: myslik_search — найти ноду по словам,",
+"   тегам, статусу и сроку; myslik_agenda — что просрочено, на сегодня, на неделю, что горит;",
+"   myslik_node — карточка одной ноды; myslik_capture — записать мысль одной строкой, как в",
+"   строке захвата («Позвонить в студию завтра !!»). Дописать текст в ноду — edit с body_append,",
+"   не body: body заменяет текст целиком. Мой текст нод ты видишь, только если я это разрешил.",
 "",
 "Если myslik_ping отвечает, что приложение не найдено, — скажи мне: значит, я забыл включить",
 "«Доступ для ИИ-агента» в настройках Мыслика или закрыл само приложение.",
@@ -1336,6 +1541,9 @@ function openCmdRunner(){
       <button class="btn" id="ag-toggle"><i class="ti ti-plug"></i>Включить</button>
       <button class="btn primary" id="ag-prompt" style="display:none"><i class="ti ti-robot"></i>Промпт для Claude</button>
     </div>
+    <label class="cmd-opt"><input type="checkbox" id="ag-bodies" ${S.settings.agentReadBodies === true ? "checked" : ""}>
+      <span><b>Агент может читать тексты нод</b><em>Без этого агент видит названия, статусы и сроки, а описание — нет. Дописывать текст он может в любом случае.</em></span></label>
+    <div id="ag-log">${cmdAgentLogHtml()}</div>
     <div class="modal-foot">
       <button class="btn ghost" id="cmd-cancel">Закрыть</button>
       <button class="btn primary" id="cmd-run" disabled><i class="ti ti-player-play"></i>Выполнить</button>
@@ -1420,6 +1628,18 @@ function openCmdRunner(){
       if(!да) return;
       try { await window.pywebview.api.agent_reset_token(); } catch(e){}
       await обновить(); toast("Ключ обновлён", {icon: "ti-key"});
+    };
+    $("#ag-bodies", m).onchange = e => {
+      S.settings.agentReadBodies = !!e.target.checked; persist();
+      toast(e.target.checked ? "Агент видит тексты нод" : "Тексты нод для агента закрыты", {icon: e.target.checked ? "ti-eye" : "ti-eye-off"});
+    };
+    // журнал: «Вернуть» — тот же откат пакета, что у тоста; доступен, только пока пакет последний
+    $("#ag-log", m).onclick = e => {
+      const кн = e.target.closest("[data-aglog-undo]"); if(!кн) return;
+      const tx = кн.dataset.aglogUndo;
+      if(cmdUndoTx(tx)){ cmdAgentLogMark(tx, "undone"); persist(); toast("Пакет агента отменён", {icon: "ti-arrow-back-up"}); }
+      else toast("После пакета были другие правки — отменяй по шагам, Ctrl+Z", {icon: "ti-alert-triangle"});
+      $("#ag-log", m).innerHTML = cmdAgentLogHtml();
     };
     промпт.onclick = async () => {
       if(!сост) return;

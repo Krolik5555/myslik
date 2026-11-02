@@ -542,6 +542,66 @@ const былоНод = S.items.length;
   [г, h].forEach(x => x && hardDeleteItem(x.id));
 }
 
+/* ===== MCP 1.2 (аудит 2.1, M3–M7, M10): поиск, повестка, карточка, захват, дописка, журнал ===== */
+{
+  const агент = (м, п) => JSON.parse(cmdAgent(м, JSON.stringify(п || {})));
+  const сег = ymd(today()), вчера = ymd(addDays(today(), -2));
+  const р = cmdParse(JSON.stringify({ops:[
+    {op:"node", as:"k", kind:"task", title:"МСП-КОРЕНЬ", area:(S.areas[0] || {}).id, tags:["мсп"]},
+    {op:"node", as:"a", kind:"task", title:"МСП-просрочено", due:вчера, priority:3, tags:["мсп"]}, {op:"link", from:"k", to:"a"},
+    {op:"node", as:"b", kind:"note", title:"МСП-заметка", body:"тайный текст"}, {op:"link", from:"k", to:"b"}]}));
+  const ит = р.errors.length ? null : cmdApply(р.ops); await ж(100);
+  const id = имя => ит && ит.alias[имя];
+
+  const п1 = агент("search", {query:"мсп просрочено"});
+  t.push({имя:"search: находит по словам названия, с путём", ок: п1.ok && п1.results.length === 1 && п1.results[0].id === id("a") && /МСП-КОРЕНЬ/.test(п1.results[0].path || ""),
+          факт: п1.ok ? п1.results.map(x => x.title + " / " + x.path).join("; ") : п1.error});
+  const п2 = агент("search", {tags:"мсп", kind:"task"});
+  t.push({имя:"search: фильтр по тегу и виду", ок: п2.ok && п2.total === 2, факт: п2.ok ? "найдено " + п2.total : п2.error});
+  const п3 = агент("search", {query:"тайный"});
+  t.push({имя:"search: по тексту ноды не ищет (он личный)", ок: п3.ok && п3.total === 0, факт: п3.ok ? "найдено " + п3.total : п3.error});
+
+  const пов = агент("agenda", {range:"overdue"});
+  t.push({имя:"agenda overdue: просроченное с числом дней", ок: пов.ok && (пов.overdue || []).some(x => x.id === id("a") && x.days === -2), факт: пов.ok ? "count " + пов.count : пов.error});
+  const жар = агент("agenda", {range:"hot"});
+  t.push({имя:"agenda hot: очередь с причинами", ок: жар.ok && (жар.hot || []).some(x => x.id === id("a") && (x.why || []).length > 0), факт: жар.ok ? "count " + жар.count : жар.error});
+  t.push({имя:"agenda: неизвестный диапазон — понятный отказ", ок: агент("agenda", {range:"year"}).ok === false, факт: ""});
+
+  const былоЧтение = S.settings.agentReadBodies;
+  S.settings.agentReadBodies = false;
+  const к1 = агент("node", {id:id("b")});
+  t.push({имя:"node: тело закрыто, пока человек не разрешил", ок: к1.ok && к1.node.has_body === true && !("body" in к1.node) && !!к1.node.body_hidden, факт: к1.ok ? Object.keys(к1.node).join(",") : к1.error});
+  t.push({имя:"node: родитель и путь на месте", ок: к1.ok && к1.node.parent && к1.node.parent.id === id("k"), факт: ""});
+  S.settings.agentReadBodies = true;
+  const к2 = агент("node", {id:id("b")});
+  t.push({имя:"node: с разрешением тело отдаётся", ок: к2.ok && к2.node.body === "тайный текст", факт: ""});
+  S.settings.agentReadBodies = былоЧтение;
+  const к3 = агент("node", {id:id("k")});
+  t.push({имя:"node: дети корня перечислены", ок: к3.ok && (к3.node.children || []).length === 2, факт: к3.ok ? String((к3.node.children || []).length) : к3.error});
+
+  await ж(1700);   // окно схлопывания правок (ЗАПИСЬ_ЖЕСТ_МС): иначе пакет ниже сольётся с созданием выше
+  const доп = агент("apply", {ops:[{op:"edit", id:id("b"), body_append:"дописано агентом"}]});
+  const заметка = S.items.find(x => x.id === id("b"));
+  t.push({имя:"edit body_append: дописывает абзацем, не затирая", ок: доп.ok && заметка.body === "тайный текст\n\nдописано агентом", факт: JSON.stringify(заметка && заметка.body)});
+  const плохо = cmdParse(JSON.stringify({ops:[{op:"node", title:"x", body_append:"y"}]}));
+  t.push({имя:"body_append у новой ноды — ошибка разбора", ок: плохо.errors.length === 1, факт: плохо.errors.join(" | ")});
+  t.push({имя:"журнал агента: пакет записан с tx", ок: (S.settings.agentLog || [])[0] && S.settings.agentLog[0].tx === доп.tx, факт: ""});
+  агент("undo", {tx:доп.tx}); await ж(80);
+  t.push({имя:"журнал агента: откат отмечен", ок: (S.settings.agentLog || [])[0].undone === true && S.items.find(x => x.id === id("b")).body === "тайный текст", факт: ""});
+
+  await ж(1700);
+  const зах = агент("capture", {text:"МСП-захват завтра !!", parent:id("k")});
+  const новая = зах.ok && S.items.find(x => x.id === зах.created.captured);
+  t.push({имя:"capture: строка разобрана как в строке захвата", ок: !!новая && новая.priority === 2 && новая.due === ymd(addDays(today(), 1)) && новая.title === "МСП-захват",
+          факт: новая ? новая.title + " · " + новая.due + " · !" + новая.priority : (зах.error || JSON.stringify(зах.errors))});
+  t.push({имя:"capture: повешена под parent", ок: !!новая && новая.parent === id("k"), факт: новая ? "parent " + новая.parent : ""});
+  const откЗах = агент("undo", {tx:зах.tx}); await ж(80);
+  t.push({имя:"capture: снимается своим tx", ок: откЗах.ok && !S.items.some(x => x.title === "МСП-захват"), факт: ""});
+  t.push({имя:"capture: пустая строка — отказ", ок: агент("capture", {text:"  "}).ok === false, факт: ""});
+
+  S.items.filter(x => /^МСП-/.test(x.title || "")).forEach(x => hardDeleteItem(x.id));
+}
+
 render(); await ж(120);
 console.error = прежний;
 t.push({имя:"консоль чистая", ок: ошибки.length === 0, факт: ошибки.slice(0, 2).join(" | ")});

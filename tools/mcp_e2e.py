@@ -2,6 +2,10 @@
 """Сквозная проверка MCP-моста на ИЗОЛИРОВАННОМ экземпляре Мыслика — собранном exe.
 
     python tools/mcp_e2e.py <путь к Myslik.exe>
+    python tools/mcp_e2e.py <путь к app.py В КОПИИ>   — исходники без сборки exe (MCP 1.2)
+
+Копия обязательна: data/ берётся рядом с app.py, и запуск по исходникам самого репозитория
+открыл бы живой planner.json. Такой путь скрипт отвергает сам.
 
 Экземпляр живёт своей жизнью: свой data/ рядом с exe (пустой — приложение засеет демо),
 свой APPDATA во временной папке (маячок живого приложения не трогается), свой порт
@@ -13,9 +17,14 @@
 import json, os, subprocess, sys, tempfile, time, urllib.request
 
 if len(sys.argv) < 2 or not os.path.exists(sys.argv[1]):
-    raise SystemExit("нужен путь к собранному Myslik.exe")
+    raise SystemExit("нужен путь к собранному Myslik.exe или к app.py в копии")
 EXE = os.path.abspath(sys.argv[1])
 DIST = os.path.dirname(EXE)
+SRC = EXE.lower().endswith(".py")
+if SRC and os.path.isdir(os.path.join(DIST, ".git")):
+    raise SystemExit("это исходники самого репозитория — их data/ живая. Скопируй app.py, ai.py, mcp_server.py и ui/ в отдельную папку")
+APP_CMD = [sys.executable, EXE] if SRC else [EXE]
+MCP_CMD = [sys.executable, os.path.join(DIST, "mcp_server.py")] if SRC else [EXE, "--mcp"]
 DATA = os.path.join(DIST, "data")
 APPDATA = tempfile.mkdtemp(prefix="myslik-e2e-appdata-")
 os.makedirs(DATA, exist_ok=True)
@@ -25,7 +34,7 @@ with open(AGENT, "w", encoding="utf-8") as f:
 
 env = dict(os.environ); env["APPDATA"] = APPDATA; env.pop("MYSLIK_AGENT", None); env.pop("MYSLIK_DATA", None)
 t0 = time.perf_counter()
-app = subprocess.Popen([EXE], env=env, cwd=DIST)
+app = subprocess.Popen(APP_CMD, env=env, cwd=DIST)
 print("приложение запущено, pid", app.pid)
 
 def cfg():
@@ -50,7 +59,7 @@ print("порт %s готов через %.1f с" % (C and C["port"], time.perf_
 assert C, "приложение не подняло приёмник"
 
 menv = dict(env); menv["MYSLIK_AGENT"] = AGENT
-srv = subprocess.Popen([EXE, "--mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=menv)
+srv = subprocess.Popen(MCP_CMD, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=menv)
 _id = [0]
 def call(method, params=None):
     _id[0] += 1
@@ -84,10 +93,15 @@ r, dt = call("initialize", {"protocolVersion": "2025-11-25", "capabilities": {},
 check("initialize отвечает версией клиента", r.get("result", {}).get("protocolVersion") == "2025-11-25", "%.0f мс" % (dt * 1000))
 srv.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n'); srv.stdin.flush()
 r, dt = call("tools/list"); names = [t["name"] for t in r["result"]["tools"]]
-check("tools/list: 8 инструментов", len(names) == 8, names)
+check("tools/list: 12 инструментов", len(names) == 12, names)
+ann = {t["name"]: t.get("annotations", {}) for t in r["result"]["tools"]}
+check("аннотации: чтение readOnly, apply и undo destructive",
+      all(ann[n].get("readOnlyHint") for n in ("myslik_rules", "myslik_snapshot", "myslik_search", "myslik_agenda", "myslik_node", "myslik_graphs", "myslik_board", "myslik_preview", "myslik_ping"))
+      and ann["myslik_apply"].get("destructiveHint") and ann["myslik_undo"].get("destructiveHint") and not ann["myslik_capture"].get("readOnlyHint"), "")
 descr = json.dumps(r["result"]["tools"], ensure_ascii=False)
 print("   объём описаний инструментов: %d симв. ~%d ток." % (len(descr), est_tokens(descr)))
-r, dt = call("resources/list"); check("resources/list — пустой список, не ошибка", r.get("result") == {"resources": []}, r)
+r, dt = call("resources/list"); check("resources/list: правила и правила схемы", [x["uri"] for x in r.get("result", {}).get("resources", [])] == ["myslik://rules", "myslik://rules/draw"], r)
+r, dt = call("prompts/list"); check("prompts/list: три сценария", [x["name"] for x in r.get("result", {}).get("prompts", [])] == ["plan_project", "weekly_review", "inbox_triage"], "")
 
 # фронт грузится и засевает демо — ждём, пока число нод перестанет меняться
 prev, stable = None, 0
@@ -187,6 +201,28 @@ big = {"v": 1, "ops": [{"op": "node", "as": "b%d" % i, "kind": "task", "title": 
 v, text, dt, err = tool("myslik_preview", {"ops": json.dumps(big, ensure_ascii=False)})
 check("preview на 30 операций: список порезан до 20 + строка «ещё»", isinstance(v, dict) and len(v.get("preview", [])) == 21 and "ещё" in v["preview"][-1],
       "%d симв. ~%d ток." % (len(text), est_tokens(text)))
+
+# ===== MCP 1.2: точечное чтение, захват, дописка =====
+r, dt = call("resources/read", {"uri": "myslik://rules"})
+check("resources/read отдаёт правила", "Виды нод" in json.dumps(r.get("result", {}), ensure_ascii=False), "%.0f мс" % (dt * 1000))
+v, text, dt, err = tool("myslik_search", {"query": "куст"})
+check("search не находит снятое откатом", isinstance(v, dict) and v.get("ok") and v.get("total") == 0, text[:100])
+v, text, dt, err = tool("myslik_agenda", {"range": "week"})
+check("agenda week отвечает", isinstance(v, dict) and v.get("ok") and "count" in v, "%d симв., count=%s" % (len(text), v.get("count") if isinstance(v, dict) else "?"))
+v, text, dt, err = tool("myslik_capture", {"text": "E2E захват завтра !!"})
+cap = v.get("created", {}).get("captured") if isinstance(v, dict) else None
+check("capture: создана задача с tx", isinstance(v, dict) and v.get("ok") and cap and v.get("tx"), text[:120])
+cap_tx = v.get("tx") if isinstance(v, dict) else None
+v, text, dt, err = tool("myslik_search", {"query": "e2e захват"})
+check("search находит захваченное, срок и приоритет разобраны",
+      isinstance(v, dict) and v.get("total") == 1 and v["results"][0].get("priority") == 2 and v["results"][0].get("due"), text[:160])
+time.sleep(1.7)   # окно схлопывания правок: иначе дописка сольётся с захватом в один шаг истории
+v, text, dt, err = tool("myslik_apply", {"ops": json.dumps([{"op": "edit", "id": cap, "body_append": "строка агента"}], ensure_ascii=False)})
+app_tx = v.get("tx") if isinstance(v, dict) else None
+v, text, dt, err = tool("myslik_node", {"id": cap})
+check("node: карточка без тела, has_body после дописки", isinstance(v, dict) and v.get("has_body") is True and "body" not in v, text[:160])
+v, text, dt, err = tool("myslik_undo", {"tx": app_tx}); check("undo дописки", isinstance(v, dict) and v.get("ok"), text[:80])
+v, text, dt, err = tool("myslik_undo", {"tx": cap_tx}); check("undo захвата — число нод как было", isinstance(v, dict) and v.get("ok") and v.get("nodes") == было, text[:80])
 
 srv.stdin.close(); srv.wait(timeout=5)
 check("MCP-сервер вышел сам по EOF", srv.returncode == 0, srv.returncode)

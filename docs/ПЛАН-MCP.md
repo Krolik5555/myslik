@@ -5,6 +5,22 @@
 половины ходов ушло не на план, а на обслуживание форматов моста. Ниже — что именно мешало,
 с замерами, и что с этим сделать.
 
+## MCP 1.2 — сделано 03.11.2026 (аудит 2.1, M1, M3–M10)
+
+- **M1** аннотации: `title`, `readOnlyHint` у чтения (rules, snapshot, search, agenda, node, graphs,
+  board, preview, ping), `destructiveHint` у apply и undo; `openWorldHint:false` у всех.
+- **M3** `myslik_search` {query, tags, status, kind, area, due_before, due_after, graph, done, limit} —
+  по названию и тегам, путь к ноде в ответе; по тексту не ищет.
+- **M4** `myslik_agenda` {range: today | week | overdue | hot} — по всем графам; hot — с причинами.
+- **M5** `myslik_capture` {text, parent} — разбор строки захвата, дальше обычный пакет с tx.
+- **M6** `myslik_node` {id} — карточка; тело только с переключателем «Агент может читать тексты нод».
+- **M7** `edit` с `body_append` — дописать абзацем, не затирая.
+- **M8** промпты `plan_project`, `weekly_review`, `inbox_triage`; **M9** ресурсы `myslik://rules`,
+  `myslik://rules/draw`.
+- **M10** журнал агента в окне ИИ: последние 40 пакетов, «Вернуть» у последнего, отметка отката.
+- Проверки: `dev.py run команды` (106), `tools/mcp_e2e.py` на копии исходников (31).
+- Не сделано: M11 (`structuredContent`/`outputSchema`) — по желанию, ответы и так компактны.
+
 ## Состояние: пункты 1–9 сделаны 07.09.2026
 
 Разделы ниже оставлены как есть — в них замеры и ПРИЧИНЫ, по которым сделано именно так; текст
