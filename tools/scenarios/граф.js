@@ -3170,6 +3170,16 @@ t.push({имя:"возврат на вкладку пересобирает гр
     t.push({имя:"прогресс: закрытая подзадача считается готовой и остаётся в счёте",
             ок: graph._subTotal && graph._subTotal.get(шот) === 3 && graph._subDone.get(шот) === 1,
             факт: graph._subTotal ? (graph._subDone.get(шот) || 0) + " из " + graph._subTotal.get(шот) : "нет счёта"});
+    /* ПО ВСЕЙ ВЕТКЕ: две задачи под «Звуком» входят и в счёт шота — у проекта с почти пустой
+       глубокой веткой заливка не должна стоять «почти доверху» (КРОЛИК, 03.11.2026) */
+    const р2 = cmdParse(JSON.stringify({ops:[
+      {op:"node", as:"x", kind:"task", title:"ПРГ-Микс"}, {op:"link", from:ит.alias["c"], to:"x"},
+      {op:"node", as:"y", kind:"task", title:"ПРГ-Мастер"}, {op:"link", from:"x", to:"y"}]}));
+    if(!р2.errors.length) cmdApply(р2.ops);
+    graph.build(); graph._drawCanvas(); await ж(100);
+    t.push({имя:"прогресс: считается по всей ветке, а не по прямым детям",
+            ок: graph._subTotal.get(шот) === 5 && graph._subDone.get(шот) === 1,
+            факт: (graph._subDone.get(шот) || 0) + " из " + graph._subTotal.get(шот)});
   }
   S.items.filter(x => /^ПРГ-/.test(x.title || "")).forEach(x => hardDeleteItem(x.id));
   S.settings.graphRender = рендерБыл; recomputeHierarchy(); render(); await ж(120);
