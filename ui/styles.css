@@ -1,7 +1,19 @@
 ﻿:root{
-  --bg:#000; --surf:#0c0c0e; --surf2:#161618; --surf3:#1f1f22;
-  --bd:rgba(255,255,255,.13); --bd2:rgba(255,255,255,.26); --bd3:rgba(255,255,255,.40);
-  --tx:#f4f4f5; --mut:#86868c; --mut2:#5b5b61;
+  /* СТИЛЬ A «СЛОИ» (аудит 2.1, шаг 3.1; эталон — demo_холст.html). Глубина держится ТОНОМ, а не
+     линией: фон → холст и панель → контрол → наведение, каждый слой светлее предыдущего. Отсюда
+     базовая рамка --bd вдвое тише прежней — она остаётся там, где несёт смысл (поле ввода,
+     граница окна), а не на каждом блоке. --bd2/--bd3 НЕ трогаем: ими граф рисует связи
+     (_palette: «связь», «тусклая»), и смена вида графа — отдельный шаг 3.4.
+     --mut2 поднят до контраста 4.5:1: прежний #5b5b61 давал 3.1:1, подписи им не читались. */
+  --bg:#060607; --surf:#0e0e11; --surf2:#17171b; --surf3:#212126;
+  --bd:rgba(255,255,255,.075); --bd2:rgba(255,255,255,.26); --bd3:rgba(255,255,255,.40);
+  --tx:#f4f4f5; --mut:#9a9aa3; --mut2:#7a7a83;
+  /* слои по смыслу: l1 — холст и полоса, l2 — панели и окна, l3 — контролы, l4 — наведение */
+  --l1:var(--surf); --l2:#121216; --l3:var(--surf2); --l4:var(--surf3);
+  /* шкалы: в ходу было 20 размеров шрифта и 14 скруглений — новое берётся отсюда */
+  --fs-xs:11px; --fs-s:12px; --fs-m:13px; --fs-l:15px; --fs-xl:19px; --fs-xxl:22px;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px;
+  --lift:0 18px 50px rgba(0,0,0,.45);         /* подъём панели над холстом — вместо рамки */
   --acc:#ffffff; --warn:#e0625a;
   --pri1:#5fb98e; --pri2:#e8a14b; --pri3:#e0625a;
   --glow:rgba(255,255,255,.30);
@@ -21,14 +33,20 @@
   /* тень окон и меню: в тёмной теме густая, в светлой — мягкая, иначе на белом фоне
      вокруг каждой модалки лежит грязное чёрное пятно вместо подъёма над плоскостью */
   --sh:rgba(0,0,0,.55); --sh-strong:rgba(0,0,0,.6);
-  --r-s:8px; --r-m:11px; --r-l:14px;
+  --r-s:8px; --r-m:11px; --r-l:16px;
   --tbh:40px;
   --font:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;
 }
 .light{
-  --bg:#ffffff; --surf:#fafafa; --surf2:#f0f0f0; --surf3:#e7e7e7;
-  --bd:rgba(0,0,0,.12); --bd2:rgba(0,0,0,.24); --bd3:rgba(0,0,0,.40);
-  --tx:#111114; --mut:#666; --mut2:#9a9a9f;
+  /* те же слои в светлой теме: фон чуть серее, панель белая и поднята тенью, контролы темнее
+     панели — на белом «светлее» значит «ближе к фону», поэтому лестница идёт вниз по тону */
+  --bg:#f3f3f5; --surf:#fafafb; --surf2:#ededf0; --surf3:#e3e3e8;
+  --bd:rgba(0,0,0,.08); --bd2:rgba(0,0,0,.24); --bd3:rgba(0,0,0,.40);
+  --tx:#111114; --mut:#5f5f66; --mut2:#76767d;
+  /* слои ОБЪЯВЛЕНЫ ЗАНОВО, а не унаследованы: .light висит на body, а var() в :root вычисляется
+     там же, на html, — по тёмным --surf. Без повтора светлая тема получила бы тёмные контролы. */
+  --l1:var(--surf); --l2:#ffffff; --l3:var(--surf2); --l4:var(--surf3);
+  --lift:0 14px 40px rgba(0,0,0,.08);
   --acc:#000; --warn:#cc4b43;
   --pri1:#3f9e72; --pri2:#c8821f; --pri3:#cc4b43;
   --glow:rgba(0,0,0,.18);
@@ -80,7 +98,7 @@ select option{background:var(--surf2);color:var(--tx);}
 .winbtn.close:hover{background:var(--warn);color:#fff;}
 
 /* ===== top bar (capture) ===== */
-#topbar{display:flex;align-items:center;gap:12px;padding:8px 16px;border-bottom:0.5px solid var(--bd);}
+#topbar{display:flex;align-items:center;gap:12px;padding:8px 16px;}   /* без нижней линии: строку от холста отделяет тон холста (стиль A) */
 /* ПРОБА 3.0 (PLANNER_NOTITLE=1, класс ставит app.py): нативной полосы нет, заголовок окна —
    пустое место верхней строки. app-region: drag здесь НАРОЧНО не стоит: область с ним перестаёт
    получать мышь в JS, а таскает окно не она, а win_startdrag (см. wireNoTitleDrag в main.js). */
@@ -89,7 +107,7 @@ select option{background:var(--surf2);color:var(--tx);}
    выглядит пустым, а курсор всё равно у центра. Ограничиваем и центрируем. */
 #cap-wrap{position:relative;flex:1;max-width:960px;margin:0 auto;}
 #cap-wrap .ti-feather{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--mut);font-size:17px;pointer-events:none;}
-#cap{width:100%;height:40px;padding:0 14px 0 38px;background:var(--surf2);border:0.5px solid var(--bd);border-radius:10px;font-size:14px;outline:none;transition:.15s;}
+#cap{width:100%;height:40px;padding:0 14px 0 38px;background:var(--l2);border:0.5px solid var(--bd);border-radius:var(--r-m);font-size:14px;outline:none;transition:.15s;}
 #cap:focus{border-color:var(--bd3);box-shadow:0 0 0 3px var(--surf3),0 0 16px var(--glow);}
 #cap::placeholder{color:var(--mut2);}
 .kbd{font-size:11px;color:var(--mut);border:0.5px solid var(--bd);border-radius:6px;padding:3px 7px;white-space:nowrap;}
@@ -98,7 +116,7 @@ select option{background:var(--surf2);color:var(--tx);}
 /* ===== layout ===== */
 #app{display:flex;flex-direction:column;height:100vh;}
 #body{display:flex;flex:1;min-height:0;}
-#side{width:188px;flex:none;border-right:0.5px solid var(--bd);display:flex;flex-direction:column;padding:12px 10px;gap:3px;overflow-y:auto;}
+#side{width:188px;flex:none;display:flex;flex-direction:column;padding:12px 10px;gap:3px;overflow-y:auto;}
 
 /* ===== узкая полоса слева =====
    Панель по умолчанию свёрнута в полосу иконок: рабочего места мало, а список видов
@@ -143,7 +161,9 @@ select option{background:var(--surf2);color:var(--tx);}
 #side.side-off .side-toggle{width:20px;height:44px;}
 .navi{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:9px;font-size:13.5px;color:var(--mut);width:100%;text-align:left;transition:.12s;}
 .navi:hover{background:var(--surf2);color:var(--tx);}
-.navi.on{background:var(--acc);color:var(--bg);box-shadow:0 0 18px var(--glow);}
+/* стиль A: активный вид — тоном l3 и полоской акцента слева, а не белой заливкой с ореолом:
+   белый квадрат в полосе был самым ярким пятном экрана и тянул глаз мимо графа */
+.navi.on{background:var(--l3);color:var(--tx);box-shadow:inset 3px 0 0 var(--acc);}
 .navi i{font-size:17px;width:19px;text-align:center;}
 .navi .badge{margin-left:auto;font-size:11px;background:var(--bd2);color:var(--tx);min-width:20px;text-align:center;padding:1px 6px;border-radius:20px;}
 .navi.on .badge{background:var(--bg);color:var(--tx);opacity:.85;}
@@ -216,8 +236,8 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 /* min-width:0 обязателен: четыре кнопки по 40 px с зазорами не влезают в развёрнутую полосу
    188 px, и «Настройки» — последняя — обрезалась её краем, заодно включая горизонтальную
    прокрутку у всего списка областей. */
-.foot-btn{flex:1;height:40px;min-width:0;background:var(--surf2);border:0.5px solid var(--bd);border-radius:9px;color:var(--mut);font-size:18px;display:flex;align-items:center;justify-content:center;transition:.12s;}
-.foot-btn:hover{color:var(--tx);border-color:var(--bd2);}
+.foot-btn{flex:1;height:40px;min-width:0;background:transparent;border:0.5px solid transparent;border-radius:var(--r-m);color:var(--mut);font-size:18px;display:flex;align-items:center;justify-content:center;transition:.12s;}
+.foot-btn:hover{color:var(--tx);background:var(--l3);}
 .spin i{animation:footSpin .8s linear infinite;}
 #toast i.spinning{animation:footSpin .8s linear infinite;}   /* «Отправляю…»: статичный глиф читается как зависон */
 @keyframes footSpin{to{transform:rotate(360deg);}}
@@ -229,8 +249,10 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
    заголовок — вид и так виден по подсвеченному значку слева, и повторять его словом незачем.
    head() в views.js по-прежнему принимает название: вызовы менять не стали, оно игнорируется. */
 .head-actions{display:flex;gap:8px;}
-.btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border:0.5px solid var(--bd2);border-radius:9px;font-size:13px;color:var(--tx);transition:.12s;background:var(--surf);white-space:nowrap;flex:0 0 auto;}
-.btn:hover{border-color:var(--bd3);background:var(--surf2);box-shadow:0 0 14px var(--glow);}
+/* Кнопка — слой l3 поверх панели, без заметной обводки: в стиле A контрол выделяется тоном,
+   наведение — следующим слоем, а не белым ореолом (он спорил со свечением нод на графе). */
+.btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border:0.5px solid var(--bd);border-radius:var(--r-s);font-size:13px;color:var(--tx);transition:.12s;background:var(--l3);white-space:nowrap;flex:0 0 auto;}
+.btn:hover{border-color:var(--bd2);background:var(--l4);}
 .btn i{font-size:16px;}
 .btn.primary{background:var(--acc);color:var(--bg);border-color:var(--acc);}
 .btn.primary:hover{box-shadow:0 0 20px var(--glow);}
@@ -248,8 +270,10 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 #splitter.drag:before{background:var(--acc);height:72px;box-shadow:0 0 16px var(--glow);}
 /* Правая часть — отдельная карточка, как холст графа слева: тогда две половины читаются
    как две панели приложения, а не как одно полотно, разрезанное линией. */
-#aside{flex:none;width:420px;min-width:0;overflow-y:auto;margin:0 18px 20px 0;padding:8px 16px 18px;
-  border:0.5px solid var(--bd);border-radius:var(--r-l);background:var(--surf);}
+/* Стиль A: панель — слой l2, поднятый тенью над холстом, а обводка лишь намёком (inset), чтобы
+   на светлой теме белая карточка не сливалась с белым холстом. */
+#aside{flex:none;width:420px;min-width:0;overflow-y:auto;margin:0 18px 20px 0;padding:10px 18px 18px;
+  border:0;border-radius:var(--r-l);background:var(--l2);box-shadow:inset 0 0 0 0.5px var(--bd),var(--lift);}
 #aside.off,#splitter.off{display:none;}
 /* карточка выбранного элемента */
 .as-head{display:flex;align-items:flex-start;gap:8px;padding:10px 2px 12px;min-width:0;}
@@ -540,8 +564,9 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
    заканчивалась выше правой, которая тянется до низа. Отдаём остаток колонки флексом —
    тогда обе половины кончаются на одной линии при любом размере окна. */
 #view:has(#graph-wrap){display:flex;flex-direction:column;overflow:hidden;padding-top:0;padding-bottom:20px;}
-#graph-wrap{flex:1;min-height:320px;position:relative;border:0.5px solid var(--bd);border-radius:var(--r-l);overflow:hidden;
-  background:var(--surf);}
+/* холст — слой l1 под панелью; обводка — тот же намёк, что у панели (стиль A) */
+#graph-wrap{flex:1;min-height:320px;position:relative;border:0;border-radius:var(--r-l);overflow:hidden;
+  background:var(--l1);box-shadow:inset 0 0 0 0.5px var(--bd);}
 .graph-bg-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;display:block;}
 .graph-glow-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;display:block;}   /* цветная подсветка «в работе» — между фоном и нодами */
 /* Холст самого графа (режим «canvas» в настройках). Лежит НАД свечением и ПОД <svg>: svg в этом
@@ -697,7 +722,11 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
    (920x640) под граф остаётся 236px, и кнопка «…» уезжала под панель (замер 08.09.2026:
    тулбар 249 при холсте 236, выход 26px). max-width держит тулбар внутри холста, wrap
    переносит лишние кнопки на вторую строку. Пока места хватает, ничего не меняется. */
-.graph-toolbar{position:absolute;top:12px;left:12px;display:flex;flex-wrap:wrap;gap:7px;max-width:calc(100% - 24px);z-index:5;}
+/* стиль A: тулбар — один островок слоя l2, кнопки внутри без обводок (тон наведения — l4) */
+.graph-toolbar{position:absolute;top:12px;left:12px;display:flex;flex-wrap:wrap;align-items:center;gap:2px;max-width:calc(100% - 24px);z-index:5;
+  padding:4px;border-radius:var(--r-m);background:var(--l2);box-shadow:inset 0 0 0 0.5px var(--bd),0 8px 24px var(--sh);}
+.graph-toolbar .btn.ghost{border-color:transparent;height:30px;padding:0 9px;}
+.graph-toolbar .btn.ghost:hover{background:var(--l4);}
 /* Тумблер в тулбаре («Держать раскладку»): подписи рядом нет и ставить её негде,
    поэтому включённое состояние обязано читаться по самой кнопке — заливкой акцентом. */
 .graph-toolbar .btn.on{background:var(--acc);color:var(--bg);border-color:var(--acc);}
@@ -717,7 +746,7 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .g-crumb.on{color:var(--tx);cursor:default;}
 .g-crumb.on i{color:var(--acc);}
 .g-crumb-sep{font-size:11px;color:var(--mut2);flex:none;}
-.graph-more{position:absolute;top:54px;left:12px;z-index:7;display:flex;flex-direction:column;gap:2px;background:var(--surf2);border:0.5px solid var(--bd2);border-radius:10px;padding:6px;box-shadow:0 10px 30px var(--sh),0 0 18px var(--glow);}
+.graph-more{position:absolute;top:54px;left:12px;z-index:7;display:flex;flex-direction:column;gap:2px;background:var(--l2);border:0.5px solid var(--bd);border-radius:var(--r-m);padding:6px;box-shadow:var(--lift);}
 .gm-it{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:7px;font-size:13px;color:var(--tx);width:100%;text-align:left;white-space:nowrap;}
 .gm-it i{font-size:16px;color:var(--mut);}
 .gm-it:hover{background:var(--surf3);}
@@ -863,8 +892,8 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
    место (right сдвинут), иначе они наложились бы. */
 .graph-ai{position:absolute;top:12px;right:12px;z-index:6;width:34px;height:34px;border-radius:9px;
   display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--mut);
-  background:var(--surf2);border:0.5px solid var(--bd);}
-.graph-ai:hover{color:var(--tx);border-color:var(--bd2);box-shadow:0 0 14px var(--glow);}
+  background:var(--l2);border:0.5px solid var(--bd);box-shadow:0 8px 24px var(--sh);}
+.graph-ai:hover{color:var(--tx);background:var(--l4);}
 .graph-hint{position:absolute;top:56px;right:12px;font-size:11px;color:var(--mut);background:var(--surf2);border:0.5px solid var(--bd);border-radius:8px;padding:6px 26px 6px 10px;z-index:5;max-width:230px;line-height:1.5;}
 .graph-hint.off{display:none;}
 #g-hint-x{position:absolute;top:4px;right:4px;width:18px;height:18px;border-radius:5px;display:flex;
@@ -894,7 +923,7 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 .rep-acts #rep-close{margin-left:auto;}
 
 /* node popover */
-#node-pop{position:absolute;z-index:20;width:288px;background:var(--surf2);border:0.5px solid var(--bd2);border-radius:var(--r-m);box-shadow:0 8px 30px var(--sh),0 0 20px var(--glow);padding:12px;}
+#node-pop{position:absolute;z-index:20;width:288px;background:var(--l2);border:0.5px solid var(--bd);border-radius:var(--r-m);box-shadow:var(--lift);padding:12px;}
 #node-pop .swatch{width:24px;height:24px;}
 #node-pop .np-ttl{font-size:13.5px;font-weight:500;line-height:1.35;margin-bottom:6px;}
 #node-pop .np-meta{font-size:11px;color:var(--mut);margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
@@ -968,7 +997,7 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 /* ===== modal ===== */
 .overlay{position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:100;}
 .light .overlay{background:rgba(0,0,0,.30);}
-.modal{width:520px;max-width:92vw;max-height:88vh;overflow-y:auto;background:var(--surf);border:0.5px solid var(--bd2);border-radius:var(--r-l);box-shadow:0 20px 60px var(--sh-strong),0 0 30px var(--glow);padding:20px;}
+.modal{width:520px;max-width:92vw;max-height:88vh;overflow-y:auto;background:var(--l2);border:0.5px solid var(--bd);border-radius:var(--r-l);box-shadow:0 24px 70px var(--sh-strong);padding:20px;}
 /* Заголовок окна несёт название ноды, а оно бывает без пробелов: без переноса длинное слово
    вылезало за окно и включало в нём горизонтальную прокрутку. */
 .modal h3{font-size:16px;font-weight:500;margin-bottom:16px;display:flex;align-items:center;gap:9px;
@@ -1306,7 +1335,7 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 @keyframes tourPulse{0%,100%{box-shadow:0 0 0 2px var(--acc),0 0 14px var(--glow);}
                      50%{box-shadow:0 0 0 3px var(--acc),0 0 26px var(--glow);}}
 /* ===== toast ===== */
-#toast{position:absolute;bottom:18px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--surf3);border:0.5px solid var(--bd2);border-radius:10px;padding:10px 18px;font-size:13px;opacity:0;transition:.25s;z-index:300;box-shadow:0 0 20px var(--glow);pointer-events:none;}
+#toast{position:absolute;bottom:18px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--l4);border:0.5px solid var(--bd);border-radius:var(--r-m);padding:10px 18px;font-size:13px;opacity:0;transition:.25s;z-index:300;box-shadow:var(--lift);pointer-events:none;}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
 /* ========================================================================
