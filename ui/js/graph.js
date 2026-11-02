@@ -5398,15 +5398,21 @@ class Graph{
       ctx.globalAlpha=1;
       if(течение.length){
         this._течёт=true;
-        ctx.setLineDash([2.5, 13]); ctx.lineDashOffset=-сейчас*0.045;
-        for(const т of течение){ ctx.strokeStyle=т.цвет; ctx.lineWidth=Math.max(1.4, толщ(т.ш)*0.5); ctx.beginPath(); путьСвязи(т.отр); ctx.stroke(); }
+        // шаг штриха и скорость — от толщины и зума: в экранных пикселях при приближении штрихи
+        // раздувались в «бусины», а течение на отдалении неслось быстрее самого графа
+        const ск=Math.max(0.6, Math.min(2.5, z));
+        for(const т of течение){ const шт=Math.max(1.4, толщ(т.ш)*0.5);
+          ctx.setLineDash([шт*0.8, шт*7]); ctx.lineDashOffset=-сейчас*0.04*ск;
+          ctx.strokeStyle=т.цвет; ctx.lineWidth=шт; ctx.beginPath(); путьСвязи(т.отр); ctx.stroke(); }
         ctx.setLineDash([]); ctx.lineDashOffset=0;
       }
       // плотина — вырезаем кусок связи перед нодой «ждёт»: дальше работа не течёт
       if(плотины.length){
         ctx.save(); ctx.globalCompositeOperation="destination-out"; ctx.lineCap="butt";
         for(const п of плотины){
-          const dx=п.bx-п.ax, dy=п.by-п.ay, L=Math.hypot(dx,dy)||1, ux=dx/L, uy=dy/L, от=п.r*1.45+3, до=от+9;
+          /* вырез — от самой ноды наружу: прежний кусок посередине оставлял у ноды огрызок линии,
+             и обрыв читался как сбой отрисовки. Нода рисуется поверх, внутри неё вырез не виден */
+          const dx=п.bx-п.ax, dy=п.by-п.ay, L=Math.hypot(dx,dy)||1, ux=dx/L, uy=dy/L, от=0, до=п.r*1.45+11;
           ctx.lineWidth=толщ(п.ш)+4; ctx.beginPath(); ctx.moveTo(п.bx-ux*до, п.by-uy*до); ctx.lineTo(п.bx-ux*от, п.by-uy*от); ctx.stroke();
         }
         ctx.restore();
@@ -5649,7 +5655,9 @@ class Graph{
     }
     группы.forEach(гр=>{
       ctx.globalAlpha=гр.альфа; ctx.fillStyle=гр.зал; ctx.strokeStyle=гр.обв; ctx.lineWidth=толщ(гр.лw);
-      ctx.setLineDash(гр.пункт?[3.4,2.6]:[]);                         // пунктир — признак «на паузе»
+      /* пунктир — признак «на паузе». Шаг растёт вместе с толщиной линии: в экранных пикселях
+         при приближении штрих становился короче толщины, и пунктир сливался в сплошную (КРОЛИК) */
+      { const шл=толщ(гр.лw); ctx.setLineDash(гр.пункт?[Math.max(3.4, шл*2.4), Math.max(2.6, шл*1.8)]:[]); }
       ctx.beginPath();
       for(let k=0;k<гр.точки.length;k+=3) this._shapePath(ctx, гр.форма, гр.точки[k], гр.точки[k+1], гр.точки[k+2]);
       ctx.fill(); ctx.stroke();
