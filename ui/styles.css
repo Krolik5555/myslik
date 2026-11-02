@@ -2351,3 +2351,6 @@ html.canvas-ui #cv-tr .toggle{background:none;box-shadow:none;padding:0;}
 .as-btn i{font-size:15px;color:var(--mut);}
 .as-btn:hover{background:var(--l4);}
 .as-btn:hover i{color:var(--tx);}
+/* поток работы на холсте (graph.js: _drawMain, проход «ПОТОК»): штрихи течения светлее русла */
+:root{--flow-hi:#ffd9a0;--flow-hot:#ffb0a8;}
+.light{--flow-hi:#9a560f;--flow-hot:#a33a33;}

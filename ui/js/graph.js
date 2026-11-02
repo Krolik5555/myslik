@@ -170,6 +170,9 @@ function renderNotes(v){
     <div class="graph-more" id="g-more-menu" style="display:none">
       <button class="gm-it" id="g-refit"><i class="ti ti-arrows-shuffle"></i>Перераскладка</button>
       <button class="gm-it" id="g-tags"><i class="ti ti-tags"></i>Теги со стилем</button>
+      <!-- поток работы по связям (см. _drawMain, «ПОТОК»): русло и течение выключаются по отдельности -->
+      <button class="gm-it" id="g-flow"><i class="ti ti-ripple"></i>${S.settings.graphFlow===false?"Показать поток работы":"Скрыть поток работы"}</button>
+      <button class="gm-it" id="g-flow-anim"${S.settings.graphFlow===false?' style="display:none"':""}><i class="ti ti-player-${S.settings.graphFlowAnim===false?"play":"pause"}"></i>${S.settings.graphFlowAnim===false?"Включить течение":"Остановить течение"}</button>
       <button class="gm-it" id="g-hint-on"><i class="ti ti-help-circle"></i>Показать подсказку</button>
       <!-- Тур показывается сам ОДИН раз после обновления. Отсюда его можно открыть снова:
            иначе посмотреть второй раз можно было только правкой файла данных.
@@ -261,6 +264,13 @@ function renderNotes(v){
     S.settings.graphFps=!S.settings.graphFps; persist();
     $("#g-fps-on").innerHTML='<i class="ti ti-activity"></i>'+(S.settings.graphFps?"Скрыть счётчик кадров":"Счётчик кадров");
     graph._wake(); graph._tick(true); };
+  // поток работы: русло целиком и отдельно течение (анимация — единственное, что стоит кадров)
+  const потокПодписи=()=>{ const ф=$("#g-flow"), а=$("#g-flow-anim");
+    if(ф) ф.innerHTML='<i class="ti ti-ripple"></i>'+(S.settings.graphFlow===false?"Показать поток работы":"Скрыть поток работы");
+    if(а){ а.style.display=S.settings.graphFlow===false?"none":"";
+      а.innerHTML='<i class="ti ti-player-'+(S.settings.graphFlowAnim===false?"play":"pause")+'"></i>'+(S.settings.graphFlowAnim===false?"Включить течение":"Остановить течение"); } };
+  if($("#g-flow")) $("#g-flow").onclick=()=>{ closeMore(); S.settings.graphFlow=S.settings.graphFlow===false; persist(); потокПодписи(); graph._wake(); graph._tick(true); };
+  if($("#g-flow-anim")) $("#g-flow-anim").onclick=()=>{ closeMore(); S.settings.graphFlowAnim=S.settings.graphFlowAnim===false; persist(); потокПодписи(); graph._wake(); graph._tick(true); };
   wireNotesToggle();
 }
 // каретка-сворачиватель для узла, у которого есть дочерние (в наборе паутины)
@@ -786,6 +796,26 @@ class Graph{
     п.onmouseleave=()=>{ this._hovId=null; this._wake(); };
     // колесо и жесты над панелью — её собственные, граф под ней не крутится
     п.onwheel=e=>e.stopPropagation(); п.onmousedown=e=>e.stopPropagation();
+  }
+  /* ПОТОК РАБОТЫ (аудит 2.1, «Поток 2.0» из demo_статусы-A.html, выбор КРОЛИКА 03.11.2026).
+     Граф читается как речная система: связь — русло, по которому идёт работа. Здесь — счёт
+     «ниже по течению» для каждой ноды: сколько незакрытых задач в её ветке, есть ли там работа
+     и просрочка. Раз на сборку, а не в кадре: статус меняют через build(). Задача засчитывается
+     себе и всем предкам по ref.parent (подъём ограничен — битый parent может замкнуться). */
+  _flowStats(){
+    const по=this.byId; let макс=1;
+    this.nodes.forEach(n=>{ n._поток=null; });
+    const стат=n=>n._поток||(n._поток={open:0, doing:false, over:false});
+    this.nodes.forEach(c=>{
+      if(!c.ref || c.type==="hub") return;
+      const открыта=kindIsTask(c.type) && !c.done && c.ref.status!=="done" && !c.archived;
+      const идёт=!!c.doing && !c.archived, горит=открыта && c.дней!=null && c.дней<0;
+      const добавить=у=>{ if(открыта) у.open++; if(идёт) у.doing=true; if(горит) у.over=true; };
+      добавить(стат(c));
+      for(let p=c.ref.parent, k=0; p && по[p] && k<40; k++){ добавить(стат(по[p])); const у=по[p]; p=у.ref && у.ref.parent; }
+    });
+    this.nodes.forEach(n=>{ if(n._поток && n._поток.open>макс) макс=n._поток.open; });
+    this._flowMax=макс;
   }
   heatNext(){
     const m=this._горящие; if(!m||!m.length) return;
@@ -1399,6 +1429,7 @@ class Graph{
     });
     this._heatPanel();
     { const лг=$("#graph-wrap .graph-legend"); if(лг) лг.innerHTML=graphLegendHtml(); }   // счёт живёт вместе с графом
+    this._flowStats();
 
     while(this.svg.firstChild) this.svg.removeChild(this.svg.firstChild);
     this.root=document.createElementNS(NS,"g"); this.svg.appendChild(this.root);
@@ -4079,7 +4110,12 @@ class Graph{
     const busy=this.drag||this.connectDrag||this.panning||this.marq||this.linkFrom||this._zoomTo!=null;
     // см. КАМЕРА_ОСТЫВАНИЕ_МС: короткая пауза между рывками пана — ещё не повод падать в покой
     const камОстывает=this._камОстылоДо && performance.now()<this._камОстылоДо;
-    if(!force && this.alpha===0 && !camMoving && !busy && !камОстывает && !this._hovId && !this._навЕдет){
+    /* ТЕЧЕНИЕ ПОТОКА — тоже движение: пока в кадре есть связи к работе и анимация включена, граф
+       в покой не уходит, но и не гонит кадры с частотой монитора — штрихам хватает ~30 к/с
+       (см. _потокКадр в конце метода). Окно свёрнуто — не течёт. */
+    const течёт = this._течёт && S.settings.graphFlow!==false && S.settings.graphFlowAnim!==false && !document.hidden;
+    this._потокКадр = течёт && this.alpha===0 && !camMoving && !busy && !this._hovId && !this._навЕдет;
+    if(!force && this.alpha===0 && !camMoving && !busy && !камОстывает && !this._hovId && !this._навЕдет && !течёт){
       // то же условие, что у AMP ниже: дышат ноды или нет — от этого зависит, нужен ли полный кадр
       const дышат = !(this.nodes.length>350) && (S.settings.graphDrift!=null?S.settings.graphDrift:4)>0;
       /* «Дуги едут» держит полную частоту ТОЛЬКО на недышащем дереве. Пока ноды дышат, цели
@@ -4905,7 +4941,7 @@ class Graph{
     if(this.alpha===0 && this._needFit){ this._needFit=false; this._fitView(); }
     // авто-раскладка остыла после активности → сохраняем позиции один раз, чтобы следующее открытие было статичным
     if(this.alpha===0) this.flushLayout();
-    this._schedule(this._покойКадр?ПОКОЙ_МС:0);
+    this._schedule(this._покойКадр?ПОКОЙ_МС:(this._потокКадр?33:0));
   }
   /* ПАЛИТРА ИЗ CSS. Цвета узлов и связей заданы в styles.css и меняются вместе с темой, поэтому
      на холсте берём их оттуда же, а не зашиваем числами: иначе светлая тема осталась бы тёмной.
@@ -4943,6 +4979,8 @@ class Graph{
                завтра:в("--tm-near","#d8b04a"), сегодня:в("--tm-today","#e0873c"), просрочка:в("--tm-over","#e0625a")},
       // жар срочности: не зелёный вовсе — «горит или нет», спокойного состояния у него нет
       жар:    [в("--ur1","#b9a06a"), в("--ur2","#d98b46"), в("--ur3","#e0625a")],
+      // поток работы (_drawMain): русло к работе — акцентом, штрихи течения — светлее него
+      акцент: в("--accent","#e8a14b"), акцентСвет:в("--flow-hi","#ffd9a0"), жарСвет:в("--flow-hot","#ffb0a8"),
     };
     return this._пал;
   }
@@ -5319,6 +5357,60 @@ class Graph{
         ctx.stroke();
       }
       ctx.restore();
+    }
+    /* ПОТОК РАБОТЫ ПО СВЯЗЯМ («Поток 2.0», см. _flowStats). Поверх обычных связей, под нодами:
+       • РУСЛО — полупрозрачная полоса, тем шире, чем больше незакрытой работы ниже по ветке
+         (корень от √ доли, чтобы ствол не съедал экран); закрытая ветка русла не имеет — «пересохла»;
+       • цвет русла — что ниже: работа — акцент, просрочка — красный, иначе цвет самой связи;
+       • ТЕЧЕНИЕ — к работе и к просрочке бегут светлые штрихи от родителя к ребёнку (сдвиг
+         пунктира по часам кадра, без новых проходов);
+       • ПЛОТИНА — у ноды «ждёт» связь обрывается перед ней: кусок линии вырезается.
+       Пакетами по цвету и ширине — на сотнях связей это десяток stroke, а не сотни.
+       Выключается в меню «…» (S.settings.graphFlow), течение — отдельно (graphFlowAnim). */
+    this._течёт=false;
+    if(S.settings.graphFlow!==false && this._flowMax){
+      const пачки=new Map(), течение=[], плотины=[], макс=this._flowMax;
+      const сейчас=performance.now(), анимация=S.settings.graphFlowAnim!==false;
+      for(let i=0;i<this.links.length;i++){
+        const l=this.links[i], a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) continue;
+        // ребёнок — тот конец, чей родитель другой конец (или кто держится за хаб области)
+        const реб = (a.ref && a.ref.parent===l.b) || b.type==="hub" ? a : (b.ref && b.ref.parent===l.a) || a.type==="hub" ? b : null;
+        if(!реб || !реб._поток) continue;
+        const род = реб===a ? b : a, ст=реб._поток;
+        if(реб.archived || реб.paused || !ст.open) continue;
+        const ax=эx(род), ay=эy(род), bx=эx(реб), by=эy(реб);
+        if((ax<вид.x1&&bx<вид.x1)||(ax>вид.x2&&bx>вид.x2)||(ay<вид.y1&&by<вид.y1)||(ay>вид.y2&&by>вид.y2)) continue;
+        const ш=Math.round((1.2+4.6*Math.sqrt(ст.open/макс))*2)/2;     // шаг 0.5 px — иначе пачек столько же, сколько связей
+        const цвет=ст.doing ? пал.акцент : ст.over ? пал.время.просрочка : цветКонца(реб);
+        const ключ=цвет+"|"+ш+"|"+(ст.doing||ст.over?1:0);
+        let п=пачки.get(ключ); if(!п){ п={цвет, ш, ярко:ст.doing||ст.over, отр:[]}; пачки.set(ключ, п); }
+        const bd=l._bendC, отр=[ax,ay,bx,by, bd?bd.t:0, bd?bd.ox:0, bd?bd.oy:0];
+        п.отр.push(отр);
+        if(анимация && (ст.doing||ст.over)) течение.push({отр, цвет:ст.doing?пал.акцентСвет:пал.жарСвет, ш});
+        if(реб.waiting && !ст.doing) плотины.push({ax, ay, bx, by, r:реб.r*z*(1+0.18*(реб._нав||0)), ш});
+      }
+      ctx.lineCap="round";
+      пачки.forEach(п=>{
+        ctx.globalAlpha=п.ярко?0.3:0.16; ctx.strokeStyle=п.цвет; ctx.lineWidth=толщ(п.ш)+0.5; ctx.beginPath();
+        for(const о of п.отр) путьСвязи(о);
+        ctx.stroke();
+      });
+      ctx.globalAlpha=1;
+      if(течение.length){
+        this._течёт=true;
+        ctx.setLineDash([2.5, 13]); ctx.lineDashOffset=-сейчас*0.045;
+        for(const т of течение){ ctx.strokeStyle=т.цвет; ctx.lineWidth=Math.max(1.4, толщ(т.ш)*0.5); ctx.beginPath(); путьСвязи(т.отр); ctx.stroke(); }
+        ctx.setLineDash([]); ctx.lineDashOffset=0;
+      }
+      // плотина — вырезаем кусок связи перед нодой «ждёт»: дальше работа не течёт
+      if(плотины.length){
+        ctx.save(); ctx.globalCompositeOperation="destination-out"; ctx.lineCap="butt";
+        for(const п of плотины){
+          const dx=п.bx-п.ax, dy=п.by-п.ay, L=Math.hypot(dx,dy)||1, ux=dx/L, uy=dy/L, от=п.r*1.45+3, до=от+9;
+          ctx.lineWidth=толщ(п.ш)+4; ctx.beginPath(); ctx.moveTo(п.bx-ux*до, п.by-uy*до); ctx.lineTo(п.bx-ux*от, п.by-uy*от); ctx.stroke();
+        }
+        ctx.restore();
+      }
     }
     /* ПУТЬ К ВЫБРАННОЙ НОДЕ (стиль A, аудит 2.1, шаг 3.4): от неё вверх по дереву до области — её
        цветом, поверх остальных связей. На большом графе «где эта нода живёт» иначе приходилось
