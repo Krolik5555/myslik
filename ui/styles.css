@@ -1983,7 +1983,7 @@ html.canvas-ui #view{padding:64px 22px 20px 72px;}
 html.canvas-ui #view:has(#graph-wrap){padding:0;}
 html.canvas-ui #graph-wrap{border-radius:0;box-shadow:none;}
 /* панель — плавающая карточка ниже правого островка; закрыть её = свернуть в язычок (#cv-tab) */
-html.canvas-ui #aside{margin:64px 12px 12px 0;}
+html.canvas-ui #aside-wrap{margin:64px 12px 12px 0;}
 html.canvas-ui #splitter{margin-top:64px;}
 /* полоса слева сжата до столбика ОБЛАСТЕЙ посередине: графы ушли в переключатель, кнопки
    файла и настроек — в меню логотипа. Сами списки те же, их рисует renderNav. */
@@ -2276,7 +2276,9 @@ html.canvas-ui #cv-tr .toggle{background:none;box-shadow:none;padding:0;}
 /* шапка: тёплый отсвет цветом ноды из левого верхнего угла, плитка 38 px её цветом */
 /* отсвет — фоном самой шапки, растянутой на поля панели отрицательным отступом: псевдоэлемент
    за её краями линейка вёрстки законно считала вылезанием */
-.as-head{margin:-16px -18px 0;padding:16px 18px 4px;border-radius:var(--r-l) var(--r-l) 0 0;
+/* растянута на поля панели ОБЁРТКА шапки (.as-blk-head, см. asideBlocks), а не сама шапка: внутри
+   обёртки шапка с отрицательными полями была бы шире своего родителя */
+.as-blk-head{margin:-16px -18px 0;padding:16px 18px 0;border-radius:var(--r-l) var(--r-l) 0 0;
   background:radial-gradient(80% 130px at 12% 0%,color-mix(in srgb,var(--c,var(--accent)) 15%,transparent),transparent 70%);}
 .as-tile{width:38px;height:38px;border-radius:11px;font-size:19px;}
 /* чипы-сводка под названием */
@@ -2356,8 +2358,7 @@ html.canvas-ui #cv-tr .toggle{background:none;box-shadow:none;padding:0;}
 .light{--flow-hi:#9a560f;--flow-hot:#a33a33;}
 /* ФОН ХОЛСТА «чистый тон» (вид по умолчанию, graph.js: _bgKind) — глубокий тон с мягкой виньеткой,
    чуть светлее в центре внимания. Остальные виды фона рисуются поверх этого же тона. */
-#graph-wrap{background:radial-gradient(120% 95% at 50% 42%,#16161b 0%,#0c0c0f 55%,#050506 100%);}
-.light #graph-wrap{background:radial-gradient(120% 95% at 50% 42%,#ffffff 0%,#f4f4f6 60%,#e9e9ee 100%);}
+/* виньетка холста — в блоке «ЦВЕТОВЫЕ ТЕМЫ» ниже: из токенов темы плюс отсвет её цветов по углам */
 .seg-wrap{flex-wrap:wrap;}
 /* штрихи течения — почти белые с оттенком (на тёмной подложке, см. graph.js) */
 :root{--flow-hi:#fff4e2;--flow-hot:#ffe2de;}
@@ -2365,3 +2366,131 @@ html.canvas-ui #cv-tr .toggle{background:none;box-shadow:none;padding:0;}
 /* материал «иней» у нод «ждёт» (graph.js, проход «ФАКТУРЫ МАТЕРИАЛА») */
 :root{--frost:rgba(188,212,240,.55);}
 .light{--frost:rgba(60,95,140,.45);}
+
+/* ========================================================================
+   ЦВЕТОВЫЕ ТЕМЫ (PALETTES в core.js, КРОЛИК 03.11.2026): «не фул цвет приложения, а комбинация —
+   фон одного цвета, обводка другого». Вторая попытка: первая красила ПОВЕРХНОСТИ в цвет темы, и
+   всё читалось «как под зелёным фильтром». Теперь поверхности почти нейтральные — у темы только
+   ТЕМПЕРАТУРА тона у поверхностей панелей (сдвиг на 1–2 единицы канала), холст нейтральный, а
+   характер несут две вещи:
+   • кромка двумя цветами (--hue-a сверху-слева, --hue-b снизу-справа) по контуру панелей и островков;
+   • главная кнопка — переливом тех же двух цветов (--btn-a/--btn-b).
+   Отсвет цветами темы по углам холста пробовали — на графе он читался фильтром, снят.
+   Объявлено на body, как и .light: var() в :root вычисляется на html, поэтому слои --l1…--l4
+   заданы заново в каждой теме — иначе они остались бы от графита.
+   ======================================================================== */
+:root{--hue-a:#ffffff;--hue-b:#e8a14b;--edge-ka:34%;--edge-kb:46%;}
+.light{--hue-a:#111114;--hue-b:#c8822a;--edge-ka:26%;--edge-kb:55%;}
+/* тёмные темы: страница и холст НЕЙТРАЛЬНЫЕ (графитовые), тон темы — только у поверхностей панелей и
+   еле заметный; вся окраска в кромке и кнопке. Подкрашенный холст и отсвет по углам читались как
+   зелёный фильтр поверх графа (КРОЛИК, 03.11.2026, дважды) */
+body.pal-midnight,body.pal-moss,body.pal-plum,body.pal-espresso,body.pal-dusk{--edge-ka:80%;--edge-kb:72%;
+  --bg:#060607;--l1:var(--surf);--l3:var(--surf2);--l4:var(--surf3);--cv1:#16161b;--cv2:#0c0c0f;--cv3:#050506;}
+body.light.pal-paper,body.light.pal-frost{--edge-ka:70%;--edge-kb:62%;--l1:var(--surf);--l3:var(--surf2);--l4:var(--surf3);--btn-tx:#ffffff;}
+body.pal-midnight{--surf:#0e0f12;--surf2:#16181c;--surf3:#1f2126;--l2:#111216;--tx:#f0f2f5;--mut:#989ba3;--mut2:#7d808a;
+  --hue-a:#5cc8ff;--hue-b:#8b6cff;--btn-a:#7fd6ff;--btn-b:#a48bff;}
+body.pal-moss{--surf:#0f100f;--surf2:#171817;--surf3:#202220;--l2:#121312;--tx:#f1f3f0;--mut:#9a9e98;--mut2:#80847e;
+  --hue-a:#e3c36a;--hue-b:#7fbf73;--btn-a:#ead08a;--btn-b:#9bd08f;}
+body.pal-plum{--surf:#0f0e11;--surf2:#18161b;--surf3:#211f24;--l2:#121114;--tx:#f3f1f5;--mut:#9d99a3;--mut2:#837f8a;
+  --hue-a:#ff7eb6;--hue-b:#ffb36b;--btn-a:#ff9cc8;--btn-b:#ffc58c;}
+body.pal-espresso{--surf:#100f0e;--surf2:#191716;--surf3:#22201e;--l2:#131211;--tx:#f4f2ef;--mut:#a09b96;--mut2:#86817c;
+  --hue-a:#4fd1c5;--hue-b:#e0894d;--btn-a:#7fe0d6;--btn-b:#eba272;}
+body.pal-dusk{--surf:#0e0e12;--surf2:#17171c;--surf3:#202026;--l2:#111115;--tx:#f1f1f4;--mut:#9b9ba5;--mut2:#81818c;
+  --hue-a:#ff8f70;--hue-b:#a99bff;--btn-a:#ffa98f;--btn-b:#bdb2ff;}
+body.light.pal-paper{--bg:#efece6;--surf:#f9f7f3;--surf2:#eeebe5;--surf3:#e4e0d8;--l2:#fcfbf8;--tx:#1f1c18;--mut:#69645c;--mut2:#77716a;
+  --hue-a:#c0582f;--hue-b:#3d4f75;--btn-a:#c0582f;--btn-b:#3d4f75;}
+body.light.pal-frost{--bg:#eef0f3;--surf:#f8f9fb;--surf2:#eceff3;--surf3:#e1e5eb;--l2:#ffffff;--tx:#10141a;--mut:#5d6570;--mut2:#6b737e;
+  --hue-a:#4f46e5;--hue-b:#0891b2;--btn-a:#4f46e5;--btn-b:#0891b2;}
+body{--edge-a:color-mix(in srgb,var(--hue-a) var(--edge-ka),transparent);--edge-b:color-mix(in srgb,var(--hue-b) var(--edge-kb),transparent);}
+/* главная кнопка панели — перелив цветов темы; у графита и светлой это прежняя заливка текстом */
+.as-wide,.as-wide:hover{background:linear-gradient(100deg,var(--btn-a,var(--tx)),var(--btn-b,var(--tx)));color:var(--btn-tx,var(--bg));}
+.as-wide i{color:var(--btn-tx,var(--bg));}
+/* виньетка холста — из токенов (у графита это ровно прежние #16161b → #0c0c0f → #050506); тёмные темы
+   держат её нейтральной своими --cv1…--cv3 */
+#graph-wrap{background:radial-gradient(120% 95% at 50% 42%,var(--cv1,var(--surf2)) 0%,var(--cv2,var(--surf)) 55%,var(--cv3,var(--bg)) 100%);}
+.light #graph-wrap{background:radial-gradient(120% 95% at 50% 42%,var(--l2) 0%,var(--bg) 60%,var(--surf2) 100%);}
+
+/* ---- ГРАДИЕНТНАЯ КРОМКА — контур панели, островков и меню (выбор КРОЛИКА из макета) ----
+   Рамка из маски: псевдоэлемент на весь элемент с отступом в 1 px, середина вырезана. Обычная
+   border-image скругления не понимает, а градиент «через фон» просвечивал бы сквозь стекло.
+   Кромка — СПЛОШНОЙ ПЕРЕЛИВ из одного цвета темы в другой, без провала. Первая версия гасла в
+   середине до прозрачного, вторая — до тонкой серой линии, и в обоих случаях на подкрашенной
+   шапке контур читался оборванным у углов (КРОЛИК, дважды). */
+#aside-wrap::after,.cv-isl::after,html.canvas-ui #side::after,html.canvas-ui .graph-toolbar::after,
+.graph-more::after,.cv-menu::after,.tb-menu::after,#node-pop::after,.dp::after,body.as-cards .as-blk::after{
+  content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;z-index:3;
+  background:linear-gradient(145deg,var(--edge-a),color-mix(in srgb,var(--edge-a) 50%,var(--edge-b)) 50%,var(--edge-b));
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;}
+
+/* ---- обёртка панели: держит кромку, корешок и место; сама #aside прокручивается внутри ---- */
+#aside-wrap{position:relative;flex:none;display:flex;min-width:0;margin:0 18px 20px 0;border-radius:var(--r-l);}
+#aside-wrap > #aside{margin:0;box-shadow:var(--lift);}
+#aside-wrap:has(> #aside.off){display:none;}
+.as-ribbon{display:none;}
+
+/* ---- ОТСВЕТ НОДЫ: панель освещена цветом выбранной ноды, кромка сверху её же цветом,
+   вдоль края к холсту — полоска, в углу шапки — контур её формы (вращается, пока нода в работе) ---- */
+body.as-glow #aside{background:
+  radial-gradient(130% 380px at 0% 0%,color-mix(in srgb,var(--c,var(--accent)) 17%,transparent),transparent 62%),
+  linear-gradient(180deg,color-mix(in srgb,var(--c,var(--accent)) 6%,transparent),transparent 320px),var(--l2);}
+body.as-glow #aside-wrap{--edge-a:color-mix(in srgb,var(--c,var(--accent)) 72%,transparent);}
+body.as-glow #aside-wrap::before{content:"";position:absolute;left:0;top:22px;bottom:22px;width:2px;border-radius:2px;z-index:3;pointer-events:none;
+  background:linear-gradient(180deg,var(--c,var(--accent)),transparent);}
+body.as-glow .as-blk-head{position:relative;overflow:hidden;isolation:isolate;}
+body.as-glow .as-blk-head::after{content:"";position:absolute;right:-46px;top:-46px;width:150px;height:150px;z-index:-1;pointer-events:none;
+  border:2px solid color-mix(in srgb,var(--c,var(--accent)) 48%,transparent);border-radius:20px;transform:rotate(var(--r0,0deg));}
+#aside[data-shape="diamond"]{--r0:45deg;}
+body.as-glow #aside[data-shape="circle"] .as-blk-head::after,body.as-glow #aside[data-shape="hexagon"] .as-blk-head::after{border-radius:50%;}
+body.as-glow #aside[data-st="doing"] .as-blk-head::after{animation:asSpin 12s linear infinite;}
+@keyframes asSpin{from{transform:rotate(var(--r0,0deg))}to{transform:rotate(calc(var(--r0,0deg) + 360deg))}}
+@media (prefers-reduced-motion:reduce){ body.as-glow #aside[data-st="doing"] .as-blk-head::after{animation:none;} }
+
+/* ---- СТЕКЛО: полупрозрачная панель с размытием. В каркасе «холст» панель ложится ПОВЕРХ графа
+   (граф во всю ширину окна), иначе под стеклом был бы только пустой фон страницы ---- */
+body.as-glass #aside{background:color-mix(in srgb,var(--l2) 58%,transparent);backdrop-filter:blur(22px) saturate(1.3);}
+body.as-glass.as-glow #aside{background:
+  radial-gradient(130% 380px at 0% 0%,color-mix(in srgb,var(--c,var(--accent)) 20%,transparent),transparent 62%),
+  linear-gradient(180deg,color-mix(in srgb,var(--c,var(--accent)) 7%,transparent),transparent 320px),
+  color-mix(in srgb,var(--l2) 56%,transparent);}
+body.as-glass .as-foot{background:linear-gradient(to bottom,transparent,color-mix(in srgb,var(--l2) 70%,transparent) 40%);}
+/* только над ГРАФОМ: таблицу и прочие виды стекло накрывало бы, и строки уходили под панель (КРОЛИК) */
+html.canvas-ui body.as-glass #split:has(#graph-wrap){position:relative;}
+html.canvas-ui body.as-glass #split:has(#graph-wrap) > #aside-wrap{position:absolute;right:0;top:0;bottom:0;z-index:20;}
+html.canvas-ui body.as-glass #split:has(#graph-wrap) > #splitter{position:absolute;top:0;bottom:12px;right:calc(var(--asw,440px) + 12px);z-index:21;}
+
+/* ---- КАРТОЧКИ: разделы — отдельные плитки с зазорами, сквозь зазоры виден холст ---- */
+body.as-cards #aside{background:transparent;box-shadow:none;padding:0;}
+body.as-cards #aside-wrap::after,body.as-cards #aside-wrap::before{display:none;}
+body.as-cards .as-blk{position:relative;background:var(--l2);border-radius:14px;padding:12px 16px;margin:0 0 8px;box-shadow:0 8px 24px var(--sh);}
+body.as-cards .as-blk-head{background:radial-gradient(120% 200px at 0% 0%,color-mix(in srgb,var(--c,var(--accent)) 20%,transparent),transparent 70%),var(--l2);}
+body.as-cards .as-blk > .as-sec:first-child{margin-top:0;}
+body.as-cards .as-foot{margin:0;padding:4px 0 12px;background:none;}
+body.as-cards.as-glass .as-blk{background:color-mix(in srgb,var(--l2) 58%,transparent);backdrop-filter:blur(20px) saturate(1.3);}
+body.as-cards.as-glass .as-blk-head{background:radial-gradient(120% 200px at 0% 0%,color-mix(in srgb,var(--c,var(--accent)) 22%,transparent),transparent 70%),
+  color-mix(in srgb,var(--l2) 58%,transparent);}
+
+/* ---- ПАСПОРТ: корешок цвета ноды по левому краю, полоса статуса сверху, ряды через линию ---- */
+body.as-pass #aside-wrap,body.as-pass #aside{border-radius:6px var(--r-l) var(--r-l) 6px;}
+body.as-pass #aside{padding-left:24px;}
+body.as-pass #aside-wrap::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;border-radius:6px 0 0 6px;z-index:3;pointer-events:none;
+  background:var(--c,var(--accent));}
+body.as-pass .as-ribbon{display:flex;align-items:center;gap:8px;margin:-16px -18px 12px -24px;padding:9px 18px 9px 24px;font-size:11.5px;font-weight:600;
+  color:var(--c,var(--accent));background:color-mix(in srgb,var(--c,var(--accent)) 14%,var(--l2));
+  border-bottom:1px solid color-mix(in srgb,var(--c,var(--accent)) 28%,transparent);border-radius:0 var(--r-l) 0 0;}
+.as-ribbon-r{margin-left:auto;color:var(--mut);font-weight:500;}
+body.as-pass .as-blk-head{margin:0;padding:0;background:none;border-radius:0;}
+body.as-pass .as-tile{border-radius:8px;}
+body.as-pass .as-row{border-bottom:1px solid var(--bd);}
+body.as-pass .as-row:last-child{border-bottom:0;}
+body.as-pass .as-blk + .as-blk{border-top:1px solid var(--bd);margin-top:14px;}
+body.as-pass .as-foot{margin-left:-24px;padding-left:24px;}
+
+/* выбор темы в настройках: образец — поверхность темы с полоской её кромки внизу */
+.set-pal{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;}
+.set-pal button{display:flex;flex-direction:column;gap:6px;padding:6px;border:0;border-radius:10px;background:var(--l3);color:var(--tx);font:inherit;font-size:12px;cursor:pointer;text-align:left;}
+.set-pal button:hover{background:var(--l4);}
+.set-pal button.on{box-shadow:inset 0 0 0 1.5px var(--tx);}
+.sp-sw{display:block;height:34px;border-radius:7px;position:relative;overflow:hidden;
+  background:linear-gradient(135deg,var(--a) 0 55%,var(--b) 55%);box-shadow:inset 0 0 0 1px rgba(127,127,127,.25);}
+.sp-sw::after{content:"";position:absolute;left:0;right:0;bottom:0;height:5px;background:linear-gradient(90deg,var(--e1),var(--e2));}
+.sp-n{padding:0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}

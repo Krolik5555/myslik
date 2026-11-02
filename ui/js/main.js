@@ -72,7 +72,22 @@ function openPalette(){
 /* ===========================================================
    ACTIONS: theme / backup / export / import
    =========================================================== */
-function applyTheme(){ document.body.classList.toggle("light", S.settings.theme==="light"); }
+/* Тема — два ключа: theme (тёмная/светлая — на нём стоят доска, уведомления и полоса окна) и
+   palette (цветовая тема, PALETTES в core.js). Тема чужой яркости не применяется: переключатель
+   тёмная/светлая (toggleTheme) сбрасывает её на базовую своей яркости. Класс — на body, потому что
+   там же висит .light, и токены темы должны перебивать именно его. */
+function applyTheme(){
+  const светлая = S.settings.theme==="light";
+  let пал = S.settings.palette;
+  if(!PALETTES[пал] || PALETTES[пал].light!==светлая) пал = светлая ? "light" : "graphite";
+  const b=document.body;
+  b.classList.toggle("light", светлая);
+  Object.keys(PALETTES).forEach(k=>b.classList.toggle("pal-"+k, k===пал));
+  // оформление панели — набор свойств (ASIDE_STYLES), каждое своим классом
+  const вид = ASIDE_STYLES[S.settings.asideStyle] || ASIDE_STYLES.glow;
+  ["glow","glass","cards","pass"].forEach(f=>b.classList.toggle("as-"+f, вид.f.includes(f)));
+  if(typeof graph!=="undefined" && graph) graph._пал=null;   // граф кэширует цвета темы
+}
 // применить визуальные настройки (тема + сила свечения --glow поверх темовой базы)
 function applySettings(){ applyTheme();
   const g=(S.settings.glow!=null?S.settings.glow:1), light=S.settings.theme==="light";
@@ -84,7 +99,9 @@ function applySettings(){ applyTheme();
     try{ window.pywebview.api.set_titlebar_theme(!light); }catch(e){}
   }
 }
-function toggleTheme(){ S.settings.theme = S.settings.theme==="light"?"dark":"light"; applySettings(); persist();
+function toggleTheme(){ S.settings.theme = S.settings.theme==="light"?"dark":"light";
+  S.settings.palette = S.settings.theme==="light" ? "light" : "graphite";   // базовая тема новой яркости
+  applySettings(); persist();
   if(view==="notes") render();
   // Доска берёт тему пропом при отрисовке корня — сама она о смене не узнает и осталась бы
   // светлой посреди тёмного приложения. Перерисовываем корень, не пересобирая сцену.

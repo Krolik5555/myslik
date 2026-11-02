@@ -246,6 +246,8 @@ function asideApplyWidth(){
   const w = холст ? Math.min(макс, Math.max(340, +S.settings.asideCvW || 440))
                   : Math.min(макс, Math.max(300, Math.round(window.innerWidth * S.settings.asideFrac)));
   a.style.width = w + "px";
+  // ширина — и в переменную ряда: у «стекла» панель лежит поверх графа, и разделитель ставится от неё
+  const ряд=$("#split"); if(ряд) ряд.style.setProperty("--asw", w + "px");
 }
 
 function renderAside(){
@@ -312,6 +314,7 @@ function renderAside(){
       ${(typeof repActive==="function" && repActive()) ? "" :
         `<div class="as-foot"><button class="as-wide" data-report="1"><i class="ti ti-file-text"></i>Собрать отчёт · ${ноды.length}</button></div>`}
       ${(typeof repPanelHtml==="function") ? repPanelHtml() : ""}`;
+    asideBlocks(a, null);
     { const кн=a.querySelector("[data-close]"); if(кн) кн.onclick=()=>{ S.settings.asideOn=false; persist(); asideApplyWidth(); }; }
     // ряд статусов «всем» — кнопка ставит скрытое значение и зовёт общий обработчик [data-all]
     a.querySelectorAll("[data-allst]").forEach(кн=>кн.onclick=()=>{
@@ -393,6 +396,7 @@ function renderAside(){
     /* Отчёт показываем и здесь: его собирают по выделению в графе, а выделение рамкой
        карточку не открывает — без этой ветки кнопка «Отчёт» срабатывала бы в пустоту. */
     const отчёт = (typeof repPanelHtml==="function") ? repPanelHtml() : "";
+    (a.parentElement||a).style.removeProperty("--c"); a.dataset.st=""; a.dataset.shape="";   // признаки прошлой ноды (см. asideBlocks)
     a.innerHTML = отчёт
       ? отчёт
       : `<div class="aside-empty"><i class="ti ti-click"></i>Выбери ноду — здесь откроется её содержимое</div>`;
@@ -400,10 +404,47 @@ function renderAside(){
     return;
   }
   a.innerHTML = asideCard(it) + ((typeof repPanelHtml==="function") ? repPanelHtml() : "");
+  asideBlocks(a, it);
   wireAside(it);
   if(typeof repPanelWire==="function") repPanelWire(a);
   const хост = a.querySelector("#as-board-host");
   if(хост) openBoardIn(it, хост);
+}
+
+/* БЛОКИ ПАНЕЛИ — для оформлений «Карточки» и «Паспорт» (ASIDE_STYLES в core.js). Разметка карточки
+   плоская: шапка, заголовки разделов (.as-sec) и их содержимое идут подряд, а разрезать её по
+   разделам CSS не умеет. Поэтому после сборки раскладываем детей по обёрткам .as-blk: новая
+   начинается у шапки и у каждого заголовка раздела (подраздел .as-sec2 остаётся в своём).
+   Обёртка без своих отступов, и в остальных оформлениях раскладка не меняется. .as-foot НЕ
+   оборачивается: он прилипает к низу (sticky), а внутри обёртки прилипать было бы не к чему.
+   Сюда же — цвет, статус и форма ноды на самой панели: их берут отсвет, корешок и знак формы. */
+function asideBlocks(a, it){
+  let блок=null;
+  [...a.children].forEach(el=>{
+    if(el.classList.contains("as-foot")){ блок=null; return; }
+    const шапка=el.classList.contains("as-head");
+    if(шапка || !блок || (el.classList.contains("as-sec") && !el.classList.contains("as-sec2"))){
+      // clip-deco: шапка срезает выступающий знак формы («Отсвет ноды»), линейка вёрстки это знает
+      блок=document.createElement("div"); блок.className="as-blk"+(шапка?" as-blk-head clip-deco":"");
+      a.insertBefore(блок, el);
+    }
+    блок.appendChild(el);
+  });
+  // цвет — на ОБЁРТКУ: её кромку и корешок рисуют её же псевдоэлементы, в панель он спускается сам
+  const голова=a.querySelector(".as-head"), цвет=голова && голова.style.getPropertyValue("--c");
+  const хозяин = a.parentElement && a.parentElement.id==="aside-wrap" ? a.parentElement : a;
+  if(цвет) хозяин.style.setProperty("--c", цвет); else хозяин.style.removeProperty("--c");
+  const ст = it ? (it.done ? "done" : (it.status || нейтральныйСтатус(it.kind))) : "";
+  a.dataset.st = ст;
+  const узел = it && typeof graph!=="undefined" && graph && graph.byId && graph.byId[it.id];
+  a.dataset.shape = узел && graph._shape ? graph._shape(узел) : (it && it.kind==="note" ? "circle" : "square");
+  // полоса статуса над шапкой — её показывает только «Паспорт» (в остальных скрыта стилем)
+  if(it && голова){
+    const лента=document.createElement("div"); лента.className="as-ribbon st-"+ст;
+    const имя=(СТАТУСЫ[ст] && СТАТУСЫ[ст].имя) || "";
+    лента.innerHTML=`<span>${esc(имя)}</span>${it.due?`<span class="as-ribbon-r">срок ${esc(dueButtonText(it.due))}</span>`:""}`;
+    a.insertBefore(лента, a.firstChild);
+  }
 }
 
 /* Карточка элемента в панели. Правится прямо здесь: смысл сплита в том, чтобы менять поля,
@@ -866,6 +907,7 @@ function wireSplitter(){
         S.settings.asideFrac = w / Math.max(600, window.innerWidth);   // тянем долю, её и запоминаем
       }
       a.style.width = w + "px";
+      const ряд=$("#split"); if(ряд) ряд.style.setProperty("--asw", w + "px");
     };
     const кончить = ()=>{
       sp.classList.remove("drag");

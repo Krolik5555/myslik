@@ -24,6 +24,8 @@ const переполнения = корень => [...корень.querySelectorA
   const c = getComputedStyle(n);
   if (c.display === "none" || c.overflowX === "auto" || c.overflowX === "scroll") return false;
   if (c.textOverflow === "ellipsis" && c.overflowX === "hidden") return false;
+  // намеренная обрезка декора (знак формы в шапке панели выступает за край и срезан): тоже не дефект
+  if (n.classList.contains("clip-deco") && c.overflowX === "hidden") return false;
   return n.scrollWidth - n.clientWidth > 2 && n.clientWidth > 0;
 });
 // текст, обрезанный БЕЗ многоточия: человек видит обрубок и не понимает, что дальше

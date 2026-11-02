@@ -729,5 +729,27 @@ t.push({имя:"удалённый элемент уходит из панели
   S.items.filter(x => /^А-/.test(x.title || "")).forEach(x => hardDeleteItem(x.id));
 }
 
+/* ===== оформление панели и цветовые темы (КРОЛИК 03.11.2026) =====
+   Карточки держатся на обёртках .as-blk (asideBlocks), подвал с главной кнопкой обязан остаться
+   прямым ребёнком панели — иначе он перестаёт прилипать к низу. Тёмная тема не красит холст:
+   подкрашенный фон читался «как под зелёным фильтром». */
+{
+  const было = {st:S.settings.asideStyle, pal:S.settings.palette, th:S.settings.theme};
+  S.settings.asideStyle = "cards"; S.settings.palette = "moss"; S.settings.theme = "dark"; applySettings();
+  const зад = addItem({kind:"task", title:"оформлениеПанели"}); render(); await ж(150);   // у полотна в карточке одна шапка
+  asideSelect(зад.id); await ж(200);
+  const a = document.querySelector("#aside");
+  t.push({имя:"оформление: карточки раскладывают панель по блокам", ок: document.body.classList.contains("as-cards") && a.querySelectorAll(":scope > .as-blk").length >= 3,
+          факт: a.querySelectorAll(":scope > .as-blk").length + " блоков"});
+  t.push({имя:"оформление: подвал с кнопкой не уехал внутрь блока", ок: !a.querySelector(".as-blk .as-foot"), факт: ""});
+  t.push({имя:"оформление: цвет ноды лежит на обёртке панели (кромка, корешок)", ок: !!document.querySelector("#aside-wrap"), факт: ""});
+  const фон = getComputedStyle(document.body).getPropertyValue("--bg").trim();
+  t.push({имя:"тема «Мох»: страница и холст остаются нейтральными", ок: фон === "#060607" && document.body.classList.contains("pal-moss"), факт: "--bg " + фон});
+  S.settings.theme = "light"; applySettings();
+  t.push({имя:"тема чужой яркости сбрасывается на базовую", ок: document.body.classList.contains("pal-light") && !document.body.classList.contains("pal-moss"), факт: document.body.className});
+  S.settings.asideStyle = было.st; S.settings.palette = было.pal; S.settings.theme = было.th; applySettings();
+  asideSelect(null); await ж(80); hardDeleteItem(зад.id);
+}
+
 hardDeleteItem(пол.id); asideId = null; render();
 return t;

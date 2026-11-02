@@ -322,6 +322,33 @@ const ICONS=["ti-home","ti-briefcase","ti-puzzle","ti-video","ti-bulb","ti-shopp
 // цвет области. Теперь это два разных кружка: прочерк (наследовать) и белый (свой).
 const PALETTE=[null,"#ffffff","#e0625a","#e8a14b","#5fb98e","#5b9bd6","#9b7fd6","#d67fb0","#8a8f98"];
 const NEUTRAL=()=>getComputedStyle(document.body).getPropertyValue("--acc").trim()||"#ffffff";
+/* ЦВЕТОВЫЕ ТЕМЫ (КРОЛИК, 03.11.2026: «не просто фул цвет приложения менять, а комбинация —
+   фон одного цвета, обводка другого»). Тема = тон поверхностей + ДВА цвета кромки, которыми
+   светится контур панелей и островков; токены — в styles.css (body.pal-<id>). Цвета нод (теги,
+   области) тема не трогает. light — к какой яркости тема относится: от неё зависит S.settings.theme,
+   на котором стоят доска, уведомления и нативная полоса окна. sw — образцы для кнопки выбора. */
+const PALETTES={
+  graphite:{n:"Графит",   light:false, sw:["#060607","#17171b","#ffffff","#e8a14b"]},
+  midnight:{n:"Полночь",  light:false, sw:["#050609","#15181f","#5cc8ff","#8b6cff"]},
+  moss:    {n:"Мох",      light:false, sw:["#050605","#161916","#e3c36a","#7fbf73"]},
+  plum:    {n:"Слива",    light:false, sw:["#060508","#18151c","#ff7eb6","#ffb36b"]},
+  espresso:{n:"Эспрессо", light:false, sw:["#070605","#1a1715","#4fd1c5","#e0894d"]},
+  dusk:    {n:"Сумерки",  light:false, sw:["#06060a","#17171e","#ff8f70","#a99bff"]},
+  light:   {n:"Светлая",  light:true,  sw:["#f3f3f5","#ffffff","#111114","#e8a14b"]},
+  paper:   {n:"Бумага",   light:true,  sw:["#efece6","#fcfbf8","#c0582f","#3d4f75"]},
+  frost:   {n:"Иней",     light:true,  sw:["#eef0f3","#ffffff","#4f46e5","#0891b2"]}
+};
+/* ОФОРМЛЕНИЕ ПРАВОЙ ПАНЕЛИ (выбор КРОЛИКА из demo_панель-и-темы.html). Каждый вид — набор
+   независимых свойств (классы body.as-*), поэтому сочетания вроде «стеклянных карточек» не
+   требуют своего CSS: стекло, отсвет ноды, карточки и паспорт складываются сами. */
+const ASIDE_STYLES={
+  glow:      {n:"Отсвет ноды",        f:["glow"]},
+  glass:     {n:"Стекло",             f:["glass"]},
+  glowglass: {n:"Отсвет и стекло",    f:["glow","glass"]},
+  cards:     {n:"Карточки",           f:["cards"]},
+  glasscards:{n:"Стеклянные карточки",f:["cards","glass"]},
+  pass:      {n:"Паспорт",            f:["pass"]}
+};
 /* Смешение цветов — в OKLab, а не в RGB. В RGB смесь двух насыщенных цветов проваливается в
    грязь (красный+зелёный = бурый) и темнеет: RGB описывает сигнал для лампы, а не восприятие.
    OKLab перцептивно ровный — смесь держит светлоту и даёт тот цвет, который человек и ждёт.
@@ -479,7 +506,7 @@ function defaultState(){
        рождается сразу с нужными полями (см. fields.js). */
     templates:[],
     tags:[],   // реестр стилизованных тегов: {name, icon?, color?, size?, shape?} — все свойства опциональны
-    settings:{ theme:"dark", view:"today", graphDrift:4, graphSpread:1, graphBg:true, graphBgKind:"clean", glow:1, graphLinkLen:1, graphNodeSize:1, graphDegScale:1, graphDoneScale:0.6, graphDoneLinkLen:0.6, graphLinkBright:1, graphFadedBright:0.5,
+    settings:{ theme:"dark", palette:"graphite", asideStyle:"glow", view:"today", graphDrift:4, graphSpread:1, graphBg:true, graphBgKind:"clean", glow:1, graphLinkLen:1, graphNodeSize:1, graphDegScale:1, graphDoneScale:0.6, graphDoneLinkLen:0.6, graphLinkBright:1, graphFadedBright:0.5,
       graphDoingGlow:true, graphDoingGlowRadius:110, graphDoingGlowBright:0.3, graphDoingGlowBlur:30,
       /* ЧЕМ РИСУЕТСЯ ГРАФ: "svg" — старый путь (создаёт DOM-элемент на каждый узел и связь),
          "canvas" — одним холстом. ДЕФОЛТ СМЕНЁН на canvas (2026-08-11): замер аудита — на

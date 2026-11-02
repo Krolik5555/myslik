@@ -1241,11 +1241,16 @@ function openSettings(tab){
       <button class="set-tab" data-tab="ai"><i class="ti ti-sparkles"></i>ИИ</button>
     </div>
     <div class="set-panel" data-panel="view">
+      ${/* ТЕМА — цветовая (PALETTES в core.js): тон поверхностей и два цвета кромки. Яркость
+           (s.theme) выводится из темы, отдельного переключателя «тёмная / светлая» больше нет. */""}
       <div class="field"><label>Тема</label>
-        <div class="seg" id="set-theme">
-          <button data-v="dark" class="${s.theme!=="light"?"on":""}"><i class="ti ti-moon"></i> Тёмная</button>
-          <button data-v="light" class="${s.theme==="light"?"on":""}"><i class="ti ti-sun"></i> Светлая</button>
-        </div></div>
+        <div class="set-pal" id="set-theme">${(()=>{ const тек=(PALETTES[s.palette] && PALETTES[s.palette].light===(s.theme==="light")) ? s.palette : (s.theme==="light"?"light":"graphite");
+          return Object.entries(PALETTES).map(([k,п])=>`<button data-v="${k}" class="${тек===k?"on":""}" title="${esc(п.n)}">
+            <span class="sp-sw" style="--a:${п.sw[0]};--b:${п.sw[1]};--e1:${п.sw[2]};--e2:${п.sw[3]}"></span><span class="sp-n">${esc(п.n)}</span></button>`).join(""); })()}</div></div>
+      <div class="field"><label>Оформление панели</label>
+        <div class="seg seg-wrap" id="set-aside">${Object.entries(ASIDE_STYLES).map(([k,в])=>
+          `<button data-v="${k}" class="${(ASIDE_STYLES[s.asideStyle]?s.asideStyle:"glow")===k?"on":""}">${esc(в.n)}</button>`).join("")}</div>
+        <div class="set-hint">Стекло в режиме «холст» кладёт панель поверх графа — сквозь неё видны связи и свечение.</div></div>
       <div class="field"><label>Свечение</label>
         <div class="seg" id="set-glow">${[["0","Выкл"],["1","Обычное"],["1.6","Сильное"]].map(([v,l])=>`<button data-v="${v}" class="${(+s.glow||0)===+v?"on":""}">${l}</button>`).join("")}</div></div>
       ${/* ФОН ХОЛСТА — пять видов (выбор КРОЛИКА из demo_ноды-и-фон.html, 03.11.2026), по
@@ -1373,7 +1378,18 @@ function openSettings(tab){
      _undoSnap()+_undoKey() — две полные сериализации items/links/areas/tags — ради сравнения,
      которое и так ничего не найдёт. На протяжке ползунка (десятки oninput подряд) это лишняя
      работа на каждое отпускание. Тот же класс бага, что уже чинили для камеры графа. */
-  $$("#set-theme button",m).forEach(b=>b.onclick=()=>{ s.theme=b.dataset.v; persist(true); applySettings(); $$("#set-theme button",m).forEach(x=>x.classList.toggle("on",x===b)); if(view==="notes") render(); });
+  $$("#set-theme button",m).forEach(b=>b.onclick=()=>{ const п=PALETTES[b.dataset.v]; if(!п) return;
+    const сменаЯркости = (s.theme==="light") !== п.light;
+    s.palette=b.dataset.v; s.theme=п.light?"light":"dark"; persist(true); applySettings();
+    $$("#set-theme button",m).forEach(x=>x.classList.toggle("on",x===b));
+    if(view==="notes") render();
+    // доска берёт яркость пропом при отрисовке корня — сама о смене не узнает (см. toggleTheme)
+    if(сменаЯркости && typeof drawRetheme==="function") drawRetheme(); });
+  $$("#set-aside button",m).forEach(b=>b.onclick=()=>{ s.asideStyle=b.dataset.v; persist(true); applySettings();
+    $$("#set-aside button",m).forEach(x=>x.classList.toggle("on",x===b));
+    renderAside();
+    // у стекла граф уходит под панель — ширина холста меняется, граф должен пересчитать себя
+    if(typeof graph!=="undefined" && graph) requestAnimationFrame(()=>graph._onResize()); });
   $$("#set-glow button",m).forEach(b=>b.onclick=()=>{ s.glow=+b.dataset.v; persist(true); applySettings(); $$("#set-glow button",m).forEach(x=>x.classList.toggle("on",x===b)); });
   $$("#set-bg button",m).forEach(b=>b.onclick=()=>{ s.graphBgKind=b.dataset.v; s.graphBg=true; persist(true);
     $$("#set-bg button",m).forEach(x=>x.classList.toggle("on",x===b)); if(typeof graph!=="undefined" && graph){ graph._topo=null; graph._wake(); } });
@@ -1415,7 +1431,7 @@ function openSettings(tab){
     if(!(await uiConfirm("Настройки вида и графа вернутся к значениям по умолчанию. Заметки, задачи и схемы не пострадают.",
         {danger:true, title:"Сбросить настройки?", okLabel:"Сбросить"}))) return;
     const cur=$(".set-tab.on",m), back=cur?cur.dataset.tab:null;
-    ["theme","glow","graphBg","graphBgKind","graphDrift","graphSpread","graphLinkLen","graphNodeSize","graphDegScale","graphDoneScale","graphDoneLinkLen","graphLinkBright","graphFadedBright","graphDoingGlow","graphDoingGlowRadius","graphDoingGlowBright","graphDoingGlowBlur","graphFpsCap","graphFastZoom"].forEach(k=>s[k]=def[k]);
+    ["theme","palette","asideStyle","glow","graphBg","graphBgKind","graphDrift","graphSpread","graphLinkLen","graphNodeSize","graphDegScale","graphDoneScale","graphDoneLinkLen","graphLinkBright","graphFadedBright","graphDoingGlow","graphDoingGlowRadius","graphDoingGlowBright","graphDoingGlowBlur","graphFpsCap","graphFastZoom"].forEach(k=>s[k]=def[k]);
     persist(); applySettings(); ov.remove(); openSettings(back); if(graph) graph.build(); if(view==="notes") render();
   };
   // ---- обновления ----

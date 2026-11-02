@@ -19,8 +19,8 @@
   if(/[?&]canvas\b/.test(q) || (!/[?&]dev\b/.test(q) && !классика)) document.documentElement.classList.add("canvas-ui","cv-auto"); })();
 </script>
 <link rel="icon" type="image/png" href="icon.png">
-<link rel="stylesheet" href="vendor/tabler-icons.min.css?v=663">
-<link rel="stylesheet" href="styles.css?v=663">
+<link rel="stylesheet" href="vendor/tabler-icons.min.css?v=669">
+<link rel="stylesheet" href="styles.css?v=669">
 </head>
 <body>
 <div id="app">
@@ -80,7 +80,9 @@
       <div id="split">
         <div id="view"></div>
         <div id="splitter" title="Потяни, чтобы изменить ширину панели"></div>
-        <aside id="aside"></aside>
+        <!-- обёртка несёт кромку по контуру панели: сама #aside прокручивается, и нарисованная
+             на ней рамка уезжала бы вместе с содержимым -->
+        <div id="aside-wrap"><aside id="aside"></aside></div>
       </div>
     </div>
   </div>
@@ -93,26 +95,26 @@
 <!-- модули загружаются как классические скрипты (общая глобальная область),
      порядок важен: core → model → views → graph → overlays → main.
      ES-модули НЕ используем: реальный аппа грузится по file://, где import блокируется CORS. -->
-<script src="js/core.js?v=663"></script>
-<script src="js/model.js?v=663"></script>
+<script src="js/core.js?v=669"></script>
+<script src="js/model.js?v=669"></script>
 <!-- тикер напоминаний по датам событий (it.eventAt/it.eventRepeat) — после core/model, до views -->
-<script src="js/notify.js?v=663"></script>
-<script src="js/views.js?v=663"></script>
-<script src="js/graph.js?v=663"></script>
+<script src="js/notify.js?v=669"></script>
+<script src="js/views.js?v=669"></script>
+<script src="js/graph.js?v=669"></script>
 <!-- таблица — третий взгляд на граф (вместо «Списка»); после graph.js: её зовёт renderNotes -->
-<script src="js/table.js?v=663"></script>
-<script src="js/overlays.js?v=663"></script>
+<script src="js/table.js?v=669"></script>
+<script src="js/overlays.js?v=669"></script>
 <!-- доска (Excalidraw); сам вендор подгружается лениво, при первом заходе на вкладку -->
-<script src="js/draw.js?v=663"></script>
+<script src="js/draw.js?v=669"></script>
 <!-- поля ноды (текст/картинка/доска) и шаблоны нод; зовётся из окон и панели, поэтому после них -->
-<script src="js/fields.js?v=663"></script>
+<script src="js/fields.js?v=669"></script>
 <!-- язык команд: пакет операций от сторонней нейросети (разбор, предпросмотр, применение).
      После fields.js — зовёт fieldMake/fieldShrink; после overlays.js — своё окно и uiConfirm -->
-<script src="js/cmd.js?v=663"></script>
+<script src="js/cmd.js?v=669"></script>
 <!-- локальный ИИ (умный захват) — опционально; нет движка/модели → молчит -->
-<script src="js/ai.js?v=663"></script>
+<script src="js/ai.js?v=669"></script>
 <!-- отчёт из выделенного (простой + через ИИ) -->
-<script src="js/report.js?v=663"></script>
-<script src="js/main.js?v=663"></script>
+<script src="js/report.js?v=669"></script>
+<script src="js/main.js?v=669"></script>
 </body>
 </html>
