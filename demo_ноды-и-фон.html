@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ноды и фон — варианты</title>
+<link rel="stylesheet" href="ui/vendor/tabler-icons.min.css">
+<style>
+  :root{
+    --bg:#060607; --surf:#0e0e11; --l2:#121216; --l3:#17171b; --l4:#212126;
+    --bd:rgba(255,255,255,.075); --tx:#f4f4f5; --mut:#9a9aa3; --mut2:#7a7a83; --accent:#e8a14b;
+    --font:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{background:var(--bg);color:var(--tx);font-family:var(--font);font-size:14px;display:flex;flex-direction:column;overflow:hidden;}
+  header{flex:none;display:flex;align-items:center;gap:10px 14px;padding:12px 18px 8px;flex-wrap:wrap;}
+  h1{font-size:16px;font-weight:600;margin-right:4px;}
+  .grp{display:flex;align-items:center;gap:8px;}
+  .grp > span{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--mut2);font-weight:600;}
+  .seg{display:inline-flex;gap:2px;padding:3px;border-radius:12px;background:var(--l2);box-shadow:inset 0 0 0 .5px var(--bd);}
+  .seg button{font:inherit;font-size:12.5px;color:var(--mut);background:none;border:0;padding:6px 11px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
+  .seg button:hover{color:var(--tx);background:var(--l3);}
+  .seg button.on{background:var(--l4);color:var(--tx);}
+  .seg button kbd{font:inherit;font-size:10.5px;color:var(--mut2);background:var(--l3);border-radius:5px;padding:0 5px;}
+  .desc{flex:none;display:grid;grid-template-columns:1fr 1fr;gap:12px 28px;padding:0 18px 10px;}
+  .desc div{font-size:13px;line-height:1.5;color:var(--mut);}
+  .desc b{color:var(--tx);font-weight:600;}
+  .desc em{font-style:normal;color:var(--mut2);font-size:12px;display:block;margin-top:3px;}
+  main{flex:1;min-height:0;display:grid;grid-template-columns:1.15fr 1fr;gap:12px;padding:0 18px 18px;}
+  .view{position:relative;border-radius:16px;overflow:hidden;box-shadow:inset 0 0 0 .5px var(--bd);background:#000;}
+  .view canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
+  .view .lbl{position:absolute;left:12px;top:10px;z-index:2;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--mut2);font-weight:600;
+    background:rgba(18,18,22,.85);padding:4px 9px;border-radius:8px;box-shadow:inset 0 0 0 .5px var(--bd);}
+  .key{position:absolute;left:12px;bottom:10px;z-index:2;display:flex;flex-wrap:wrap;gap:4px 12px;max-width:calc(100% - 24px);font-size:11px;color:var(--mut);
+    background:rgba(18,18,22,.85);padding:6px 10px;border-radius:10px;box-shadow:inset 0 0 0 .5px var(--bd);}
+</style>
+</head>
+<body>
+<header>
+  <h1>Ноды и фон</h1>
+  <div class="grp"><span>Статус на ноде</span><div class="seg" id="nv"></div></div>
+  <div class="grp"><span>Фон</span><div class="seg" id="bv"></div></div>
+</header>
+<div class="desc"><div id="nd"></div><div id="bd"></div></div>
+<main>
+  <div class="view"><div class="lbl">Вблизи — SQ02</div><canvas id="near"></canvas>
+    <div class="key">SH010, SH030 — в работе · SH035 — ждёт · SH040 — на проверке · SH041, SH080 — очередь · SH020 — готово · SH050 — не начато · SH060 — просрочено · проект TikTok — на паузе</div></div>
+  <div class="view"><div class="lbl">Общий вид</div><canvas id="far"></canvas></div>
+</main>
+<script>
+/* ===== данные — тот же граф, что в demo_статусы-A.html ===== */
+const ТЕГ = {render:"#e0625a", build:"#6f9bd8"}, ШОТ = "#e8a14b", SQ = "#9d7fe0", SFC = "#e0625a", ОБЛ = "#dcdce2";
+const N = [], L = []; let нид = 0;
+function нода(о){ о.id = о.id || ("n" + (нид++)); N.push(о); if(о.p) L.push([о.p, о.id]); return о; }
+нода({id:"area", t:"Работа", k:"area", c:ОБЛ, st:"todo", x:-560, y:-60, area:"#e8a14b"});
+нода({id:"area2", t:"Личное", k:"area", c:"#5fb98e", st:"todo", x:-640, y:330, area:"#5fb98e"});
+нода({id:"sfc", t:"SFC_2026", k:"sfc", c:SFC, st:"doing", p:"area", x:-180, y:40});
+нода({id:"loc", t:"Локация", k:"note", c:"#6f9bd8", st:"note", p:"sfc", x:-230, y:-120});
+нода({id:"sq1", t:"SQ01", k:"sq", c:SQ, st:"todo", p:"sfc", x:-330, y:-190});
+нода({id:"sq2", t:"SQ02", k:"sq", c:SQ, st:"doing", p:"sfc", x:230, y:30});
+const ШОТЫ2 = [["SH010","doing","done","doing"],["SH020","done","done","done"],["SH030","doing","done","doing"],["SH035","waiting","waiting","todo"],
+  ["SH036","waiting","done","waiting"],["SH040","review","done","review"],["SH041","next","todo","todo",0],["SH050","todo","todo","todo"],
+  ["SH060","todo","todo","todo",-3,3],["SH070","todo","todo","todo",5],["SH080","next","todo","todo",1,2]];
+ШОТЫ2.forEach((s, i) => { const a = -Math.PI*.95 + i*(Math.PI*1.9/(ШОТЫ2.length - 1)), R = 200;
+  const ш = нода({t:s[0], k:"shot", c:ШОТ, st:s[1], p:"sq2", x:230 + Math.cos(a)*R, y:30 + Math.sin(a)*R, due:s[4], pri:s[5]});
+  [["Рендер","render",s[2]],["Сборка","build",s[3]]].forEach(([т, тег, ст], j) => { const b = a + (j ? .17 : -.17), R2 = R + 82;
+    нода({t:т, k:"task", tag:тег, c:ТЕГ[тег], st:ст, p:ш.id, x:230 + Math.cos(b)*R2, y:30 + Math.sin(b)*R2}); }); });
+[["SH010","done","done","done"],["SH020","todo","todo","todo"],["SH030","todo","todo","todo"],["SH040","todo","todo","todo",9]].forEach((s, i) => {
+  const a = -Math.PI*.9 + i*.42, R = 150; const ш = нода({t:s[0], k:"shot", c:ШОТ, st:s[1], p:"sq1", x:-330 + Math.cos(a)*R, y:-190 + Math.sin(a)*R, due:s[4]});
+  [["Рендер","render",s[2]],["Сборка","build",s[3]]].forEach(([т, тег, ст], j) => { const b = a + (j ? .2 : -.2), R2 = R + 70;
+    нода({t:т, k:"task", tag:тег, c:ТЕГ[тег], st:ст, p:ш.id, x:-330 + Math.cos(b)*R2, y:-190 + Math.sin(b)*R2}); }); });
+нода({id:"tt", t:"TikTok_Boombot", k:"sfc", c:"#7f9fbf", st:"paused", p:"area2", x:-470, y:300});
+for(let i = 0; i < 5; i++){ const a = -.2 + i*.55, ш = нода({t:"SH0" + i, k:"shot", c:ШОТ, st:"paused", p:"tt", x:-470 + Math.cos(a)*140, y:300 + Math.sin(a)*140});
+  нода({t:"Рендер", k:"task", tag:"render", c:ТЕГ.render, st:"paused", p:ш.id, x:-470 + Math.cos(a)*215, y:300 + Math.sin(a)*215}); }
+const поId = Object.fromEntries(N.map(n => [n.id, n])), дети = id => N.filter(n => n.p === id);
+const вПаузе = n => { for(let k = n; k; k = поId[k.p]) if(k.st === "paused") return true; return false; };
+N.forEach(n => { const д = дети(n.id).filter(x => x.k === "task" || x.k === "shot"); if(д.length) n.prog = д.filter(x => x.st === "done").length/д.length; });
+
+/* ===== утилиты ===== */
+const glyph = (() => { const c = {}; return name => { if(c[name] !== undefined) return c[name];
+  const i = document.createElement("i"); i.className = "ti ti-" + name; i.style.cssText = "position:absolute;left:-9999px";
+  document.body.appendChild(i); const raw = getComputedStyle(i, "::before").content; i.remove();
+  return c[name] = (raw && raw !== "none") ? raw.replace(/^["']|["']$/g, "") : ""; }; })();
+const rgb = s => { if(s.startsWith("rgb")) return s.match(/[\d.]+/g).slice(0,3).map(Number); s = s.replace("#", "");
+  return [parseInt(s.slice(0,2),16), parseInt(s.slice(2,4),16), parseInt(s.slice(4,6),16)]; };
+const mix = (a, b, k) => { const A = rgb(a), B = rgb(b); return "rgb(" + A.map((v,i) => Math.round(v*k + B[i]*(1-k))).join(",") + ")"; };
+const rgba = (a, al) => "rgba(" + rgb(a).join(",") + "," + al + ")";
+const серый = c => { const [r,g,b] = rgb(c), y = Math.round(r*.3 + g*.59 + b*.11); return "rgb(" + y + "," + y + "," + y + ")"; };
+const ФОРМА = {area:"circle", sfc:"hexagon", sq:"circle", shot:"diamond", task:"square", note:"circle"};
+const РАД = {area:10, sfc:13, sq:14, shot:12, task:7.5, note:6.5};
+const ИКОНКА = {area:"briefcase", sfc:"puzzle", sq:"movie", shot:"video"};
+const СТ = {todo:"#86868c", next:"#dcdce2", doing:"#e8a14b", waiting:"#7f9fbf", review:"#a98fd0", paused:"#6b6b74", done:"#5fb98e", note:"#6f9bd8"};
+const ФОН = "#0e0e11";
+function pts(f, x, y, r, rot){ rot = rot || 0;
+  if(f === "square") return [[-r,-r],[r,-r],[r,r],[-r,r]].map(([a,b]) => [x + a*Math.cos(rot) - b*Math.sin(rot), y + a*Math.sin(rot) + b*Math.cos(rot)]);
+  if(f === "diamond"){ const D = r*1.35; return [[0,-D],[D,0],[0,D],[-D,0]].map(([a,b]) => [x + a*Math.cos(rot) - b*Math.sin(rot), y + a*Math.sin(rot) + b*Math.cos(rot)]); }
+  if(f === "hexagon") return [...Array(6)].map((_, i) => { const a = Math.PI/3*i - Math.PI/2 + rot; return [x + r*Math.cos(a), y + r*Math.sin(a)]; });
+  return null; }
+function path(ctx, f, x, y, r, rot){ ctx.beginPath(); const p = pts(f, x, y, r, rot);
+  if(!p){ ctx.arc(x, y, r, 0, Math.PI*2); return; } ctx.moveTo(p[0][0], p[0][1]); for(let i = 1; i < p.length; i++) ctx.lineTo(p[i][0], p[i][1]); ctx.closePath(); }
+function glow(ctx, x, y, R, color, a){ if(a <= 0) return; const g = ctx.createRadialGradient(x, y, 0, x, y, R);
+  g.addColorStop(0, rgba(color, a)); g.addColorStop(.45, rgba(color, a*.35)); g.addColorStop(1, rgba(color, 0)); ctx.fillStyle = g; ctx.fillRect(x - R, y - R, R*2, R*2); }
+function icon(ctx, name, x, y, size, color){ ctx.font = size.toFixed(1) + 'px "tabler-icons"'; ctx.fillStyle = color; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(glyph(name), x, y + .5); }
+function check(ctx, x, y, s, color){ ctx.beginPath(); ctx.moveTo(x - 3.2*s, y + .3*s); ctx.lineTo(x - 1*s, y + 2.7*s); ctx.lineTo(x + 3.2*s, y - 2.3*s);
+  ctx.lineWidth = 1.7*s; ctx.strokeStyle = color; ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.stroke(); }
+function hatch(ctx, f, x, y, r, color, шаг, угол){ ctx.save(); path(ctx, f, x, y, r); ctx.clip(); ctx.strokeStyle = color; ctx.lineWidth = 1;
+  const D = r*1.6; ctx.beginPath(); for(let s = -D*2; s < D*2; s += шаг){ const c = Math.cos(угол), si = Math.sin(угол);
+    ctx.moveTo(x + s*c - D*2*si, y + s*si + D*2*c); ctx.lineTo(x + s*c + D*2*si, y + s*si - D*2*c); } ctx.stroke(); ctx.restore(); }
+
+/* ===== статусы на ноде: каждый вариант рисует ноду целиком ===== */
+const НОДЫ = [
+ {name:"Сейчас", what:"<b>Как в 2.1.</b> Тон и обводка цветом тега, статус — значком внутри: песочные часы, глаз, стрелка. Значок спорит со значком тега и на отдалении пропадает.",
+  draw(ctx, n, x, y, r, t){ const f = ФОРМА[n.k], c = n.c; let a = 1, fill = mix(c, ФОН, n.st === "doing" ? .3 : .14), stroke = c, dash = false;
+    if(n.st === "done"){ fill = c; a = .45; r *= .8; } if(вПаузе(n)){ stroke = mix(c, "#86868c", .45); fill = mix(c, ФОН, .1); dash = n.st === "paused"; a = .55; }
+    if(n.st === "doing") glow(ctx, x, y, r*4, c, .4);
+    ctx.globalAlpha = a; path(ctx, f, x, y, r); ctx.fillStyle = fill; ctx.fill(); ctx.setLineDash(dash ? [3,2.5] : []); ctx.lineWidth = 1.7; ctx.strokeStyle = stroke; ctx.stroke(); ctx.setLineDash([]);
+    const гл = {waiting:["hourglass-low","#7f9fbf"], next:["player-track-next","#dcdce2"], review:["eye","#a98fd0"]}[n.st];
+    if(гл) icon(ctx, гл[0], x, y, r*1.05, гл[1]); else if(ИКОНКА[n.k]) icon(ctx, ИКОНКА[n.k], x, y, r*1.05, stroke);
+    if(n.st === "done") check(ctx, x, y, r/8, ФОН); ctx.globalAlpha = 1; return r; } },
+
+ {name:"Материал", what:"<b>У каждого статуса своя фактура формы.</b> Не начато — <b>каркас</b> (только контур, как чертёж). Очередь — <b>заряжено</b>: внутри уже лежит маленькая копия формы. В работе — <b>раскалено</b>: сплошная заливка своим цветом и свет. Ждёт — <b>иней</b>: холодная штриховка внутри. Проверка — <b>половина на половину</b>: диагональ разделяет «сделано» и «смотрят». Пауза — <b>серый пепел</b>. Готово — <b>запечатано</b>: меньше, сплошное, галка.",
+  cost:"0 на кадр для шести статусов; штриховка «ждёт» — клип и десяток линий, по ноде «ждёт» в кадре (единицы).",
+  draw(ctx, n, x, y, r, t){ const f = ФОРМА[n.k], c = n.c, st = вПаузе(n) && n.st !== "done" ? "paused" : n.st;
+    if(st === "todo" || st === "note"){ path(ctx, f, x, y, r); ctx.fillStyle = rgba(c, .04); ctx.fill(); ctx.lineWidth = 1.4; ctx.strokeStyle = c; ctx.stroke(); if(ИКОНКА[n.k]) icon(ctx, ИКОНКА[n.k], x, y, r*1.0, rgba(c, .8)); return r; }
+    if(st === "next"){ path(ctx, f, x, y, r); ctx.fillStyle = mix(c, ФОН, .12); ctx.fill(); ctx.lineWidth = 1.8; ctx.strokeStyle = c; ctx.stroke();
+      path(ctx, f, x, y, r*.5); ctx.fillStyle = rgba(c, .7); ctx.fill(); return r; }
+    if(st === "doing"){ glow(ctx, x, y, r*4.4, c, .55); path(ctx, f, x, y, r); const g = ctx.createRadialGradient(x - r*.3, y - r*.4, 0, x, y, r*1.4);
+      g.addColorStop(0, mix("#ffffff", c, .45)); g.addColorStop(1, c); ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = mix("#ffffff", c, .3); ctx.stroke();
+      if(ИКОНКА[n.k]) icon(ctx, ИКОНКА[n.k], x, y, r*1.0, ФОН); return r; }
+    if(st === "waiting"){ path(ctx, f, x, y, r); ctx.fillStyle = mix(СТ.waiting, ФОН, .22); ctx.fill(); hatch(ctx, f, x, y, r, rgba("#bcd4f0", .55), 3.2, Math.PI/4);
+      path(ctx, f, x, y, r); ctx.lineWidth = 1.7; ctx.strokeStyle = СТ.waiting; ctx.stroke(); return r; }
+    if(st === "review"){ path(ctx, f, x, y, r); ctx.fillStyle = mix(c, ФОН, .14); ctx.fill(); ctx.save(); path(ctx, f, x, y, r); ctx.clip();
+      ctx.beginPath(); ctx.moveTo(x - r*2, y + r*2); ctx.lineTo(x + r*2, y - r*2); ctx.lineTo(x + r*2, y + r*2); ctx.closePath(); ctx.fillStyle = rgba(СТ.review, .75); ctx.fill(); ctx.restore();
+      path(ctx, f, x, y, r); ctx.lineWidth = 1.7; ctx.strokeStyle = СТ.review; ctx.stroke(); return r; }
+    if(st === "paused"){ ctx.globalAlpha = .45; path(ctx, f, x, y, r*.9); ctx.fillStyle = mix(серый(c), ФОН, .25); ctx.fill(); ctx.lineWidth = 1.2; ctx.strokeStyle = серый(c); ctx.stroke(); ctx.globalAlpha = 1; return r*.9; }
+    r *= .72; path(ctx, f, x, y, r); ctx.fillStyle = mix(c, ФОН, .8); ctx.fill(); check(ctx, x, y, r/7, ФОН); return r; } },
+
+ {name:"Форма говорит", anim:true, what:"<b>Статус меняет саму геометрию и движение.</b> Очередь — форма становится <b>стрелкой</b> (готова рвануть вперёд). В работе — форма <b>медленно вращается</b>: живое видно боковым зрением. Ждёт — форма <b>разомкнута</b> пополам: половинки разведены, между ними щель. Проверка — <b>двойной контур внутрь</b>, как будто её обводят второй раз. Пауза — форма <b>приплюснута</b> и серая. Готово — <b>свёрнута в точку</b> с галкой.",
+  cost:"вращение — постоянная перерисовка нод «в работе» (их единицы); остальное 0.",
+  draw(ctx, n, x, y, r, t){ const f = ФОРМА[n.k], c = n.c, st = вПаузе(n) && n.st !== "done" ? "paused" : n.st; ctx.lineWidth = 1.7;
+    if(st === "next"){ ctx.beginPath(); const w = r*1.25, h = r; ctx.moveTo(x - w, y - h); ctx.lineTo(x + w*.35, y - h); ctx.lineTo(x + w*1.05, y); ctx.lineTo(x + w*.35, y + h); ctx.lineTo(x - w, y + h); ctx.lineTo(x - w*.55, y); ctx.closePath();
+      ctx.fillStyle = mix(c, ФОН, .2); ctx.fill(); ctx.strokeStyle = c; ctx.stroke(); return r; }
+    if(st === "doing"){ glow(ctx, x, y, r*4, c, .45); path(ctx, f, x, y, r, t/12000*Math.PI*2); ctx.fillStyle = mix(c, ФОН, .4); ctx.fill(); ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.stroke();
+      if(ИКОНКА[n.k]) icon(ctx, ИКОНКА[n.k], x, y, r*1.0, mix("#ffffff", c, .6)); return r; }
+    if(st === "waiting"){ for(const s of [-1, 1]){ ctx.save(); ctx.beginPath(); ctx.rect(s < 0 ? x - r*3 : x, y - r*3, r*3, r*6); ctx.clip(); ctx.translate(s*r*.28, 0);
+        path(ctx, f, x, y, r); ctx.fillStyle = mix(СТ.waiting, ФОН, .2); ctx.fill(); ctx.strokeStyle = СТ.waiting; ctx.stroke(); ctx.restore(); } return r; }
+    if(st === "review"){ path(ctx, f, x, y, r); ctx.fillStyle = mix(c, ФОН, .14); ctx.fill(); ctx.strokeStyle = c; ctx.stroke(); path(ctx, f, x, y, r*.62); ctx.strokeStyle = СТ.review; ctx.lineWidth = 1.5; ctx.stroke(); return r; }
+    if(st === "paused"){ ctx.save(); ctx.translate(x, y); ctx.scale(1.15, .55); ctx.globalAlpha = .5; path(ctx, f, 0, 0, r); ctx.fillStyle = mix(серый(c), ФОН, .2); ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = серый(c); ctx.stroke(); ctx.restore(); ctx.globalAlpha = 1; return r*.6; }
+    if(st === "done"){ ctx.beginPath(); ctx.arc(x, y, r*.62, 0, Math.PI*2); ctx.fillStyle = mix(c, ФОН, .75); ctx.fill(); check(ctx, x, y, r/9, ФОН); return r*.62; }
+    path(ctx, f, x, y, r); ctx.fillStyle = mix(c, ФОН, .1); ctx.fill(); ctx.strokeStyle = c; ctx.stroke(); if(ИКОНКА[n.k]) icon(ctx, ИКОНКА[n.k], x, y, r*1.0, c); return r; } },
+
+ {name:"Ядро", anim:true, what:"<b>Внутри каждой ноды — ядро той же формы, и оно рассказывает статус</b> вместо значка. Не начато — ядра нет, пусто. Очередь — тонкий контур ядра: место готово. В работе — <b>ядро светится и дышит</b>. Ждёт — ядро <b>холодное и пунктирное</b>. Проверка — ядро <b>залито наполовину</b>. Пауза — ядро тусклое серое. Готово — ядро заполнило всю форму. Значок тега уходит в подпись — форма снова целиком про состояние.",
+  cost:"дыхание ядра — перерисовка нод «в работе»; остальное 0.",
+  draw(ctx, n, x, y, r, t){ const f = ФОРМА[n.k], c = n.c, st = вПаузе(n) && n.st !== "done" ? "paused" : n.st;
+    const a = st === "paused" ? .5 : 1; ctx.globalAlpha = a;
+    path(ctx, f, x, y, r); ctx.fillStyle = mix(st === "paused" ? серый(c) : c, ФОН, st === "done" ? .85 : .1); ctx.fill(); ctx.lineWidth = 1.7; ctx.strokeStyle = st === "paused" ? серый(c) : c; ctx.stroke();
+    const яд = r*.5;
+    if(st === "next"){ path(ctx, f, x, y, яд); ctx.lineWidth = 1.5; ctx.strokeStyle = СТ.next; ctx.stroke(); }
+    if(st === "doing"){ const k = .5 + .1*Math.sin(t/1400*Math.PI*2); glow(ctx, x, y, r*2.4, c, .5); path(ctx, f, x, y, r*k); ctx.fillStyle = mix("#ffffff", c, .35); ctx.fill(); }
+    if(st === "waiting"){ ctx.setLineDash([2, 2.2]); path(ctx, f, x, y, яд); ctx.lineWidth = 1.6; ctx.strokeStyle = СТ.waiting; ctx.stroke(); ctx.setLineDash([]); path(ctx, f, x, y, яд*.92); ctx.fillStyle = rgba(СТ.waiting, .18); ctx.fill(); }
+    if(st === "review"){ ctx.save(); path(ctx, f, x, y, яд); ctx.clip(); ctx.fillStyle = СТ.review; ctx.fillRect(x - яд*2, y, яд*4, яд*2); ctx.restore(); path(ctx, f, x, y, яд); ctx.lineWidth = 1.2; ctx.strokeStyle = СТ.review; ctx.stroke(); }
+    if(st === "paused"){ path(ctx, f, x, y, яд*.7); ctx.fillStyle = "#5a5a60"; ctx.fill(); }
+    if(st === "done") check(ctx, x, y, r/8, ФОН);
+    ctx.globalAlpha = 1; return r; } },
+
+ {name:"Высота", what:"<b>Статус задаёт, насколько нода поднята над холстом.</b> В работе — <b>выше всех</b>: длинная мягкая тень и блик сверху, как предмет, который держишь в руках. Очередь — чуть приподнята, ждёт своей руки. Не начато — лежит плоско. Ждёт и проверка — приподняты, но тень окрашена их цветом. Пауза — <b>утоплена</b> в холст. Готово — <b>вдавлена</b>, как оттиск. Без единого значка: читается объёмом.",
+  cost:"тень — спрайт света под нодой (как нынешнее свечение), один на ноду с подъёмом; ≈0,1 мс на кадр.",
+  draw(ctx, n, x, y, r, t){ const f = ФОРМА[n.k], c = n.c, st = вПаузе(n) && n.st !== "done" ? "paused" : n.st;
+    const подъём = {doing:9, next:4, waiting:3, review:3}[st] || 0, тень = st === "waiting" ? СТ.waiting : st === "review" ? СТ.review : "#000000";
+    if(подъём){ ctx.save(); ctx.globalCompositeOperation = "source-over"; const g = ctx.createRadialGradient(x + подъём*.5, y + подъём*1.2, 0, x + подъём*.5, y + подъём*1.2, r*1.6 + подъём*1.6);
+      g.addColorStop(0, rgba(тень, тень === "#000000" ? .75 : .45)); g.addColorStop(1, rgba(тень, 0)); ctx.fillStyle = g; ctx.fillRect(x - r*4, y - r*4, r*8 + подъём*2, r*8 + подъём*3); ctx.restore(); }
+    const dy = -подъём*.35;
+    if(st === "paused" || st === "done"){ path(ctx, f, x, y, r*(st === "done" ? .8 : .92)); ctx.fillStyle = "#08080a"; ctx.fill();
+      const g = ctx.createLinearGradient(x, y - r, x, y + r); g.addColorStop(0, "rgba(0,0,0,.7)"); g.addColorStop(1, rgba(st === "done" ? c : "#ffffff", .1)); ctx.fillStyle = g; ctx.fill();
+      ctx.lineWidth = 1.2; ctx.strokeStyle = rgba(st === "done" ? c : "#86868c", st === "done" ? .55 : .35); ctx.stroke(); if(st === "done") check(ctx, x, y, r/9, rgba(c, .7)); return r; }
+    path(ctx, f, x, y + dy, r); const g = ctx.createLinearGradient(x, y + dy - r, x, y + dy + r);
+    g.addColorStop(0, mix(c, ФОН, подъём ? .55 : .16)); g.addColorStop(1, mix(c, ФОН, подъём ? .22 : .1)); ctx.fillStyle = g; ctx.fill();
+    ctx.lineWidth = 1.6; ctx.strokeStyle = подъём ? mix("#ffffff", c, .25) : c; ctx.stroke();
+    if(подъём){ ctx.save(); path(ctx, f, x, y + dy, r); ctx.clip(); const h = ctx.createLinearGradient(x, y + dy - r, x, y + dy); h.addColorStop(0, "rgba(255,255,255,.32)"); h.addColorStop(1, "rgba(255,255,255,0)"); ctx.fillStyle = h; ctx.fillRect(x - r*2, y + dy - r*2, r*4, r*2); ctx.restore(); }
+    if(ИКОНКА[n.k]) icon(ctx, ИКОНКА[n.k], x, y + dy, r*1.0, подъём ? "#ffffff" : c); return r; } },
+];
+
+/* ===== фоны: рисуются в мировых координатах под графом ===== */
+const ЗВЁЗДЫ = [...Array(260)].map((_, i) => { const r = Math.sin(i*12.9898)*43758.5453, r2 = Math.sin(i*78.233)*43758.5453; return [r - Math.floor(r), r2 - Math.floor(r2), (i % 7)/7]; });
+const ФОНЫ = [
+ {name:"Звёзды", what:"<b>Как сейчас.</b> Тёмный космос со звёздами. Красиво, но звёзды ничего не сообщают и спорят с мелкими нодами на отдалении."},
+ {name:"Сетка-чертёж", what:"<b>Точечная сетка, привязанная к холсту</b>, как в Figma и Excalidraw: при пане и зуме едет вместе с графом и даёт ощущение места и масштаба. Крупный шаг ярче мелкого, на отдалении мелкий исчезает. Спокойно и рабоче.",
+  draw(ctx, W, H, cam){ const z = cam.z, ox = W/2 - cam.x*z, oy = H/2 - cam.y*z;
+    for(const [шаг, а, р] of [[40, .09, 1], [200, .18, 1.6]]){ const s = шаг*z; if(s < 9) continue; ctx.fillStyle = "rgba(255,255,255," + а + ")";
+      for(let x = ((ox % s) + s) % s; x < W; x += s) for(let y = ((oy % s) + s) % s; y < H; y += s) ctx.fillRect(x - р/2, y - р/2, р, р); } } },
+ {name:"Туманность областей", what:"<b>У каждой области — своя туманность её цветом</b>, мягкое облако под всеми её ветками. Фон сам показывает, где какая область кончается и начинается другая; цвет области перестаёт быть только кружком хаба.",
+  draw(ctx, W, H, cam){ const z = cam.z, ox = W/2 - cam.x*z, oy = H/2 - cam.y*z; ctx.globalCompositeOperation = "screen";
+    N.filter(n => n.k === "area").forEach(o => { const ветка = N.filter(m => { for(let k = m; k; k = поId[k.p]) if(k.id === o.id) return true; return false; });
+      ветка.forEach(m => { const g = ctx.createRadialGradient(ox + m.x*z, oy + m.y*z, 0, ox + m.x*z, oy + m.y*z, 170*z); g.addColorStop(0, rgba(o.area, .03)); g.addColorStop(1, rgba(o.area, 0));
+        ctx.fillStyle = g; ctx.fillRect(ox + m.x*z - 170*z, oy + m.y*z - 170*z, 340*z, 340*z); }); }); ctx.globalCompositeOperation = "source-over"; } },
+ {name:"Топография работы", what:"<b>Фон — карта рельефа, где высота — открытая работа.</b> Изолинии сгущаются вокруг веток с незакрытыми задачами, вершина — там, где работы больше всего; закрытое — равнина. На общем виде граф читается как местность: где горы работы, где ровно.",
+  draw(ctx, W, H, cam){ const z = cam.z, ox = W/2 - cam.x*z, oy = H/2 - cam.y*z, ш = 8, cols = Math.ceil(W/ш) + 1, rows = Math.ceil(H/ш) + 1;
+    const ист = N.filter(n => (n.k === "task" || n.k === "shot") && n.st !== "done" && !вПаузе(n)).map(n => [ox + n.x*z, oy + n.y*z, n.st === "doing" ? 1.6 : 1]);
+    const σ = 90*z, П = new Float32Array(cols*rows);
+    for(let j = 0; j < rows; j++) for(let i = 0; i < cols; i++){ let v = 0; const px = i*ш, py = j*ш; for(const [x, y, w] of ист){ const d2 = (px-x)**2 + (py-y)**2; if(d2 < σ*σ*9) v += w*Math.exp(-d2/(2*σ*σ)); } П[j*cols + i] = v; }
+    ctx.lineWidth = 1; for(let ур = 1; ур <= 9; ур++){ const lv = ур*.85; ctx.strokeStyle = "rgba(232,161,75," + (.05 + ур*.018) + ")"; ctx.beginPath();
+      for(let j = 0; j < rows - 1; j++) for(let i = 0; i < cols - 1; i++){ const a = П[j*cols+i], b = П[j*cols+i+1], c = П[(j+1)*cols+i+1], d = П[(j+1)*cols+i];
+        const к = (a>lv?8:0)|(b>lv?4:0)|(c>lv?2:0)|(d>lv?1:0); if(!к || к === 15) continue;
+        const x = i*ш, y = j*ш, t1 = [x + ш*(lv-a)/(b-a), y], t2 = [x + ш, y + ш*(lv-b)/(c-b)], t3 = [x + ш*(lv-d)/(c-d), y + ш], t4 = [x, y + ш*(lv-a)/(d-a)];
+        const сег = {1:[t3,t4],2:[t2,t3],3:[t2,t4],4:[t1,t2],5:[t1,t4],6:[t1,t3],7:[t1,t4],8:[t1,t4],9:[t1,t3],10:[t1,t2],11:[t1,t2],12:[t2,t4],13:[t2,t3],14:[t3,t4]}[к];
+        if(сег){ ctx.moveTo(сег[0][0], сег[0][1]); ctx.lineTo(сег[1][0], сег[1][1]); } } ctx.stroke(); } } },
+ {name:"Чистый тон", what:"<b>Без декора: глубокий тон с мягкой виньеткой</b>, чуть светлее в центре внимания. Максимум тишины — на фоне спорить с нодами нечему, зато граф становится главным и единственным рисунком.",
+  draw(ctx, W, H){ const g = ctx.createRadialGradient(W*.5, H*.45, 0, W*.5, H*.5, Math.max(W, H)*.75); g.addColorStop(0, "#17171c"); g.addColorStop(.6, "#0b0b0e"); g.addColorStop(1, "#040405");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); } },
+ {name:"Пыль и глубина", anim:true, what:"<b>Два слоя мелкой пыли с параллаксом</b>: ближний едет при пане быстрее дальнего и медленно дрейфует сам. Холст ощущается объёмным пространством, а не плоской картинкой, — но без ярких звёзд, которые путаются с нодами.",
+  draw(ctx, W, H, cam, t){ for(const [k, а, р, sp] of [[.25, .07, 1, .004], [.6, .13, 1.4, .009]]){ ctx.fillStyle = "rgba(220,220,235," + а + ")";
+      ЗВЁЗДЫ.forEach(([x, y, q], i) => { if(i % 2 !== (k > .5 ? 1 : 0)) return; const px = ((x*W*1.5 - cam.x*k*cam.z + t*sp*(1 + q)) % (W*1.5) + W*1.5) % (W*1.5) - W*.25;
+        const py = ((y*H*1.5 - cam.y*k*cam.z + Math.sin(t/4000 + i)*3) % (H*1.5) + H*1.5) % (H*1.5) - H*.25; ctx.beginPath(); ctx.arc(px, py, р*(.6 + q*.6), 0, Math.PI*2); ctx.fill(); }); } } },
+];
+
+/* ===== отрисовка ===== */
+let ни = 1, фи = 0;
+function draw(cv, cam, t){
+  const dpr = devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if(cv.width !== Math.round(W*dpr) || cv.height !== Math.round(H*dpr)){ cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr); }
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const фон = ФОНЫ[фи];
+  if(фон.name !== "Чистый тон"){ const g = ctx.createRadialGradient(W*.45, H*.45, 0, W*.5, H*.5, Math.max(W, H)*.8); g.addColorStop(0, "#121217"); g.addColorStop(1, "#070709"); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); }
+  if(фон.name === "Звёзды") ЗВЁЗДЫ.forEach(([x, y, a]) => { ctx.fillStyle = "rgba(255,255,255," + (.05 + a*.18) + ")"; ctx.fillRect(x*W, y*H, a > .7 ? 1.6 : 1.1, a > .7 ? 1.6 : 1.1); });
+  if(фон.draw) фон.draw(ctx, W, H, cam, t);
+  const z = cam.z; ctx.save(); ctx.translate(W/2 - cam.x*z, H/2 - cam.y*z);
+  // связи — «Поток 2.0», он уже выбран
+  L.forEach(([ia, ib]) => { const a = поId[ia], b = поId[ib]; ctx.lineCap = "round";
+    const закрыто = b.st === "done" && !дети(b.id).some(d => d.st !== "done"), пауза = вПаузе(b), работа = b.st === "doing" || дети(b.id).some(d => d.st === "doing");
+    ctx.strokeStyle = пауза ? "rgba(134,134,140,.1)" : закрыто ? "rgba(134,134,140,.16)" : работа ? "rgba(232,161,75,.45)" : rgba(b.c, .3);
+    ctx.lineWidth = работа ? 2.2 : закрыто ? .8 : 1.1; ctx.beginPath(); ctx.moveTo(a.x*z, a.y*z); ctx.lineTo(b.x*z, b.y*z); ctx.stroke();
+    if(работа){ ctx.setLineDash([2.5, 13]); ctx.lineDashOffset = -t*.045; ctx.strokeStyle = "#ffd9a0"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(a.x*z, a.y*z); ctx.lineTo(b.x*z, b.y*z); ctx.stroke(); ctx.setLineDash([]); } });
+  const подписи = z >= .8, В = НОДЫ[ни];
+  N.forEach(n => { const x = n.x*z, y = n.y*z, r0 = РАД[n.k]*Math.max(.6, Math.min(1.6, z));
+    const r = В.draw(ctx, n, x, y, r0, t) || r0;
+    if(n.due != null && n.st !== "done" && r0 >= 6){ const тx = n.due < 0 ? String(n.due) : n.due === 0 ? "сег" : n.due === 1 ? "зав" : String(n.due), цв = n.due < 0 ? "#e0625a" : n.due <= 1 ? "#e0873c" : "#7b8794";
+      ctx.font = "600 10px " + getComputedStyle(document.body).fontFamily; const w = Math.max(15, ctx.measureText(тx).width + 9), D = ФОРМА[n.k] === "diamond" ? r*.68 : r;
+      const bx = x + D + w/2 - 4, by = y - D - 3.5; ctx.beginPath(); ctx.roundRect(bx - w/2, by - 7.5, w, 15, 7.5); ctx.fillStyle = n.due < 0 ? цв : mix(цв, ФОН, .24); ctx.fill();
+      ctx.fillStyle = n.due < 0 ? ФОН : цв; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(тx, bx, by + .5); }
+    if(подписи){ const лист = n.k === "task" || n.k === "note"; ctx.font = (лист ? "10.5px " : "600 12px ") + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.lineJoin = "round"; ctx.lineWidth = 4; ctx.strokeStyle = ФОН; const yy = y + (ФОРМА[n.k] === "diamond" ? r*1.35 : r) + 6;
+      ctx.strokeText(n.t, x, yy); ctx.globalAlpha = вПаузе(n) ? .5 : 1; ctx.fillStyle = лист ? "#a9a9b1" : "#e3e3e8"; ctx.fillText(n.t, x, yy); ctx.globalAlpha = 1; } });
+  ctx.restore();
+}
+const near = document.getElementById("near"), far = document.getElementById("far");
+const БЛИЗКО = {x:230, y:30, z:1.4}, ВСЕ = {x:0, y:0, z:1};
+function fit(){ const xs = N.map(n => n.x), ys = N.map(n => n.y), w = Math.max(...xs) - Math.min(...xs) + 160, h = Math.max(...ys) - Math.min(...ys) + 140;
+  ВСЕ.x = (Math.max(...xs) + Math.min(...xs))/2; ВСЕ.y = (Math.max(...ys) + Math.min(...ys))/2; ВСЕ.z = Math.min(far.clientWidth/w, far.clientHeight/h);
+  БЛИЗКО.z = Math.min(1.9, near.clientWidth/480, near.clientHeight/480); }
+function всё(t){ t = t || performance.now(); fit(); draw(near, БЛИЗКО, t); draw(far, ВСЕ, t); }
+function подписать(){ document.getElementById("nd").innerHTML = НОДЫ[ни].what + (НОДЫ[ни].cost ? "<em>Цена: " + НОДЫ[ни].cost + "</em>" : "");
+  document.getElementById("bd").innerHTML = ФОНЫ[фи].what;
+  document.querySelectorAll("#nv button").forEach((b, i) => b.classList.toggle("on", i === ни)); document.querySelectorAll("#bv button").forEach((b, i) => b.classList.toggle("on", i === фи)); }
+document.getElementById("nv").innerHTML = НОДЫ.map((v, i) => `<button>${v.name}<kbd>${i}</kbd></button>`).join("");
+document.getElementById("bv").innerHTML = ФОНЫ.map((v, i) => `<button>${v.name}<kbd>${"QWERTY"[i]}</kbd></button>`).join("");
+document.querySelectorAll("#nv button").forEach((b, i) => b.onclick = () => { ни = i; подписать(); всё(); });
+document.querySelectorAll("#bv button").forEach((b, i) => b.onclick = () => { фи = i; подписать(); всё(); });
+addEventListener("keydown", e => { if(e.key >= "0" && e.key < String(НОДЫ.length)){ ни = +e.key; подписать(); всё(); }
+  const к = "qwerty".indexOf(e.key.toLowerCase()); const кр = "йцукен".indexOf(e.key.toLowerCase()); const ф = к >= 0 ? к : кр; if(ф >= 0 && ф < ФОНЫ.length){ фи = ф; подписать(); всё(); } });
+addEventListener("resize", () => всё());
+// течение по связям идёт всегда (поток уже выбран), плюс анимации вариантов — ~30 кадров/с
+let прош = 0; (function цикл(t){ if(!document.hidden && t - прош > 33){ прош = t; всё(t); } requestAnimationFrame(цикл); })(0);
+document.fonts.ready.then(() => { подписать(); всё(); });
+</script>
+</body>
+</html>
