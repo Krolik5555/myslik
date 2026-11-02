@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Статусы нод — варианты</title>
+<link rel="stylesheet" href="ui/vendor/tabler-icons.min.css">
+<style>
+  /* Токены — копия ui/styles.css (стиль A), иначе макет врал бы о цвете. */
+  :root{
+    --bg:#060607; --surf:#0e0e11; --surf2:#17171b; --surf3:#212126; --l2:#121216;
+    --bd:rgba(255,255,255,.075); --bd2:rgba(255,255,255,.26);
+    --tx:#f4f4f5; --mut:#9a9aa3; --mut2:#7a7a83;
+    --pri1:#5fb98e; --pri2:#e8a14b; --pri3:#e0625a;
+    --st-wait:#7f9fbf; --st-next:#dcdce2; --st-review:#a98fd0; --st-mark:#86868c;
+    --tm-far:#5f7f9e; --tm-week:#7b8794; --tm-soon:#9a9a92; --tm-near:#d8b04a; --tm-today:#e0873c; --tm-over:#e0625a;
+    --ur1:#b9a06a; --ur2:#d98b46; --ur3:#e0625a;
+    --font:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;
+  }
+  :root[data-theme="light"]{
+    --bg:#f3f3f5; --surf:#fafafb; --surf2:#ededf0; --surf3:#e3e3e8; --l2:#ffffff;
+    --bd:rgba(0,0,0,.08); --bd2:rgba(0,0,0,.24);
+    --tx:#111114; --mut:#5f5f66; --mut2:#76767d;
+    --pri1:#3f9e72; --pri2:#c8821f; --pri3:#cc4b43;
+    --st-wait:#4a6f92; --st-next:#2b2b33; --st-review:#7a55b8; --st-mark:#666666;
+    --tm-far:#436a8c; --tm-week:#5d6b7a; --tm-soon:#7d7d74; --tm-near:#b8891f; --tm-today:#c4691f; --tm-over:#cc4b43;
+    --ur1:#8a7430; --ur2:#b56a20; --ur3:#cc4b43;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--tx);font-family:var(--font);font-size:14px;line-height:1.5;padding:28px 24px 60px;}
+  .wrap{max-width:1400px;margin:0 auto;}
+  h1{font-size:22px;font-weight:600;letter-spacing:-.01em;}
+  .lead{color:var(--mut);max-width:880px;margin:6px 0 18px;}
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px;}
+  .seg{display:inline-flex;gap:2px;padding:3px;border-radius:11px;background:var(--l2);box-shadow:inset 0 0 0 .5px var(--bd);}
+  .seg button{font:inherit;font-size:13px;color:var(--mut);background:none;border:0;padding:5px 11px;border-radius:8px;cursor:pointer;}
+  .seg button.on{background:var(--surf3);color:var(--tx);}
+  label.z{display:inline-flex;align-items:center;gap:8px;color:var(--mut);font-size:13px;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;}
+  .card{background:var(--l2);border-radius:16px;box-shadow:inset 0 0 0 .5px var(--bd);overflow:hidden;display:flex;flex-direction:column;}
+  .card h2{font-size:15px;font-weight:600;padding:14px 16px 2px;}
+  .card .tag{font-size:11px;color:var(--mut2);padding:0 16px;}
+  .card p{font-size:12.5px;color:var(--mut);padding:6px 16px 0;}
+  .card .cost{font-size:11.5px;color:var(--mut2);padding:6px 16px 14px;}
+  .card .cost b{color:var(--mut);font-weight:500;}
+  .card canvas{display:block;width:100%;background:var(--surf);margin-top:10px;}
+  .card.now{box-shadow:inset 0 0 0 1px var(--bd2);}
+  .notes{margin-top:22px;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;}
+  .notes div{background:var(--l2);border-radius:16px;box-shadow:inset 0 0 0 .5px var(--bd);padding:14px 16px;font-size:13px;color:var(--mut);}
+  .notes b{color:var(--tx);font-weight:600;display:block;margin-bottom:4px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Статусы нод — варианты отображения</h1>
+  <div class="lead">Один и тот же набор нод в пяти вариантах. Правило стиля A во всех: ничего «поверх» ноды —
+    признаки внутри формы или на её крае. Первый вариант — то, что уже стоит в 2.1. Остальные — предложения;
+    у каждого внизу цена для графа на 950 нод.</div>
+  <div class="bar">
+    <div class="seg" id="theme"><button class="on" data-t="dark">Тёмная</button><button data-t="light">Светлая</button></div>
+    <label class="z">Масштаб <input type="range" id="zoom" min="0.45" max="1.6" step="0.05" value="1"> <span id="zv">1.0×</span></label>
+  </div>
+  <div class="grid" id="grid"></div>
+  <div class="notes">
+    <div><b>Как читать</b>Строки в каждой карточке одинаковые: не начато, на очереди, в работе, ждёт, на проверке,
+      на паузе, готово, затем подзадачи 2/3, просрочено с высоким приоритетом и «горит №1». Ползунок масштаба
+      показывает, что остаётся видно на общем виде графа, когда подписи и значки уже скрыты.</div>
+    <div><b>Что я бы взял</b>«Тихий граф» как основу (работа видна сразу, остальное отходит на второй план) и
+      «Полосу статуса» только для «ждёт» и «на проверке»: значок внутри ноды пропадает на отдалении, а полоса —
+      нет. «Дыхание» — только если не жалко видеокарты: это постоянная перерисовка.</div>
+  </div>
+</div>
+<script>
+const css = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+const glyph = (() => { const c = {}; return name => { if(c[name] !== undefined) return c[name];
+  const i = document.createElement("i"); i.className = "ti ti-" + name; i.style.cssText = "position:absolute;left:-9999px";
+  document.body.appendChild(i); const raw = getComputedStyle(i, "::before").content; i.remove();
+  return c[name] = (raw && raw !== "none") ? raw.replace(/^["']|["']$/g, "") : ""; }; })();
+const rgb = s => { s = s.replace("#", ""); if(s.length === 3) s = s.split("").map(x => x + x).join("");
+  return [parseInt(s.slice(0,2),16), parseInt(s.slice(2,4),16), parseInt(s.slice(4,6),16)]; };
+const mix = (a, b, k) => { const A = rgb(a), B = rgb(b); return "rgb(" + A.map((v,i) => Math.round(v*k + B[i]*(1-k))).join(",") + ")"; };
+const rgba = (a, al) => "rgba(" + rgb(a).join(",") + "," + al + ")";
+
+/* ---- общий рисунок ноды (квадрат задачи) — те же правила, что graph.js: _drawMain ---- */
+function shape(ctx, x, y, r){ ctx.rect(x - r, y - r, r*2, r*2); }
+function pill(ctx, bx, by, w, h){ const rr = h/2; ctx.beginPath(); ctx.moveTo(bx-w/2+rr, by-h/2); ctx.arcTo(bx+w/2, by-h/2, bx+w/2, by+h/2, rr);
+  ctx.arcTo(bx+w/2, by+h/2, bx-w/2, by+h/2, rr); ctx.arcTo(bx-w/2, by+h/2, bx-w/2, by-h/2, rr); ctx.arcTo(bx-w/2, by-h/2, bx+w/2, by-h/2, rr); ctx.closePath(); }
+function badge(ctx, n, sx, sy, text, fill, stroke, ink){
+  ctx.font = "600 10.5px " + css("--font"); const w = Math.max(15.5, ctx.measureText(text).width + 9), h = 15.5, z = Math.min(5, n.r*0.45);
+  const bx = n.x + sx*n.r + sx*(w/2 - z), by = n.y + sy*n.r + sy*(h/2 - z);
+  pill(ctx, bx, by, w, h); ctx.fillStyle = fill; ctx.fill(); if(stroke){ ctx.lineWidth = 1; ctx.strokeStyle = stroke; ctx.stroke(); }
+  ctx.fillStyle = ink; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(text, bx, by + .5);
+}
+function glow(ctx, x, y, R, color, a){ const g = ctx.createRadialGradient(x, y, 0, x, y, R);
+  g.addColorStop(0, rgba(color, a)); g.addColorStop(1, rgba(color, 0)); ctx.fillStyle = g; ctx.fillRect(x-R, y-R, R*2, R*2); }
+
+const НОДЫ = [
+  {t:"Не начато", st:"todo"}, {t:"На очереди", st:"next"}, {t:"В работе", st:"doing"}, {t:"Ждёт", st:"waiting"},
+  {t:"На проверке", st:"review"}, {t:"На паузе", st:"paused"}, {t:"Готово", st:"done"},
+  {t:"Подзадачи 2/3", st:"doing", prog:2/3}, {t:"Просрочено", st:"todo", over:-3, pri:3}, {t:"Горит №1", st:"next", hot:1, due:0, pri:2},
+];
+const ЦВЕТ = ["#ffffff", "#ffffff", "#e8a14b", "#ffffff", "#7f9fbf", "#ffffff", "#5fb98e", "#e8a14b", "#ffffff", "#ffffff"];
+const ВЕТХО = {0:0, 1:2, 2:1, 3:24, 4:6, 5:40, 6:0, 7:3, 8:30, 9:1};   // дней без правки — для «времени в статусе»
+
+/* ---- варианты ---- */
+const ВАРИАНТЫ = [
+  {id:"now", name:"Сейчас (2.1)", tag:"уже в приложении", now:true,
+   text:"Тон заливки и обводка цветом ноды; «в работе» — плотнее и со светом; «ждёт», «очередь», «проверка» — значок внутри; пауза — пунктир; готово — заливка с галочкой.",
+   cost:"<b>0</b> — базовая цена кадра (0,2 мс на холст, свет — спрайтами)."},
+  {id:"quiet", name:"Тихий граф", tag:"предложение 1 · рекомендую",
+   text:"Внимание забирает только живая работа. «Не начато» и «очередь» отходят на второй план (тише тон и контур), «в работе» — полный контраст, «готово» — маленькая заливка без света. На большом графе сразу видно, где идёт работа.",
+   cost:"<b>0</b> — меняются только цвета групп отрисовки, число проходов то же."},
+  {id:"band", name:"Полоса статуса", tag:"предложение 2",
+   text:"Цвет статуса — нижней гранью обводки (зеркально приоритету сверху): синяя — ждёт, фиолетовая — проверка, светлая — очередь. В отличие от значка внутри, полоса видна и на отдалении, когда значки уже скрыты.",
+   cost:"<b>≈0,02 мс</b> — один проход как у приоритета, без порога деталей."},
+  {id:"age", name:"Время в статусе", tag:"предложение 3",
+   text:"Нода, которую давно не трогали, постепенно выцветает: тон и контур тише с каждой неделей (до трети за месяц). Застрявшее «в работе» и забытые «ждёт» видно без режима «что горит».",
+   cost:"<b>≈0</b> — прозрачность группы, считается в пересборке, не в кадре."},
+  {id:"breath", name:"Дыхание работы", tag:"предложение 4 · с оговоркой",
+   text:"Свет «в работе» медленно дышит (период 2,4 с) — живое отличают от застывшего боковым зрением. Анимирован только слой света; при бездействии окна дыхание останавливается.",
+   cost:"<b>постоянная перерисовка</b> слоя света (~0,1 мс × 20 кадров/с) — видеокарта не засыпает. Только по переключателю."},
+];
+
+function drawVariant(cv, v, t){
+  const dpr = devicePixelRatio || 1, W = cv.clientWidth, z = +document.getElementById("zoom").value;
+  const cols = 2, rowH = 66*z + 24, H = Math.ceil(НОДЫ.length/cols)*rowH + 18;
+  if(cv.width !== Math.round(W*dpr) || cv.height !== Math.round(H*dpr)){ cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr); cv.style.height = H + "px"; }
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const фон = css("--surf"), фонУзла = css("--surf"), текст = css("--tx"), под = css("--mut");
+  const светлая = document.documentElement.dataset.theme === "light";
+  НОДЫ.forEach((d, i) => {
+    const n = {x:(i % cols + .5)*W/cols, y:Math.floor(i/cols)*rowH + 14 + 22*z, r:15*z};
+    let свой = ЦВЕТ[i]; if(светлая && свой === "#ffffff") свой = "#111114";
+    let зал = mix(свой, фонУзла, .14), обв = свой, лw = 1.7, пункт = false, альфа = 1;
+    if(d.st === "doing") зал = mix(свой, фонУзла, .30);
+    if(d.st === "done") зал = свой;
+    if(d.st === "paused"){ зал = mix(свой, фонУзла, .16); обв = mix(свой, css("--st-mark"), .55); пункт = true; альфа = .72; }
+    // --- поправки вариантов ---
+    if(v.id === "quiet"){
+      if(d.st === "todo" || d.st === "next"){ зал = mix(свой, фонУзла, .07); обв = mix(свой, фонУзла, .55); лw = 1.4; }
+      if(d.st === "doing"){ зал = mix(свой, фонУзла, .38); лw = 2.2; }
+      if(d.st === "done"){ n.r *= .72; }
+      if(d.st === "waiting" || d.st === "review"){ обв = mix(свой, фонУзла, .8); }
+    }
+    if(v.id === "age"){ const дн = ВЕТХО[i] || 0; if(d.st !== "done") альфа *= Math.max(.38, 1 - Math.max(0, дн - 7)/40); }
+    // свет
+    if(d.st === "doing" && !(v.id === "quiet" && false)){
+      let a = .45; if(v.id === "breath") a = .25 + .3*(.5 + .5*Math.sin(t/2400*Math.PI*2));
+      glow(ctx, n.x, n.y, 46*z, свой, a*альфа);
+    }
+    if(d.hot) glow(ctx, n.x, n.y, 52*z, css("--ur3"), .55);
+    // форма
+    ctx.globalAlpha = альфа; ctx.setLineDash(пункт ? [3.4*z, 2.6*z] : []);
+    ctx.beginPath(); shape(ctx, n.x, n.y, n.r); ctx.fillStyle = зал; ctx.fill(); ctx.lineWidth = Math.max(.75, лw*z); ctx.strokeStyle = обв; ctx.stroke();
+    ctx.setLineDash([]);
+    // прогресс заливкой
+    if(d.prog){ ctx.save(); ctx.beginPath(); shape(ctx, n.x, n.y, n.r - лw*z/2); ctx.clip(); ctx.fillStyle = mix(свой, фонУзла, .5);
+      const верх = n.y + n.r - 2*n.r*d.prog; ctx.fillRect(n.x - n.r, верх, n.r*2, n.y + n.r - верх); ctx.restore(); }
+    // приоритет — участок обводки сверху
+    if(d.pri){ const w = n.r*Math.min(1, (.25 + .15*d.pri)*1.3); ctx.beginPath(); ctx.moveTo(n.x - w, n.y - n.r); ctx.lineTo(n.x + w, n.y - n.r);
+      ctx.lineWidth = Math.max(2, (лw + .4))*z; ctx.strokeStyle = css("--pri" + d.pri); ctx.stroke(); }
+    // полоса статуса — нижняя грань
+    if(v.id === "band"){ const цв = {waiting:css("--st-wait"), review:css("--st-review"), next:css("--st-next"), doing:css("--pri1")}[d.st];
+      if(цв){ ctx.beginPath(); ctx.moveTo(n.x - n.r*.78, n.y + n.r); ctx.lineTo(n.x + n.r*.78, n.y + n.r); ctx.lineWidth = Math.max(2, 2.1*z); ctx.strokeStyle = цв; ctx.stroke(); } }
+    // значки внутри (на отдалении скрыты, как в приложении)
+    const виден = n.r >= 6.5 && z >= .45;
+    const внутри = {waiting:["hourglass-low", css("--st-wait")], next:["player-track-next", css("--st-next")], review:["eye", css("--st-review")]}[d.st];
+    if(внутри && виден && !(v.id === "band" && n.r < 9)){ const г = glyph(внутри[0]); ctx.font = (n.r*1.15).toFixed(1) + 'px "tabler-icons"'; ctx.fillStyle = внутри[1];
+      ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(г, n.x, n.y); }
+    if(d.st === "done"){ ctx.beginPath(); const s = z*(v.id === "quiet" ? .72 : 1); ctx.moveTo(n.x - 3.2*s, n.y + .3*s); ctx.lineTo(n.x - 1*s, n.y + 2.7*s); ctx.lineTo(n.x + 3.2*s, n.y - 2.3*s);
+      ctx.lineWidth = 1.6*z; ctx.strokeStyle = фон; ctx.lineJoin = "round"; ctx.stroke(); }
+    ctx.globalAlpha = 1;
+    // плашки
+    if(d.over != null) badge(ctx, n, 1, -1, String(d.over), css("--tm-over"), null, фон);
+    if(d.due === 0) badge(ctx, n, 1, -1, "сег", mix(css("--tm-today"), фон, .24), css("--tm-today"), css("--tm-today"));
+    if(d.hot) badge(ctx, n, -1, -1, "№" + d.hot, css("--ur3"), null, фон);
+    // подпись
+    if(виден){ ctx.font = "12px " + css("--font"); ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.lineJoin = "round";
+      ctx.lineWidth = 4; ctx.strokeStyle = фон; ctx.strokeText(d.t, n.x, n.y + n.r + 7); ctx.globalAlpha = альфа;
+      ctx.fillStyle = d.st === "paused" ? под : текст; ctx.fillText(d.t, n.x, n.y + n.r + 7); ctx.globalAlpha = 1; }
+  });
+}
+
+const grid = document.getElementById("grid");
+ВАРИАНТЫ.forEach(v => {
+  const c = document.createElement("div"); c.className = "card" + (v.now ? " now" : "");
+  c.innerHTML = `<h2>${v.name}</h2><div class="tag">${v.tag}</div><p>${v.text}</p><canvas></canvas><div class="cost">Цена: ${v.cost}</div>`;
+  grid.appendChild(c); v.cv = c.querySelector("canvas");
+});
+const всё = t => ВАРИАНТЫ.forEach(v => drawVariant(v.cv, v, t || performance.now()));
+document.getElementById("zoom").oninput = e => { document.getElementById("zv").textContent = (+e.target.value).toFixed(1) + "×"; всё(); };
+document.getElementById("theme").onclick = e => { const b = e.target.closest("button"); if(!b) return;
+  document.querySelectorAll("#theme button").forEach(x => x.classList.toggle("on", x === b));
+  document.documentElement.dataset.theme = b.dataset.t; всё(); };
+addEventListener("resize", () => всё());
+// дышит только карточка «Дыхание»: остальные статичны, как граф в покое
+const дыхание = ВАРИАНТЫ.find(v => v.id === "breath");
+let последний = 0;
+const цикл = t => { if(t - последний > 50){ последний = t; drawVariant(дыхание.cv, дыхание, t); } requestAnimationFrame(цикл); };
+document.fonts.ready.then(() => { всё(); requestAnimationFrame(цикл); });
+</script>
+</body>
+</html>
