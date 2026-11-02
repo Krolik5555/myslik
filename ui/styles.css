@@ -81,6 +81,10 @@ select option{background:var(--surf2);color:var(--tx);}
 
 /* ===== top bar (capture) ===== */
 #topbar{display:flex;align-items:center;gap:12px;padding:8px 16px;border-bottom:0.5px solid var(--bd);}
+/* ПРОБА 3.0 (PLANNER_NOTITLE=1, класс ставит app.py): нативной полосы нет, заголовок окна —
+   пустое место верхней строки. app-region: drag здесь НАРОЧНО не стоит: область с ним перестаёт
+   получать мышь в JS, а таскает окно не она, а win_startdrag (см. wireNoTitleDrag в main.js). */
+.notitle #topbar{cursor:default;}
 /* Строку захвата не растягиваем на всю ширину: на широком мониторе поле в два метра
    выглядит пустым, а курсор всё равно у центра. Ограничиваем и центрируем. */
 #cap-wrap{position:relative;flex:1;max-width:960px;margin:0 auto;}

@@ -1866,6 +1866,69 @@ _TB_COLORS = {
 }
 
 
+def _enable_nc_regions():
+    """ПРОБА 3.0 (аудит 2.1): окно без нативной полосы, перетаскивание — силами самого WebView2.
+
+    Причина нативной полосы (см. блок выше) — WebView2 не отдавал Windows ни одного сообщения
+    мыши. С SDK 1.0.2420 у него есть свой ответ: IsNonClientRegionSupportEnabled, и тогда
+    CSS `app-region: drag` делает область заголовком окна. В нашей сборке SDK 1.0.3856, свойство
+    на месте. Включается только флагом PLANNER_NOTITLE=1 — пока проба не подтвердила Snap,
+    дабл-клик и системное меню, обычный запуск идёт старым путём.
+
+    Свойство читается при навигации, поэтому после включения страницу перезагружаем."""
+    form = _get_form()
+    if form is None:
+        print("[notitle] form not found")
+        return False
+    from System import Action
+    готово, итог = threading.Event(), {}
+
+    def _on_ui():
+        # К WebView2 — ТОЛЬКО С UI-ПОТОКА, включая простое чтение CoreWebView2. Первая версия
+        # пробы опрашивала его из фонового потока, и окно повисло насмерть (02.11.2026).
+        if готово.is_set():
+            return                             # опросы ставятся в очередь пачкой — сработать должен один
+        try:
+            core = form.browser.webview.CoreWebView2
+            if core is None:
+                return                         # ещё не инициализирован — следующий опрос
+            core.Settings.IsNonClientRegionSupportEnabled = True
+            итог["on"] = bool(core.Settings.IsNonClientRegionSupportEnabled)
+            # Перезагрузка нужна, только если страница УЖЕ загрузилась без свойства. Чаще всего
+            # мы успеваем раньше первой навигации, и тогда Reload падает с INVALID_STATE
+            # (0x8007139F) — это не беда: страница и так грузится уже с включённым свойством.
+            try:
+                core.Reload()
+            except Exception:
+                итог["reload"] = "skip"
+        except Exception as e:
+            итог["err"] = str(e)
+        готово.set()
+
+    for _ in range(100):                       # CoreWebView2 появляется асинхронно
+        try:
+            form.BeginInvoke(Action(_on_ui))
+        except Exception as e:
+            итог["err"] = str(e)
+            break
+        if готово.wait(0.2):
+            break
+    print("[notitle] non-client regions:", итог)
+    if not итог.get("on"):
+        return False
+    # Класс режима ставим ОТСЮДА, из фонового потока, а не из события loaded: обработчик события
+    # мог прийти в UI-потоке, а evaluate_js оттуда вешает окно (та же грабля, что у кнопки
+    # закрытия). Повторяем несколько секунд: перезагрузка идёт асинхронно, и класс, поставленный
+    # старой странице, умрёт вместе с ней. Операция идемпотентна.
+    for _ in range(12):
+        time.sleep(0.5)
+        try:
+            _WINDOW.evaluate_js("document.documentElement.classList.add('notitle')")
+        except Exception:
+            pass
+    return True
+
+
 def _install_native_titlebar():
     """Создать полосу заголовка и вставить её НАД браузером.
 
@@ -2441,10 +2504,13 @@ def _set_taskbar_icon(icon_path):
     except Exception as e:
         print("[icon] win32 missing:", e)
         return
-    # ждём, пока появится нативное окно: сначала ищем по своему процессу, в запасе — по заголовку
+    # ждём, пока появится нативное окно — ТОЛЬКО своего процесса. Запасной поиск по заголовку
+    # убран: пока своё окно не создано, FindWindow(None, "Мыслик") находил окно ДРУГОЙ открытой
+    # копии и менял иконку ей (поймано 02.11.2026 пробой 3.0 рядом с живым приложением) —
+    # ровно та беда, от которой _get_hwnd давно ищет по PID.
     hwnd = 0
     for _ in range(120):  # до ~12 c
-        hwnd = _find_own_window() or win32gui.FindWindow(None, "Мыслик")
+        hwnd = _find_own_window()
         if hwnd:
             break
         time.sleep(0.1)
@@ -2739,13 +2805,20 @@ def main():
     if os.path.exists(win_icon):
         threading.Thread(target=_set_taskbar_icon, args=(win_icon,), daemon=True).start()
 
+    # проба 3.0: без нативной полосы, заголовок — CSS app-region (см. _enable_nc_regions)
+    notitle = frameless and os.environ.get("PLANNER_NOTITLE") == "1"
     if frameless:
         # нативная полоса заголовка: она же даёт Aero Snap (см. _install_native_titlebar).
         # Ждём появления формы в фоне, вставку делаем на UI-потоке.
         def _tb():
             for _ in range(150):
                 if _get_form() is not None:
-                    _install_native_titlebar()
+                    if notitle:
+                        # своим потоком: проба ждёт перезагрузку страницы секунды, а Snap-стили
+                        # ниже нужны окну сразу
+                        threading.Thread(target=_enable_nc_regions, daemon=True).start()
+                    else:
+                        _install_native_titlebar()
                     h = 0
                     for _ in range(60):        # окно уже есть, но hwnd мог ещё не появиться
                         h = _get_hwnd()

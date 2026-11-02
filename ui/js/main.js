@@ -178,10 +178,35 @@ function openTimer(){
   setTimeout(()=>m.focus(),30);
 }
 
+/* ПРОБА 3.0 — ОКНО БЕЗ НАТИВНОЙ ПОЛОСЫ (PLANNER_NOTITLE=1, класс .notitle ставит app.py).
+   CSS app-region: drag в нашей сборке WebView2 даёт двойной клик и меню окна, но НЕ таскает:
+   оконный хост отдаёт «тяни заголовок» своему дочернему окну, а не форме (КРОЛИК, 03.11.2026).
+   Поэтому нажатие на пустое место верхней строки само запускает штатный move-loop Windows у
+   ФОРМЫ — win_startdrag, он уже перекладывает вызов на UI-поток (иначе ReleaseCapture не
+   отпускает мышь). Это тот же цикл, что у нативной полосы, значит Snap и Win+стрелки те же. */
+let _noTitleWired=false;
+function wireNoTitleDrag(){
+  if(_noTitleWired) return; _noTitleWired=true;
+  const пусто=e=>document.documentElement.classList.contains("notitle") && e.target.closest &&
+    e.target.closest("#topbar") && !e.target.closest("input,textarea,button,a,#cap-preview,#head-actions,#kbd-hint");
+  document.addEventListener("mousedown", e=>{
+    // второй щелчок двойного клика не тащит — его ловит dblclick ниже
+    if(e.button!==0 || e.detail>1 || !пусто(e) || !HasPy()) return;
+    e.preventDefault();
+    try{ window.pywebview.api.win_startdrag(); }catch(err){}
+  }, true);
+  document.addEventListener("dblclick", e=>{
+    if(!пусто(e) || !HasPy()) return;
+    e.preventDefault();
+    try{ window.pywebview.api.win_max(); }catch(err){}
+  }, true);
+}
+
 /* ===========================================================
    GLOBAL EVENTS
    =========================================================== */
 function wireGlobal(){
+  wireNoTitleDrag();
   // Страховка от «съезда» вёрстки: если корневой documentElement/body всё же получил
   // прокрутку (WebView2 иногда прокручивает корень при возврате фокуса колесом) — тут же
   // возвращаем в 0. Внутренние скроллы (#view, списки, модалки) это не трогает.
