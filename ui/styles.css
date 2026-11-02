@@ -2410,18 +2410,18 @@ body{--edge-a:color-mix(in srgb,var(--hue-a) var(--edge-ka),transparent);--edge-
 #graph-wrap{background:radial-gradient(120% 95% at 50% 42%,var(--cv1,var(--surf2)) 0%,var(--cv2,var(--surf)) 55%,var(--cv3,var(--bg)) 100%);}
 .light #graph-wrap{background:radial-gradient(120% 95% at 50% 42%,var(--l2) 0%,var(--bg) 60%,var(--surf2) 100%);}
 
-/* ---- ГРАДИЕНТНАЯ КРОМКА — контур панели, островков и меню (выбор КРОЛИКА из макета) ----
-   Рамка из маски: псевдоэлемент на весь элемент с отступом в 1 px, середина вырезана. Обычная
-   border-image скругления не понимает, а градиент «через фон» просвечивал бы сквозь стекло.
-   Кромка — СПЛОШНОЙ ПЕРЕЛИВ из одного цвета темы в другой, без провала. Первая версия гасла в
-   середине до прозрачного, вторая — до тонкой серой линии, и в обоих случаях на подкрашенной
-   шапке контур читался оборванным у углов (КРОЛИК, дважды). Перелив — СВЕРХУ ВНИЗ, а не по диагонали:
-   по диагонали в верхнем левом углу собирался самый светлый цвет, и угол выпадал из контура. */
+/* ---- КРОМКА ДВУХ ЦВЕТОВ — контур панели, островков и меню (выбор КРОЛИКА из макета) ----
+   Рисуется ВНУТРЕННЕЙ ТЕНЬЮ псевдоэлемента: кольцо смесью цветов по всему контуру, сверху поверх
+   него — первый цвет темы, снизу — второй. Тень скругляется ровно как обычная рамка.
+   ЧЕГО НЕ ДЕЛАТЬ (КРОЛИК браковал угол четыре раза подряд, 03.11.2026): рамку из МАСКИ (градиент на
+   псевдоэлементе, середина вырезана xor двух скруглённых прямоугольников) — на дробном масштабе
+   экрана сглаживание двух слоёв расходится именно на скруглении, и дуга угла рвётся и гуляет по
+   толщине; перелив по диагонали — в верхнем левом углу собирался самый светлый цвет; провал к
+   прозрачному или к серой линии в середине стороны — контур читался оборванным. */
 #aside-wrap::after,.cv-isl::after,html.canvas-ui #side::after,html.canvas-ui .graph-toolbar::after,
 .graph-more::after,.cv-menu::after,.tb-menu::after,#node-pop::after,.dp::after,body.as-cards .as-blk::after{
-  content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;z-index:3;
-  background:linear-gradient(180deg,var(--edge-a),var(--edge-b));
-  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;}
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:3;
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--edge-a) 50%,var(--edge-b)),inset 0 1px 0 0 var(--edge-a),inset 0 -1px 0 0 var(--edge-b);}
 
 /* ---- обёртка панели: держит кромку, корешок и место; сама #aside прокручивается внутри ---- */
 #aside-wrap{position:relative;flex:none;display:flex;min-width:0;margin:0 18px 20px 0;border-radius:var(--r-l);}
@@ -2429,14 +2429,13 @@ body{--edge-a:color-mix(in srgb,var(--hue-a) var(--edge-ka),transparent);--edge-
 #aside-wrap:has(> #aside.off){display:none;}
 .as-ribbon{display:none;}
 
-/* ---- ОТСВЕТ НОДЫ: панель освещена цветом выбранной ноды, кромка сверху её же цветом,
-   вдоль края к холсту — полоска, в углу шапки — контур её формы (вращается, пока нода в работе) ---- */
+/* ---- ОТСВЕТ НОДЫ: панель освещена цветом выбранной ноды, кромка сверху её же цветом, в углу
+   шапки — контур её формы (вращается, пока нода в работе). Полоски вдоль левого края нет: она
+   начиналась под скруглением обрывком и ломала угол (КРОЛИК), а цвет ноды и так несёт кромка ---- */
 body.as-glow #aside{background:
   radial-gradient(130% 380px at 0% 0%,color-mix(in srgb,var(--c,var(--accent)) 17%,transparent),transparent 62%),
   linear-gradient(180deg,color-mix(in srgb,var(--c,var(--accent)) 6%,transparent),transparent 320px),var(--l2);}
 body.as-glow #aside-wrap{--edge-a:color-mix(in srgb,var(--c,var(--accent)) 48%,transparent);}
-body.as-glow #aside-wrap::before{content:"";position:absolute;left:0;top:22px;bottom:22px;width:2px;border-radius:2px;z-index:3;pointer-events:none;
-  background:linear-gradient(180deg,var(--c,var(--accent)),transparent);}
 body.as-glow .as-blk-head{position:relative;overflow:hidden;isolation:isolate;}
 body.as-glow .as-blk-head::after{content:"";position:absolute;right:-46px;top:-46px;width:150px;height:150px;z-index:-1;pointer-events:none;
   border:2px solid color-mix(in srgb,var(--c,var(--accent)) 48%,transparent);border-radius:20px;transform:rotate(var(--r0,0deg));}
