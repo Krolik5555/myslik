@@ -2055,3 +2055,49 @@ html.canvas-ui:not(.notitle) #cv-drag{display:none;}     /* в деве окно
 #cv-tab:hover{color:var(--tx);}
 #cv-tab.show{display:flex;}
 #cv-tab .vt{writing-mode:vertical-rl;transform:rotate(180deg);font-size:12px;}
+
+/* ========================================================================
+   СТИЛЬ A — ОДНО СЕМЕЙСТВО ПЛАВАЮЩИХ ПОВЕРХНОСТЕЙ (аудит 2.1, этап 3, «адаптировать все элементы»).
+   Окна, меню, плашки и поля жили каждое своим рецептом из эпохи 2.0: светлая рамка --bd2,
+   белый ореол --glow, свой радиус и свой фон (--surf2/--surf3). Рядом с островками каркаса это
+   выглядело наложенным сверху. Здесь — три рецепта на всё, по месту в иерархии:
+     окно   — l2, волосяной контур тоном, подъём --lift, радиус --r-l;
+     меню   — l2, контур, тень поменьше, радиус --r-m; пункт под курсором — l3;
+     плашка — l3 (она выше окна по смыслу: сообщение поверх работы), контур, подъём, --r-m.
+   Правило: никаких ореолов --glow на поверхностях — свет остаётся у нод графа.
+   Блок стоит в конце файла намеренно: перекрывает прежние правила, не переписывая их по месту.
+   ======================================================================== */
+.pal-box,.modal,.tour-pop{background:var(--l2);border:0;border-radius:var(--r-l);box-shadow:inset 0 0 0 .5px var(--bd),var(--lift);}
+.tour-tail{background:var(--l2);border-left:.5px solid var(--bd);border-top:.5px solid var(--bd);}
+.dp,.cv-menu,.tb-menu,#node-pop,.graph-more{background:var(--l2);border:0;border-radius:var(--r-m);box-shadow:inset 0 0 0 .5px var(--bd),0 12px 34px var(--sh);}
+.upd-banner,.tour-banner,#toast{background:var(--l3);border:0;border-radius:var(--r-m);box-shadow:inset 0 0 0 .5px var(--bd),var(--lift);}
+.upd-banner .upd-x:hover,.tour-banner .tb-x:hover,.tour-x:hover{background:var(--l4);}
+.pal-in{border-bottom-color:var(--bd);}
+.pal-it.on{background:var(--l3);}
+.pal-it:hover{background:var(--l3);}
+/* островки графа (подсказка жестов, поиск, полоса выделения) — тем же тоном, что тулбар */
+.graph-hint,.graph-search,.graph-selbar{background:var(--l2);border:0;box-shadow:inset 0 0 0 .5px var(--bd),0 8px 24px var(--sh);}
+.graph-hint{border-radius:var(--r-m);}
+.graph-search{border-radius:var(--r-m);}
+/* поля ввода: тон l3 вместо рамки, фокус — контур тоном, без белого свечения */
+.field input[type=text],.field input[type=password],.field textarea,.field select,
+.tpl-f input,.ev-custom input,.rep-ai-ctl input{background:var(--l3);border-color:transparent;}
+.field input:focus,.field textarea:focus,.field select:focus,.tpl-f input:focus{border-color:transparent;box-shadow:inset 0 0 0 1px var(--bd3);}
+#cap:focus{box-shadow:inset 0 0 0 1px var(--bd3);}
+.as-area:focus{box-shadow:none;}
+/* мелкие кнопки внутри окон и календарей: тон вместо рамки */
+.dp-quick button,.ev-quick button,.ev-unit button,.seg button,.icon-grid button,.cal-nav button:not(.btn),
+.np-sz-btn,.fld-add button,.lbl-btn,.tf-chip,.list-find{border-color:transparent;background:var(--l3);}
+.dp-quick button:hover,.ev-quick button:hover,.ev-unit button:hover,.seg button:hover,.icon-grid button:hover,
+.cal-nav button:not(.btn):hover,.np-sz-btn:hover,.fld-add button:hover,.lbl-btn:hover,.tf-chip:hover,.list-find:hover{background:var(--l4);}
+/* карточки в видах (задачи, заметки, календарь, доска): тон l2 и контур тоном, не рамкой */
+/* у заметки и строки линии цветная левая кромка — признак, её не трогаем, гасим только остальные стороны */
+.card,.lane,.cd,.area-card,.ln-row,.area-row,.reader-links .rl-it,.tpl-pick,.folder-row{border-color:transparent;box-shadow:inset 0 0 0 .5px var(--bd);}
+.note-card,.line-card{border-top-color:transparent;border-right-color:transparent;border-bottom-color:transparent;}
+.card,.note-card,.lane,.cd{background:var(--l2);}
+.area-card,.line-card,.ln-row,.folder-row{background:var(--l3);}
+/* пунктирные «пустые места» — тоном и мягким контуром, а не пунктиром поверх */
+.ln-empty,.home-foot,.proj-hint{border-style:solid;border-color:var(--bd);}
+/* поле ответа нейросети в окне ИИ — тем же рецептом, что поля окон */
+.cmd-in{background:var(--l3);border-color:transparent;}
+.cmd-in:focus{border-color:transparent;box-shadow:inset 0 0 0 1px var(--bd3);}

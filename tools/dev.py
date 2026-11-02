@@ -387,7 +387,10 @@ def run_scenarios(names=None, quiet=False):
     # (он поднимает собственный сервер и промахивается мимо корня), а ?dev нам обязателен —
     # именно он включает демо-данные и не даёт тронуть живой planner.json.
     port = _serve_ui()
-    url = "http://127.0.0.1:%d/index.html?dev&v=%d" % (port, int(time.time()))
+    # каркас «холст» — вид по умолчанию с 2.1 (app.py: _notitle), значит и проверки идут в нём;
+    # прежний вид — PLANNER_NOTITLE=0, как у самого приложения
+    холст = "" if os.environ.get("PLANNER_NOTITLE") == "0" else "&canvas"
+    url = "http://127.0.0.1:%d/index.html?dev%s&v=%d" % (port, холст, int(time.time()))
     win = webview.create_window("Мыслик — проверка", url=url, width=1280, height=800,
                                 x=-3000, y=-3000)   # за пределами экрана: кадры идут, глаза не мозолит
     webview.start(worker, win, gui="edgechromium")

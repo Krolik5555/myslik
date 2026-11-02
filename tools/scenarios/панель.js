@@ -141,6 +141,21 @@ t.push({имя:"текст заметки в редактируемом поле
     hardDeleteItem(свой.id); renderNav();
   }
 
+  /* В КАРКАСЕ «ХОЛСТ» (вид по умолчанию с 2.1) полосы слева нет: области — столбиком значков,
+     экспорт и настройки — в меню логотипа. Проверяем то, что там есть, а не кнопки старой полосы. */
+  if(document.documentElement.classList.contains("canvas-ui")){
+    const столбик = document.getElementById("side").getBoundingClientRect();
+    t.push({имя:"каркас: области — узким столбиком у левого края", ок: столбик.width > 30 && столбик.width < 80 && столбик.left < 30,
+            факт: Math.round(столбик.left) + ", ширина " + Math.round(столбик.width)});
+    document.querySelector('#cv-tl [data-cv="logo"]').click(); await ж(150);
+    const меню = document.querySelector(".cv-menu");
+    const пункты = меню ? меню.textContent : "";
+    t.push({имя:"каркас: экспорт и настройки — в меню логотипа", ок: /Экспорт/.test(пункты) && /Настройки/.test(пункты), факт: пункты.slice(0, 80)});
+    const пункт = меню && меню.querySelector("button");
+    const рп = пункт ? пункт.getBoundingClientRect() : {height:0};
+    t.push({имя:"каркас: пункты меню логотипа попадаемые", ок: рп.height >= 30, факт: Math.round(рп.height) + " px"});
+    if(typeof cvMenuClose === "function") cvMenuClose();
+  } else {
   const былаШирина = шир("side");
   // разворот подписей: кнопка «показать названия»
   document.getElementById("side-wide").click(); await ж(200);
@@ -167,6 +182,7 @@ t.push({имя:"текст заметки в редактируемом поле
   const фб = document.querySelector(".foot-btn").getBoundingClientRect();
   t.push({имя:"кнопки экспорта и настроек крупные", ок: фб.height >= 36 && фб.width >= 36,
           факт: Math.round(фб.width) + "x" + Math.round(фб.height)});
+  }
 }
 
 // ===== выделение в графе ведёт панель =====
@@ -239,6 +255,12 @@ t.push({имя:"текст заметки в редактируемом поле
   view = "notes"; render(); await ж(700);
   const л = document.getElementById("graph-wrap").getBoundingClientRect();
   const п = document.getElementById("aside").getBoundingClientRect();
+  // в каркасе «холст» панель — карточка справа под островками (отступ сверху под них, снизу поле)
+  if(document.documentElement.classList.contains("canvas-ui"))
+    t.push({имя:"каркас: панель — карточка под островками, в пределах окна",
+            ок: п.top >= 56 && п.bottom <= innerHeight - 6 && п.right <= innerWidth - 6 && п.width > 200 && л.bottom >= п.bottom,
+            факт: `граф ${Math.round(л.top)}–${Math.round(л.bottom)}, панель ${Math.round(п.top)}–${Math.round(п.bottom)}`});
+  else
   t.push({имя:"половины одинаковой высоты", ок: Math.abs(л.bottom - п.bottom) <= 2 && Math.abs(л.top - п.top) <= 2,
           факт: `граф ${Math.round(л.top)}–${Math.round(л.bottom)}, панель ${Math.round(п.top)}–${Math.round(п.bottom)}`});
 }

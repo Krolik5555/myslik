@@ -1261,7 +1261,7 @@ function openSettings(tab){
           <button data-v="svg" class="${s.graphRender!=="canvas"?"on":""}">SVG</button>
           <button data-v="canvas" class="${s.graphRender==="canvas"?"on":""}">Холст</button>
         </div></div>
-      <div class="set-hint" style="margin-bottom:10px;">Холст пока рисует узлы и связи; подписи, формы по тегам и клики по нодам — на подходе.</div>
+      <div class="set-hint" style="margin-bottom:10px;">Холст рисует граф целиком и быстрее SVG на больших деревьях; SVG — запасной путь на случай сбоев видеокарты.</div>
       <!-- Потолок кадров. Без него граф рисует со скоростью монитора: на 165-герцевом это вчетверо
            больше нагрузки на видеокарту при том же самом изображении (замер: 42.6 Вт против 19.6). -->
       <div class="field"><label>Плавность графа</label>
