@@ -16,6 +16,7 @@ import logging
 import traceback
 import tempfile
 import html
+import hmac
 
 # РЕЖИМ MCP-СЕРВЕРА. Проверяем ДО импорта webview: окна тут нет вовсе, а оконный слой и грузится
 # долго, и падает там, где нет WebView2. Именно так Мыслик приезжает пользователю MCP-сервером —
@@ -91,6 +92,23 @@ DATA_FILE = os.path.join(DATA_DIR, "planner.json")
 BOARDS_FILE = os.path.join(DATA_DIR, "boards.json")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 MAX_BACKUPS = 30
+
+
+def _auto_backups(prefix):
+    """Автобэкапы серии по возрастанию времени: ТОЛЬКО `<prefix>_ГГГГММДД_ЧЧММСС.json`.
+
+    Раньше брали всё, что начиналось с префикса, и сортировали по имени. Ручные копии КРОЛИКА
+    (`planner_MANUAL_before_ai_…`, `planner_перед-сбросом-тура.json`) при этом вставали ПОСЛЕ
+    датированных — цифры < латиница < кириллица, — то есть считались «самыми новыми». Отсюда
+    две беды (аудит 2.1, П0-5): при порче основного файла load() поднимал июльский ручной
+    снимок вместо вчерашнего, а ротация навсегда отдавала ручным копиям места из MAX_BACKUPS.
+    Ручные копии отсюда не видны вовсе: их не ротируем и к ним не откатываемся молча."""
+    import re
+    шаблон = re.compile(r"^%s_\d{8}_\d{6}\.json$" % re.escape(prefix))
+    try:
+        return sorted(f for f in os.listdir(BACKUP_DIR) if шаблон.match(f))
+    except Exception:
+        return []
 # Отчёт диагностики дрожи (см. debug-дрожь.bat) — рядом с приложением, а НЕ в data/: это не
 # данные, а разовый замер, который КРОЛИК просто передаёт целиком. Файл переписывается на каждом
 # запуске в этом режиме: старый замер только путал бы, какой отчёт свежий.
@@ -383,6 +401,8 @@ AGENT_PORTS = range(8766, 8776)          # первый свободный из 
 # это дыра. По умолчанию ВЫКЛЮЧЕНО: включают руками в настройках, там же берут токен.
 _AGENT_SRV = None
 _AGENT_PORT = 0
+_AGENT_LOCK = threading.Lock()            # вызовы агента в окно — строго по одному (см. do_POST)
+AGENT_MAX_BODY = 32 * 2**20               # потолок тела запроса агента, байт
 
 
 def _agent_load():
@@ -546,15 +566,35 @@ def _agent_handler_class():
             if self.path.rstrip("/") != "/rpc":
                 self._send(404, {"ok": False, "error": "нет такого адреса"})
                 return
+            # ТОЛЬКО СВОЙ HOST. Страница из браузера, чьё имя перепривязано на 127.0.0.1
+            # (DNS-rebinding), приходит со своим доменом в Host — такие запросы не разбираем вовсе.
+            # Токен и так нужен, но вторая линия стоит одну строку (аудит 2.1, П1-3).
+            порт = self.server.server_address[1]
+            if (self.headers.get("Host") or "") not in ("127.0.0.1:%d" % порт, "localhost:%d" % порт):
+                self._send(403, {"ok": False, "error": "чужой Host"})
+                return
             tok = _agent_token()
-            if not tok or self.headers.get("X-Myslik-Token") != tok:
+            # compare_digest, а не «!=»: обычное сравнение строк выходит раньше на первом
+            # несовпавшем символе, и время ответа подсказывает токен по буквам
+            if not tok or not hmac.compare_digest(self.headers.get("X-Myslik-Token") or "", tok):
                 self._send(401, {"ok": False, "error": "нет или неверный токен"})
                 return
             try:
                 n = int(self.headers.get("Content-Length") or 0)
+                # потолок тела: картинка поля едет base64 до ~6 МБ (_agent_prepare), остальное —
+                # текст; больше этого честному агенту слать нечего, а читать в память всё подряд
+                # значит дать любому локальному процессу с токеном съесть память приложения
+                if n > AGENT_MAX_BODY:
+                    self._send(413, {"ok": False, "error": "запрос больше %d МБ" % (AGENT_MAX_BODY // 2**20)})
+                    return
                 data = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
             except Exception as e:
                 self._send(400, {"ok": False, "error": "тело запроса не разобралось: %s" % e})
+                return
+            if not isinstance(data, dict):
+                # массив или голое значение: data.get ниже ронял обработчик, и соединение
+                # обрывалось без ответа — агент видел «приложение не найдено»
+                self._send(400, {"ok": False, "error": "ожидается объект {method, params}"})
                 return
             method = str(data.get("method") or "")
             # "rules" — те же правила, что и "prompt", но без снимка графа (см. cmdPrompt)
@@ -563,7 +603,17 @@ def _agent_handler_class():
                               "undo", "board", "drawlib"):
                 self._send(400, {"ok": False, "error": "неизвестный метод: %s" % method})
                 return
-            self._send(200, _agent_call(method, data.get("params") or {}))
+            params = data.get("params") or {}
+            if not isinstance(params, dict):
+                self._send(400, {"ok": False, "error": "params должен быть объектом"})
+                return
+            # ПО ОДНОМУ. Сервер многопоточный, а пакет — это ожидание доски, чтение картинок и
+            # evaluate_js в окно: два агента разом (или повтор по таймауту) перемешали бы шаги,
+            # и токен предпросмотра одного съел бы граф другого. Внутренние вызовы того же потока
+            # (_agent_wait_draw → drawlib) идут мимо этой точки, поэтому замок не повторный.
+            with _AGENT_LOCK:
+                ответ = _agent_call(method, params)
+            self._send(200, ответ)
 
     return H
 
@@ -828,13 +878,10 @@ class Api:
                 state = json.load(f)
         except Exception as e:
             print("load error:", e)
-            # подкинуть резервную копию, если основной файл побился:
-            # только planner_*.json, перебираем от новых к старым, пока какая-то не распарсится
+            # подкинуть резервную копию, если основной файл побился: только автобэкапы
+            # (_auto_backups), от новых к старым, пока какая-то не распарсится
             try:
-                bks = sorted(
-                    f for f in os.listdir(BACKUP_DIR)
-                    if f.startswith("planner_") and f.endswith(".json")
-                )
+                bks = _auto_backups("planner")
                 for f in reversed(bks):
                     try:
                         with open(os.path.join(BACKUP_DIR, f), "r", encoding="utf-8") as bf:
@@ -925,11 +972,8 @@ class Api:
         # MAX_BACKUPS вычищал бы одну серию раньше другой вместо того, чтобы хранить по
         # MAX_BACKUPS штук каждой.
         try:
-            for префикс in ("planner_", "boards_"):
-                bks = sorted(
-                    f for f in os.listdir(BACKUP_DIR)
-                    if f.startswith(префикс) and f.endswith(".json")
-                )
+            for префикс in ("planner", "boards"):
+                bks = _auto_backups(префикс)       # ручные копии не трогаем и не считаем
                 for old in bks[:-MAX_BACKUPS]:
                     os.remove(os.path.join(BACKUP_DIR, old))
         except Exception:
@@ -1025,11 +1069,15 @@ class Api:
 
     def open_path(self, path):
         try:
-            if not path or not isinstance(path, str) or not os.path.exists(path):
+            # ТОЛЬКО ПАПКА, а не «любой существующий путь». os.startfile на файле — это ЗАПУСК:
+            # .exe, .bat, .lnk исполнятся. А `folder` ноды умеет выставить и пакет команд от чужой
+            # нейросети, и MCP-агент (cmd.js: cmdParse), то есть путь до программы приезжал бы
+            # извне и запускался по кнопке «открыть папку» (аудит 2.1, П0-1). Человеческие пути
+            # этого не теряют: диалог и бросок из проводника всегда отдают папку (pick_folder,
+            # take_drop_folder). Сетевые папки (\\сервер\проект) оставлены — на них живут проекты.
+            if not path or not isinstance(path, str) or not os.path.isdir(path):
                 trace("open_path() rejected:", path)
                 return False
-            # Безопасно: только открываем существующий путь в проводнике ОС,
-            # никаких произвольных команд по строке не выполняем.
             try:
                 os.startfile(path)
                 trace("open_path() ->", path)
