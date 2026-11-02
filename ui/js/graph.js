@@ -816,6 +816,10 @@ class Graph{
     });
     this.nodes.forEach(n=>{ if(n._поток && n._поток.open>макс) макс=n._поток.open; });
     this._flowMax=макс;
+    // «спит» — на паузе сама нода или кто-то из её предков: связи в такую ветку гаснут
+    this.nodes.forEach(n=>{ let спит=!!n.paused;
+      for(let p=n.ref && n.ref.parent, k=0; !спит && p && по[p] && k<40; k++){ спит=!!по[p].paused; const у=по[p]; p=у.ref && у.ref.parent; }
+      n._спит=спит; });
   }
   heatNext(){
     const m=this._горящие; if(!m||!m.length) return;
@@ -5364,32 +5368,54 @@ class Graph{
        • цвет русла — что ниже: работа — акцент, просрочка — красный, иначе цвет самой связи;
        • ТЕЧЕНИЕ — к работе и к просрочке бегут светлые штрихи от родителя к ребёнку (сдвиг
          пунктира по часам кадра, без новых проходов);
-       • ПЛОТИНА — у ноды «ждёт» связь обрывается перед ней: кусок линии вырезается.
+       • ЖДЁТ — связь к ноде «ждёт» пунктиром цвета ожидания: работа по ней сейчас не идёт;
+       • СПИТ — связи в ветку на паузе (сама нода или кто-то из предков) почти гаснут.
+       Обрыв связи у «ждёт» («плотина» из макета) снят: на живом графе он читался как сбой
+       отрисовки (КРОЛИК, 03.11.2026). Связи «ждёт» и «спит» перерисовываются: прежняя линия
+       стирается (destination-out), поверх ложится своя — иначе яркая обычная проступала бы.
        Пакетами по цвету и ширине — на сотнях связей это десяток stroke, а не сотни.
        Выключается в меню «…» (S.settings.graphFlow), течение — отдельно (graphFlowAnim). */
     this._течёт=false;
     if(S.settings.graphFlow!==false && this._flowMax){
-      const пачки=new Map(), течение=[], плотины=[], макс=this._flowMax;
+      const пачки=new Map(), течение=[], ждут=[], спят=[], макс=this._flowMax;
       const сейчас=performance.now(), анимация=S.settings.graphFlowAnim!==false;
       for(let i=0;i<this.links.length;i++){
         const l=this.links[i], a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) continue;
         // ребёнок — тот конец, чей родитель другой конец (или кто держится за хаб области)
         const реб = (a.ref && a.ref.parent===l.b) || b.type==="hub" ? a : (b.ref && b.ref.parent===l.a) || a.type==="hub" ? b : null;
-        if(!реб || !реб._поток) continue;
+        if(!реб || !реб._поток || реб.archived) continue;
         const род = реб===a ? b : a, ст=реб._поток;
-        if(реб.archived || реб.paused || !ст.open) continue;
         const ax=эx(род), ay=эy(род), bx=эx(реб), by=эy(реб);
         if((ax<вид.x1&&bx<вид.x1)||(ax>вид.x2&&bx>вид.x2)||(ay<вид.y1&&by<вид.y1)||(ay>вид.y2&&by>вид.y2)) continue;
+        const bd=l._bendC, отр=[ax,ay,bx,by, bd?bd.t:0, bd?bd.ox:0, bd?bd.oy:0];
+        if(реб._спит){ спят.push({отр, цвет:цветКонца(реб)}); continue; }
+        if(реб.waiting && !ст.doing){ ждут.push(отр); continue; }
+        if(!ст.open) continue;
         const ш=Math.round((1.2+4.6*Math.sqrt(ст.open/макс))*2)/2;     // шаг 0.5 px — иначе пачек столько же, сколько связей
         const цвет=ст.doing ? пал.акцент : ст.over ? пал.время.просрочка : цветКонца(реб);
         const ключ=цвет+"|"+ш+"|"+(ст.doing||ст.over?1:0);
         let п=пачки.get(ключ); if(!п){ п={цвет, ш, ярко:ст.doing||ст.over, отр:[]}; пачки.set(ключ, п); }
-        const bd=l._bendC, отр=[ax,ay,bx,by, bd?bd.t:0, bd?bd.ox:0, bd?bd.oy:0];
         п.отр.push(отр);
         if(анимация && (ст.doing||ст.over)) течение.push({отр, цвет:ст.doing?пал.акцентСвет:пал.жарСвет, ш});
-        if(реб.waiting && !ст.doing) плотины.push({ax, ay, bx, by, r:реб.r*z*(1+0.18*(реб._нав||0)), ш});
       }
       ctx.lineCap="round";
+      // стереть обычную линию у «ждёт» и «спит» — поверх ляжет своя
+      if(ждут.length || спят.length){
+        ctx.save(); ctx.globalCompositeOperation="destination-out"; ctx.lineWidth=Math.max(1.2, 2.6*z)+3; ctx.beginPath();
+        for(const о of ждут) путьСвязи(о); for(const с of спят) путьСвязи(с.отр);
+        ctx.stroke(); ctx.restore();
+      }
+      if(спят.length){
+        ctx.globalAlpha=0.2; ctx.lineWidth=толщ(1);
+        for(const с of спят){ ctx.strokeStyle=с.цвет; ctx.beginPath(); путьСвязи(с.отр); ctx.stroke(); }
+        ctx.globalAlpha=1;
+      }
+      if(ждут.length){
+        const шл=толщ(1.5); ctx.setLineDash([Math.max(4, шл*2.6), Math.max(3, шл*2)]); ctx.lineCap="butt";
+        ctx.strokeStyle=пал.ждёт; ctx.globalAlpha=0.9; ctx.lineWidth=шл; ctx.beginPath();
+        for(const о of ждут) путьСвязи(о);
+        ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1; ctx.lineCap="round";
+      }
       пачки.forEach(п=>{
         ctx.globalAlpha=п.ярко?0.3:0.16; ctx.strokeStyle=п.цвет; ctx.lineWidth=толщ(п.ш)+0.5; ctx.beginPath();
         for(const о of п.отр) путьСвязи(о);
@@ -5405,17 +5431,6 @@ class Graph{
           ctx.setLineDash([шт*0.8, шт*7]); ctx.lineDashOffset=-сейчас*0.04*ск;
           ctx.strokeStyle=т.цвет; ctx.lineWidth=шт; ctx.beginPath(); путьСвязи(т.отр); ctx.stroke(); }
         ctx.setLineDash([]); ctx.lineDashOffset=0;
-      }
-      // плотина — вырезаем кусок связи перед нодой «ждёт»: дальше работа не течёт
-      if(плотины.length){
-        ctx.save(); ctx.globalCompositeOperation="destination-out"; ctx.lineCap="butt";
-        for(const п of плотины){
-          /* вырез — от самой ноды наружу: прежний кусок посередине оставлял у ноды огрызок линии,
-             и обрыв читался как сбой отрисовки. Нода рисуется поверх, внутри неё вырез не виден */
-          const dx=п.bx-п.ax, dy=п.by-п.ay, L=Math.hypot(dx,dy)||1, ux=dx/L, uy=dy/L, от=0, до=п.r*1.45+11;
-          ctx.lineWidth=толщ(п.ш)+4; ctx.beginPath(); ctx.moveTo(п.bx-ux*до, п.by-uy*до); ctx.lineTo(п.bx-ux*от, п.by-uy*от); ctx.stroke();
-        }
-        ctx.restore();
       }
     }
     /* ПУТЬ К ВЫБРАННОЙ НОДЕ (стиль A, аудит 2.1, шаг 3.4): от неё вверх по дереву до области — её
