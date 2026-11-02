@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Мыслик — концепции каркаса</title>
+<link rel="stylesheet" href="ui/vendor/tabler-icons.min.css">
+<style>
+/* КОНЦЕПЦИИ КАРКАСА: куда девать шапку, полосу слева и панель, не потеряв ни одной функции.
+   Стиль намеренно ТЕКУЩИЙ (чёрный, тонкие рамки) — сравнивается раскладка, а не краска;
+   стиль A или C ложится поверх любой из концепций. Справа — список всех функций оболочки:
+   наведение подсвечивает, где функция живёт в выбранной концепции. */
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#050506;color:#ececef;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{display:flex;flex-direction:column;overflow:hidden}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;padding:0}
+.dm-head{flex:none;padding:10px 18px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;gap:16px;align-items:flex-start}
+.dm-title{font-size:14px;font-weight:600;white-space:nowrap;padding-top:6px}
+.dm-title b{color:#e8a14b;font-weight:600}
+.dm-tabs{display:flex;gap:4px;background:#111114;padding:3px;border-radius:10px;flex:none}
+.dm-tab{font-size:13px;padding:6px 12px;border-radius:8px;color:#9a9aa3;white-space:nowrap}
+.dm-tab.on{background:#26262c;color:#fff}
+.dm-info{flex:1;font-size:12.5px;line-height:1.5;color:#a6a6ae;min-width:0}
+.dm-info h3{margin:0 0 2px;font-size:13px;color:#f2f2f4;font-weight:600}
+.dm-info .m{display:inline-flex;gap:14px;margin-top:4px;color:#6c6c75}
+.dm-info .m b{color:#7fd0a8;font-weight:600}
+.dm-body{flex:1;min-height:0;display:flex}
+.dm-stage{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;padding:12px;overflow:hidden}
+.dm-scaler{width:1600px;height:900px;transform-origin:center;flex:none;border-radius:10px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.08)}
+.dm-list{width:330px;flex:none;border-left:1px solid rgba(255,255,255,.07);overflow:auto;padding:12px 14px 20px;font-size:12.5px;scrollbar-width:thin}
+.dm-list h4{margin:14px 0 6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#6c6c75;font-weight:600}
+.dm-list h4:first-child{margin-top:0}
+.fi{display:block;width:100%;text-align:left;padding:6px 8px;border-radius:8px;line-height:1.35}
+.fi:hover,.fi.pin{background:#18181c}
+.fi b{display:block;font-weight:500;color:#ececef}
+.fi span{color:#8a8a93;font-size:11.5px}
+.fi.moved span{color:#e6c38f}
+.dm-hint{font-size:11.5px;color:#6c6c75;margin-bottom:6px}
+
+/* ---------- приложение в ТЕКУЩЕМ стиле ---------- */
+#app{width:1600px;height:900px;position:relative;background:#000;color:#f4f4f5;overflow:hidden;font-size:11px;
+  --bd:rgba(255,255,255,.13);--bd2:rgba(255,255,255,.26);--surf:#0c0c0e;--surf2:#161618;--mut:#86868c;--mut2:#5b5b61}
+.abs{position:absolute}
+.bx{border:1px solid var(--bd);border-radius:7px;background:#000}
+.ib{width:30px;height:28px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;color:var(--tx,#f4f4f5)}
+.ib.b{border:1px solid var(--bd);border-radius:7px}
+.ib.on{background:#fff;color:#000;border-radius:7px}
+.row{display:flex;align-items:center;gap:6px}
+.winctl{display:flex;gap:20px;color:var(--mut);font-size:13px;align-items:center}
+.cap{display:flex;align-items:center;gap:8px;border:1px solid var(--bd);border-radius:7px;background:var(--surf);color:var(--mut2);padding:0 10px;font-size:10.5px;white-space:nowrap;overflow:hidden}
+.cap i{font-size:12px}
+.vseg{display:flex;gap:4px}
+.vseg span{height:28px;padding:0 10px;border:1px solid var(--bd);border-radius:7px;display:flex;align-items:center;gap:5px;font-size:10.5px}
+.vseg span.on{background:#fff;color:#000}
+.kbtn{height:26px;padding:0 8px;border:1px solid var(--bd);border-radius:7px;display:flex;align-items:center;gap:4px;font-size:9.5px;color:var(--mut)}
+.kbtn b{color:#f4f4f5}
+.canvas{position:absolute;overflow:hidden;background:#000}
+.canvas svg{position:absolute;inset:0;width:100%;height:100%}
+.legend{display:flex;gap:12px;font-size:8.5px;color:var(--mut)}
+.selc{font-size:9px;color:var(--mut);border:1px solid var(--bd);border-radius:6px;padding:3px 8px}
+.rail{display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 0;color:var(--mut)}
+.rail .ib{font-size:13px}
+.rail .grp{display:flex;flex-direction:column;align-items:center;gap:8px}
+.rail .sep{width:20px;height:1px;background:var(--bd)}
+.island{position:absolute;display:flex;align-items:center;gap:4px;padding:4px;border-radius:11px;background:rgba(14,14,16,.92);border:1px solid var(--bd);box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:3}
+.island .ib{border-radius:8px}
+.island .sp{width:1px;height:18px;background:var(--bd);margin:0 3px}
+.chipa{height:24px;padding:0 9px;border-radius:999px;border:1px solid var(--bd);display:inline-flex;align-items:center;gap:5px;font-size:10px;color:#d8d8dc;background:rgba(10,10,12,.9)}
+.chipa i{font-size:11px}
+.gsw{display:flex;align-items:center;gap:6px;height:28px;padding:0 9px;border-radius:7px;font-size:11px;font-weight:600}
+.gsw:hover{background:var(--surf2)}
+.gsw .gi{width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px;background:rgba(111,155,216,.2);color:#8fb4ea}
+.crumb{display:flex;align-items:center;gap:4px;color:var(--mut);font-size:10.5px}
+.menu{position:absolute;z-index:20;background:#121214;border:1px solid var(--bd2);border-radius:10px;padding:5px;box-shadow:0 14px 40px rgba(0,0,0,.6);font-size:11px}
+.menu .mi{display:flex;align-items:center;gap:8px;height:28px;padding:0 9px;border-radius:7px;white-space:nowrap}
+.menu .mi i{font-size:13px;color:var(--mut)}
+.menu .mi .k{margin-left:auto;color:var(--mut2);font-size:9.5px;padding-left:16px}
+.menu .hd{font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut2);padding:6px 9px 3px}
+.menu hr{border:0;border-top:1px solid var(--bd);margin:4px 0}
+
+/* панель ноды — как в приложении */
+.panel{position:absolute;border:1px solid var(--bd);border-radius:10px;background:#000;padding:14px;overflow:hidden;z-index:4}
+.n-h{display:flex;align-items:center;justify-content:space-between;font-size:15px;font-weight:600;margin-bottom:12px}
+.n-h .a{display:flex;gap:12px;font-size:12px;color:var(--mut)}
+.n-row{display:grid;grid-template-columns:78px 20px 1fr;align-items:center;height:25px;font-size:9.5px}
+.n-row .k{color:var(--mut)}
+.n-row .ic{color:var(--mut);font-size:11px}
+.n-row .v{font-weight:600;display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap;overflow:hidden}
+.n-row .v.t{font-weight:400}
+.qs{display:flex;gap:4px}
+.qs span{border:1px solid var(--bd);border-radius:4px;padding:1px 7px;font-size:8px;color:var(--mut);font-weight:400}
+.n-desc{border:1px solid var(--bd);border-radius:6px;height:70px;margin:12px 0 10px;padding:9px;color:var(--mut2);font-size:9.5px}
+.n-line{display:flex;align-items:center;gap:6px;font-size:8.5px;color:var(--mut);margin:6px 0;flex-wrap:wrap}
+.n-line span{border:1px solid var(--bd);border-radius:5px;padding:3px 7px;color:#f4f4f5}
+.n-rel{border:1px solid var(--bd);border-radius:5px;height:24px;display:flex;align-items:center;justify-content:space-between;padding:0 9px;font-size:9.5px;margin:4px 0}
+.n-rel small{color:var(--mut2);font-size:7.5px}
+.n-btn{border:1px solid var(--bd2);border-radius:6px;height:28px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:9.5px;font-weight:600;margin-top:10px}
+.split{position:absolute;width:4px;height:40px;border-radius:3px;background:#2a2a2e;z-index:5}
+
+/* омнибокс */
+.omni{position:absolute;z-index:6;border:1px solid var(--bd2);border-radius:10px;background:#0e0e10;box-shadow:0 20px 50px rgba(0,0,0,.6)}
+.omni .in{height:34px;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:11.5px;border-bottom:1px solid var(--bd)}
+.omni .in .cur{width:1px;height:14px;background:#e8a14b;animation:bl 1s steps(1) infinite}
+@keyframes bl{50%{opacity:0}}
+.otok{font-size:9.5px;padding:1px 6px;border-radius:5px}
+.omni .sec{padding:6px}
+.omni .hd{font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut2);padding:4px 8px}
+.omni .it{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px;border-radius:7px;font-size:11px}
+.omni .it.on{background:#1b1b1f}
+.omni .it i{font-size:13px;color:var(--mut)}
+.omni .it .k{margin-left:auto;font-size:9.5px;color:var(--mut2)}
+.omni .ft{display:flex;gap:14px;padding:6px 12px;border-top:1px solid var(--bd);font-size:9.5px;color:var(--mut2)}
+.omni .ft b{color:#d0d0d4;font-weight:500}
+.drawer{position:absolute;z-index:7;background:#0b0b0d;border-right:1px solid var(--bd2);box-shadow:20px 0 50px rgba(0,0,0,.6);padding:12px 10px;font-size:11px;display:flex;flex-direction:column}
+.drawer .hd{font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut2);padding:8px 8px 4px;display:flex;align-items:center}
+.drawer .hd i{margin-left:auto;font-size:12px}
+.drawer .it{display:flex;align-items:center;gap:8px;height:28px;padding:0 8px;border-radius:7px}
+.drawer .it.on{background:#1b1b1f}
+.drawer .it .n{margin-left:auto;color:var(--mut2);font-size:9.5px}
+.drawer .gi{width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px}
+/* карточка у ноды */
+.ncard{position:absolute;z-index:6;width:300px;border:1px solid var(--bd2);border-radius:12px;background:#0d0d0f;box-shadow:0 18px 50px rgba(0,0,0,.65);padding:12px;font-size:11px}
+.ncard::before{content:"";position:absolute;left:-7px;top:26px;width:12px;height:12px;background:#0d0d0f;border-left:1px solid var(--bd2);border-bottom:1px solid var(--bd2);transform:rotate(45deg)}
+.ncard h5{margin:0;font-size:14px;display:flex;align-items:center;gap:8px}
+.ncard h5 .a{margin-left:auto;display:flex;gap:10px;color:var(--mut);font-size:12px}
+.ncard .ln{display:flex;align-items:center;gap:8px;margin-top:9px;color:var(--mut);font-size:10px}
+.ncard .ln .v{color:#f4f4f5;font-size:10.5px;display:flex;gap:4px;align-items:center}
+.ncard .sub{display:flex;align-items:center;gap:8px;height:24px;font-size:10.5px}
+.ncard .cb{width:13px;height:13px;border:1.5px solid var(--bd2);border-radius:4px}
+.ncard .ft{display:flex;gap:6px;margin-top:10px}
+.ncard .ft span{flex:1;height:26px;border:1px solid var(--bd);border-radius:7px;display:flex;align-items:center;justify-content:center;gap:5px;font-size:10px}
+.ncard .ft span.pr{background:#fff;color:#000;border-color:#fff;font-weight:600}
+.sover{position:absolute;z-index:8;box-shadow:-30px 0 60px rgba(0,0,0,.7)}
+
+/* подсветка места функции */
+.hl{position:absolute;z-index:100;pointer-events:none;border:2px solid #4cc9ff;border-radius:9px;box-shadow:0 0 0 4px rgba(76,201,255,.18),0 0 24px rgba(76,201,255,.5);animation:hp 1.2s ease-in-out infinite}
+.hl b{position:absolute;left:-2px;top:-24px;white-space:nowrap;background:#4cc9ff;color:#001a26;font:600 11px "Segoe UI",sans-serif;padding:3px 7px;border-radius:6px}
+.hl.dn b{top:auto;bottom:-24px}
+@keyframes hp{50%{box-shadow:0 0 0 7px rgba(76,201,255,.08),0 0 30px rgba(76,201,255,.6)}}
+.measure{position:absolute;z-index:90;pointer-events:none;border:1.5px dashed rgba(127,208,168,.55);border-radius:6px}
+.measure span{position:absolute;right:6px;bottom:6px;background:rgba(10,30,20,.85);color:#7fd0a8;font:600 11px "Segoe UI",sans-serif;padding:3px 7px;border-radius:6px}
+</style>
+</head>
+<body>
+<div class="dm-head">
+  <div class="dm-title">Мыслик · <b>концепции каркаса</b></div>
+  <div class="dm-tabs" id="tabs"></div>
+  <div class="dm-info" id="info"></div>
+</div>
+<div class="dm-body">
+  <div class="dm-stage" id="stage"><div class="dm-scaler" id="scaler"><div id="app"></div></div></div>
+  <div class="dm-list" id="list"></div>
+</div>
+<script>
+/* ===================== граф — ровно как рисует приложение сейчас ===================== */
+const C={shot:"#e8a14b",render:"#e0625a",build:"#6f9bd8",sq:"#9d7fe0",sfc:"#d9607a",note:"#6f9bd8"};
+const N=[],E=[];
+const add=(id,label,type,x,y,color,ex)=>{ const n={id,label,type,x,y,color,...(ex||{})}; N.push(n); return n; };
+const SFC=add("sfc","SFC_2026","hub",300,610,C.sfc), SQ1=add("sq1","SQ01","hub",150,390,C.sq), SQ2=add("sq2","SQ02","hub",600,560,C.sq), LOC=add("loc","Локация","note",320,445,C.note);
+E.push([SFC,SQ1],[SFC,SQ2],[SFC,LOC]);
+const pol=(h,d,r)=>[h.x+r*Math.cos(d*Math.PI/180),h.y+r*Math.sin(d*Math.PI/180)];
+const kids=(s,p)=>{ const a=Math.atan2(s.y-p.y,s.x-p.x); [[-0.55,"Рендер",C.render],[0.55,"Сборка",C.build]].forEach(([d,l,c],i)=>{ const k=add(s.id+i,l,"task",s.x+62*Math.cos(a+d),s.y+62*Math.sin(a+d),c); E.push([s,k]); }); };
+[["SH030",250,200],["SH040",300,170]].forEach(([l,d,r])=>{ const [x,y]=pol(SQ1,d,r); const s=add("a"+l,l,"shot",x,y,C.shot); E.push([SQ1,s]); kids(s,SQ1); });
+let SH030;
+[["SH010",198,205],["SH020",224,150],["SH030",252,200],["SH035",274,270],["SH040",298,175],["SH041",318,262],["SH050",342,195],["SH060",6,205],["SH070",36,215],["SH080",118,195]]
+  .forEach(([l,d,r])=>{ const [x,y]=pol(SQ2,d,r); const s=add("b"+l,l,"shot",x,y,C.shot); E.push([SQ2,s]); kids(s,SQ2); if(l==="SH030") SH030=s; });
+const SH036=add("sh036","SH036","shot",SH030.x+58,SH030.y-150,C.shot,{sel:1}); E.push([SH030,SH036]); kids(SH036,SH030);
+const hexA=(h,a)=>{ const n=parseInt(h.slice(1),16); return `rgba(${n>>16},${(n>>8)&255},${n&255},${a})`; };
+const dia=(x,y,r)=>`${x},${y-r} ${x+r},${y} ${x},${y+r} ${x-r},${y}`;
+function graphSVG(){
+  let s=`<defs><filter id="gl" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="5"/></filter></defs>`;
+  let sd=7; const r=()=>(sd=(sd*16807)%2147483647)/2147483647;
+  for(let i=0;i<110;i++) s+=`<circle cx="${(r()*1000).toFixed(0)}" cy="${(r()*820).toFixed(0)}" r="${(r()*1+.3).toFixed(2)}" fill="#fff" opacity="${(r()*.35).toFixed(2)}"/>`;
+  E.forEach(([a,b])=>{ s+=`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${a.type==="hub"?hexA(a.color,.7):hexA(b.color,.75)}" stroke-width="1"/>`; });
+  N.forEach(n=>{ const c=n.color;
+    if(n.sel) s+=`<polygon points="${dia(n.x,n.y,15)}" fill="${hexA(c,.5)}" filter="url(#gl)"/>`;
+    if(n.type==="hub") s+=`<circle cx="${n.x}" cy="${n.y}" r="13" fill="#000" stroke="${c}" stroke-width="1.5"/><rect x="${n.x-4.5}" y="${n.y-4.5}" width="9" height="9" rx="1.5" fill="none" stroke="${c}" stroke-width="1.3"/>`;
+    else if(n.type==="shot") s+=`<polygon points="${dia(n.x,n.y,n.sel?12:10)}" fill="${n.sel?hexA(c,.35):"#000"}" stroke="${c}" stroke-width="${n.sel?2.2:1.5}"/><rect x="${n.x-3}" y="${n.y-2.5}" width="6" height="5" fill="none" stroke="${c}" stroke-width="1"/>`;
+    else if(n.type==="note") s+=`<circle cx="${n.x}" cy="${n.y}" r="6.5" fill="#000" stroke="${c}" stroke-width="1.5"/>`;
+    else s+=`<rect x="${n.x-6}" y="${n.y-6}" width="12" height="12" fill="#000" stroke="${c}" stroke-width="1.5"/>`;
+    s+=`<text x="${n.x}" y="${n.y+(n.type==="hub"?27:22)}" text-anchor="middle" font-size="9.5" fill="${n.sel?"#fff":"#b4b4ba"}" font-weight="${n.sel?600:400}" font-family="Segoe UI">${n.label}</text>`; });
+  return s;
+}
+
+/* ===================== куски оболочки ===================== */
+const AREAS=[["ti-video","#f0b770","Работа"],["ti-home","#f0b770","Дом"],["ti-puzzle","#8fb4ea","Аддоны"],["ti-plant","#7fd0a8","Сад"],["ti-code","#ee8a83","Код"],["ti-briefcase","#ee8a83","Студия"]];
+const GRAPHS=[["ti-briefcase","#8fb4ea","Мой граф",64],["ti-rocket","#7fd0a8","Идеи",18]];
+const win=`<div class="winctl" data-f="win"><i class="ti ti-minus"></i><i class="ti ti-square"></i><i class="ti ti-x"></i></div>`;
+const vseg=`<div class="vseg" data-f="views"><span class="on"><i class="ti ti-affiliate"></i>Граф</span><span><i class="ti ti-layout-grid"></i>Список</span></div>`;
+const kbtn=`<div class="kbtn" data-f="cmdk"><b>Ctrl+K</b> поиск</div>`;
+const gtools=(cls="")=>`<div class="row ${cls}"><span class="ib b" data-f="gsearch"><i class="ti ti-search"></i></span><span class="ib b" data-f="gfocus"><i class="ti ti-focus-2"></i></span><span class="ib on" data-f="ghome"><i class="ti ti-home"></i></span><span class="ib b" data-f="gheat"><i class="ti ti-flame"></i></span><span class="ib b" data-f="gmore"><i class="ti ti-dots"></i></span></div>`;
+const legend=`<div class="legend" data-f="legend"><span>● область</span><span>○ заметка</span><span>□ задача</span><span>◇ полотно</span><span>● подграф</span></div>`;
+const selc=`<div class="selc" data-f="selbar">Выделено: 1</div>`;
+const gsw=`<div class="gsw" data-f="graphs"><span class="gi"><i class="ti ti-briefcase"></i></span>Мой граф<i class="ti ti-chevron-down" style="font-size:11px;color:var(--mut)"></i></div>`;
+const crumb=`<div class="crumb" data-f="sub"><i class="ti ti-chevron-right"></i>SFC_2026<i class="ti ti-chevron-right"></i>SQ02</div>`;
+function panelHTML(){ return `
+  <div class="n-h">SH036 <span class="a"><i class="ti ti-sparkles"></i><i class="ti ti-pencil"></i><i class="ti ti-x"></i></span></div>
+  <div class="n-row"><span class="k">Тип</span><span></span><span class="v">Задача <i class="ti ti-chevron-down"></i></span></div>
+  <div class="n-row"><span class="k">Область</span><span class="ic"><i class="ti ti-video"></i></span><span class="v">Работа <i class="ti ti-chevron-down"></i><span style="color:var(--mut2);font-weight:400;font-size:8px">наследуется</span></span></div>
+  <div class="n-row"><span class="k">Статус</span><span class="ic"><i class="ti ti-clock"></i></span><span class="v">Не начато <i class="ti ti-chevron-down"></i></span></div>
+  <div class="n-row" style="height:40px"><span class="k">Срок</span><span class="ic"><i class="ti ti-calendar"></i></span><span class="v t" style="display:block"><span style="color:var(--mut)">Без срока</span><div class="qs" style="margin-top:3px"><span>сег</span><span>зв</span><span>+3</span><span>пт</span></div></span></div>
+  <div class="n-row"><span class="k">Приоритет</span><span class="ic"><i class="ti ti-flag"></i></span><span class="v">— <i class="ti ti-chevron-down"></i></span></div>
+  <div class="n-row"><span class="k">Повтор</span><span class="ic"><i class="ti ti-repeat"></i></span><span class="v">не повторяется <i class="ti ti-chevron-down"></i></span></div>
+  <div class="n-row"><span class="k">Напоминание</span><span class="ic"><i class="ti ti-bell"></i></span><span class="v t">Без напоминания</span></div>
+  <div class="n-row"><span class="k">Папка</span><span class="ic"><i class="ti ti-folder"></i></span><span class="v t">…\\02_sequences\\SQ02\\SQ02_SH036 <i class="ti ti-copy" style="color:var(--mut2)"></i><i class="ti ti-folder" style="color:var(--mut2)"></i></span></div>
+  <div class="n-row"><span class="k">Теги</span><span></span><span class="v t"><span class="qs"><span style="color:#f4f4f5">шот ×</span><span>+</span></span></span></div>
+  <div class="n-desc">Описание...</div>
+  <div class="n-line">Добавить поле: <span>≡ текст</span><span>▣ картинка</span><span>⊡ доска</span></div>
+  <div class="n-line">Шаблон: <span>заполнить по шаблону</span><span>сохранить как шаблон</span></div>
+  <div class="n-line" style="margin-top:10px">СВЯЗАННЫЕ НОДЫ 3</div>
+  <div class="n-rel"><b>☑ SH030</b><small>родитель</small></div>
+  <div class="n-rel" style="margin-left:12px">☑ SH036<small>эта</small></div>
+  <div class="n-rel" style="margin-left:24px"><b>☑ Рендер</b><small>вложена</small></div>
+  <div class="n-rel" style="margin-left:24px"><b>☑ Сборка</b><small>вложена</small></div>
+  <div class="n-btn"><i class="ti ti-file-text"></i>Собрать отчёт</div>`; }
+const box=(x,y,w,h)=>`left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+const logoMenuBtn=`<button class="ib" data-f="export import timer settings keys" data-open="logo" style="width:auto;padding:0 6px;gap:6px;font-size:11px;letter-spacing:.28em;color:var(--mut)"><i class="ti ti-feather" style="font-size:14px;color:#f4f4f5;letter-spacing:0"></i>МЫСЛИК<i class="ti ti-chevron-down" style="font-size:10px;letter-spacing:0"></i></button>`;
+function logoMenu(x,y){ return `<div class="menu" style="left:${x}px;top:${y}px;width:230px">
+  <div class="mi" data-f="export"><i class="ti ti-download"></i>Экспорт в файл<span class="k">Ctrl+E</span></div>
+  <div class="mi" data-f="import"><i class="ti ti-upload"></i>Импорт из файла</div><hr>
+  <div class="mi" data-f="timer"><i class="ti ti-clock"></i>Таймер фокуса<span class="k">Ctrl+T</span></div>
+  <div class="mi" data-f="keys"><i class="ti ti-keyboard"></i>Горячие клавиши<span class="k">?</span></div><hr>
+  <div class="mi" data-f="settings"><i class="ti ti-settings"></i>Настройки<span class="k">Ctrl+,</span></div></div>`; }
+function graphMenu(x,y){ return `<div class="menu" style="left:${x}px;top:${y}px;width:220px"><div class="hd">Графы</div>
+  ${GRAPHS.map(([i,c,n,k],j)=>`<div class="mi" ${j?"":'style="background:#1b1b1f"'}><span class="gi" style="width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;background:${hexA(c,.2)};color:${c}"><i class="ti ${i}" style="color:${c}"></i></span>${n}<span class="k">${k}</span></div>`).join("")}
+  <hr><div class="mi"><i class="ti ti-plus"></i>Новый граф</div></div>`; }
+const areaChips=(vertical)=>`<div data-f="areas" style="display:flex;${vertical?"flex-direction:column;":""}gap:5px">${AREAS.map(([i,c,n])=>vertical?
+  `<span class="ib" style="width:30px;height:30px;border-radius:9px;background:${hexA(c,.14)};color:${c}" title="${n}"><i class="ti ${i}"></i></span>`:
+  `<span class="chipa"><i class="ti ${i}" style="color:${c}"></i>${n}</span>`).join("")}${vertical?`<span class="ib" style="width:30px;height:30px;color:var(--mut)"><i class="ti ti-plus"></i></span>`:`<span class="chipa" style="color:var(--mut)"><i class="ti ti-plus"></i></span>`}</div>`;
+const ai=`<span class="ib b" data-f="ai"><i class="ti ti-sparkles"></i></span>`;
+
+/* ===================== концепции ===================== */
+let st={menu:null, drawer:false, omni:true, expand:false};
+const CONCEPTS={
+now:{tab:"Сейчас",t:"Сейчас: шапка в два этажа (80 px), полоса слева 52 px, панель почти на полэкрана",
+  d:"Это отправная точка. Зелёная рамка — сколько окна достаётся графу.",
+  build(){ const top=80,rl=52,pw=748;
+    return `<div class="abs row" style="${box(12,0,1588,30)};font-size:10px;letter-spacing:.32em;color:var(--mut)" data-f="drag"><i class="ti ti-feather" style="color:#f4f4f5;letter-spacing:0"></i>М Ы С Л И К <span style="letter-spacing:0;color:var(--mut2)">2.0.6.1</span><div style="margin-left:auto;margin-right:12px">${win}</div></div>
+    <div class="abs cap" style="${box(516,38,750,30)}" data-f="capture"><i class="ti ti-pencil"></i>Сбрось мысль и Enter…&nbsp; #область/#тег завтра/пн/25.06 !приоритет *заметка</div>
+    <div class="abs row" style="right:14px;top:39px">${vseg}${kbtn}</div>
+    <div class="abs rail" style="${box(0,top,rl,820)}">
+      <span class="ib" data-f="keys"><i class="ti ti-layout-sidebar-left-expand"></i></span><span class="ib on"><i class="ti ti-affiliate"></i></span><div class="sep"></div>
+      <div class="grp" data-f="graphs"><span class="ib" style="font-size:11px"><i class="ti ti-chart-dots-3"></i>+</span>${GRAPHS.map(([i,c])=>`<span class="ib" style="color:${c}"><i class="ti ${i}"></i></span>`).join("")}</div>
+      <div style="flex:1"></div>
+      <div class="grp" data-f="areas"><span class="ib" style="font-size:11px"><i class="ti ti-copy"></i>+</span>${AREAS.map(([i,c])=>`<span class="ib" style="color:${c}"><i class="ti ${i}"></i></span>`).join("")}</div>
+      <div class="sep"></div>
+      <span class="ib b" data-f="export"><i class="ti ti-download"></i></span><span class="ib b" data-f="import"><i class="ti ti-upload"></i></span><span class="ib b" data-f="timer"><i class="ti ti-clock"></i></span><span class="ib b" data-f="settings"><i class="ti ti-settings"></i></span>
+    </div>
+    <div class="canvas bx" id="canvas" style="${box(rl+12,top,1600-rl-12-pw-24,808)};border-radius:10px"><svg id="g" viewBox="0 0 1000 820" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="abs" style="left:10px;top:10px">${gtools()}</div><div class="abs" style="right:10px;top:10px">${ai}</div>
+      <div class="abs" style="left:12px;bottom:10px">${legend}</div><div class="abs" style="right:10px;bottom:9px">${selc}</div></div>
+    <div class="panel" data-f="panel" style="${box(1600-pw-12,top,pw,808)}">${panelHTML()}</div>`; }},
+
+k1:{tab:"1 · Одна строка",t:"1 · Одна строка — шапка в 40 px, полосы слева нет",
+  d:"Заголовок окна и строка захвата сливаются в одну полосу. Графы — в переключателе у логотипа, области — чипами на холсте, файл, таймер и настройки — в меню логотипа и в Ctrl+K. Привычки почти не меняются, риск минимальный.",
+  build(){ const top=40,pw=470;
+    return `<div class="abs row" style="${box(0,0,1600,40)};padding:0 12px;gap:10px;border-bottom:1px solid var(--bd)" data-f="drag">
+      ${logoMenuBtn}<div style="width:1px;height:18px;background:var(--bd)"></div>${gsw}${crumb}
+      <div class="cap" style="position:absolute;left:520px;width:560px;height:28px" data-f="capture"><i class="ti ti-bolt"></i>Сбросить мысль…<span style="margin-left:auto;color:var(--mut2)">#область · завтра · !1 · *заметка</span></div>
+      <div class="row" style="margin-left:auto;gap:8px">${vseg}${kbtn}<div style="width:10px"></div>${win}</div></div>
+    <div class="canvas" id="canvas" style="${box(0,top,1600-pw-1,860)}"><svg id="g" viewBox="0 0 1000 820" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="abs row" style="left:12px;top:12px;gap:10px">${gtools()}<div style="width:1px;height:20px;background:var(--bd)"></div>${areaChips(false)}</div>
+      <div class="abs" style="right:12px;top:12px">${ai}</div>
+      <div class="abs" style="left:14px;bottom:12px">${legend}</div><div class="abs" style="right:12px;bottom:11px">${selc}</div></div>
+    <div class="split" data-f="panelw" style="left:${1600-pw-3}px;top:430px"></div>
+    <div class="panel" data-f="panel" style="${box(1600-pw,top,pw,860)};border-radius:0;border-width:0 0 0 1px">${panelHTML()}</div>
+    ${st.menu==="logo"?logoMenu(10,38):""}${st.menu==="graph"?graphMenu(130,38):""}`; }},
+
+k2:{tab:"2 · Холст во весь экран",t:"2 · Холст во весь экран — полос нет совсем, всё плавает островками",
+  d:"Как в Figma и Miro: граф занимает всё окно, управление — небольшими островками по краям. Инструменты графа внизу по центру, области — столбиком слева, панель — плавающая карточка, которую можно свернуть. Максимум места, но к нижнему доку придётся привыкнуть.",
+  build(){ const pw=440;
+    return `<div class="canvas" id="canvas" style="${box(0,0,1600,900)}"><svg id="g" viewBox="0 0 1000 820" preserveAspectRatio="xMidYMid meet" style="right:${pw+20}px;width:auto"></svg></div>
+    <div class="abs" data-f="drag" style="${box(0,0,1600,10)}"></div>
+    <div class="island" style="left:12px;top:12px">${logoMenuBtn}<i class="sp"></i>${gsw}${crumb}</div>
+    <div class="island" style="left:50%;transform:translateX(-50%);top:12px;margin-left:-${pw/2}px"><div class="cap" style="width:420px;height:28px;border:0;background:none" data-f="capture"><i class="ti ti-bolt"></i>Сбросить мысль…<span style="margin-left:auto;color:var(--mut2)">клавиша N</span></div></div>
+    <div class="island" style="right:${pw+28}px;top:12px">${vseg}${kbtn}</div>
+    <div class="island" style="right:12px;top:12px;padding:6px 12px">${win}</div>
+    <div class="island" style="left:12px;top:50%;transform:translateY(-50%);flex-direction:column;padding:6px">${areaChips(true)}</div>
+    <div class="island" style="left:50%;transform:translateX(-50%);margin-left:-${pw/2}px;bottom:14px;padding:5px">
+      <span class="ib" data-f="gsearch"><i class="ti ti-search"></i></span><span class="ib" data-f="gfocus"><i class="ti ti-focus-2"></i></span><i class="sp"></i>
+      <span class="ib on" data-f="ghome"><i class="ti ti-home"></i></span><span class="ib" data-f="gheat"><i class="ti ti-flame"></i></span><span class="ib" data-f="selbar"><i class="ti ti-layout-grid-add"></i></span><i class="sp"></i>
+      <span class="ib" data-f="ai" style="color:#c9a7ff"><i class="ti ti-sparkles"></i></span><span class="ib" data-f="gmore legend"><i class="ti ti-dots"></i></span></div>
+    <div class="island" style="left:70px;bottom:14px;padding:4px 10px" data-f="selbar"><span style="font-size:10px;color:var(--mut)">Выделено: <b style="color:#f4f4f5">1</b></span></div>
+    <div class="panel" data-f="panel" style="${box(1600-pw-12,64,pw,822)};border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.6)">${panelHTML()}<span class="abs ib b" data-f="panelw" style="left:-15px;top:380px;width:16px;height:46px;border-radius:6px;background:#000"><i class="ti ti-chevron-right" style="font-size:11px"></i></span></div>
+    ${st.menu==="logo"?logoMenu(14,50):""}${st.menu==="graph"?graphMenu(140,50):""}`; }},
+
+k3:{tab:"3 · Омнибокс",t:"3 · Омнибокс — одно поле на всё: мысль, поиск и команды",
+  d:"Печатаешь — это новая мысль с разбором даты и области; «@» — переход к ноде; «/» — команда (экспорт, таймер, раскладка…); «#» — фильтр по области. Графы и области — в навигаторе, он выезжает по Ctrl+B поверх холста. Самый быстрый с клавиатуры. Нажми ☰ или поле, чтобы открыть и закрыть.",
+  build(){ const pw=460, top=44;
+    return `<div class="abs row" style="${box(0,0,1600,44)};padding:0 12px;gap:10px;border-bottom:1px solid var(--bd)" data-f="drag">
+      <button class="ib b" data-open="drawer" data-f="graphs areas" title="Навигатор Ctrl+B"><i class="ti ti-menu-2"></i></button>${gsw}${crumb}
+      <button class="cap" data-open="omni" style="position:absolute;left:480px;width:640px;height:30px" data-f="capture cmdk export import timer settings keys gmore"><i class="ti ti-command"></i>${st.omni?'<span style="color:#f4f4f5">превью SH036 завтра #работа !2</span><span class="cur"></span>':'Мысль, поиск или команда…'}<span style="margin-left:auto;color:var(--mut2)">Ctrl+K</span></button>
+      <div class="row" style="margin-left:auto;gap:8px">${vseg}<div style="width:10px"></div>${win}</div></div>
+    <div class="canvas" id="canvas" style="${box(0,top,1600-pw-1,856)}"><svg id="g" viewBox="0 0 1000 820" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="abs" style="left:12px;top:12px">${gtools()}</div><div class="abs" style="right:12px;top:12px">${ai}</div>
+      <div class="abs" style="left:14px;bottom:12px">${legend}</div><div class="abs" style="right:12px;bottom:11px">${selc}</div></div>
+    <div class="split" data-f="panelw" style="left:${1600-pw-3}px;top:430px"></div>
+    <div class="panel" data-f="panel" style="${box(1600-pw,top,pw,856)};border-radius:0;border-width:0 0 0 1px">${panelHTML()}</div>
+    ${st.omni?`<div class="omni" style="left:480px;top:38px;width:640px">
+      <div class="sec"><div class="hd">Создать</div><div class="it on" data-f="capture"><i class="ti ti-bolt" style="color:#e8a14b"></i>«превью SH036»<span class="otok" style="background:rgba(232,161,75,.16);color:#f0b770;border:0">завтра</span><span class="otok" style="background:rgba(240,183,112,.12);color:#f0b770;border:0">Работа</span><span class="otok" style="background:rgba(224,98,90,.16);color:#ee8a83;border:0">!2</span><span class="k">Enter</span></div></div>
+      <div class="sec" style="border-top:1px solid var(--bd)"><div class="hd">Ноды</div><div class="it" data-f="cmdk"><i class="ti ti-video"></i>SH036<span style="color:var(--mut2)">· SQ02</span><span class="k">@</span></div><div class="it"><i class="ti ti-video"></i>SH035<span style="color:var(--mut2)">· SQ02</span></div></div>
+      <div class="sec" style="border-top:1px solid var(--bd)"><div class="hd">Команды</div>
+        <div class="it" data-f="gmore"><i class="ti ti-layout-distribute-horizontal"></i>/раскладка — перераскладка графа</div>
+        <div class="it" data-f="timer"><i class="ti ti-clock"></i>/таймер — таймер фокуса</div>
+        <div class="it" data-f="export import"><i class="ti ti-download"></i>/экспорт · /импорт</div>
+        <div class="it" data-f="settings keys"><i class="ti ti-settings"></i>/настройки · /клавиши</div></div>
+      <div class="ft"><span><b>Enter</b> создать</span><span><b>@</b> к ноде</span><span><b>/</b> команды</span><span><b>#</b> область</span><span><b>Esc</b> закрыть</span></div></div>`:""}
+    ${st.drawer?`<div class="drawer" style="${box(0,44,260,856)}">
+      <div class="hd">Графы<i class="ti ti-plus"></i></div>${GRAPHS.map(([i,c,n,k],j)=>`<div class="it ${j?"":"on"}" data-f="graphs"><span class="gi" style="background:${hexA(c,.2)};color:${c}"><i class="ti ${i}"></i></span>${n}<span class="n">${k}</span></div>`).join("")}
+      <div class="hd" style="margin-top:8px">Области<i class="ti ti-plus"></i></div>${AREAS.map(([i,c,n],j)=>`<div class="it" data-f="areas"><span class="gi" style="background:${hexA(c,.15)};color:${c}"><i class="ti ${i}"></i></span>${n}<span class="n">${[24,8,11,3,9,5][j]}</span></div>`).join("")}
+      <div style="flex:1"></div><div class="it" data-f="export"><i class="ti ti-download" style="color:var(--mut)"></i>Экспорт</div><div class="it" data-f="import"><i class="ti ti-upload" style="color:var(--mut)"></i>Импорт</div><div class="it" data-f="timer"><i class="ti ti-clock" style="color:var(--mut)"></i>Таймер фокуса</div><div class="it" data-f="settings"><i class="ti ti-settings" style="color:var(--mut)"></i>Настройки</div></div>`:""}`; }},
+
+k4:{tab:"4 · Карточка у ноды",t:"4 · Карточка у ноды — правой панели нет, граф занимает всё окно",
+  d:"Выбрал ноду — рядом с ней всплывает короткая карточка: статус, срок, подзадачи, папка. «Развернуть» выдвигает полную панель поверх графа, со всеми полями и описанием. Подходит, если панель нужна не всё время. Нажми «Развернуть» в карточке.",
+  build(){ const top=40;
+    return `<div class="abs row" style="${box(0,0,1600,40)};padding:0 12px;gap:10px;border-bottom:1px solid var(--bd)" data-f="drag">
+      ${logoMenuBtn}<div style="width:1px;height:18px;background:var(--bd)"></div>${gsw}${crumb}
+      <div class="cap" style="position:absolute;left:520px;width:560px;height:28px" data-f="capture"><i class="ti ti-bolt"></i>Сбросить мысль…<span style="margin-left:auto;color:var(--mut2)">#область · завтра · !1 · *заметка</span></div>
+      <div class="row" style="margin-left:auto;gap:8px">${vseg}${kbtn}<div style="width:10px"></div>${win}</div></div>
+    <div class="canvas" id="canvas" style="${box(0,top,1600,860)}"><svg id="g" viewBox="0 0 1000 820" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="abs row" style="left:12px;top:12px;gap:10px">${gtools()}<div style="width:1px;height:20px;background:var(--bd)"></div>${areaChips(false)}</div>
+      <div class="abs" style="right:12px;top:12px">${ai}</div>
+      <div class="abs" style="left:14px;bottom:12px">${legend}</div><div class="abs" style="right:12px;bottom:11px">${selc}</div></div>
+    <div class="ncard" id="ncard" data-f="panel">
+      <h5><i class="ti ti-video" style="color:#e8a14b"></i>SH036<span class="a"><i class="ti ti-pencil"></i><i class="ti ti-x"></i></span></h5>
+      <div class="ln">Статус<span class="v" style="margin-left:auto"><i class="ti ti-circle"></i>Не начато<i class="ti ti-chevron-down" style="color:var(--mut)"></i></span></div>
+      <div class="ln">Срок<span class="v" style="margin-left:auto"><span class="qs"><span>сег</span><span>зв</span><span>+3</span><span>пт</span></span></span></div>
+      <div class="ln">Папка<span class="v" style="margin-left:auto;color:var(--mut)">…\\SQ02_SH036 <i class="ti ti-folder"></i></span></div>
+      <div class="ln" style="margin-top:12px">Подзадачи · 0 из 2</div>
+      <div class="sub"><span class="cb"></span>Рендер</div><div class="sub"><span class="cb"></span>Сборка</div>
+      <div class="ft"><span><i class="ti ti-file-text"></i>Отчёт</span><button class="pr" data-open="expand" data-f="panelw" style="flex:1;height:26px;border-radius:7px;background:#fff;color:#000;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:5px"><i class="ti ti-arrows-diagonal"></i>${st.expand?"Свернуть":"Развернуть"}</button></div></div>
+    ${st.expand?`<div class="panel sover" style="${box(1600-480,top,480,860)};border-radius:0;border-width:0 0 0 1px">${panelHTML()}</div>`:""}
+    ${st.menu==="logo"?logoMenu(10,38):""}${st.menu==="graph"?graphMenu(130,38):""}`; }}
+};
+
+/* ===================== функции оболочки и где они живут ===================== */
+const F=[
+ ["Окно",[
+  ["win","Свернуть · развернуть · закрыть",{now:"справа в заголовке",k1:"справа в единой строке",k2:"островок в правом верхнем углу",k3:"справа в строке",k4:"справа в единой строке"}],
+  ["drag","Перетаскивание окна",{now:"за заголовок",k1:"за любое пустое место строки",k2:"за верхнюю кромку окна",k3:"за любое пустое место строки",k4:"за любое пустое место строки"}]]],
+ ["Ввод",[
+  ["capture","Быстрый захват мысли",{now:"второй этаж шапки",k1:"по центру единой строки",k2:"островок сверху по центру, клавиша N",k3:"в омнибоксе: просто печатай",k4:"по центру единой строки"}],
+  ["cmdk","Поиск и команды (Ctrl+K)",{now:"кнопка справа в шапке",k1:"кнопка справа в строке",k2:"в правом верхнем островке",k3:"тот же омнибокс, «@» — к ноде",k4:"кнопка справа в строке"}],
+  ["keys","Подсказка горячих клавиш",{now:"верхняя кнопка левой полосы",k1:"меню логотипа · клавиша ?",k2:"меню логотипа · клавиша ?",k3:"омнибокс «/клавиши»",k4:"меню логотипа · клавиша ?"}]]],
+ ["Навигация",[
+  ["views","Граф / Список",{now:"справа в шапке",k1:"справа в строке",k2:"в правом верхнем островке",k3:"справа в строке",k4:"справа в строке"}],
+  ["graphs","Графы и «новый граф»",{now:"столбик иконок в левой полосе",k1:"переключатель «Мой граф ▾» у логотипа",k2:"переключатель в левом верхнем островке",k3:"навигатор ☰ (Ctrl+B) и переключатель",k4:"переключатель «Мой граф ▾» у логотипа"}],
+  ["areas","Области и «новая область»",{now:"столбик иконок в левой полосе",k1:"чипы с названиями на холсте сверху",k2:"столбик островком слева",k3:"навигатор ☰ (Ctrl+B)",k4:"чипы с названиями на холсте сверху"}],
+  ["sub","Путь внутри подграфа",{now:"дорожка над холстом",k1:"в строке рядом с графом",k2:"в левом верхнем островке",k3:"в строке рядом с графом",k4:"в строке рядом с графом"}]]],
+ ["Граф",[
+  ["gsearch","Поиск по графу",{now:"тулбар графа",k1:"тулбар графа",k2:"нижний док",k3:"тулбар графа",k4:"тулбар графа"}],
+  ["gfocus","Фокус на выделенном",{now:"тулбар графа",k1:"тулбар графа",k2:"нижний док",k3:"тулбар графа",k4:"тулбар графа"}],
+  ["ghome","Держать раскладку",{now:"тулбар графа",k1:"тулбар графа",k2:"нижний док",k3:"тулбар графа",k4:"тулбар графа"}],
+  ["gheat","Режим срочности",{now:"тулбар графа",k1:"тулбар графа",k2:"нижний док",k3:"тулбар графа",k4:"тулбар графа"}],
+  ["gmore","Перераскладка, тени, «что нового», FPS",{now:"«…» в тулбаре",k1:"«…» в тулбаре",k2:"«…» в нижнем доке",k3:"«…» и омнибокс «/раскладка»",k4:"«…» в тулбаре"}],
+  ["ai","ИИ: команды и агент",{now:"искра в углу холста",k1:"искра в углу холста",k2:"искра в нижнем доке",k3:"искра в углу холста",k4:"искра в углу холста"}],
+  ["legend","Легенда видов",{now:"внизу холста",k1:"внизу холста",k2:"в «…» нижнего дока",k3:"внизу холста",k4:"внизу холста"}],
+  ["selbar","Выделено N · упорядочить",{now:"внизу справа",k1:"внизу справа",k2:"нижний док и счётчик слева",k3:"внизу справа",k4:"внизу справа"}]]],
+ ["Нода",[
+  ["panel","Карточка ноды",{now:"панель на полэкрана",k1:"панель 470 px справа",k2:"плавающая карточка 440 px",k3:"панель 460 px справа",k4:"карточка рядом с нодой"}],
+  ["panelw","Ширина / сворачивание панели",{now:"разделитель",k1:"разделитель",k2:"язычок «›» — свернуть",k3:"разделитель",k4:"«Развернуть» в карточке"}]]],
+ ["Файл и прочее",[
+  ["export","Экспорт в файл",{now:"низ левой полосы",k1:"меню логотипа · Ctrl+K",k2:"меню логотипа · Ctrl+K",k3:"омнибокс «/экспорт» · навигатор",k4:"меню логотипа · Ctrl+K"}],
+  ["import","Импорт из файла",{now:"низ левой полосы",k1:"меню логотипа · Ctrl+K",k2:"меню логотипа · Ctrl+K",k3:"омнибокс «/импорт» · навигатор",k4:"меню логотипа · Ctrl+K"}],
+  ["timer","Таймер фокуса",{now:"низ левой полосы",k1:"меню логотипа · Ctrl+T",k2:"меню логотипа · Ctrl+T",k3:"омнибокс «/таймер» · навигатор",k4:"меню логотипа · Ctrl+T"}],
+  ["settings","Настройки",{now:"низ левой полосы",k1:"меню логотипа · Ctrl+,",k2:"меню логотипа · Ctrl+,",k3:"омнибокс «/настройки» · навигатор",k4:"меню логотипа · Ctrl+,"}]]]
+];
+
+/* ===================== отрисовка и подсветка ===================== */
+let cur="now", pinned=null;
+const app=document.getElementById("app");
+function render(){
+  app.innerHTML=CONCEPTS[cur].build();
+  const g=document.getElementById("g"); if(g) g.innerHTML=graphSVG();
+  placeCard(); measure(); renderList(); renderInfo();
+  if(pinned) highlight(pinned);
+}
+function k(){ return app.getBoundingClientRect().width/1600; }
+function rel(el){ const a=app.getBoundingClientRect(), r=el.getBoundingClientRect(), s=k(); return {x:(r.left-a.left)/s,y:(r.top-a.top)/s,w:r.width/s,h:r.height/s}; }
+function placeCard(){
+  const c=document.getElementById("ncard"), g=document.getElementById("g"); if(!c||!g) return;
+  const m=g.getScreenCTM(), p=g.createSVGPoint(); p.x=SH036.x; p.y=SH036.y; const q=p.matrixTransform(m);
+  const a=app.getBoundingClientRect(), s=k(); c.style.left=((q.x-a.left)/s+26)+"px"; c.style.top=((q.y-a.top)/s-32)+"px";
+}
+let area0=null;
+function measure(){
+  const cv=document.getElementById("canvas"); if(!cv) return;
+  // видимая под граф область = холст минус то, что перекрывает плавающая панель или карточка
+  const r=rel(cv); let w=r.w, x=r.x;
+  const pnl=document.querySelector(".panel"); if(pnl){ const p=rel(pnl); if(p.x<r.x+r.w&&p.x+p.w>r.x){ w=Math.min(w,p.x-r.x-8); } }
+  const area=w*r.h; if(cur==="now") area0=area; const base=area0||(  (1600-64-772)*808 );
+  const pct=Math.round(area/(1600*900)*100), gain=Math.round((area/base-1)*100);
+  const m=document.createElement("div"); m.className="measure"; Object.assign(m.style,{left:x+"px",top:r.y+"px",width:w+"px",height:r.h+"px"});
+  m.innerHTML=`<span>граф: ${Math.round(w)}×${Math.round(r.h)} · ${pct}% окна${cur==="now"?"":` · ${gain>=0?"+":""}${gain}% к нынешнему`}</span>`;
+  app.appendChild(m); CONCEPTS[cur]._pct=pct; CONCEPTS[cur]._gain=gain;
+}
+function clearHL(){ app.querySelectorAll(".hl").forEach(x=>x.remove()); }
+function highlight(key){
+  clearHL(); const name=F.flatMap(g=>g[1]).find(x=>x[0]===key);
+  const els=[...app.querySelectorAll("[data-f]")].filter(e=>e.dataset.f.split(" ").includes(key)&&e.getClientRects().length);
+  // если функция живёт в закрытом меню — подсвечиваем кнопку, которая его открывает
+  els.forEach(e=>{ const r=rel(e); const h=document.createElement("div"); h.className="hl"+(r.y<40?" dn":"");
+    Object.assign(h.style,{left:(r.x-4)+"px",top:(r.y-4)+"px",width:(r.w+8)+"px",height:(r.h+8)+"px"});
+    h.innerHTML=`<b>${name?name[1]:key}</b>`; app.appendChild(h); });
+}
+function renderList(){
+  const L=document.getElementById("list");
+  L.innerHTML=`<div class="dm-hint">Наведи на функцию — на макете подсветится, где она в этой концепции. Клик закрепляет. <span style="color:#e6c38f">Жёлтым</span> — то, что переехало.</div>`+
+    F.map(([grp,items])=>`<h4>${grp}</h4>`+items.map(([key,name,wh])=>{ const moved=cur!=="now"&&wh[cur]!==wh.now;
+      return `<button class="fi ${moved?"moved":""} ${pinned===key?"pin":""}" data-k="${key}"><b>${name}</b><span>${wh[cur]}</span></button>`; }).join("")).join("");
+}
+function renderInfo(){
+  const c=CONCEPTS[cur];
+  document.getElementById("info").innerHTML=`<h3>${c.t}</h3>${c.d}`;
+  document.getElementById("tabs").innerHTML=Object.entries(CONCEPTS).map(([id,x])=>`<button class="dm-tab ${id===cur?"on":""}" data-c="${id}">${x.tab}</button>`).join("");
+}
+document.getElementById("tabs").onclick=e=>{ const b=e.target.closest("[data-c]"); if(!b) return; cur=b.dataset.c; st={menu:null,drawer:false,omni:cur==="k3",expand:false}; render(); fit(); };
+const list=document.getElementById("list");
+list.addEventListener("mouseover",e=>{ const b=e.target.closest(".fi"); if(b) highlight(b.dataset.k); });
+list.addEventListener("mouseleave",()=>{ if(pinned) highlight(pinned); else clearHL(); });
+list.addEventListener("click",e=>{ const b=e.target.closest(".fi"); if(!b) return; pinned=pinned===b.dataset.k?null:b.dataset.k; renderList(); pinned?highlight(pinned):clearHL(); });
+app.addEventListener("click",e=>{
+  const o=e.target.closest("[data-open]");
+  if(o){ const w=o.dataset.open;
+    if(w==="logo") st.menu=st.menu==="logo"?null:"logo";
+    if(w==="drawer") st.drawer=!st.drawer;
+    if(w==="omni") st.omni=!st.omni;
+    if(w==="expand") st.expand=!st.expand;
+    render(); return; }
+  if(e.target.closest('[data-f~="graphs"].gsw')){ st.menu=st.menu==="graph"?null:"graph"; render(); return; }
+  if(st.menu){ st.menu=null; render(); }
+});
+function fit(){ const s=document.getElementById("stage"), sc=document.getElementById("scaler");
+  sc.style.transform=`scale(${Math.max(.2,Math.min((s.clientWidth-24)/1600,(s.clientHeight-24)/900))})`; requestAnimationFrame(()=>{ render0(); }); }
+let first=true;
+function render0(){ if(first){ first=false; } render(); }
+addEventListener("resize",fit);
+// сначала «Сейчас», чтобы знать базовую площадь графа для процентов
+cur="now"; render(); fit();
+</script>
+</body>
+</html>

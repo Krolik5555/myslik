@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Мыслик — варианты дизайна</title>
+<link rel="stylesheet" href="ui/vendor/tabler-icons.min.css">
+<style>
+/* Макет НАПРАВЛЕНИЙ, а не приложения: экран графа с открытой нодой SH036 (снимок КРОЛИКА
+   02.11.2026) пересобран в четырёх видах. Данные и состав панели — те же, что на снимке,
+   меняется только подача: так сравнивается дизайн, а не содержание. */
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#050506;color:#ececef;
+  font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{display:flex;flex-direction:column;overflow:hidden}
+
+/* ---------- шапка демо ---------- */
+.dm-head{flex:none;padding:12px 18px 10px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
+.dm-title{font-size:14px;font-weight:600;white-space:nowrap;padding-top:6px}
+.dm-title b{color:#e8a14b;font-weight:600}
+.dm-tabs{display:flex;gap:4px;background:#111114;padding:3px;border-radius:10px}
+.dm-tab{border:0;background:none;color:#9a9aa3;font:inherit;font-size:13px;padding:6px 12px;border-radius:8px;cursor:pointer;white-space:nowrap}
+.dm-tab:hover{color:#fff}
+.dm-tab.on{background:#26262c;color:#fff}
+.dm-tab small{color:#6c6c75;margin-left:4px}
+.dm-info{flex:1;min-width:320px;font-size:12.5px;line-height:1.5;color:#a6a6ae}
+.dm-info h3{margin:0 0 2px;font-size:13px;color:#f2f2f4;font-weight:600}
+.dm-info ul{margin:4px 0 0;padding-left:16px}
+.dm-info .cost{display:inline-block;margin-top:4px;color:#6c6c75}
+.dm-stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:14px;overflow:hidden}
+.dm-scaler{width:1600px;height:900px;transform-origin:center center;flex:none;border-radius:12px;overflow:hidden;
+  box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.08)}
+
+/* ---------- приложение: общее ---------- */
+#app{width:1600px;height:900px;position:relative;display:flex;flex-direction:column;background:var(--bg);color:var(--tx);overflow:hidden;font-size:var(--fs)}
+.titlebar{height:30px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px;font-size:10px;letter-spacing:.32em;color:var(--mut)}
+.titlebar .ver{letter-spacing:0;color:var(--mut2)}
+.titlebar .win{margin-left:auto;display:flex;gap:22px;letter-spacing:0;font-size:13px;color:var(--mut)}
+.topbar{height:50px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;position:relative}
+.cap{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px}
+.views{margin-left:auto;display:flex;gap:6px;align-items:center}
+.main{flex:1;min-height:0;display:flex;gap:var(--gap);padding:0 var(--gap) var(--gap) 0;position:relative}
+.rail{width:52px;flex:none;display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 0}
+.rail .sep{width:22px;height:1px;background:var(--bd);margin:8px 0}
+.rail .grow{flex:1}
+.rb{width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:9px;color:var(--mut);font-size:17px;position:relative}
+.rb.on{color:var(--tx)}
+.canvas{flex:1;min-width:0;position:relative;overflow:hidden}
+.canvas svg{position:absolute;inset:0;width:100%;height:100%}
+.panel{flex:none;position:relative;overflow:hidden;display:flex;flex-direction:column}
+/* Видимость по варианту — ИСКЛЮЧЕНИЕМ, а не display:revert: revert откатывает к стилю браузера
+   (block), и флекс-ряды тулбара и захвата рассыпались бы в столбик. */
+.v-now .only-new,.v-now .only-b,.v-now .only-ac,.v-now .only-c,
+.v-a .only-now,.v-a .only-b,.v-a .only-c,
+.v-b .only-now,.v-b .only-ac,.v-b .only-c,
+.v-c .only-now,.v-c .only-b{display:none!important}
+
+/* =====================================================================
+   СЕЙЧАС — копия по снимку
+   ===================================================================== */
+.v-now{--bg:#000;--surf:#0c0c0e;--surf2:#161618;--bd:rgba(255,255,255,.13);--bd2:rgba(255,255,255,.26);
+  --tx:#f4f4f5;--mut:#86868c;--mut2:#5b5b61;--fs:11px;--gap:10px}
+.v-now .cap{width:740px;height:30px;border:1px solid var(--bd);border-radius:6px;padding:0 10px;color:var(--mut2);font-size:10.5px;background:var(--surf)}
+.v-now .vbtn{height:28px;padding:0 10px;border:1px solid var(--bd);border-radius:6px;display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--tx)}
+.v-now .vbtn.on{background:#fff;color:#000}
+.v-now .vbtn.k{font-size:9px}
+.v-now .rail .rb{font-size:14px;width:28px;height:28px}
+.v-now .rail .rb.sel{background:#fff;color:#000;border-radius:7px}
+.v-now .canvas{border:1px solid var(--bd);border-radius:10px;background:#000}
+.v-now .tb{position:absolute;top:10px;left:10px;display:flex;gap:7px}
+.v-now .tb span{width:32px;height:28px;border:1px solid var(--bd);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--tx)}
+.v-now .tb span.on{background:#fff;color:#000}
+.v-now .ai{position:absolute;top:10px;right:10px;width:28px;height:28px;border:1px solid var(--bd);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:13px}
+.v-now .legend{position:absolute;left:12px;bottom:10px;display:flex;gap:12px;font-size:8.5px;color:var(--mut)}
+.v-now .selcnt{position:absolute;right:10px;bottom:9px;font-size:8.5px;color:var(--mut);border:1px solid var(--bd);border-radius:6px;padding:3px 7px}
+.v-now .panel{width:47%;border:1px solid var(--bd);border-radius:10px;background:#000;padding:14px 14px}
+.n-h{display:flex;align-items:center;justify-content:space-between;font-size:15px;font-weight:600;margin-bottom:14px}
+.n-h i{font-size:12px;color:var(--mut);margin-left:12px}
+.n-row{display:grid;grid-template-columns:76px 22px 150px;align-items:center;gap:0;height:26.5px;font-size:9.5px}
+.n-row .k{color:var(--mut)}
+.n-row .ic{color:var(--mut);font-size:11px}
+.n-row .v{display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:9.5px}
+.n-row .v.thin{font-weight:400}
+.n-row .note{color:var(--mut2);font-size:8px;margin-left:12px;font-weight:400}
+.n-chips{display:flex;gap:4px;margin-top:3px}
+.n-chips span{border:1px solid var(--bd);border-radius:4px;padding:1px 8px;font-size:8px;color:var(--mut)}
+.n-desc{border:1px solid var(--bd);border-radius:6px;height:92px;margin:14px 0 12px;padding:10px;color:var(--mut2);font-size:9.5px}
+.n-line{display:flex;align-items:center;gap:6px;font-size:8.5px;color:var(--mut);margin:7px 0}
+.n-line span{border:1px solid var(--bd);border-radius:5px;padding:3px 8px;color:var(--tx)}
+.n-rel{border:1px solid var(--bd);border-radius:5px;height:25px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;font-size:9.5px;margin:5px 0}
+.n-rel small{color:var(--mut2);font-size:7.5px}
+.n-btn{border:1px solid var(--bd2);border-radius:6px;height:30px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:9.5px;font-weight:600;margin-top:12px}
+
+/* метки проблем на виде «Сейчас» */
+.pin{position:absolute;z-index:20;width:22px;height:22px;border-radius:50%;background:#e0625a;color:#fff;font:600 12px/22px "Segoe UI",sans-serif;text-align:center;
+  box-shadow:0 0 0 4px rgba(224,98,90,.25);cursor:default}
+.pin .tip{display:none;position:absolute;left:28px;top:-6px;width:280px;background:#1c1c20;color:#e6e6ea;border:1px solid rgba(255,255,255,.12);
+  border-radius:8px;padding:8px 10px;font:400 12.5px/1.45 "Segoe UI",sans-serif;text-align:left;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.pin:hover .tip{display:block}
+.pin.flip .tip{left:auto;right:28px}
+
+/* =====================================================================
+   НОВАЯ ПАНЕЛЬ — общая разметка вариантов A/B/C
+   ===================================================================== */
+.p-scroll{flex:1;min-height:0;overflow:hidden;padding:18px 20px 0}
+.p-crumbs{font-size:11.5px;color:var(--mut2);display:flex;gap:6px;align-items:center;margin-bottom:8px}
+.p-crumbs i{font-size:11px}
+.p-titlerow{display:flex;align-items:center;gap:12px}
+.p-kind{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:19px;flex:none;
+  background:color-mix(in srgb,var(--sel) 16%,transparent);color:var(--sel);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--sel) 35%,transparent)}
+.p-title{font-size:22px;font-weight:650;letter-spacing:-.01em;flex:1}
+.p-acts{display:flex;gap:2px}
+.p-acts span{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:15px}
+.p-chips{display:flex;gap:6px;margin:14px 0 4px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;font-size:12px;background:var(--l3);color:var(--tx)}
+.chip i{font-size:13px}
+.chip .dot{width:7px;height:7px;border-radius:50%;background:var(--mut)}
+.chip.area{color:#e6c38f;background:rgba(232,161,75,.12)}
+.chip.tag{color:var(--mut)}
+.p-sec{margin-top:18px}
+.p-sec h4{margin:0 0 8px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mut2);display:flex;align-items:center;gap:6px}
+.p-sec h4 .n{color:var(--mut);letter-spacing:0}
+.props{display:grid;grid-template-columns:118px 1fr;row-gap:2px;align-items:center}
+.pk{display:flex;align-items:center;gap:8px;color:var(--mut);font-size:12.5px;height:32px}
+.pk i{font-size:15px;color:var(--mut2)}
+.pv{display:flex;align-items:center;gap:6px;min-width:0;height:32px;padding:0 8px;border-radius:8px;font-size:13px}
+.pv.hov{background:var(--l3)}
+.pv .muted{color:var(--mut2)}
+.pv .inh{font-size:11px;color:var(--mut2)}
+.pv .path{font-family:"Cascadia Code",Consolas,monospace;font-size:11.5px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pv .ib{margin-left:auto;display:flex;gap:2px;color:var(--mut2)}
+.pv .ib i{width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:6px;font-size:14px}
+.q{display:inline-flex;height:22px;align-items:center;padding:0 8px;border-radius:6px;font-size:11.5px;color:var(--mut);background:var(--l3)}
+.more{grid-column:1/3;font-size:12px;color:var(--mut2);height:28px;display:flex;align-items:center;gap:6px;padding-left:2px}
+.desc{border-radius:12px;background:var(--l3);min-height:96px;padding:12px 14px;color:var(--mut2);font-size:13px;line-height:1.5}
+.desc kbd{font:inherit;font-size:11px;padding:1px 6px;border-radius:5px;background:var(--l4);color:var(--mut)}
+.addf{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.addf div{height:58px;border-radius:10px;border:1px dashed var(--bd2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--mut);font-size:12px}
+.addf i{font-size:17px}
+.tpl{display:flex;gap:14px;margin-top:8px;font-size:12px;color:var(--mut2)}
+.tpl span{display:flex;gap:5px;align-items:center}
+.rel{position:relative}
+.ri{display:flex;align-items:center;gap:9px;height:34px;padding:0 10px;border-radius:9px;font-size:13px;position:relative}
+.ri.cur{background:var(--l3)}
+.ri .k{width:18px;display:flex;justify-content:center;color:var(--mut);font-size:14px}
+.ri .r{margin-left:auto;font-size:11px;color:var(--mut2)}
+.ri .st{width:8px;height:8px;border-radius:50%;flex:none}
+.ri.ch{margin-left:22px}
+.ri.ch::before{content:"";position:absolute;left:-12px;top:-17px;width:10px;height:34px;border-left:1.5px solid var(--bd2);border-bottom:1.5px solid var(--bd2);border-bottom-left-radius:8px}
+.p-foot{flex:none;padding:12px 20px 16px;display:flex;gap:8px;align-items:center}
+.btn{height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:600;flex:1}
+.btn.sq{flex:none;width:38px;background:var(--l3);color:var(--mut);font-weight:400}
+
+/* новый верх и полоса */
+.capn{width:640px;height:38px;border-radius:11px;background:var(--l2);padding:0 8px 0 12px;font-size:13px;color:var(--mut2);
+  box-shadow:inset 0 0 0 1px var(--bd)}
+.capn > i{font-size:16px;color:var(--mut)}
+.capn .ph{flex:1}
+.capn .tok{display:flex;gap:4px}
+.capn .tok span{font-size:11px;padding:2px 6px;border-radius:6px;background:var(--l3);color:var(--mut)}
+.kbd{font-size:11px;padding:2px 7px;border-radius:6px;background:var(--l4);color:var(--mut)}
+.seg{display:flex;background:var(--l2);border-radius:10px;padding:3px;box-shadow:inset 0 0 0 1px var(--bd)}
+.seg span{height:30px;padding:0 12px;border-radius:8px;display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--mut)}
+.seg span.on{background:var(--l4);color:var(--tx);box-shadow:0 1px 2px rgba(0,0,0,.4)}
+.srch{height:36px;border-radius:10px;background:var(--l2);box-shadow:inset 0 0 0 1px var(--bd);display:flex;align-items:center;gap:8px;padding:0 8px 0 12px;font-size:12.5px;color:var(--mut)}
+.v-a .rb,.v-b .rb,.v-c .rb{width:38px;height:38px;border-radius:11px}
+.rb.sel{background:var(--l3);color:var(--tx)}
+.rb.sel::before{content:"";position:absolute;left:-7px;top:9px;bottom:9px;width:3px;border-radius:3px;background:var(--sel)}
+.rb .gd{width:22px;height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:13px}
+.tbn{position:absolute;top:14px;left:14px;display:flex;align-items:center;gap:2px;padding:4px;border-radius:12px;background:var(--l2);box-shadow:0 6px 20px rgba(0,0,0,.35),inset 0 0 0 1px var(--bd);z-index:2}
+.tbn span{width:32px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:16px}
+.tbn span.on{background:var(--l4);color:var(--tx)}
+.tbn .s{width:1px;height:18px;background:var(--bd2);margin:0 4px}
+.ain{position:absolute;top:14px;right:14px;height:38px;padding:0 14px;border-radius:12px;display:flex;align-items:center;gap:7px;font-size:12.5px;z-index:2;
+  background:var(--l2);box-shadow:0 6px 20px rgba(0,0,0,.35),inset 0 0 0 1px var(--bd)}
+.ain i{color:#c9a7ff;font-size:16px}
+.lgn{position:absolute;left:14px;bottom:14px;display:flex;gap:4px;padding:4px;border-radius:11px;background:var(--l2);box-shadow:inset 0 0 0 1px var(--bd);z-index:2}
+.lgn span{height:26px;padding:0 9px;display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--mut);border-radius:7px}
+.lgn b{font-weight:500;color:var(--mut2)}
+.lgn svg{width:10px;height:10px}
+.selb{position:absolute;right:14px;bottom:14px;height:34px;padding:0 12px;border-radius:11px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mut);background:var(--l2);box-shadow:inset 0 0 0 1px var(--bd);z-index:2}
+.selb b{color:var(--tx);font-weight:600}
+
+/* =====================================================================
+   A · СЛОИ — тот же монохром, но глубина вместо рамок
+   ===================================================================== */
+.v-a{--bg:#060607;--l1:#0d0d10;--l2:#141418;--l3:#1c1c21;--l4:#26262c;--bd:rgba(255,255,255,.06);--bd2:rgba(255,255,255,.14);
+  --tx:#f2f2f4;--mut:#a0a0a9;--mut2:#6b6b74;--sel:#e8a14b;--fs:13px;--gap:12px}
+.v-a .canvas{border-radius:16px;background:radial-gradient(120% 90% at 50% 40%,#111116 0%,#0b0b0e 55%,#08080a 100%);box-shadow:inset 0 0 0 1px var(--bd)}
+.v-a .panel{width:460px;border-radius:16px;background:var(--l2);box-shadow:inset 0 0 0 1px var(--bd),0 20px 50px rgba(0,0,0,.35)}
+.v-a .p-head{position:relative}
+.v-a .p-head::before{content:"";position:absolute;left:-20px;right:-20px;top:-18px;height:120px;pointer-events:none;
+  background:radial-gradient(80% 100% at 15% 0%,rgba(232,161,75,.13),transparent 70%)}
+.v-a .btn.pr{background:#f2f2f4;color:#0b0b0d}
+.v-a .chip.st .dot{background:#8a8a93}
+
+/* =====================================================================
+   B · СТУДИЯ — плотный инструмент: вкладки, ноды-карточки, мини-карта
+   ===================================================================== */
+.v-b{--bg:#0a0b0d;--l1:#0e0f12;--l2:#131418;--l3:#1b1c21;--l4:#25262c;--bd:rgba(255,255,255,.07);--bd2:rgba(255,255,255,.14);
+  --tx:#ededf0;--mut:#9b9ca5;--mut2:#666771;--sel:#f0a24a;--fs:12.5px;--gap:0px}
+.v-b .main{padding:0}
+.v-b .topbar{border-bottom:1px solid var(--bd);height:48px}
+.v-b .rail{border-right:1px solid var(--bd);background:var(--l1)}
+.v-b .canvas{background-color:#0c0d10;
+  background-image:linear-gradient(rgba(255,255,255,.028) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.028) 1px,transparent 1px);
+  background-size:32px 32px}
+.v-b .panel{width:410px;background:var(--l1);border-left:1px solid var(--bd)}
+.v-b .p-scroll{padding:14px 18px 0}
+.v-b .p-title{font-size:19px}
+.v-b .p-kind{width:32px;height:32px;border-radius:9px;font-size:16px}
+.v-b .tabs{display:flex;gap:2px;border-bottom:1px solid var(--bd);margin:14px -18px 0;padding:0 14px}
+.v-b .tabs span{padding:9px 10px;font-size:12.5px;color:var(--mut);position:relative}
+.v-b .tabs span.on{color:var(--tx)}
+.v-b .tabs span.on::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;border-radius:2px;background:var(--sel)}
+.v-b .tabs em{font-style:normal;color:var(--mut2);margin-left:4px}
+.v-b .segst{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;padding:3px;border-radius:10px;background:var(--l2);box-shadow:inset 0 0 0 1px var(--bd);margin-top:14px}
+.v-b .segst span{height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px;color:var(--mut)}
+.v-b .segst span.on{background:var(--l4);color:var(--tx)}
+.v-b .segst .dot{width:7px;height:7px;border-radius:50%}
+.v-b .prog{margin-top:12px;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--mut)}
+.v-b .prog .bar{flex:1;height:5px;border-radius:5px;background:var(--l3);overflow:hidden}
+.v-b .prog .bar i{display:block;height:100%;width:0%;background:var(--sel)}
+.v-b .props{grid-template-columns:104px 1fr}
+.v-b .pk,.v-b .pv{height:30px}
+.v-b .p-sec{margin-top:16px}
+.v-b .desc{border-radius:9px;min-height:80px;background:var(--l2);box-shadow:inset 0 0 0 1px var(--bd)}
+.v-b .btn.pr{background:var(--l3);color:var(--tx);box-shadow:inset 0 0 0 1px var(--bd2)}
+.v-b .p-foot{border-top:1px solid var(--bd);padding:10px 18px}
+.v-b .tbn,.v-b .ain,.v-b .lgn,.v-b .selb{border-radius:9px}
+.mini{position:absolute;right:14px;bottom:58px;width:176px;height:112px;border-radius:9px;background:rgba(19,20,24,.92);box-shadow:inset 0 0 0 1px var(--bd);z-index:2;overflow:hidden}
+.mini svg{width:100%;height:100%}
+.zoom{position:absolute;right:200px;bottom:14px;height:34px;display:flex;align-items:center;gap:2px;padding:0 4px;border-radius:9px;background:var(--l2);box-shadow:inset 0 0 0 1px var(--bd);font-size:12px;color:var(--mut);z-index:2}
+.zoom span{padding:0 7px}
+
+/* =====================================================================
+   C · КОСМОС — метафора «паутины мыслей» в полную силу
+   ===================================================================== */
+.v-c{--bg:#04050b;--l1:rgba(20,22,40,.5);--l2:rgba(22,24,42,.66);--l3:rgba(255,255,255,.06);--l4:rgba(255,255,255,.11);--bd:rgba(255,255,255,.08);--bd2:rgba(255,255,255,.16);
+  --tx:#eef0ff;--mut:#a3a8c7;--mut2:#6d7294;--sel:#ffb15c;--fs:13px;--gap:0px}
+.v-c .main{padding:0}
+.v-c .bgsky{position:absolute;inset:0;z-index:0;
+  background:radial-gradient(40% 50% at 30% 65%,rgba(217,96,122,.16),transparent 70%),
+             radial-gradient(45% 55% at 62% 55%,rgba(124,92,230,.20),transparent 70%),
+             radial-gradient(35% 40% at 80% 20%,rgba(64,140,220,.12),transparent 70%),
+             radial-gradient(120% 100% at 50% 50%,#0a0c1c 0%,#04050b 70%)}
+.v-c .titlebar,.v-c .topbar,.v-c .main{position:relative;z-index:1}
+.v-c .canvas{position:absolute;inset:0;left:52px}
+.v-c .rail{position:relative;z-index:3;background:rgba(8,9,20,.4);border-right:1px solid var(--bd)}
+.v-c .panel{position:absolute;right:16px;top:0;bottom:16px;width:430px;border-radius:20px;z-index:3;
+  background:linear-gradient(180deg,rgba(28,30,54,.72),rgba(16,17,32,.78));backdrop-filter:blur(22px) saturate(140%);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.09),0 30px 80px rgba(0,0,0,.55)}
+.v-c .p-title{font-family:"Segoe UI Variable Display","Segoe UI",sans-serif;font-size:26px;font-weight:600;
+  background:linear-gradient(90deg,#fff 0%,#ffd8a8 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.v-c .p-kind{border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffe0b8,#ffb15c 45%,#b9652a 100%);color:#3a1d05;box-shadow:0 0 24px rgba(255,177,92,.55)}
+.v-c .btn.pr{background:linear-gradient(90deg,#ffb15c,#ff7d8b);color:#1a0d05;box-shadow:0 8px 24px rgba(255,125,139,.3)}
+.v-c .capn,.v-c .seg,.v-c .srch,.v-c .tbn,.v-c .ain,.v-c .lgn,.v-c .selb{backdrop-filter:blur(14px);background:rgba(22,24,42,.55)}
+.v-c .tbn{left:14px}
+.v-c .selb{right:462px}
+.v-c .chip.area{color:#ffd29a;background:rgba(255,177,92,.14)}
+@keyframes orbit{to{transform:rotate(360deg)}}
+@keyframes tw{0%,100%{opacity:.25}50%{opacity:.9}}
+</style>
+</head>
+<body>
+
+<div class="dm-head">
+  <div class="dm-title">Мыслик · <b>варианты дизайна</b></div>
+  <div class="dm-tabs" id="tabs">
+    <button class="dm-tab" data-v="now">Сейчас</button>
+    <button class="dm-tab" data-v="a">A · Слои</button>
+    <button class="dm-tab" data-v="b">B · Студия</button>
+    <button class="dm-tab" data-v="c">C · Космос</button>
+  </div>
+  <div class="dm-info" id="info"></div>
+</div>
+
+<div class="dm-stage" id="stage"><div class="dm-scaler" id="scaler">
+<div id="app">
+  <div class="bgsky only-c"></div>
+
+  <div class="titlebar"><i class="ti ti-feather" style="font-size:13px;letter-spacing:0"></i>М Ы С Л И К <span class="ver">2.0.6.1</span>
+    <div class="win"><i class="ti ti-minus"></i><i class="ti ti-square"></i><i class="ti ti-x"></i></div></div>
+
+  <div class="topbar">
+    <!-- сейчас -->
+    <div class="cap only-now flexy-now"><i class="ti ti-pencil"></i>&nbsp;Сбрось мысль и Enter…&nbsp;&nbsp; #область/#тег завтра/пн/25.06 !приоритет *заметка</div>
+    <div class="views only-now flexy-now">
+      <span class="vbtn on"><i class="ti ti-affiliate"></i>Граф</span><span class="vbtn"><i class="ti ti-layout-grid"></i>Список</span><span class="vbtn k"><b>Ctrl+K</b>&nbsp;поиск</span>
+    </div>
+    <!-- новое -->
+    <div class="cap capn only-new"><i class="ti ti-bolt"></i><span class="ph">Сбросить мысль…</span>
+      <span class="tok"><span>#область</span><span>завтра</span><span>!1</span><span>*заметка</span></span><span class="kbd">Enter</span></div>
+    <div class="views only-new">
+      <div class="seg"><span class="on"><i class="ti ti-affiliate"></i>Граф</span><span><i class="ti ti-list"></i>Список</span></div>
+      <div class="srch"><i class="ti ti-search"></i>Поиск<span class="kbd">Ctrl K</span></div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="rail">
+      <span class="rb"><i class="ti ti-layout-sidebar-left-expand"></i></span>
+      <span class="rb sel"><i class="ti ti-affiliate"></i></span>
+      <div class="sep"></div>
+      <span class="rb"><i class="ti ti-chart-dots-3"></i></span>
+      <span class="rb on"><span class="gd" style="background:rgba(111,155,216,.18);color:#8fb4ea"><i class="ti ti-briefcase"></i></span></span>
+      <span class="rb"><span class="gd" style="background:rgba(95,185,142,.16);color:#7fd0a8"><i class="ti ti-rocket"></i></span></span>
+      <div class="grow"></div>
+      <div class="sep"></div>
+      <span class="rb"><span class="gd" style="background:rgba(232,161,75,.16);color:#f0b770"><i class="ti ti-video"></i></span></span>
+      <span class="rb"><span class="gd" style="background:rgba(232,161,75,.16);color:#f0b770"><i class="ti ti-home"></i></span></span>
+      <span class="rb"><span class="gd" style="background:rgba(111,155,216,.18);color:#8fb4ea"><i class="ti ti-puzzle"></i></span></span>
+      <span class="rb"><span class="gd" style="background:rgba(95,185,142,.16);color:#7fd0a8"><i class="ti ti-plant"></i></span></span>
+      <span class="rb"><span class="gd" style="background:rgba(224,98,90,.16);color:#ee8a83"><i class="ti ti-code"></i></span></span>
+      <div class="sep"></div>
+      <span class="rb"><i class="ti ti-download"></i></span>
+      <span class="rb"><i class="ti ti-clock"></i></span>
+      <span class="rb"><i class="ti ti-settings"></i></span>
+    </div>
+
+    <div class="canvas" id="canvas">
+      <svg id="g" viewBox="0 0 1000 820" preserveAspectRatio="xMidYMid meet"></svg>
+      <!-- сейчас -->
+      <div class="tb only-now flexy-now"><span><i class="ti ti-search"></i></span><span><i class="ti ti-focus-2"></i></span><span class="on"><i class="ti ti-home"></i></span><span><i class="ti ti-flame"></i></span><span><i class="ti ti-dots"></i></span></div>
+      <div class="ai only-now flexy-now"><i class="ti ti-sparkles"></i></div>
+      <div class="legend only-now flexy-now"><span>● область</span><span>○ заметка</span><span>□ задача</span><span>◇ полотно</span><span>● подграф</span></div>
+      <div class="selcnt only-now">Выделено: 1</div>
+      <!-- новое -->
+      <div class="tbn only-new"><span><i class="ti ti-search"></i></span><span><i class="ti ti-focus-2"></i></span><i class="s"></i><span class="on"><i class="ti ti-home"></i></span><span><i class="ti ti-flame"></i></span><i class="s"></i><span><i class="ti ti-dots"></i></span></div>
+      <div class="ain only-new"><i class="ti ti-sparkles"></i>ИИ</div>
+      <div class="lgn only-new">
+        <span><svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7" transform="rotate(45 5 5)" fill="none" stroke="#e8a14b" stroke-width="1.6"/></svg>Шоты <b>13</b></span>
+        <span><svg viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8" rx="2" fill="none" stroke="#e0625a" stroke-width="1.6"/></svg>Задачи <b>26</b></span>
+        <span><svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="none" stroke="#6f9bd8" stroke-width="1.6"/></svg>Заметки <b>1</b></span>
+        <span><svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="#9d7fe0"/></svg>Области <b>3</b></span>
+      </div>
+      <div class="selb only-new"><i class="ti ti-pointer"></i>Выделено <b>1</b></div>
+      <div class="mini only-b"><svg id="mini" viewBox="0 0 1000 820" preserveAspectRatio="xMidYMid meet"></svg></div>
+      <div class="zoom only-b"><span><i class="ti ti-minus"></i></span><span>100%</span><span><i class="ti ti-plus"></i></span></div>
+    </div>
+
+    <!-- ================= ПАНЕЛЬ: сейчас ================= -->
+    <div class="panel only-now flexy-now" style="flex-direction:column">
+      <div class="n-h">SH036 <span><i class="ti ti-sparkles"></i><i class="ti ti-pencil"></i><i class="ti ti-x"></i></span></div>
+      <div class="n-row"><span class="k">Тип</span><span></span><span class="v">Задача <i class="ti ti-chevron-down"></i></span></div>
+      <div class="n-row"><span class="k">Область</span><span class="ic"><i class="ti ti-video"></i></span><span class="v">Работа <i class="ti ti-chevron-down"></i></span></div>
+      <div class="n-row"><span class="k">Статус</span><span class="ic"><i class="ti ti-clock"></i></span><span class="v">Не начато <i class="ti ti-chevron-down"></i></span></div>
+      <div class="n-row" style="height:46px"><span class="k">Срок</span><span class="ic"><i class="ti ti-calendar"></i></span><span class="v thin" style="display:block"><span style="color:var(--mut)">Без срока</span><div class="n-chips"><span>сег</span><span>зв</span><span>+3</span><span>пт</span></div></span></div>
+      <div class="n-row"><span class="k">Приоритет</span><span class="ic"><i class="ti ti-flag"></i></span><span class="v">— <i class="ti ti-chevron-down"></i></span></div>
+      <div class="n-row"><span class="k">Повтор</span><span class="ic"><i class="ti ti-repeat"></i></span><span class="v">не повторяется <i class="ti ti-chevron-down"></i></span></div>
+      <div class="n-row"><span class="k">Напоминание</span><span class="ic"><i class="ti ti-bell"></i></span><span class="v thin">Без напоминания</span></div>
+      <div class="n-row" style="grid-template-columns:76px 22px 1fr"><span class="k">Папка</span><span class="ic"><i class="ti ti-folder"></i></span><span class="v thin">...\02_sequences\SQ02\SQ02_SH036 <span style="color:var(--mut2)"><i class="ti ti-copy"></i>&nbsp;&nbsp;<i class="ti ti-folder"></i>&nbsp;&nbsp;<i class="ti ti-x"></i></span></span></div>
+      <div class="n-row"><span class="k">Теги</span><span></span><span class="v thin"><span class="n-chips" style="margin:0"><span style="color:var(--tx)">шот ×</span><span>+</span><span>⚙</span></span></span></div>
+      <div class="n-desc">Описание...</div>
+      <div class="n-line">Добавить поле: <span>≡ текст</span><span>▣ картинка</span><span>⊡ доска</span></div>
+      <div class="n-line">Шаблон: <span>заполнить по шаблону</span><span>сохранить как шаблон</span></div>
+      <div class="n-line" style="margin-top:12px">СВЯЗАННЫЕ НОДЫ 3</div>
+      <div class="n-rel"><b>☑ SH030</b><small>родитель</small></div>
+      <div class="n-rel" style="margin-left:12px">☑ SH036<small>эта</small></div>
+      <div class="n-rel" style="margin-left:24px"><b>☑ Рендер</b><small>вложена</small></div>
+      <div class="n-rel" style="margin-left:24px"><b>☑ Сборка</b><small>вложена</small></div>
+      <div class="n-btn"><i class="ti ti-file-text"></i>Собрать отчёт</div>
+    </div>
+
+    <!-- ================= ПАНЕЛЬ: новая (A/B/C) ================= -->
+    <div class="panel only-new flexy-new" style="flex-direction:column">
+      <div class="p-scroll">
+        <div class="p-head">
+          <div class="p-crumbs"><i class="ti ti-hexagon"></i>SFC_2026<i class="ti ti-chevron-right"></i>SQ02<i class="ti ti-chevron-right"></i>SH030</div>
+          <div class="p-titlerow">
+            <div class="p-kind"><i class="ti ti-video"></i></div>
+            <div class="p-title">SH036</div>
+            <div class="p-acts"><span><i class="ti ti-sparkles"></i></span><span><i class="ti ti-arrows-diagonal"></i></span><span><i class="ti ti-x"></i></span></div>
+          </div>
+          <div class="p-chips only-ac flexy-ac">
+            <span class="chip st"><span class="dot"></span>Не начато</span>
+            <span class="chip area"><i class="ti ti-video"></i>Работа</span>
+            <span class="chip"><i class="ti ti-calendar"></i>Без срока</span>
+            <span class="chip tag">#шот</span>
+          </div>
+        </div>
+
+        <div class="tabs only-b flexy-b"><span class="on">Свойства</span><span>Поля</span><span>Связи<em>3</em></span><span>История</span></div>
+        <div class="segst only-b">
+          <span class="on"><span class="dot" style="background:#8a8a93"></span>Не начато</span>
+          <span><span class="dot" style="background:#e8a14b"></span>В работе</span>
+          <span><span class="dot" style="border:1.5px dashed #8a8a93;width:8px;height:8px"></span>Пауза</span>
+          <span><i class="ti ti-check" style="font-size:13px;color:#5fb98e"></i>Готово</span>
+        </div>
+        <div class="prog only-b flexy-b">Подзадачи<div class="bar"><i></i></div><span>0 из 2</span></div>
+
+        <div class="p-sec">
+          <h4 class="only-ac flexy-ac">Свойства</h4>
+          <div class="props">
+            <div class="pk"><i class="ti ti-square-check"></i>Тип</div><div class="pv">Задача</div>
+            <div class="pk"><i class="ti ti-folders"></i>Область</div><div class="pv"><span style="color:#e6c38f"><i class="ti ti-video"></i> Работа</span><span class="inh">наследуется от SQ02</span></div>
+            <div class="pk only-ac flexy-ac"><i class="ti ti-calendar"></i>Срок</div><div class="pv only-ac flexy-ac"><span class="muted">Нет</span><span class="q">Сегодня</span><span class="q">Завтра</span><span class="q">+3 дня</span><span class="q">Пт</span></div>
+            <div class="pk only-b flexy-b"><i class="ti ti-calendar"></i>Срок</div><div class="pv only-b flexy-b"><span class="muted">Нет</span><span class="q">Сег</span><span class="q">Зв</span><span class="q">+3</span><span class="q">Пт</span></div>
+            <div class="pk"><i class="ti ti-flag"></i>Приоритет</div><div class="pv"><span class="muted">Не задан</span></div>
+            <div class="pk only-b flexy-b"><i class="ti ti-repeat"></i>Повтор</div><div class="pv only-b flexy-b"><span class="muted">Нет</span></div>
+            <div class="pk only-b flexy-b"><i class="ti ti-bell"></i>Напомнить</div><div class="pv only-b flexy-b"><span class="muted">Нет</span></div>
+            <div class="pk"><i class="ti ti-folder"></i>Папка</div><div class="pv hov"><span class="path">…\02_sequences\SQ02\SQ02_SH036</span><span class="ib"><i class="ti ti-external-link"></i><i class="ti ti-copy"></i></span></div>
+            <div class="pk only-b flexy-b"><i class="ti ti-tag"></i>Теги</div><div class="pv only-b flexy-b"><span class="chip" style="height:22px;font-size:11.5px">#шот</span><span class="q">+</span></div>
+            <div class="more only-ac flexy-ac"><i class="ti ti-chevron-down"></i>Ещё: повтор, напоминание</div>
+          </div>
+        </div>
+
+        <div class="p-sec">
+          <h4>Описание</h4>
+          <div class="desc">Что нужно сделать по шоту… <kbd>/</kbd> — поле, картинка или доска</div>
+        </div>
+
+        <div class="p-sec only-ac">
+          <h4>Поля</h4>
+          <div class="addf"><div><i class="ti ti-align-left"></i>Текст</div><div><i class="ti ti-photo"></i>Картинка</div><div><i class="ti ti-chalkboard"></i>Доска</div></div>
+          <div class="tpl"><span><i class="ti ti-template"></i>Заполнить по шаблону</span><span><i class="ti ti-device-floppy"></i>Сохранить как шаблон</span></div>
+        </div>
+
+        <div class="p-sec">
+          <h4>Связи <span class="n">3</span></h4>
+          <div class="rel">
+            <div class="ri"><span class="k"><i class="ti ti-video"></i></span>SH030<span class="st" style="background:#e8a14b;box-shadow:0 0 8px #e8a14b"></span><span class="r">родитель · в работе</span></div>
+            <div class="ri cur ch"><span class="k" style="color:var(--sel)"><i class="ti ti-video"></i></span><b>SH036</b><span class="r">эта нода</span></div>
+            <div class="ri ch" style="margin-left:44px"><span class="k"><i class="ti ti-square"></i></span>Рендер<span class="r">не начато</span></div>
+            <div class="ri ch" style="margin-left:44px"><span class="k"><i class="ti ti-square"></i></span>Сборка<span class="r">не начато</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="p-foot"><div class="btn pr"><i class="ti ti-file-text"></i>Собрать отчёт</div><div class="btn sq"><i class="ti ti-dots"></i></div></div>
+    </div>
+  </div>
+
+  <!-- проблемы вида «Сейчас» -->
+  <div class="only-now" id="pins"></div>
+</div>
+</div></div>
+
+<script>
+const VARIANTS = {
+  now:{t:"Сейчас — что делает вид простоватым",
+    li:["Наведи на красные метки — каждая про одну проблему.",
+        "Главное: нет иерархии. Всё одного размера, одного веса и в одинаковых рамках, поэтому глазу не за что зацепиться."],
+    cost:""},
+  a:{t:"A · Слои — эволюция: тот же монохром, но с глубиной",
+    li:["Рамки заменены слоями: фон → холст → панель → контрол различаются тоном, а не линией.",
+        "Шкала текста 11/12.5/13/22, шапка ноды с плиткой вида, хлебными крошками и чипами статуса, срока и области.",
+        "Панель 460 px вместо половины экрана — графу больше места. Редкие свойства спрятаны в «Ещё».",
+        "Ноды крупнее и залиты тоном своего цвета. Подписи с подложкой, путь к выбранной ноде подсвечен."],
+    cost:"Цена: 2–3 сессии, почти только styles.css и отрисовка нод. Риск для FPS — нулевой."},
+  b:{t:"B · Студия — профессиональный инструмент под пайплайн шотов",
+    li:["Шоты — карточки с названием внутри и точкой статуса, задачи — точки, связи нейтральные. Сетка и мини-карта, как в Houdini, Nuke или Figma.",
+        "Панель 410 px со вкладками «Свойства · Поля · Связи · История». Статус — переключатель в один клик, прогресс подзадач.",
+        "Плотнее и строже: всё прижато к краям окна, тонкие разделители вместо карточек."],
+    cost:"Цена: 4–5 сессий. Ноды-карточки — крупный кусок graph.js (попадание, раскладка, отталкивание по прямоугольникам)."},
+  c:{t:"C · Космос — метафора «паутины мыслей» в полную силу",
+    li:["Туманности за графом, ноды-светила с ореолом, связи дугами с переходом цвета, у хабов орбиты.",
+        "Панель — стеклянная карточка поверх холста, граф занимает всё окно. Заголовок и главная кнопка в тёплом градиенте.",
+        "Самый узнаваемый и эмоциональный вариант, но и самый «громкий» для ежедневной работы."],
+    cost:"Цена: 3–4 сессии и обязательный замер FPS: размытие и свечение дороги на 500+ нодах, нужен упрощённый режим."}
+};
+
+const PINS = [
+  {x:1028,y:180,n:1,t:"Панель на половину экрана, а содержимое занимает треть её ширины: графу тесно, в панели пусто."},
+  {x:1180,y:126,n:2,t:"Почти весь текст 10–12 px одного веса. Подпись, значение и заголовок секции не отличаются по важности."},
+  {x:1048,y:520,n:3,t:"Рамки вокруг всего: холст, панель, поле описания, каждая кнопка и строка связи. Это «коробки в коробках» без глубины."},
+  {x:640,y:330,n:4,t:"Ноды — одинаковые контурные значки 12 px. Подписи без подложки ложатся прямо на линии, хаб SQ02 почти не крупнее шота."},
+  {x:1160,y:92,n:5,t:"Статус, срок и область не видны в шапке ноды. Чтобы понять, что с шотом, надо читать таблицу."},
+  {x:1560,y:330,n:6,t:"Кнопки папки (копировать, открыть, отвязать) уехали к правому краю, в 900 px от самого пути.",flip:1},
+  {x:96,y:868,n:7,t:"Легенда, тулбар и счётчик выделения — мелкие разрозненные элементы, каждый в своей рамке."}
+];
+
+/* ---------- данные графа (как на снимке) ---------- */
+const C = {shot:"#e8a14b", render:"#e0625a", build:"#6f9bd8", sq:"#9d7fe0", sfc:"#d9607a", note:"#6f9bd8"};
+const N = [], E = [];
+const add = (id,label,type,x,y,color,extra) => { const n={id,label,type,x,y,color,...(extra||{})}; N.push(n); return n; };
+const link = (a,b) => E.push([a,b]);
+const SFC = add("sfc","SFC_2026","hub",300,610,C.sfc,{big:1});
+const SQ1 = add("sq1","SQ01","hub",150,390,C.sq);
+const SQ2 = add("sq2","SQ02","hub",600,560,C.sq,{big:1});
+const LOC = add("loc","Локация","note",320,445,C.note);
+link(SFC,SQ1); link(SFC,SQ2); link(SFC,LOC);
+const pol = (h,deg,r) => [h.x + r*Math.cos(deg*Math.PI/180), h.y + r*Math.sin(deg*Math.PI/180)];
+const kids = (s,parent) => {
+  const a = Math.atan2(s.y-parent.y, s.x-parent.x);
+  [[-0.55,"Рендер",C.render],[0.55,"Сборка",C.build]].forEach(([d,l,c],i)=>{
+    const k = add(s.id+"_"+i,l,"task",s.x+62*Math.cos(a+d),s.y+62*Math.sin(a+d),c,{leaf:1,st:s.kidSt&&s.kidSt[i]});
+    link(s,k);
+  });
+};
+[["SH030",250,200],["SH040",300,170]].forEach(([l,d,r])=>{ const [x,y]=pol(SQ1,d,r); const s=add("q1"+l,l,"shot",x,y,C.shot); link(SQ1,s); kids(s,SQ1); });
+const shots = [["SH010",198,205],["SH020",224,150,"done",["done","done"]],["SH030",252,200,"doing",["doing"]],["SH035",274,270],
+  ["SH040",298,175],["SH041",318,262],["SH050",342,195,"paused"],["SH060",6,205],["SH070",36,215],["SH080",118,195]];
+let SH030;
+shots.forEach(([l,d,r,st,ks])=>{ const [x,y]=pol(SQ2,d,r); const s=add("q2"+l,l,"shot",x,y,C.shot,{st,kidSt:ks}); link(SQ2,s); kids(s,SQ2); if(l==="SH030") SH030=s; });
+const SH036 = add("sh036","SH036","shot",SH030.x+58,SH030.y-150,C.shot,{sel:1});
+link(SH030,SH036); kids(SH036,SH030);
+const CHAIN = new Set(["sfc>sq2","sq2>q2SH030","q2SH030>sh036"]);
+const onChain = (a,b) => CHAIN.has(a.id+">"+b.id);
+
+/* ---------- отрисовка по вариантам ---------- */
+const svgNS = "http://www.w3.org/2000/svg";
+const hexA = (hex,a) => { const n=parseInt(hex.slice(1),16); return `rgba(${n>>16},${(n>>8)&255},${n&255},${a})`; };
+const diamond = (x,y,r) => `${x},${y-r} ${x+r},${y} ${x},${y+r} ${x-r},${y}`;
+const esc = s => String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+
+function stars(n,seed,op){
+  let s=seed, out=""; const rnd=()=>(s=(s*16807)%2147483647)/2147483647;
+  for(let i=0;i<n;i++){ const x=rnd()*1000,y=rnd()*820,r=rnd()*1.1+0.25,d=(rnd()*4+2).toFixed(1);
+    out+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(2)}" fill="#fff" opacity="${(rnd()*op).toFixed(2)}" ${op>0.6?`style="animation:tw ${d}s ease-in-out infinite;animation-delay:-${d}s"`:""}/>`; }
+  return out;
+}
+
+function drawNow(){
+  let s = `<defs><filter id="gl" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="5"/></filter></defs>` + stars(90,7,0.35);
+  E.forEach(([a,b])=>{ s+=`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${a.type==="hub"?hexA(a.color,.7):hexA(b.color,.75)}" stroke-width="1"/>`; });
+  N.forEach(n=>{
+    const c=n.color, sel=n.sel;
+    if(sel) s+=`<polygon points="${diamond(n.x,n.y,15)}" fill="${hexA(c,.5)}" filter="url(#gl)"/>`;
+    if(n.type==="hub") s+=`<circle cx="${n.x}" cy="${n.y}" r="13" fill="#000" stroke="${c}" stroke-width="1.5"/><rect x="${n.x-4.5}" y="${n.y-4.5}" width="9" height="9" rx="1.5" fill="none" stroke="${c}" stroke-width="1.3"/>`;
+    else if(n.type==="shot") s+=`<polygon points="${diamond(n.x,n.y,sel?12:10)}" fill="${sel?hexA(c,.35):"#000"}" stroke="${c}" stroke-width="${sel?2.2:1.5}"/><rect x="${n.x-3}" y="${n.y-2.5}" width="6" height="5" fill="none" stroke="${c}" stroke-width="1"/>`;
+    else if(n.type==="note") s+=`<circle cx="${n.x}" cy="${n.y}" r="6.5" fill="#000" stroke="${c}" stroke-width="1.5"/>`;
+    else s+=`<rect x="${n.x-6}" y="${n.y-6}" width="12" height="12" fill="#000" stroke="${c}" stroke-width="1.5"/>`;
+    s+=`<text x="${n.x}" y="${n.y+(n.type==="hub"?27:22)}" text-anchor="middle" font-size="9.5" fill="${sel?"#fff":"#b4b4ba"}" font-weight="${sel?600:400}" font-family="Segoe UI">${esc(n.label)}</text>`;
+  });
+  return s;
+}
+
+function drawA(){
+  let s = `<defs>
+    <filter id="gl" x="-2" y="-2" width="5" height="5"><feGaussianBlur stdDeviation="9"/></filter>
+    <filter id="gs" x="-2" y="-2" width="5" height="5"><feGaussianBlur stdDeviation="4"/></filter></defs>` + stars(70,7,0.18);
+  E.forEach(([a,b])=>{ const ch=onChain(a,b);
+    s+=`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${ch?"#e8a14b":hexA(b.leaf?b.color:a.color,b.leaf?.32:.42)}" stroke-width="${ch?2:1.3}" stroke-linecap="round"/>`; });
+  const lab=(n,dy,fs,fw,fill)=>`<text x="${n.x}" y="${n.y+dy}" text-anchor="middle" font-size="${fs}" font-weight="${fw}" fill="${fill}" stroke="#0b0b0e" stroke-width="4" paint-order="stroke" stroke-linejoin="round" font-family="Segoe UI Variable Text,Segoe UI">${esc(n.label)}</text>`;
+  N.forEach(n=>{
+    const c=n.color, done=n.st==="done", op=done?.45:1;
+    s+=`<g opacity="${op}">`;
+    if(n.sel){ s+=`<circle cx="${n.x}" cy="${n.y}" r="26" fill="${hexA(c,.35)}" filter="url(#gl)"/><circle cx="${n.x}" cy="${n.y}" r="23" fill="none" stroke="${hexA(c,.55)}" stroke-width="1.2"/>`; }
+    if(n.st==="doing") s+=`<circle cx="${n.x}" cy="${n.y}" r="17" fill="${hexA(c,.45)}" filter="url(#gs)"/>`;
+    if(n.type==="hub"){ const r=n.big?21:17;
+      s+=`<circle cx="${n.x}" cy="${n.y}" r="${r}" fill="${hexA(c,.16)}" stroke="${c}" stroke-width="2"/><circle cx="${n.x}" cy="${n.y}" r="${r*.36}" fill="${c}"/>`;
+      s+=lab(n,r+17,13,650,"#f4f4f6");
+    } else if(n.type==="shot"){ const r=n.sel?15:12.5, paused=n.st==="paused";
+      s+=`<polygon points="${diamond(n.x,n.y,r)}" fill="${paused?"rgba(140,140,150,.12)":hexA(c,n.sel?.3:.15)}" stroke="${paused?"#8a8a93":c}" stroke-width="1.8" stroke-linejoin="round" ${paused?'stroke-dasharray="3 3"':""}/>`;
+      if(done) s+=`<path d="M${n.x-4} ${n.y} l3 3 l5 -6" fill="none" stroke="${c}" stroke-width="1.8" stroke-linecap="round"/>`;
+      s+=lab(n,r+15,n.sel?13:12,n.sel?700:600,n.sel?"#fff":"#e6e6ea");
+    } else if(n.type==="note"){
+      s+=`<circle cx="${n.x}" cy="${n.y}" r="8" fill="${hexA(c,.15)}" stroke="${c}" stroke-width="1.6"/>`+lab(n,22,11,500,"#b9b9c0");
+    } else {
+      const d2=n.st==="done";
+      s+=`<rect x="${n.x-6.5}" y="${n.y-6.5}" width="13" height="13" rx="3.5" fill="${hexA(c,d2?.5:.14)}" stroke="${c}" stroke-width="1.5"/>`;
+      s+=lab(n,20,10.5,400,"#8d8d96");
+    }
+    s+="</g>";
+  });
+  return s;
+}
+
+function drawB(){
+  let s = `<defs><filter id="sh" x="-.3" y="-.5" width="1.6" height="2"><feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000" flood-opacity=".5"/></filter></defs>`;
+  E.forEach(([a,b])=>{ const ch=onChain(a,b);
+    const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+    s+=`<path d="M${a.x} ${a.y} Q ${mx} ${a.y} ${b.x} ${b.y}" fill="none" stroke="${ch?"#f0a24a":"rgba(255,255,255,.17)"}" stroke-width="${ch?1.6:1}"/>`; });
+  const stCol={doing:"#f0a24a",done:"#5fb98e",paused:"#8a8a93"};
+  N.forEach(n=>{
+    const c=n.color;
+    if(n.type==="hub"){ const w=n.label.length*8+40, h=30, x=n.x-w/2, y=n.y-h/2;
+      s+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="#16171c" stroke="${hexA(c,.7)}" stroke-width="1.2" filter="url(#sh)"/>`;
+      s+=`<rect x="${x+8}" y="${y+8}" width="14" height="14" rx="4" fill="${hexA(c,.25)}"/><circle cx="${x+15}" cy="${y+15}" r="3" fill="${c}"/>`;
+      s+=`<text x="${x+28}" y="${n.y+4.5}" font-size="12.5" font-weight="650" fill="#f0f0f3" font-family="Segoe UI Variable Text,Segoe UI">${esc(n.label)}</text>`;
+    } else if(n.type==="shot"){ const w=n.label.length*7+34, h=24, x=n.x-w/2, y=n.y-h/2, sel=n.sel;
+      if(sel) s+=`<rect x="${x-4}" y="${y-4}" width="${w+8}" height="${h+8}" rx="10" fill="none" stroke="rgba(240,162,74,.45)" stroke-width="1"/>`;
+      s+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="${sel?"#2a2116":"#18191d"}" stroke="${sel?"#f0a24a":"rgba(255,255,255,.12)"}" stroke-width="${sel?1.4:1}" filter="url(#sh)"/>`;
+      s+=`<rect x="${x}" y="${y+5}" width="2.5" height="${h-10}" rx="1.2" fill="${c}"/>`;
+      s+=`<text x="${x+11}" y="${n.y+4}" font-size="11.5" font-weight="${sel?700:600}" fill="${n.st==="done"?"#7b7c85":"#ececf0"}" font-family="Segoe UI Variable Text,Segoe UI" ${n.st==="done"?'text-decoration="line-through"':""}>${esc(n.label)}</text>`;
+      const sc=stCol[n.st]; s+=`<circle cx="${x+w-10}" cy="${n.y}" r="3.5" fill="${sc||"none"}" stroke="${sc||"rgba(255,255,255,.3)"}" stroke-width="1.2" ${n.st==="paused"?'stroke-dasharray="1.5 1.5" fill-opacity="0"':""}/>`;
+    } else {
+      const done=n.st==="done";
+      s+=`<circle cx="${n.x}" cy="${n.y}" r="4.5" fill="${done?c:"#0c0d10"}" stroke="${c}" stroke-width="1.6"/>`;
+      const right = n.x >= (N.find(p=>E.some(([a,b])=>b===n&&a===p))||n).x;
+      s+=`<text x="${n.x+(right?9:-9)}" y="${n.y+3.5}" text-anchor="${right?"start":"end"}" font-size="10.5" fill="#8b8c95" font-family="Segoe UI">${esc(n.label)}</text>`;
+    }
+  });
+  return s;
+}
+
+function drawC(){
+  const cols=[...new Set(N.map(n=>n.color))];
+  let d = `<defs><filter id="glo" x="-2" y="-2" width="5" height="5"><feGaussianBlur stdDeviation="6"/></filter><filter id="glo2" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="2"/></filter>`;
+  cols.forEach((c,i)=>{ d+=`<radialGradient id="orb${i}" cx="38%" cy="32%" r="70%"><stop offset="0" stop-color="#fff"/><stop offset=".35" stop-color="${c}"/><stop offset="1" stop-color="${hexA(c,.15)}"/></radialGradient>`; });
+  let e="";
+  E.forEach(([a,b],i)=>{ const ch=onChain(a,b);
+    d+=`<linearGradient id="eg${i}" gradientUnits="userSpaceOnUse" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"><stop offset="0" stop-color="${a.color}"/><stop offset="1" stop-color="${b.color}"/></linearGradient>`;
+    const mx=(a.x+b.x)/2, my=(a.y+b.y)/2, dx=b.x-a.x, dy=b.y-a.y, k=.12;
+    const p=`M${a.x} ${a.y} Q ${mx-dy*k} ${my+dx*k} ${b.x} ${b.y}`;
+    if(ch) e+=`<path d="${p}" fill="none" stroke="#ffb15c" stroke-width="5" opacity=".45" filter="url(#glo2)"/>`;
+    e+=`<path d="${p}" fill="none" stroke="url(#eg${i})" stroke-width="${ch?1.8:1.1}" opacity="${ch?1:b.leaf?.45:.7}"/>`; });
+  d+="</defs>";
+  let s = d + stars(220,11,0.95) + e;
+  N.forEach(n=>{
+    const gi=cols.indexOf(n.color), c=n.color, r=n.type==="hub"?(n.big?15:12):n.type==="shot"?(n.sel?10:7.5):4.5;
+    const op=n.st==="done"?.4:1;
+    s+=`<g opacity="${op}"><circle cx="${n.x}" cy="${n.y}" r="${r*2.6}" fill="${hexA(c,n.sel?.55:n.type==="hub"?.35:.22)}" filter="url(#glo)"/>`;
+    if(n.type==="hub") s+=`<g style="transform-origin:${n.x}px ${n.y}px;animation:orbit ${n.big?40:28}s linear infinite"><circle cx="${n.x}" cy="${n.y}" r="${r+11}" fill="none" stroke="${hexA(c,.45)}" stroke-width="1" stroke-dasharray="2 6"/><circle cx="${n.x+r+11}" cy="${n.y}" r="2.2" fill="${c}"/></g>`;
+    if(n.sel) s+=`<circle cx="${n.x}" cy="${n.y}" r="${r+9}" fill="none" stroke="rgba(255,210,150,.7)" stroke-width="1"/>`;
+    s+=`<circle cx="${n.x}" cy="${n.y}" r="${r}" fill="url(#orb${gi})"/></g>`;
+    const fs=n.type==="hub"?13:n.leaf?10:11.5, dy=r+(n.type==="hub"?24:15);
+    s+=`<text x="${n.x}" y="${n.y+dy}" text-anchor="middle" font-size="${fs}" letter-spacing=".04em" font-weight="${n.type==="hub"||n.sel?600:400}" fill="${n.sel?"#ffe2bd":n.leaf?"rgba(200,205,235,.55)":"rgba(235,238,255,.85)"}" stroke="#05060d" stroke-width="3" paint-order="stroke" font-family="Segoe UI Variable Display,Segoe UI">${esc(n.label)}</text>`;
+  });
+  return s;
+}
+
+function drawMini(){
+  let s="";
+  E.forEach(([a,b])=>{ s+=`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="rgba(255,255,255,.22)" stroke-width="3"/>`; });
+  N.forEach(n=>{ s+=`<circle cx="${n.x}" cy="${n.y}" r="${n.type==="hub"?14:n.leaf?5:9}" fill="${n.color}"/>`; });
+  s+=`<rect x="60" y="120" width="880" height="620" fill="rgba(240,162,74,.06)" stroke="#f0a24a" stroke-width="6" rx="12"/>`;
+  return s;
+}
+
+/* ---------- переключение ---------- */
+const app=document.getElementById("app"), g=document.getElementById("g");
+function setV(v){
+  app.className="v-"+v;
+  document.querySelectorAll(".dm-tab").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
+  g.innerHTML = {now:drawNow,a:drawA,b:drawB,c:drawC}[v]();
+  if(v==="b") document.getElementById("mini").innerHTML=drawMini();
+  const I=VARIANTS[v];
+  document.getElementById("info").innerHTML=`<h3>${I.t}</h3><ul>${I.li.map(x=>`<li>${x}</li>`).join("")}</ul>${I.cost?`<span class="cost">${I.cost}</span>`:""}`;
+  try{ localStorage.setItem("myslik-demo-v",v); }catch(e){}
+  fit();
+}
+document.getElementById("pins").innerHTML = PINS.map(p=>`<div class="pin${p.flip?" flip":""}" style="left:${p.x}px;top:${p.y}px">${p.n}<div class="tip">${p.t}</div></div>`).join("");
+document.getElementById("tabs").addEventListener("click",e=>{ const b=e.target.closest(".dm-tab"); if(b) setV(b.dataset.v); });
+document.addEventListener("keydown",e=>{ const m={"0":"now","1":"a","2":"b","3":"c"}[e.key]; if(m) setV(m); });
+function fit(){
+  const st=document.getElementById("stage"), sc=document.getElementById("scaler");
+  const k=Math.min((st.clientWidth-28)/1600,(st.clientHeight-28)/900);
+  sc.style.transform=`scale(${Math.max(.2,k)})`;
+}
+addEventListener("resize",fit);
+let start="now"; try{ start=localStorage.getItem("myslik-demo-v")||"now"; }catch(e){}
+setV(VARIANTS[start]?start:"now");
+</script>
+</body>
+</html>
