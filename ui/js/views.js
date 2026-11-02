@@ -266,58 +266,62 @@ function renderAside(){
        ближе руки. Показываем ровно по тем же правилам, что и меню: упорядочить — от трёх нод,
        сброс дома — при включённой раскладке и только если дом у кого-то из выделенных есть. */
     const сДомом = S.settings.graphHome ? ноды.filter(n=>n.hx!=null && n.hy!=null).length : 0;
-    a.innerHTML = `<div class="as-head"><h2 class="as-title">Выделено: ${ноды.length}</h2>
-        <div class="as-acts">
-          ${ноды.length>2 ? `<button class="as-ic" data-tidy="1" title="Упорядочить выделенное: разложить деревом, без наложений и пересечений связей"><i class="ti ti-layout-grid"></i></button>` : ""}
-          ${сДомом ? `<button class="as-ic" data-home-off="1" title="Сбросить дом · ${сДомом}: ноды перестанут держаться за своё место и встанут по родителю"><i class="ti ti-home-off"></i></button>` : ""}
-        </div></div>
-      <div class="as-rows">
-        <div class="as-row"><span class="as-k">Задачи</span><span class="as-ico"><i class="ti ti-checkbox"></i></span><span class="as-v">${счёт("task")}</span></div>
-        <div class="as-row"><span class="as-k">Заметки</span><span class="as-ico"><i class="ti ${kindIcon("note")}"></i></span><span class="as-v">${счёт("note")}</span></div>
-        <div class="as-row"><span class="as-k">Полотна</span><span class="as-ico"><i class="ti ${kindIcon("flow")}"></i></span><span class="as-v">${счёт("flow")}</span></div>
-        ${/* Подграфы показываем строкой ТОЛЬКО когда они в выделении есть: у большинства
-             человек их не заводит вовсе, и пустая строка «Подграфы · 0» отъедала бы высоту
-             панели у того, ради чего её открыли. */""}
-        ${счёт("sub")?`<div class="as-row"><span class="as-k">Подграфы</span><span class="as-ico"><i class="ti ${kindIcon("sub")}"></i></span><span class="as-v">${счёт("sub")}</span></div>`:""}
+    /* СВОДКА В СТИЛЕ КАРТОЧКИ (КРОЛИК 03.11.2026: «при выделении нод интерфейс менее интуитивный,
+       нет иконок»). Та же раскладка, что у одной ноды: плитка и чипы со счётом в шапке, статус —
+       тем же рядом кнопок (значение в скрытом data-all="status", обработчик общий), свойства — с
+       иконками в колонке подписей, действия — подписанными кнопками, а не значками без слов. */
+    const строкаГр = (имя, икона, значение)=>`<div class="as-row"><span class="as-k"><i class="ti ${икона}"></i><span>${имя}</span></span><span class="as-v">${значение}</span></div>`;
+    const виды = [["task","Задачи"],["note","Заметки"],["flow","Полотна"],["sub","Подграфы"]].filter(([k])=>счёт(k));
+    const общий = (()=>{ const ст=ноды.map(n=>n.done?"done":(n.status||нейтральныйСтатус(n.kind))); return ст.every(x=>x===ст[0]) ? ст[0] : null; })();
+    const статусыГр = Object.keys(СТАТУСЫ).filter(k=>k!=="note");
+    a.innerHTML = `<div class="as-head"><span class="as-tile"><i class="ti ti-stack-2"></i></span>
+        <div class="as-hmain"><div class="as-crumbs"><span>Несколько нод</span></div><h2 class="as-title">Выделено: ${ноды.length}</h2></div>
+        <div class="as-acts"><button class="as-ic" data-close="1" title="Закрыть панель"><i class="ti ti-x"></i></button></div></div>
+      <div class="as-pchips">${виды.map(([k,имя])=>`<span class="as-pc"><i class="ti ${k==="task"?"ti-checkbox":kindIcon(k)}"></i>${имя} · ${счёт(k)}</span>`).join("")}</div>
+      <div class="as-sec as-sec-top">Статус всем${общий?"":`<span class="as-sec-r">сейчас разные</span>`}</div>
+      <div class="as-st" role="radiogroup" aria-label="Статус всем">
+        <input type="hidden" data-all="status" value="">
+        ${статусыГр.map(k=>`<button type="button" class="as-st-b st-${k}${общий===k?" on":""}" data-allst="${k}" title="${esc(СТАТУСЫ[k].имя)} — всем выделенным">
+          <i class="ti ${СТАТУСЫ[k].иконка}"></i><span>${esc(СТАТУСЫ[k].имя).replace(" ","<br>")}</span></button>`).join("")}
       </div>
-      <div class="as-sec">Изменить всё сразу</div>
+      <div class="as-sec">Свойства всем</div>
       <div class="as-rows">
-        <div class="as-row"><span class="as-k">Тип</span><span class="as-ico"></span><span class="as-v">
-          <select class="as-sel" data-all="kind">
-            <option value="">— оставить —</option>
+        ${строкаГр("Тип", "ti-category", `<select class="as-sel" data-all="kind">
+            <option value="">— не менять —</option>
             ${Object.keys(KINDS).map(k=>`<option value="${k}">${esc(kindName(k))}</option>`).join("")}
-          </select></span></div>
-        <div class="as-row"><span class="as-k">Область</span><span class="as-ico"></span><span class="as-v">
-          <select class="as-sel" data-all="area">
-            <option value="">— оставить —</option>
+          </select>`)}
+        ${inSubGraph() ? "" : строкаГр("Область", "ti-folders", `<select class="as-sel" data-all="area">
+            <option value="">— не менять —</option>
             <option value="__none__">Без области</option>
             ${S.areas.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("")}
-          </select></span></div>
-        ${/* СТАТУС НА ВСЮ ПАЧКУ. Раньше группой можно было сменить только вид и область, а
-             закрывают и переводят работу как раз пачками — сдал шот, и десять его рендеров
-             меняют статус разом. С графа это делает _setStatus, но при выделении рамкой панель
-             открывается принудительно и оказывается ближе руки, чем поповер. */""}
-        <div class="as-row"><span class="as-k">Статус</span><span class="as-ico"><i class="ti ti-circle-dot"></i></span><span class="as-v">
-          <select class="as-sel" data-all="status">
-            <option value="">— оставить —</option>
-            ${Object.keys(СТАТУСЫ).filter(k=>k!=="note").map(k=>`<option value="${k}">${esc(СТАТУСЫ[k].имя)}</option>`).join("")}
-            <option value="__neutral__">Снять статус</option>
-          </select></span></div>
+          </select>`)}
         ${/* СРОК НА ВСЮ ПАЧКУ. Дедлайн у шота общий для всех его этапов, и проставлять его по
-             одной задаче никто не станет — при сроке у 2 живых задач из 34 это и видно. Тот же
-             набор кнопок, что в карточке одной ноды, плюс «снять»: календарь для группы не
-             открываем, у пачки редко бывает произвольная дата, а не «к пятнице». */""}
-        <div class="as-row"><span class="as-k">Срок</span><span class="as-ico"><i class="ti ti-calendar"></i></span><span class="as-v">
-          <div class="date-fast">
-            ${(typeof БЫСТРЫЙ_СРОК!=="undefined" ? БЫСТРЫЙ_СРОК : []).map(б=>`<button type="button" data-alldue="${б.к}" title="${esc(б.т)} — всей пачке">${б.с}</button>`).join("")}
-            <button type="button" data-alldue="__none__" title="Снять срок у всей пачки">×</button>
-          </div></span></div>
+             одной задаче никто не станет. Тот же набор кнопок, что в карточке одной ноды, плюс
+             «снять»: у пачки редко бывает произвольная дата, а не «к пятнице». */""}
+        ${строкаГр("Срок", "ti-calendar", `<span class="as-chips">
+            ${(typeof БЫСТРЫЙ_СРОК!=="undefined" ? БЫСТРЫЙ_СРОК : []).map(б=>`<button type="button" class="as-q" data-alldue="${б.к}" title="${esc(б.т)} — всей пачке">${б.с}</button>`).join("")}
+            <button type="button" class="as-q" data-alldue="__none__" title="Снять срок у всей пачки"><i class="ti ti-x"></i></button></span>`)}
+        ${строкаГр("Приоритет", "ti-flag", `<span class="as-chips">${["—","низкий","средний","высокий"].map((n,p)=>`<button type="button" class="as-q pri-${p}" data-allpri="${p}">${n}</button>`).join("")}</span>`)}
       </div>
-      <div class="as-sec">Ноды</div>
+      ${(ноды.length>2 || сДомом) ? `<div class="as-sec">Раскладка</div><div class="as-acts-row">
+        ${ноды.length>2 ? `<button class="as-act" data-tidy="1" title="Разложить выделенное деревом, без наложений и пересечений связей"><i class="ti ti-layout-grid"></i>Упорядочить</button>` : ""}
+        ${сДомом ? `<button class="as-act" data-home-off="1" title="Ноды перестанут держаться за своё место и встанут по родителю"><i class="ti ti-home-off"></i>Сбросить дом · ${сДомом}</button>` : ""}
+      </div>` : ""}
+      <div class="as-sec">Ноды<span class="as-cnt as-sec-r">${ноды.length}</span></div>
       <div class="as-links">${asideTreeRows(ноды, 30).map(r=>asideNodeRow(r.n, r.lvl, "")).join("")}</div>
       ${(typeof repActive==="function" && repActive()) ? "" :
-        `<button class="as-wide" data-report="1"><i class="ti ti-file-text"></i>Собрать отчёт</button>`}
+        `<div class="as-foot"><button class="as-wide" data-report="1"><i class="ti ti-file-text"></i>Собрать отчёт · ${ноды.length}</button></div>`}
       ${(typeof repPanelHtml==="function") ? repPanelHtml() : ""}`;
+    { const кн=a.querySelector("[data-close]"); if(кн) кн.onclick=()=>{ S.settings.asideOn=false; persist(); asideApplyWidth(); }; }
+    // ряд статусов «всем» — кнопка ставит скрытое значение и зовёт общий обработчик [data-all]
+    a.querySelectorAll("[data-allst]").forEach(кн=>кн.onclick=()=>{
+      const поле=a.querySelector('[data-all="status"]'); поле.value=кн.dataset.allst; поле.onchange && поле.onchange(); });
+    a.querySelectorAll("[data-allpri]").forEach(кн=>кн.onclick=()=>{
+      const пр=+кн.dataset.allpri; let тронуто=0;
+      ноды.forEach(n=>{ if(!kindIsTask(n.kind) || n.done) return; n.priority=пр; touch(n); тронуто++; });
+      if(!тронуто){ toast("В выделении нет живых задач",{icon:"ti-flag-off"}); return; }
+      persist(); if(graph) graph.build(); renderAside();
+      toast("Приоритет · "+["снят","низкий","средний","высокий"][пр]+" · задач: "+тронуто,{icon:"ti-flag"}); });
     const кнОтчёт = a.querySelector("[data-report]");
     if(кнОтчёт) кнОтчёт.onclick = ()=>{ if(typeof repOpen==="function") repOpen(ноды); };
     /* Обе кнопки идут через граф: у него и выделение, и откат, и тост с «Вернуть». Выделение
