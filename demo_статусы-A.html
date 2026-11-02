@@ -100,6 +100,15 @@ N.forEach(n => { const д = дети(n.id).filter(x => x.k === "task" || x.k ===
 const вПаузе = n => { for(let k = n; k; k = поId[k.p]) if(k.st === "paused") return true; return false; };
 const живоВниз = (n, st) => n.st === st || дети(n.id).some(d => живоВниз(d, st));
 const горячий = new Set(); N.filter(n => n.st === "doing").forEach(n => { for(let k = n; k && k.p; k = поId[k.p]) горячий.add(k.id); });
+/* «ниже по течению»: сколько незакрытой работы в ветке под нодой и что в ней творится —
+   на этом стоит вариант «Поток 2.0» (толщина русла, течение, плотина, пересохшее) */
+const ВНИЗ = {};
+function внизу(n){ if(ВНИЗ[n.id]) return ВНИЗ[n.id];
+  const s = {open:((n.k === "task" || n.k === "shot") && n.st !== "done") ? 1 : 0, doing:n.st === "doing", wait:n.st === "waiting",
+             over:n.due != null && n.due < 0 && n.st !== "done", paused:вПаузе(n)};
+  дети(n.id).forEach(d => { const t = внизу(d); s.open += t.open; s.doing = s.doing || t.doing; s.wait = s.wait || t.wait; s.over = s.over || t.over; });
+  return ВНИЗ[n.id] = s; }
+const МАКС_ОТКР = Math.max(...N.map(n => внизу(n).open));
 
 /* ================= палитра статусов ================= */
 function СТ(){ return {
@@ -225,6 +234,25 @@ const ВАРИАНТЫ = [
     if(b.st === "waiting") return {c:ст.waiting.c, w:1.5, dash:[5,4]};
     if(вПаузе(b)) return {c:rgba("#86868c", .12), w:1};
     return {c:rgba(b.c, .3), w:1.1}; } },
+
+ {key:"flow2", name:"Поток 2.0", anim:true,
+  what:"<b>Граф как речная система: связи несут работу.</b> <b>Русло</b> — толщина связи растёт с объёмом незакрытой работы ниже по ветке: где её много, линия толстая, как река. <b>Течение</b> — к нодам «в работе» от корня бегут огоньки, видно, куда сейчас уходят силы. <b>Плотина</b> — связь к «ждёт» обрывается перед нодой: дальше работа не идёт. <b>Перегрев</b> — к просроченному течёт красное. <b>Пересохло</b> — закрытая ветка тонкая и бледная, пауза почти исчезает. Ноды при этом спокойные: всё рассказывают ветки.",
+  cost:"<b>≈0,05 мс на кадр</b> течения: двигается только штрих у связей к работе (сдвиг пунктира, без новых проходов). Течение — 20–30 кадров/с и только пока окно активно; русло и плотина — статичны и стоят 0.",
+  node(n, ст, фон){ const c = n.c; const v = {stroke:c, fill:mix(c, фон, n.st === "doing" ? .32 : .14), lw:1.6, a:1, s:1, prog:"fill"};
+    if(n.st === "done"){ v.fill = c; v.a = .45; v.s = .8; v.icon = ["check", фон]; }
+    if(n.st === "paused" || вПаузе(n)){ v.stroke = серый(c); v.fill = mix(серый(c), фон, .08); v.dash = n.st === "paused"; v.a = .4; }
+    if(n.st === "doing") v.glow = [c, .45];
+    if(n.st === "waiting" || n.st === "review") v.icon = [ст[n.st].g, ст[n.st].c];
+    if(!v.icon && ИКОНКА[n.k]) v.icon = [ИКОНКА[n.k], v.stroke];
+    return v; },
+  link(a, b, ст, t){ const s = внизу(b), w = 1 + 5.5*Math.sqrt(s.open/МАКС_ОТКР);
+    if(s.paused) return {c:rgba("#86868c", .1), w:Math.max(1, w*.5)};
+    if(!s.open) return {c:rgba("#86868c", .16), w:.8};
+    if(s.doing) return {c:rgba(css("--accent"), .42), w, flow:{c:"#ffd9a0", off:-t*.045}};
+    if(s.over) return {c:rgba("#e0625a", .42), w, flow:{c:"#ffb0a8", off:-t*.03}};
+    if(b.st === "waiting") return {c:rgba(ст.waiting.c, .55), w, gap:true};
+    if(s.wait) return {c:rgba(ст.waiting.c, .38), w};
+    return {c:rgba(b.c, .26), w}; } },
 ];
 function live(n, st){ return дети(n.id).some(d => d.st === st); }
 
@@ -232,7 +260,7 @@ function live(n, st){ return дети(n.id).some(d => d.st === st); }
 let текущий = 0;
 const ЗВЁЗДЫ = [...Array(140)].map((_, i) => { const r = Math.sin(i*12.9898)*43758.5453; const f = r - Math.floor(r);
   const r2 = Math.sin(i*78.233)*43758.5453; return [f, r2 - Math.floor(r2), (i % 5)/5]; });
-function draw(cv, камера){
+function draw(cv, камера, t){ t = t || 0;
   const dpr = devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
   if(cv.width !== Math.round(W*dpr) || cv.height !== Math.round(H*dpr)){ cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr); }
   const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -252,9 +280,16 @@ function draw(cv, камера){
   N.forEach(n => { const v = видN.get(n.id); if(v.glow) glow(ctx, n.x*z, n.y*z, R(n)*4.2, v.glow[0], v.glow[1]*(v.a ?? 1)); });
   ctx.globalCompositeOperation = "source-over";
   // связи
-  L.forEach(([ia, ib]) => { const a = поId[ia], b = поId[ib], s = В.link(a, b, ст); ctx.lineCap = "round";
-    if(s.halo){ ctx.strokeStyle = rgba(s.c, .22); ctx.lineWidth = s.w*3.4; ctx.beginPath(); ctx.moveTo(a.x*z, a.y*z); ctx.lineTo(b.x*z, b.y*z); ctx.stroke(); }
-    ctx.setLineDash(s.dash || []); ctx.strokeStyle = s.c; ctx.lineWidth = s.w; ctx.beginPath(); ctx.moveTo(a.x*z, a.y*z); ctx.lineTo(b.x*z, b.y*z); ctx.stroke(); ctx.setLineDash([]); });
+  L.forEach(([ia, ib]) => { const a = поId[ia], b = поId[ib], s = В.link(a, b, ст, t); ctx.lineCap = "round";
+    let bx = b.x*z, by = b.y*z;
+    // плотина: связь к «ждёт» обрывается перед нодой — дальше работа не течёт
+    if(s.gap){ const dx = bx - a.x*z, dy = by - a.y*z, L0 = Math.hypot(dx, dy) || 1, k = (R(b)*1.5 + 10)/L0; bx -= dx*k; by -= dy*k; }
+    if(s.halo){ ctx.strokeStyle = rgba(s.c, .22); ctx.lineWidth = s.w*3.4; ctx.beginPath(); ctx.moveTo(a.x*z, a.y*z); ctx.lineTo(bx, by); ctx.stroke(); }
+    ctx.setLineDash(s.dash || []); ctx.strokeStyle = s.c; ctx.lineWidth = s.w; ctx.beginPath(); ctx.moveTo(a.x*z, a.y*z); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]);
+    // течение: светлые штрихи бегут от родителя к ребёнку (сдвиг пунктира — без новых проходов)
+    if(s.flow){ ctx.setLineDash([2.5, 13]); ctx.lineDashOffset = s.flow.off; ctx.strokeStyle = s.flow.c; ctx.lineWidth = Math.max(1.4, s.w*.55);
+      ctx.beginPath(); ctx.moveTo(a.x*z, a.y*z); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]); ctx.lineDashOffset = 0; }
+  });
   // ноды
   const подписи = z >= .8;
   N.forEach(n => { const v = видN.get(n.id), r = R(n), x = n.x*z, y = n.y*z, f = ФОРМА[n.k];
@@ -293,18 +328,22 @@ const ВСЕ = {x:-120, y:40, z:1}, БЛИЗКО = {x:230, y:30, z:1.3};
 function fit(cv){ const xs = N.map(n => n.x), ys = N.map(n => n.y), w = Math.max(...xs) - Math.min(...xs) + 140, h = Math.max(...ys) - Math.min(...ys) + 120;
   ВСЕ.x = (Math.max(...xs) + Math.min(...xs))/2; ВСЕ.y = (Math.max(...ys) + Math.min(...ys))/2; ВСЕ.z = Math.min(cv.clientWidth/w, cv.clientHeight/h); }
 const far = document.getElementById("far"), near = document.getElementById("near");
-function всё(){ fit(far); draw(far, ВСЕ); БЛИЗКО.z = Math.min(1.5, near.clientWidth/640, near.clientHeight/640); draw(near, БЛИЗКО);
+function всё(){ fit(far); const t = performance.now(); draw(far, ВСЕ, t); БЛИЗКО.z = Math.min(1.5, near.clientWidth/640, near.clientHeight/640); draw(near, БЛИЗКО, t);
   const В = ВАРИАНТЫ[текущий]; document.getElementById("what").innerHTML = В.what; document.getElementById("cost").innerHTML = "Цена на 950 нодах: " + В.cost;
   const ст = СТ(); document.getElementById("leg").innerHTML = ["todo","next","doing","waiting","review","paused","done"].map(k => `<span><i style="background:${ст[k].c}"></i>${ст[k].n}</span>`).join("");
   document.querySelectorAll("#vars button").forEach((b, i) => b.classList.toggle("on", i === текущий)); }
 document.getElementById("vars").innerHTML = ВАРИАНТЫ.map((v, i) => `<button>${v.name}<kbd>${i}</kbd></button>`).join("");
 document.querySelectorAll("#vars button").forEach((b, i) => b.onclick = () => { текущий = i; всё(); });
-addEventListener("keydown", e => { const k = +e.key; if(e.key >= "0" && e.key <= "4"){ текущий = k; всё(); }
+addEventListener("keydown", e => { const k = +e.key; if(e.key >= "0" && e.key <= String(ВАРИАНТЫ.length - 1)){ текущий = k; всё(); }
   if(e.key === "ArrowRight"){ текущий = (текущий + 1) % ВАРИАНТЫ.length; всё(); } if(e.key === "ArrowLeft"){ текущий = (текущий + ВАРИАНТЫ.length - 1) % ВАРИАНТЫ.length; всё(); } });
 document.getElementById("theme").onclick = e => { const b = e.target.closest("button"); if(!b) return;
   document.querySelectorAll("#theme button").forEach(x => x.classList.toggle("on", x === b)); document.documentElement.dataset.theme = b.dataset.t; всё(); };
 addEventListener("resize", всё);
 document.fonts.ready.then(всё);
+// течение — анимация ~30 кадров/с, только пока выбран вариант с ним и вкладка видна
+let прошлый = 0;
+(function цикл(t){ if(ВАРИАНТЫ[текущий].anim && !document.hidden && t - прошлый > 33){ прошлый = t; draw(far, ВСЕ, t); draw(near, БЛИЗКО, t); }
+  requestAnimationFrame(цикл); })(0);
 </script>
 </body>
 </html>
