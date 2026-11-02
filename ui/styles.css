@@ -2347,7 +2347,7 @@ html.canvas-ui #cv-tr .toggle{background:none;box-shadow:none;padding:0;}
 .fld.тащим{border-color:transparent;box-shadow:0 18px 40px var(--sh),inset 0 0 0 1px var(--bd3);}
 /* сводка по выделению: действия раскладки — подписанными кнопками тоном */
 .as-acts-row{display:flex;flex-wrap:wrap;gap:6px;}
-.as-act{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px;border-radius:9px;background:var(--l3);color:var(--tx);font-size:12.5px;}
-.as-act i{font-size:15px;color:var(--mut);}
-.as-act:hover{background:var(--l4);}
-.as-act:hover i{color:var(--tx);}
+.as-btn{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px;border-radius:9px;background:var(--l3);color:var(--tx);font-size:12.5px;}
+.as-btn i{font-size:15px;color:var(--mut);}
+.as-btn:hover{background:var(--l4);}
+.as-btn:hover i{color:var(--tx);}

@@ -304,8 +304,8 @@ function renderAside(){
         ${строкаГр("Приоритет", "ti-flag", `<span class="as-chips">${["—","низкий","средний","высокий"].map((n,p)=>`<button type="button" class="as-q pri-${p}" data-allpri="${p}">${n}</button>`).join("")}</span>`)}
       </div>
       ${(ноды.length>2 || сДомом) ? `<div class="as-sec">Раскладка</div><div class="as-acts-row">
-        ${ноды.length>2 ? `<button class="as-act" data-tidy="1" title="Разложить выделенное деревом, без наложений и пересечений связей"><i class="ti ti-layout-grid"></i>Упорядочить</button>` : ""}
-        ${сДомом ? `<button class="as-act" data-home-off="1" title="Ноды перестанут держаться за своё место и встанут по родителю"><i class="ti ti-home-off"></i>Сбросить дом · ${сДомом}</button>` : ""}
+        ${ноды.length>2 ? `<button class="as-btn" data-tidy="1" title="Разложить выделенное деревом, без наложений и пересечений связей"><i class="ti ti-layout-grid"></i>Упорядочить</button>` : ""}
+        ${сДомом ? `<button class="as-btn" data-home-off="1" title="Ноды перестанут держаться за своё место и встанут по родителю"><i class="ti ti-home-off"></i>Сбросить дом · ${сДомом}</button>` : ""}
       </div>` : ""}
       <div class="as-sec">Ноды<span class="as-cnt as-sec-r">${ноды.length}</span></div>
       <div class="as-links">${asideTreeRows(ноды, 30).map(r=>asideNodeRow(r.n, r.lvl, "")).join("")}</div>
