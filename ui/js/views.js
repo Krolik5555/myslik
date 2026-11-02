@@ -295,7 +295,7 @@ function renderAside(){
              открываем, у пачки редко бывает произвольная дата, а не «к пятнице». */""}
         <div class="as-row"><span class="as-k">Срок</span><span class="as-ico"><i class="ti ti-calendar"></i></span><span class="as-v">
           <div class="date-fast">
-            ${(typeof БЫСТРЫЙ_СРОК!=="undefined" ? БЫСТРЫЙ_СРОК : []).map(б=>`<button type="button" data-alldue="${б.к}" title="${esc(б.т)} — всей пачке">${б.к}</button>`).join("")}
+            ${(typeof БЫСТРЫЙ_СРОК!=="undefined" ? БЫСТРЫЙ_СРОК : []).map(б=>`<button type="button" data-alldue="${б.к}" title="${esc(б.т)} — всей пачке">${б.с}</button>`).join("")}
             <button type="button" data-alldue="__none__" title="Снять срок у всей пачки">×</button>
           </div></span></div>
       </div>
@@ -425,12 +425,18 @@ function asideCard(it){
      файле 20 заметок носили задачные статусы — поменять их в панели было нечем вовсе. Список
      значений берётся из общего реестра (core.js), а не переписывается здесь: тернарник на четыре
      значения был одним из четырёх мест, где набор статусов жил своей копией. */
+  /* СТИЛЬ A (шаг 3.5): статус — РЯДОМ КНОПОК С ПОДПИСЯМИ над полями, а не выпадающим списком.
+     Статус меняют чаще любого другого поля, а список прятал варианты за лишним кликом и не
+     показывал, что вообще бывает. Значение живёт в скрытом поле data-f="status" — общий
+     обработчик правки (wireAside) один на все поля, кнопка только ставит значение и зовёт его. */
+  let статусы = "";
   if(it.kind!=="flow"){
     const ст = it.done ? "done" : (СТАТУСЫ[it.status] ? it.status : нейтральныйСтатус(it.kind));
-    стр.push(строка("Статус", ["ti-circle-dot"],
-      `<select class="as-sel" data-f="status">
-         ${статусыДляВида(it.kind).map(k=>`<option value="${k}" ${ст===k?"selected":""}>${esc(СТАТУСЫ[k].имя)}</option>`).join("")}
-       </select>`));
+    статусы = `<div class="as-st" role="radiogroup" aria-label="Статус">
+      <input type="hidden" data-f="status" value="${esc(ст)}">
+      ${статусыДляВида(it.kind).map(k=>`<button type="button" class="as-st-b st-${k}${ст===k?" on":""}" data-st="${k}" role="radio" aria-checked="${ст===k}" title="${esc(СТАТУСЫ[k].имя)}">
+        <i class="ti ${СТАТУСЫ[k].иконка}"></i><span>${esc(СТАТУСЫ[k].кратко||СТАТУСЫ[k].имя)}</span></button>`).join("")}
+    </div>`;
   }
   if(kindIsTask(it.kind)){
     // срок — свой календарь (см. dueControlHtml в overlays.js): нативный пикер открывал
@@ -499,10 +505,24 @@ function asideCard(it){
      (не родитель и не ребёнок) идут отдельным блоком: иерархии в них нет, и мешать их
      с деревом значило бы соврать про вложенность.
      Дедуп по id: одна и та же нода бывает и ребёнком, и связью — в списке нужна один раз. */
-  const детиLive = дети.filter(n=>n.id!==it.id);
-  const вДереве = new Set([родитель, ...детиLive].filter(Boolean).map(n=>n.id));
+  const детиВсе = дети.filter(n=>n.id!==it.id);
+  /* ПОДЗАДАЧИ — ОТДЕЛЬНЫМ БЛОКОМ С ГАЛКАМИ (стиль A, шаг 3.5). Шоты и этапы КРОЛИКА — это
+     задачи с детьми-задачами, и закрыть «Рендер» у шота значило выделить ребёнка на графе и
+     идти в его панель. Здесь галка закрывает ребёнка тем же toggleDone, что везде, а счётчик
+     «2/3» и полоска повторяют заливку прогресса на самой ноде. У задачи блок есть всегда —
+     с полем «добавить подзадачу», чтобы начать разбивку, не уходя на граф. */
+  const подзадачи = kindIsTask(it.kind) ? детиВсе.filter(n=>kindIsTask(n.kind)) : [];
+  const детиLive = детиВсе.filter(n=>подзадачи.indexOf(n)<0);
+  const готовоП = подзадачи.filter(n=>n.done || n.status==="done").length;
+  const блокПодзадач = kindIsTask(it.kind) ? `<div class="as-sec">Подзадачи${подзадачи.length?`<span class="as-cnt">${готовоП}/${подзадачи.length}</span>`:""}</div>
+    ${подзадачи.length?`<div class="as-prog"><i style="width:${Math.round(готовоП/подзадачи.length*100)}%"></i></div>`:""}
+    <div class="as-subs">${подзадачи.slice(0,30).map(n=>{ const гот=n.done||n.status==="done";
+      return `<div class="as-subt${гот?" done":""}"><button class="as-chk${гот?" on":""}" data-subdone="${esc(n.id)}" role="checkbox" aria-checked="${гот}" title="${гот?"Вернуть в работу":"Готово"}"><i class="ti ti-check"></i></button>
+        <button class="as-subn" data-go="${esc(n.id)}">${esc((n.title||"").trim()||"задача без названия")}</button></div>`; }).join("")}
+      <input class="as-subadd" data-subadd="1" placeholder="+ подзадача — Enter"></div>` : "";
+  const вДереве = new Set([родитель, ...детиВсе].filter(Boolean).map(n=>n.id));
   const боковые = [...new Map(связи.filter(n=>n && n.id!==it.id && !вДереве.has(n.id)).map(n=>[n.id,n])).values()];
-  const рядом = вДереве.size + боковые.length;
+  const рядом = вДереве.size - подзадачи.length + боковые.length;
 
   const ветка = [];
   if(родитель) ветка.push(asideNodeRow(родитель, 0, "родитель"));
@@ -530,7 +550,18 @@ function asideCard(it){
       <button class="as-wide" data-report="1" title="Собрать отчёт по этой ноде и её дереву"><i class="ti ti-file-text"></i>Собрать отчёт</button>
     </div>`;
 
-  return `<div class="as-head"><h2 class="as-title" contenteditable="plaintext-only" data-ph="без названия">${esc(it.title||"")}</h2>
+  /* ШАПКА (стиль A, шаг 3.5): плитка вида цветом ноды и путь к ней над названием. Путь
+     отвечает на «где я в дереве», не прокручивая панель к «Связанным нодам», и по нему можно
+     подняться на уровень кликом. Больше четырёх предков — многоточие: дальше это уже не путь. */
+  const предки = [];
+  for(let p=родитель, k=0; p && k<4; k++){ предки.unshift(p); p = p.parent ? liveById(p.parent) : null; }
+  const глубже = предки.length===4 && предки[0].parent;
+  const обл = it.area ? areaById(it.area) : null;
+  const путь = (обл||предки.length) ? `<div class="as-crumbs">${обл?`<span class="as-cr-area">${esc(обл.name)}</span>`:""}${глубже?`<span class="as-cr-sep">›</span><span>…</span>`:""}${
+      предки.map(n=>`<span class="as-cr-sep">›</span><button class="as-cr" data-go="${esc(n.id)}">${esc((n.title||"").trim()||"без названия")}</button>`).join("")}</div>` : "";
+  const цветВида = it.color || areaColor(it.area) || "";
+  const плитка = `<span class="as-tile"${цветВида?` style="--c:${esc(цветВида)}"`:""} title="${esc(тип)}"><i class="ti ${it.kind==="task"?"ti-checkbox":kindIcon(it.kind)}"></i></span>`;
+  return `<div class="as-head">${плитка}<div class="as-hmain">${путь}<h2 class="as-title" contenteditable="plaintext-only" data-ph="без названия">${esc(it.title||"")}</h2></div>
       ${холст?`<span class="as-kind">${выборТипа}</span>`:""}
       <div class="as-acts">
         ${(typeof aiEnabled==="function" && aiEnabled())
@@ -538,9 +569,11 @@ function asideCard(it){
         <button class="as-ic" data-edit="1" title="Править"><i class="ti ti-pencil"></i></button>
         <button class="as-ic" data-close="1" title="Закрыть панель"><i class="ti ti-x"></i></button>
       </div></div>
+    ${статусы}
     ${стр.length?`<div class="as-rows${холст?" compact":""}">${стр.join("")}</div>`:""}
     ${вход}
     ${тело}
+    ${блокПодзадач}
     ${связанные}
     ${действия}`;
 }
@@ -637,6 +670,36 @@ function wireAside(it){
     };
   });
 
+  // ряд статусов: кнопка ставит значение скрытого поля и зовёт общий обработчик правки выше
+  a.querySelectorAll("[data-st]").forEach(кн=>кн.onclick=()=>{
+    const поле=a.querySelector('[data-f="status"]'); if(!поле || поле.value===кн.dataset.st) return;
+    поле.value=кн.dataset.st; поле.onchange && поле.onchange();
+  });
+  // подзадачи: галка — тем же toggleDone, что галочка на графе и в списках
+  a.querySelectorAll("[data-subdone]").forEach(кн=>кн.onclick=()=>{
+    const n=S.items.find(x=>x.id===кн.dataset.subdone); if(!n) return;
+    if(!n.done && n.status==="done"){ n.status=нейтральныйСтатус(n.kind); touch(n); }   // «Готово» одним статусом (старые пакеты агента)
+    else toggleDone(n);                                                                // и ставит, и снимает
+    обновить();
+  });
+  { const поле=a.querySelector("[data-subadd]");
+    if(поле) поле.onkeydown=e=>{
+      if(e.key!=="Enter") return;
+      const т=поле.value.trim(); if(!т) return;
+      e.preventDefault();
+      /* Как ребёнок, протянутый от ноды на графе (graph.js, создание по связи): область НЕ ставим —
+         явная область дала бы ребро прямо к ней, и нода встала бы рядом с родителем, а не под ним;
+         она унаследуется по ветке. Шаблон по умолчанию — тот же. */
+      const данные={kind:"task", title:т, body:"", area:null, status:"todo"};
+      const з=(typeof templateSeed==="function") ? templateSeed(templateDefault(), "task") : null;
+      if(з && з.fields.length) данные.fields=з.fields;
+      const n=addItem(данные);
+      if(it.x!=null){ n.x=it.x+30+Math.random()*30; n.y=(it.y||0)+60; }
+      addLink(it.id, n.id); recomputeHierarchy();
+      обновить();
+      const снова=$("#aside [data-subadd]"); if(снова) снова.focus();   // серию шотов вводят подряд
+    };
+  }
   wireDateControls(a);    // срок: своя кнопка с календарём, крестик внутри неё снимает дату
   wireEventControls(a);   // напоминание: тот же приём, дата+время, отдельно от срока
 

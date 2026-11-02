@@ -2101,3 +2101,62 @@ html.canvas-ui:not(.notitle) #cv-drag{display:none;}     /* в деве окно
 /* поле ответа нейросети в окне ИИ — тем же рецептом, что поля окон */
 .cmd-in{background:var(--l3);border-color:transparent;}
 .cmd-in:focus{border-color:transparent;box-shadow:inset 0 0 0 1px var(--bd3);}
+
+/* ========================================================================
+   ПАНЕЛЬ НОДЫ В СТИЛЕ A (аудит 2.1, шаг 3.5; views.js: asideCard)
+   ======================================================================== */
+/* шапка: плитка вида цветом ноды (или области) и путь над названием */
+.as-head{gap:12px;align-items:flex-start;}
+.as-tile{flex:none;width:36px;height:36px;margin-top:2px;border-radius:var(--r-m);display:flex;align-items:center;justify-content:center;font-size:18px;
+  color:var(--c,var(--tx));background:color-mix(in srgb,var(--c,var(--tx)) 16%,var(--l3));box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--c,var(--tx)) 30%,transparent);}
+.as-hmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;}
+.as-crumbs{display:flex;align-items:center;flex-wrap:wrap;gap:2px 5px;font-size:var(--fs-xs);color:var(--mut2);min-width:0;}
+.as-cr{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mut);font-size:var(--fs-xs);padding:1px 4px;margin:0 -4px;border-radius:5px;}
+.as-cr:hover{color:var(--tx);background:var(--l3);}
+.as-cr-area{color:var(--mut);}
+.as-cr-sep{color:var(--mut2);opacity:.7;}
+/* ряд статусов: кнопки равной ширины, иконка и подпись под ней; выбранный — тоном l4 и цветом */
+.as-st{display:flex;gap:3px;margin:0 0 12px;padding:3px;border-radius:var(--r-m);background:var(--l1);box-shadow:inset 0 0 0 .5px var(--bd);}
+.as-st-b{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px 5px;border-radius:var(--r-s);color:var(--mut);transition:background .12s,color .12s;}
+.as-st-b i{font-size:15px;}
+.as-st-b span{font-size:10px;line-height:1.15;text-align:center;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.as-st-b:hover{background:var(--l3);color:var(--tx);}
+.as-st-b.on{background:var(--l4);color:var(--tx);box-shadow:inset 0 0 0 .5px var(--bd2);}
+.as-st-b.on.st-doing i{color:var(--pri1);}   .as-st-b.on.st-waiting i{color:var(--st-wait);}
+.as-st-b.on.st-review i{color:var(--st-review);} .as-st-b.on.st-next i{color:var(--st-next);}
+.as-st-b.on.st-done i{color:var(--pri1);}    .as-st-b.on.st-paused i{color:var(--mut);}
+/* быстрые сроки словами: место под четыре слова, кнопки тоном */
+#aside .date-ctl{width:auto;flex:1;min-width:0;max-width:280px;}
+.date-fast button{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.date-fast{flex-wrap:wrap;}
+.date-fast button{flex:1 1 auto;border-color:transparent;background:var(--l3);}
+.date-fast button:hover{border-color:transparent;background:var(--l4);}
+/* подзадачи: прогресс полоской (как заливка на ноде), строки с галками, поле добавления */
+.as-prog{height:4px;border-radius:99px;background:var(--l3);overflow:hidden;margin:-2px 0 8px;}
+.as-prog i{display:block;height:100%;border-radius:99px;background:var(--pri1);transition:width .25s;}
+.as-subs{display:flex;flex-direction:column;gap:2px;}
+.as-subt{display:flex;align-items:center;gap:8px;padding:3px 4px;border-radius:var(--r-s);}
+.as-subt:hover{background:var(--l3);}
+.as-chk{flex:none;width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;
+  box-shadow:inset 0 0 0 1.2px var(--bd3);color:transparent;font-size:12px;transition:.12s;}
+.as-chk:hover{box-shadow:inset 0 0 0 1.2px var(--tx);}
+.as-chk.on{background:var(--pri1);box-shadow:none;color:var(--bg);}
+.as-subn{flex:1;min-width:0;text-align:left;font-size:13px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 0;}
+.as-subt.done .as-subn{color:var(--mut2);text-decoration:line-through;text-decoration-color:var(--mut2);}
+.as-subadd{margin-top:4px;width:100%;height:32px;padding:0 10px;border-radius:var(--r-s);background:var(--l1);border:0;box-shadow:inset 0 0 0 .5px var(--bd);
+  font-size:13px;color:var(--tx);outline:none;}
+.as-subadd:focus{box-shadow:inset 0 0 0 1px var(--bd3);background:var(--l3);}
+/* связанные ноды — строки тоном, без белого ореола при наведении */
+.as-link{background:var(--l3);border-color:transparent;}
+.as-link:hover{border-color:transparent;background:var(--l4);box-shadow:none;}
+.as-self{background:none;box-shadow:inset 0 0 0 .5px var(--bd);}
+.as-self:hover{background:none;}
+.as-ic:hover{background:var(--l3);}
+/* Узкая панель: подписи «Не н…», «Оче…» читались обрывками. Ниже ~400 px подпись остаётся только
+   у выбранного статуса, и его кнопка раздаётся; у остальных — значок и подсказка по наведению. */
+.as-st{container-type:inline-size;}
+@container (max-width:400px){
+  .as-st-b span{display:none;}
+  .as-st-b.on{flex:2.6;}
+  .as-st-b.on span{display:block;}
+}

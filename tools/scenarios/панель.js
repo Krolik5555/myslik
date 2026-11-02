@@ -346,12 +346,13 @@ asideSelect(зад.id); await ж(150);
      срока вылезала на 88 px и читалась как здоровая панель посреди списка полей. Меряем высоту
      против соседнего списка — так ловится любое чужое правило, а не только это. */
   const срок = document.querySelector("#aside .date-ctl [data-datepick]");
-  const статус = document.querySelector('#aside [data-f="status"]');
+  // сосед — список приоритета: статус с шага 3.5 — ряд кнопок над полями, а не строка списка
+  const статус = document.querySelector('#aside [data-f="priority"]');
   const hс = срок ? срок.getBoundingClientRect().height : 0;
   const hст = статус ? статус.getBoundingClientRect().height : 0;
   t.push({имя:"поле срока — строка той же высоты, что соседние поля",
           ок: !!срок && !!статус && Math.abs(hс - hст) <= 2 && Math.round(hс) <= 34,
-          факт: "срок " + Math.round(hс) + " px против статуса " + Math.round(hст) + " px"});
+          факт: "срок " + Math.round(hс) + " px против приоритета " + Math.round(hст) + " px"});
   t.push({имя:"кнопка срока не ловит чужой стиль пустого состояния",
           ок: !!срок && !срок.classList.contains("empty")
               && Math.round((срок.querySelector("i")||{getBoundingClientRect:()=>({height:0})}).getBoundingClientRect().height) <= 24,
@@ -375,8 +376,8 @@ asideSelect(зад.id); await ж(150);
           ок: !document.querySelector('#aside [data-f="due"]') && !!document.querySelector('#aside [data-f="status"]'),
           факт: "полей: " + [...document.querySelectorAll("#aside [data-f]")].map(e=>e.dataset.f).join(",")});
   t.push({имя:"в списке статусов заметки нет «Готово»",
-          ок: ![...document.querySelectorAll('#aside [data-f="status"] option')].some(o=>o.value==="done"),
-          факт: [...document.querySelectorAll('#aside [data-f="status"] option')].map(o=>o.value).join(",")});
+          ок: document.querySelectorAll('#aside [data-st]').length > 0 && ![...document.querySelectorAll('#aside [data-st]')].some(o=>o.dataset.st==="done"),
+          факт: [...document.querySelectorAll('#aside [data-st]')].map(o=>o.dataset.st).join(",")});
   сменить("kind", "task"); await ж(200);
   t.push({имя:"обратно в задачу — поля вернулись", ок: зад.kind === "task" && зад.status !== "note",
           факт: "kind: " + зад.kind + ", status: " + зад.status});
@@ -691,6 +692,37 @@ t.push({имя:"удалённый элемент уходит из панели
   if (былоPy === undefined) delete window.pywebview; else window.pywebview = былоPy;
   if (былоChrome === undefined) delete window.chrome; else window.chrome = былоChrome;
   hardDeleteItem(зад.id); asideSelect(null); await ж(100);
+}
+
+/* ===== панель в стиле A (шаг 3.5): путь, ряд статусов, подзадачи с галками ===== */
+{
+  const р = cmdParse(JSON.stringify({ops:[
+    {op:"node", as:"sq", kind:"task", title:"А-СЕКВЕНЦИЯ", area:(S.areas[0] || {}).id},
+    {op:"node", as:"sh", kind:"task", title:"А-ШОТ"}, {op:"link", from:"sq", to:"sh"},
+    {op:"node", as:"r", kind:"task", title:"А-РЕНДЕР"}, {op:"link", from:"sh", to:"r"}]}));
+  const ит = р.errors.length ? null : cmdApply(р.ops); await ж(150);
+  const шот = ит && S.items.find(x => x.id === ит.alias.sh);
+  if (шот) {
+    asideSelect(шот.id); await ж(200);
+    const путь = document.querySelector("#aside .as-crumbs");
+    t.push({имя:"шапка: путь к ноде над названием", ок: !!путь && путь.textContent.indexOf("А-СЕКВЕНЦИЯ") >= 0, факт: путь ? путь.textContent : "нет"});
+    t.push({имя:"шапка: плитка вида", ок: !!document.querySelector("#aside .as-head .as-tile"), факт: ""});
+    const кн = document.querySelector('#aside [data-st="waiting"]');
+    if (кн) { кн.click(); await ж(200); }
+    t.push({имя:"ряд статусов: кнопка ставит статус", ок: шот.status === "waiting" && !!document.querySelector('#aside [data-st="waiting"].on'), факт: шот.status});
+    const галка = document.querySelector("#aside [data-subdone]");
+    if (галка) { галка.click(); await ж(200); }
+    const рендер = S.items.find(x => x.id === ит.alias.r);
+    t.push({имя:"подзадачи: галка закрывает подзадачу через toggleDone", ок: !!рендер && рендер.done === true && !!рендер.doneAt, факт: рендер ? "done=" + рендер.done : ""});
+    t.push({имя:"подзадачи: счётчик готовых", ок: /1\/1/.test((document.querySelector("#aside .as-sec .as-cnt") || {}).textContent || ""), факт: ""});
+    const поле = document.querySelector("#aside [data-subadd]");
+    if (поле) { поле.value = "А-СБОРКА"; поле.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter", bubbles:true})); await ж(250); }
+    const сборка = S.items.find(x => x.title === "А-СБОРКА");
+    t.push({имя:"подзадачи: Enter в поле добавляет ребёнка", ок: !!сборка && сборка.parent === шот.id, факт: сборка ? "parent=" + сборка.parent : "не создана"});
+    t.push({имя:"подзадачи: фокус остаётся в поле для следующей", ок: document.activeElement && document.activeElement.matches("[data-subadd]"), факт: ""});
+    asideSelect(null); await ж(100);
+  }
+  S.items.filter(x => /^А-/.test(x.title || "")).forEach(x => hardDeleteItem(x.id));
 }
 
 hardDeleteItem(пол.id); asideId = null; render();
