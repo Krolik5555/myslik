@@ -230,7 +230,13 @@ function asideApplyWidth(){
      Узкая доска и так умеет показать себя статично («панель уже N px — открой доску целиком»,
      см. renderAside/тело ниже) — этого достаточно, мобильная раскладка Excalidraw не критична. */
   const макс = asideMaxW();
-  const w = Math.min(макс, Math.max(300, Math.round(window.innerWidth * S.settings.asideFrac)));
+  /* КАРКАС «ХОЛСТ» — СВОЯ ШИРИНА, В ПИКСЕЛЯХ, по умолчанию 440 как в эталоне demo_холст.html.
+     Доля от окна (34 %) на экране в 2000 px давала карточку в 680–760 px: граф терял треть
+     экрана, а поля панели растягивались в пустоту (снимок КРОЛИКА, 03.11.2026). Своя ширина —
+     отдельным ключом: прежний вид держит долю, которую человек когда-то вытянул под себя. */
+  const холст = document.documentElement.classList.contains("canvas-ui");
+  const w = холст ? Math.min(макс, Math.max(340, +S.settings.asideCvW || 440))
+                  : Math.min(макс, Math.max(300, Math.round(window.innerWidth * S.settings.asideFrac)));
   a.style.width = w + "px";
 }
 
@@ -400,9 +406,11 @@ function asideCard(it){
   const родитель = it.parent ? liveById(it.parent) : null;
   const тип = kindName(it.kind);
   // строка панели: подпись | слот иконки (может быть пустым) | значение
+  /* СТИЛЬ A (эталон demo_холст.html): значок — ПЕРЕД подписью, в её колонке, а не отдельным
+     слотом между подписью и значением. Слот рвал строку на три части, и пустой у «Тип» и «Теги»
+     читался как пропуск. Значок теперь есть у каждой строки. */
   const строка = (имя, икона, значение)=>
-    `<div class="as-row"><span class="as-k">${имя}</span>
-      <span class="as-ico">${икона ? `<i class="ti ${икона[0]}" ${икона[1]?`style="color:${икона[1]}"`:""}></i>` : ""}</span>
+    `<div class="as-row"><span class="as-k">${икона ? `<i class="ti ${икона[0]}" ${икона[1]?`style="color:${икона[1]}"`:""}></i>` : ""}<span>${имя}</span></span>
       <span class="as-v">${значение}</span></div>`;
 
   const выборТипа = `<select class="as-sel" data-f="kind">
@@ -410,7 +418,7 @@ function asideCard(it){
      </select>`;
   const стр = [];
   // у полотна тип уезжает в шапку, к названию: строк не остаётся вовсе, и доска берёт их высоту
-  if(it.kind!=="flow") стр.push(строка("Тип", null, выборТипа));
+  if(it.kind!=="flow") стр.push(строка("Тип", ["ti-category"], выборТипа));
   /* У ПОЛОТНА в панели только название и тип. Область, папка и теги ему не нужны — полотно
      это холст, а не карточка задачи, — а каждая лишняя строка отъедала высоту у самой доски,
      ради которой панель и открывают. Поля никуда не делись: они доступны в окне правки. */
@@ -432,20 +440,28 @@ function asideCard(it){
   let статусы = "";
   if(it.kind!=="flow"){
     const ст = it.done ? "done" : (СТАТУСЫ[it.status] ? it.status : нейтральныйСтатус(it.kind));
-    статусы = `<div class="as-st" role="radiogroup" aria-label="Статус">
+    // подпись в две строки по первому пробелу — как в эталоне demo_холст.html («На<br>проверке»):
+    // полное имя читается лучше сокращения, а в 55 px кнопки слово «проверке» помещается целиком
+    const подпись = k=>esc(СТАТУСЫ[k].имя).replace(" ", "<br>");
+    const список = статусыДляВида(it.kind);
+    статусы = `<div class="as-sec as-sec-top">Статус<span class="as-sec-r">клик или Alt+1…${список.length}</span></div>
+      <div class="as-st" role="radiogroup" aria-label="Статус">
       <input type="hidden" data-f="status" value="${esc(ст)}">
-      ${статусыДляВида(it.kind).map(k=>`<button type="button" class="as-st-b st-${k}${ст===k?" on":""}" data-st="${k}" role="radio" aria-checked="${ст===k}" title="${esc(СТАТУСЫ[k].имя)}">
-        <i class="ti ${СТАТУСЫ[k].иконка}"></i><span>${esc(СТАТУСЫ[k].кратко||СТАТУСЫ[k].имя)}</span></button>`).join("")}
+      ${список.map((k,i)=>`<button type="button" class="as-st-b st-${k}${ст===k?" on":""}" data-st="${k}" role="radio" aria-checked="${ст===k}" title="${esc(СТАТУСЫ[k].имя)} — Alt+${i+1}">
+        <i class="ti ${СТАТУСЫ[k].иконка}"></i><span>${подпись(k)}</span></button>`).join("")}
     </div>`;
   }
   if(kindIsTask(it.kind)){
     // срок — свой календарь (см. dueControlHtml в overlays.js): нативный пикер открывал
     // системное окно WebView2, чужое всему остальному интерфейсу
     стр.push(строка("Срок", ["ti-calendar"], dueControlHtml(it.due, {data:"due"})));
+    /* Приоритет — РЯДОМ КНОПОК, а не списком (эталон demo_холст.html): вариантов четыре, и все
+       видны сразу; список прятал их за кликом. Значение — в скрытом data-f="priority", тем же
+       общим обработчиком, что и раньше (как у ряда статусов). */
+    const пр = it.priority||0;
     стр.push(строка("Приоритет", ["ti-flag"],
-      `<select class="as-sel" data-f="priority">
-         ${["—","низкий","средний","высокий"].map((n,p)=>`<option value="${p}" ${(it.priority||0)===p?"selected":""}>${n}</option>`).join("")}
-       </select>`));
+      `<input type="hidden" data-f="priority" value="${пр}">
+       <span class="as-chips">${["—","низкий","средний","высокий"].map((n,p)=>`<button type="button" class="as-q pri-${p}${пр===p?" on":""}" data-pri="${p}">${n}</button>`).join("")}</span>`));
     стр.push(строка("Повтор", ["ti-repeat"],
       `<select class="as-sel" data-f="repeat">
          ${Object.entries(REPEAT).map(([k,v])=>`<option value="${k}" ${(it.repeat||"none")===k?"selected":""}>${k==="none"?"не повторяется":v}</option>`).join("")}
@@ -468,7 +484,7 @@ function asideCard(it){
        <button class="as-x" data-folder="clear" title="Отвязать папку"><i class="ti ti-x"></i></button>`
     : `<button class="as-link as-thin" data-folder="pick" title="Выбрать папку — или просто перетащи её сюда из проводника"><i class="ti ti-folder-search"></i><span>Привязать папку</span></button>`));
 
-  if(!холст) стр.push(строка("Теги", null,
+  if(!холст) стр.push(строка("Теги", ["ti-tag"],
     `<span class="as-tags">${(it.tags||[]).map(t=>{
         const ст = tagStyle(t);
         return `<span class="as-chip as-tag" ${ст&&ст.color?tagInk(ст.color):""}>
@@ -496,7 +512,7 @@ function asideCard(it){
              Расширь панель или открой доску целиком.</div>
            <button class="btn primary as-open" data-open="1"><i class="ti ti-artboard"></i>Открыть доску</button>`)
     // именованные поля идут под описанием и правятся прямо здесь (панель из fields.js)
-    : `<textarea class="as-area" data-f="body" placeholder="Описание…">${esc(it.body||"")}</textarea>
+    : `<div class="as-sec">Описание</div><textarea class="as-area" data-f="body" placeholder="Описание…">${esc(it.body||"")}</textarea>
        <div class="flds aside-flds" id="as-fields"></div>`;
 
   /* Связанные ноды показываем ИЕРАРХИЕЙ, а не свалкой: родитель сверху, под ним сама нода
@@ -514,11 +530,12 @@ function asideCard(it){
   const подзадачи = kindIsTask(it.kind) ? детиВсе.filter(n=>kindIsTask(n.kind)) : [];
   const детиLive = детиВсе.filter(n=>подзадачи.indexOf(n)<0);
   const готовоП = подзадачи.filter(n=>n.done || n.status==="done").length;
-  const блокПодзадач = kindIsTask(it.kind) ? `<div class="as-sec">Подзадачи${подзадачи.length?`<span class="as-cnt">${готовоП}/${подзадачи.length}</span>`:""}</div>
+  const блокПодзадач = kindIsTask(it.kind) ? `<div class="as-sec">Подзадачи${подзадачи.length?`<span class="as-cnt as-sec-r">${готовоП} из ${подзадачи.length}</span>`:""}</div>
     ${подзадачи.length?`<div class="as-prog"><i style="width:${Math.round(готовоП/подзадачи.length*100)}%"></i></div>`:""}
     <div class="as-subs">${подзадачи.slice(0,30).map(n=>{ const гот=n.done||n.status==="done";
       return `<div class="as-subt${гот?" done":""}"><button class="as-chk${гот?" on":""}" data-subdone="${esc(n.id)}" role="checkbox" aria-checked="${гот}" title="${гот?"Вернуть в работу":"Готово"}"><i class="ti ti-check"></i></button>
-        <button class="as-subn" data-go="${esc(n.id)}">${esc((n.title||"").trim()||"задача без названия")}</button></div>`; }).join("")}
+        <button class="as-subn" data-go="${esc(n.id)}">${esc((n.title||"").trim()||"задача без названия")}</button>
+        <span class="as-subr">${esc(((СТАТУСЫ[гот ? "done" : (n.status||"todo")]||СТАТУСЫ.todo).имя).toLowerCase())}</span></div>`; }).join("")}
       <input class="as-subadd" data-subadd="1" placeholder="+ подзадача — Enter"></div>` : "";
   const вДереве = new Set([родитель, ...детиВсе].filter(Boolean).map(n=>n.id));
   const боковые = [...new Map(связи.filter(n=>n && n.id!==it.id && !вДереве.has(n.id)).map(n=>[n.id,n])).values()];
@@ -570,7 +587,7 @@ function asideCard(it){
         <button class="as-ic" data-close="1" title="Закрыть панель"><i class="ti ti-x"></i></button>
       </div></div>
     ${статусы}
-    ${стр.length?`<div class="as-rows${холст?" compact":""}">${стр.join("")}</div>`:""}
+    ${стр.length?`${холст?"":`<div class="as-sec">Свойства</div>`}<div class="as-rows${холст?" compact":""}">${стр.join("")}</div>`:""}
     ${вход}
     ${тело}
     ${блокПодзадач}
@@ -670,11 +687,13 @@ function wireAside(it){
     };
   });
 
-  // ряд статусов: кнопка ставит значение скрытого поля и зовёт общий обработчик правки выше
-  a.querySelectorAll("[data-st]").forEach(кн=>кн.onclick=()=>{
-    const поле=a.querySelector('[data-f="status"]'); if(!поле || поле.value===кн.dataset.st) return;
-    поле.value=кн.dataset.st; поле.onchange && поле.onchange();
+  // ряды статусов и приоритета: кнопка ставит значение скрытого поля и зовёт общий обработчик правки выше
+  const рядом=(сел, f, ключ)=>a.querySelectorAll(сел).forEach(кн=>кн.onclick=()=>{
+    const поле=a.querySelector('[data-f="'+f+'"]'); if(!поле || поле.value===кн.dataset[ключ]) return;
+    поле.value=кн.dataset[ключ]; поле.onchange && поле.onchange();
   });
+  рядом("[data-st]", "status", "st");
+  рядом("[data-pri]", "priority", "pri");
   // подзадачи: галка — тем же toggleDone, что галочка на графе и в списках
   a.querySelectorAll("[data-subdone]").forEach(кн=>кн.onclick=()=>{
     const n=S.items.find(x=>x.id===кн.dataset.subdone); if(!n) return;
@@ -801,8 +820,12 @@ function wireSplitter(){
     const двигать = ev=>{
       const макс = asideMaxW();
       const w = Math.min(макс, Math.max(300, была + (старт - ev.clientX)));
-      S.settings.asideW = w;                                  // для совместимости со старыми данными
-      S.settings.asideFrac = w / Math.max(600, window.innerWidth);   // тянем долю, её и запоминаем
+      // в каркасе «холст» ширина своя и в пикселях (см. asideApplyWidth) — прежнюю долю не трогаем
+      if(document.documentElement.classList.contains("canvas-ui")) S.settings.asideCvW = w;
+      else {
+        S.settings.asideW = w;                                  // для совместимости со старыми данными
+        S.settings.asideFrac = w / Math.max(600, window.innerWidth);   // тянем долю, её и запоминаем
+      }
       a.style.width = w + "px";
     };
     const кончить = ()=>{

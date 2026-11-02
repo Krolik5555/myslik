@@ -2174,3 +2174,97 @@ html.canvas-ui:not(.notitle) #cv-drag{display:none;}     /* в деве окно
 .ag-log-t em{font-style:normal;font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .ag-log-row.undone{opacity:.6;}
 .ag-log-row .btn{height:28px;flex:none;}
+
+/* ========================================================================
+   ПО ЭТАЛОНУ demo_холст.html (КРОЛИК 03.11.2026: «дизайн не похож на тот, что демонстрировал»).
+   Сверено построчно с макетом: акцент, переключатель вида, панель ноды — разделы, сетка свойств,
+   ряды кнопок, закреплённая кнопка отчёта.
+   ======================================================================== */
+/* АКЦЕНТ МАКЕТА — янтарный. --acc остаётся белым (им залиты главные кнопки, как в макете), а
+   --accent отмечает «включено и выбрано»: логотип, значок захвата, включённые кнопки графа,
+   выбранный приоритет, путь к выбранной ноде на холсте (graph.js: _palette → пал.акцент). */
+:root{--accent:#e8a14b;}
+.light{--accent:#c8821f;}
+.cv-logo .ti-feather,#cap-wrap .ti-feather{color:var(--accent);}
+html.canvas-ui #cap:focus{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--accent) 60%,transparent),0 14px 40px var(--sh);}
+.graph-toolbar .btn.on{background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent);border-color:transparent;}
+.graph-toolbar .btn.on i{color:var(--accent);}
+/* переключатель «Граф / Таблица» — выбранное тоном l4, а не белой заливкой: белая плашка в
+   углу была самым ярким пятном экрана */
+.toggle{border:0;background:var(--l2);box-shadow:inset 0 0 0 .5px var(--bd);padding:3px;gap:2px;border-radius:var(--r-m);}
+.toggle button{height:30px;border-radius:var(--r-s);}
+.toggle button.on{background:var(--l4);color:var(--tx);}
+html.canvas-ui #cv-tr .toggle{background:none;box-shadow:none;padding:0;}
+
+/* ---- панель ноды ---- */
+#aside{padding:16px 18px 0;}
+.as-head{padding:0 0 4px;}
+.as-title{font-size:21px;font-weight:650;}
+.as-tile{border-radius:10px;}
+.as-crumbs{font-size:11.5px;margin-bottom:3px;}
+.as-sec{display:flex;align-items:center;gap:6px;margin:16px 0 7px;font-size:10.5px;font-weight:600;letter-spacing:.07em;color:var(--mut2);}
+.as-sec-r,.as-sec .as-cnt{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:400;color:var(--mut2);}
+/* статус: семь кнопок в ряд, подпись в две строки, выбранная — цветом своего статуса */
+.as-st{display:grid;grid-template-columns:repeat(var(--n,7),1fr);gap:3px;margin:0;padding:3px;border-radius:12px;background:rgba(0,0,0,.25);box-shadow:inset 0 0 0 .5px var(--bd);}
+.light .as-st{background:rgba(0,0,0,.04);}
+.as-st:has(.as-st-b:nth-of-type(6):last-of-type){--n:6;}
+.as-st:has(.as-st-b:nth-of-type(5):last-of-type){--n:5;}
+.as-st-b{height:52px;padding:0 2px;gap:3px;justify-content:center;border-radius:9px;flex:initial;}
+.as-st-b i{font-size:16px;}
+.as-st-b span{font-size:10px;line-height:1.1;white-space:normal;overflow:visible;}
+.as-st-b.on{color:var(--tx);background:color-mix(in srgb,var(--sc) 18%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--sc) 70%,transparent);}
+.as-st-b.on i{color:var(--sc);}
+.as-st-b.st-todo,.as-st-b.st-paused{--sc:var(--st-mark);} .as-st-b.st-next{--sc:var(--st-next);}
+.as-st-b.st-doing{--sc:var(--accent);} .as-st-b.st-waiting{--sc:var(--st-wait);}
+.as-st-b.st-review{--sc:var(--st-review);} .as-st-b.st-done{--sc:var(--pri1);} .as-st-b.st-note{--sc:var(--mut);}
+@container (max-width:400px){ .as-st-b span{display:block;} .as-st-b.on{flex:initial;} }
+@container (max-width:300px){ .as-st-b span{display:none;} }
+/* свойства: колонка подписей 120 px со значком перед словом, значения — текстом, без рамок */
+.as-rows{gap:1px;padding-bottom:0;border-bottom:0;}
+.as-row{grid-template-columns:120px minmax(0,1fr);gap:0;min-height:33px;}
+.as-k{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mut);min-width:0;}
+.as-k i{font-size:15px;color:var(--mut2);flex:none;}
+.as-k span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.as-v{gap:5px;}
+.as-sel,.as-inp{width:100%;max-width:280px;height:30px;padding:0 26px 0 8px;margin-left:-8px;border:0;border-radius:8px;appearance:none;-webkit-appearance:none;background:transparent;}
+.as-sel:hover,.as-inp:hover{border-color:transparent;background-color:var(--l3);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a7a83' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 8px center;}
+.as-sel:focus,.as-inp:focus{border-color:transparent;background-color:var(--l3);box-shadow:inset 0 0 0 1px var(--bd3);}
+/* кнопки-варианты (приоритет, быстрые сроки) */
+.as-chips{display:flex;flex-wrap:wrap;gap:5px;}
+.as-q,#aside .date-fast button{height:24px;padding:0 7px;border-radius:7px;font-size:11.5px;white-space:nowrap;flex:none;color:var(--mut);background:var(--l3);border:0;}
+.as-q:hover,#aside .date-fast button:hover{color:var(--tx);background:var(--l4);}
+.as-q.on{color:var(--tx);background:color-mix(in srgb,var(--qc,var(--accent)) 20%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--qc,var(--accent)) 55%,transparent);}
+.as-q.pri-0.on{--qc:var(--mut);} .as-q.pri-1{--qc:var(--pri1);} .as-q.pri-2{--qc:var(--pri2);} .as-q.pri-3{--qc:var(--pri3);}
+#aside .date-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:5px;max-width:none;}
+#aside .date-fast{display:flex;flex-wrap:wrap;gap:5px;margin:0;}
+#aside .date-btn{margin-left:-6px;}
+/* описание и подзадачи */
+.as-area{border:0;border-radius:12px;background:var(--l3);padding:11px 13px;min-height:80px;}
+.as-area:hover{box-shadow:none;}
+.as-prog{height:5px;margin:0 0 6px;}
+.as-subt{height:32px;padding:0 8px;gap:10px;border-radius:9px;}
+.as-chk{border-radius:6px;box-shadow:inset 0 0 0 1.5px var(--bd2);}
+.as-chk.on{background:#5fb98e;color:#06160e;}
+.as-subr{flex:none;font-size:11px;color:var(--mut2);}
+.as-subadd{background:transparent;box-shadow:none;padding:0 8px;height:32px;color:var(--mut);}
+.as-subadd:hover{background:var(--l3);}
+/* связанные ноды — строками без фона, как в макете; «эта» — тоном */
+.as-link{background:transparent;padding:0 9px;min-height:32px;border-radius:9px;}
+.as-link:hover{background:var(--l3);}
+.as-self{background:var(--l3);box-shadow:none;}
+/* кнопка отчёта закреплена у нижнего края карточки — светлой заливкой, главное действие */
+.as-foot{position:sticky;bottom:0;z-index:2;margin:12px -18px 0;padding:10px 18px 14px;
+  background:linear-gradient(to bottom,color-mix(in srgb,var(--l2) 0%,transparent),var(--l2) 30%);}
+.as-wide{height:38px;border:0;border-radius:10px;background:var(--tx);color:var(--bg);font-weight:600;justify-content:center;}
+.as-wide:hover{background:var(--tx);color:var(--bg);opacity:.9;box-shadow:none;}
+.as-wide i{color:var(--bg);}
+.as-foot{border-top:0;}
+.as-wide:hover i{color:var(--bg);}
+/* список и пометка рядом («Прочее · наследуется») — в одну строку, как в макете */
+.as-v .as-sel{flex:1 1 auto;width:auto;min-width:0;}
+.as-v .as-note{flex:none;}
+/* совсем узкая панель (≤300 px у ряда статусов): подписей нет ни у одной кнопки, включая выбранную —
+   «Не начато» в 29 px кнопки не помещается (линейка вёрстки, 300 px). Имя — в подсказке. */
+@container (max-width:300px){ .as-st-b.on span{display:none;} }

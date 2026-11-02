@@ -346,13 +346,13 @@ asideSelect(зад.id); await ж(150);
      срока вылезала на 88 px и читалась как здоровая панель посреди списка полей. Меряем высоту
      против соседнего списка — так ловится любое чужое правило, а не только это. */
   const срок = document.querySelector("#aside .date-ctl [data-datepick]");
-  // сосед — список приоритета: статус с шага 3.5 — ряд кнопок над полями, а не строка списка
-  const статус = document.querySelector('#aside [data-f="priority"]');
+  // сосед — список повтора: статус и приоритет с шага 3.5 — ряды кнопок, а не списки
+  const статус = document.querySelector('#aside [data-f="repeat"]');
   const hс = срок ? срок.getBoundingClientRect().height : 0;
   const hст = статус ? статус.getBoundingClientRect().height : 0;
   t.push({имя:"поле срока — строка той же высоты, что соседние поля",
           ок: !!срок && !!статус && Math.abs(hс - hст) <= 2 && Math.round(hс) <= 34,
-          факт: "срок " + Math.round(hс) + " px против приоритета " + Math.round(hст) + " px"});
+          факт: "срок " + Math.round(hс) + " px против повтора " + Math.round(hст) + " px"});
   t.push({имя:"кнопка срока не ловит чужой стиль пустого состояния",
           ок: !!срок && !срок.classList.contains("empty")
               && Math.round((срок.querySelector("i")||{getBoundingClientRect:()=>({height:0})}).getBoundingClientRect().height) <= 24,
@@ -572,13 +572,16 @@ sp.dispatchEvent(соб("pointerdown", r.left+3)); await ж(50);
 sp.dispatchEvent(соб("pointermove", r.left-120)); await ж(50);
 sp.dispatchEvent(соб("pointerup", r.left-120)); await ж(150);
 t.push({имя:"разделитель тянется", ок: шир("aside") > было + 60, факт: было + " → " + шир("aside")});
-t.push({имя:"ширина записана в настройки", ок: Math.abs(S.settings.asideW - шир("aside")) < 3,
-        факт:"в настройках " + Math.round(S.settings.asideW)});
+// в каркасе «холст» ширина своя, в пикселях (asideCvW, по умолчанию 440 как в макете); в прежнем виде — доля окна
+const каркас = document.documentElement.classList.contains("canvas-ui");
+const записано = каркас ? S.settings.asideCvW : S.settings.asideW;
+t.push({имя:"ширина записана в настройки", ок: Math.abs(записано - шир("aside")) < 3,
+        факт:"в настройках " + Math.round(записано)});
 // ширина хранится долей от окна: иначе панель, растянутая в полный экран, в маленьком окне
 // занимала бы его целиком
 {
   const доля = S.settings.asideFrac;
-  t.push({имя:"ширина панели хранится долей от окна",
+  if(!каркас) t.push({имя:"ширина панели хранится долей от окна",
           ок: доля > 0.1 && доля < 0.7 && Math.abs(доля * window.innerWidth - шир("aside")) < 6,
           факт: "доля " + доля.toFixed(3) + " → " + шир("aside") + " px при окне " + window.innerWidth});
   /* Имитируем открытие в маленьком окне: панель должна ужаться. Проверяем СМЫСЛ, а не круглое
@@ -714,7 +717,7 @@ t.push({имя:"удалённый элемент уходит из панели
     if (галка) { галка.click(); await ж(200); }
     const рендер = S.items.find(x => x.id === ит.alias.r);
     t.push({имя:"подзадачи: галка закрывает подзадачу через toggleDone", ок: !!рендер && рендер.done === true && !!рендер.doneAt, факт: рендер ? "done=" + рендер.done : ""});
-    t.push({имя:"подзадачи: счётчик готовых", ок: /1\/1/.test((document.querySelector("#aside .as-sec .as-cnt") || {}).textContent || ""), факт: ""});
+    t.push({имя:"подзадачи: счётчик готовых", ок: /1 из 1/.test((document.querySelector("#aside .as-sec .as-cnt") || {}).textContent || ""), факт: ""});
     const поле = document.querySelector("#aside [data-subadd]");
     if (поле) { поле.value = "А-СБОРКА"; поле.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter", bubbles:true})); await ж(250); }
     const сборка = S.items.find(x => x.title === "А-СБОРКА");

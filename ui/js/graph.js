@@ -4936,6 +4936,8 @@ class Graph{
                завтра:в("--tm-near","#d8b04a"), сегодня:в("--tm-today","#e0873c"), просрочка:в("--tm-over","#e0625a")},
       // жар срочности: не зелёный вовсе — «горит или нет», спокойного состояния у него нет
       жар:    [в("--ur1","#b9a06a"), в("--ur2","#d98b46"), в("--ur3","#e0625a")],
+      // акцент макета (demo_холст.html): «выбрано» — путь к выбранной ноде
+      акцент: в("--accent","#e8a14b"),
     };
     return this._пал;
   }
@@ -5167,8 +5169,11 @@ class Graph{
       // толщина и прозрачность — ровно те же, что в SVG (сверено на живом графе): обычная линия
       // 1.3 при 0.8 прозрачности, ручная 1.8 при полной. Свои значения тут только развели бы
       // картинку с прежней
-      ctx.lineWidth=толщ(1.3); ctx.lineCap="round";
-      ctx.globalAlpha=Math.min(1,0.8*яркость)*(к?1:тень);
+      /* СТИЛЬ A (эталон demo_холст.html): цвет связи — подсказка о ветке, а не главный рисунок.
+         Плотные цветные линии 0.8 спорили с нодами и путём выбранной; в макете цвет ноды идёт
+         на 0.3–0.45. Ползунок «яркость связей» по-прежнему множит. */
+      ctx.lineWidth=толщ(1.2); ctx.lineCap="round";
+      ctx.globalAlpha=Math.min(1,0.45*яркость)*(к?1:тень);
       одноцветные[к].forEach((пути,цвет)=>{
         ctx.strokeStyle=цвет; ctx.beginPath();
         for(const о of пути) путьСвязи(о);
@@ -5194,9 +5199,9 @@ class Graph{
        обязано появляться ТОЛЬКО когда есть настоящее выделение или поиск и связь в него входит,
        поэтому здесь отдельная проверка на активные, а не просто свояСвязь. */
     const подсвеченаВыделением=(l)=>!!активные && свояСвязь(l);
-    for(const круг of [{потух:false, цвет:пал.связь, оп:Math.min(1,0.92*яркость), ш:1.5, своя:false},
+    for(const круг of [{потух:false, цвет:пал.связь, оп:Math.min(1,0.6*яркость), ш:1.2, своя:false},
                        {потух:true,  цвет:пал.тусклая, оп:тускло, ш:0.9, своя:false},
-                       {потух:false, цвет:пал.связь, оп:Math.min(1,0.92*яркость), ш:2, своя:true},
+                       {потух:false, цвет:пал.связь, оп:Math.min(1,0.8*яркость), ш:1.8, своя:true},
                        {потух:true,  цвет:пал.тусклая, оп:тускло, ш:0.9, своя:true}]){
       ctx.beginPath();
       let есть=false;
@@ -5239,7 +5244,7 @@ class Graph{
         const ax=эx(a), ay=эy(a), bx=эx(b), by=эy(b);
         if((ax<вид.x1&&bx<вид.x1)||(ax>вид.x2&&bx>вид.x2)||(ay<вид.y1&&by<вид.y1)||(ay>вид.y2&&by>вид.y2)) continue;
         const цвет=цветКонца(a)!==пал.связь?цветКонца(a):цветКонца(b);
-        ctx.globalAlpha=Math.min(1,0.92*яркость)*(свояСвязь(l)?1:тень);
+        ctx.globalAlpha=Math.min(1,0.6*яркость)*(свояСвязь(l)?1:тень);
         ctx.strokeStyle=цвет;
         const bd=l._bendC;
         ctx.beginPath(); ctx.moveTo(ax,ay);
@@ -5264,7 +5269,7 @@ class Graph{
         const ca=цветКонца(a), cb=цветКонца(b);
         if(ca===cb) ctx.strokeStyle=ca;
         else { const гр=ctx.createLinearGradient(ax,ay,bx,by); гр.addColorStop(0,ca); гр.addColorStop(1,cb); ctx.strokeStyle=гр; }
-        ctx.globalAlpha=Math.min(1,яркость)*(свояСвязь(l)?1:тень);
+        ctx.globalAlpha=Math.min(1,0.75*яркость)*(свояСвязь(l)?1:тень);
         // свечение снимаем, когда ручных связей в кадре много: размытие считается на каждую линию
         ctx.shadowColor=пал.сияние; ctx.shadowBlur=(ручных<=150)?4:0;
         const bd=l._bendC;
@@ -5335,9 +5340,9 @@ class Graph{
       let ид=начало;
       for(let шаг=0; шаг<16; шаг++){ const р=родитель(ид); if(!р) break; const l=this._pairLinks.get(ид+"|"+р); if(!l) break; путь.push(l); ид=р; }
       if(путь.length){
-        const см=this.byId[начало], цвет=(см&&см.color)||пал.текст;
-        ctx.lineCap="round"; ctx.strokeStyle=цвет;
-        for(const [ширина, прозр] of [[6, 0.16], [2.4, 0.95]]){
+        // цвет пути — акцент макета, а не цвет ноды: путь — это «выбрано», один смысл на весь граф
+        ctx.lineCap="round"; ctx.strokeStyle=пал.акцент;
+        for(const [ширина, прозр] of [[6, 0.22], [2, 0.95]]){
           ctx.lineWidth=толщ(ширина); ctx.globalAlpha=прозр; ctx.beginPath();
           for(const l of путь){
             const a=this.byId[l.a], b=this.byId[l.b], bd=l._bendC;
@@ -5363,9 +5368,11 @@ class Graph{
        как подсветка пути; «Готово» бывает и одним статусом без done (данные из пакета) — считаем,
        как таблица. Каждый кадр: на тысяче нод это сотые доли миллисекунды, зато статус, сменённый
        без пересборки, виден сразу. */
-    const подзВсего=new Map(), подзГотово=new Map();
+    // родители — у кого есть хоть какие-то дети: их подпись крупнее листьев (иерархия подписей)
+    const подзВсего=new Map(), подзГотово=new Map(), родители=new Set();
     for(let i=0;i<this.nodes.length;i++){
       const c=this.nodes[i], p=c.ref && c.ref.parent;
+      if(p && this.byId[p] && !c.archived) родители.add(p);
       if(!p || !this.byId[p] || !kindIsTask(c.type) || c.archived) continue;
       подзВсего.set(p, (подзВсего.get(p)||0)+1);
       if(c.done || c.ref.status==="done") подзГотово.set(p, (подзГотово.get(p)||0)+1);
@@ -5492,7 +5499,8 @@ class Graph{
          которой цветом фона рисуется галочка внутри выполненной задачи. */
       else if(n.subRoot){ const гл=iconGlyph(kindIcon("sub"));
         if(гл) значки.push({x, y, гл, кегль:Math.max(8,n.r*1.05*z), цвет:пал.фон, альфа}); }
-      if(подписьВидна(r)) подписи.push({n, x, y:y+r+12*z, альфа});
+      if(подписьВидна(r)) подписи.push({n, x, y:y+r+12*z, альфа, ветка:родители.has(n.id),
+        счёт:(вс && !n.done && n.type!=="hub") ? (подзГотово.get(n.id)||0)+" из "+вс : null});
     }
     this._навЕдет=навЕдет;
     /* Свечение выделенных — ДО самих фигур, чтобы ореол не лёг поверх соседей. Порог 25 тот же,
@@ -5677,12 +5685,24 @@ class Graph{
         if(текст.length>22) текст=текст.slice(0,21)+"…";
         const выделен=this.selNodes&&this.selNodes.has(n.id);
         ctx.globalAlpha=п.альфа*(пусто?0.7:1);
+        /* ИЕРАРХИЯ ПОДПИСЕЙ (эталон demo_холст.html): листья — мельче и тише, узлы с детьми —
+           полужирные и светлее, выбранная — белая и крупнее. Одинаковые подписи у шота и его
+           «Рендер/Сборка» делали граф ровной кашей текста, где не видно, что тут главное. */
+        const лист=!хаб && !п.ветка;
         ctx.fillStyle=(хаб||выделен) ? пал.текст
                     : n.paused ? this._mix(пал.подпись2, пал.текст, 0.55)
-                               : this._mix(пал.подпись, пал.текст, 0.5);
-        ctx.font=(хаб?"600 13.5px ":(n.paused?"italic 12px ":(выделен?"600 12.5px ":"12px ")))+"system-ui, -apple-system, Segoe UI, sans-serif";
+                    : лист ? this._mix(пал.подпись, пал.текст, 0.25)
+                           : this._mix(пал.подпись, пал.текст, 0.85);
+        ctx.font=(хаб?"600 13.5px ":выделен?"650 13px ":n.paused?(лист?"italic 10.5px ":"italic 600 12px "):(лист?"10.5px ":"600 12px "))+"system-ui, -apple-system, Segoe UI, sans-serif";
         ctx.strokeText(текст, п.x, п.y);
         ctx.fillText(текст, п.x, п.y);
+        // второй строкой у ноды с подзадачами — «2 из 8», как в макете «1/2 шотов»
+        if(п.счёт){
+          const шр=ctx.font; ctx.font="10px system-ui, -apple-system, Segoe UI, sans-serif";
+          ctx.lineWidth=3; ctx.fillStyle=пал.подпись2;
+          ctx.strokeText(п.счёт, п.x, п.y+15); ctx.fillText(п.счёт, п.x, п.y+15);
+          ctx.font=шр; ctx.lineWidth=4;
+        }
       }
       ctx.globalAlpha=1;
     }

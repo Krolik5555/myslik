@@ -228,7 +228,9 @@ function canvasUiWanted(){
 }
 function canvasUiInit(){
   const h=document.documentElement;
-  const включить=()=>{ if(_cvOn || !canvasUiWanted()) return; _cvOn=true; h.classList.add("canvas-ui"); cvMount(); cvSync(); };
+  // ширина панели в каркасе своя (asideApplyWidth) — пересчитать сразу, класс мог прийти после первой отрисовки
+  const включить=()=>{ if(_cvOn || !canvasUiWanted()) return; _cvOn=true; h.classList.add("canvas-ui"); cvMount(); cvSync();
+    if(typeof asideApplyWidth==="function") asideApplyWidth(); };
   включить();
   // окно без нативной полосы — спрашиваем у Python сами. Раньше класс подсовывал app.py из своего
   // потока после перезагрузки страницы, и эта перезагрузка оставляла окно пустым (03.11.2026)
