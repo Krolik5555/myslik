@@ -816,10 +816,72 @@ class Graph{
     });
     this.nodes.forEach(n=>{ if(n._поток && n._поток.open>макс) макс=n._поток.open; });
     this._flowMax=макс;
-    // «спит» — на паузе сама нода или кто-то из её предков: связи в такую ветку гаснут
-    this.nodes.forEach(n=>{ let спит=!!n.paused;
-      for(let p=n.ref && n.ref.parent, k=0; !спит && p && по[p] && k<40; k++){ спит=!!по[p].paused; const у=по[p]; p=у.ref && у.ref.parent; }
+    /* «спит» — на паузе сама нода или кто-то из её предков: связи в такую ветку гаснут.
+       Решает БЛИЖАЙШИЙ явный статус снизу вверх: нода «в работе» (или с работающим предком
+       ближе паузы) не спит, даже если выше по ветке пауза. Иначе взятая в работу задача под
+       отложенным шотом рисовалась серым пунктиром со свечением работы (снимок КРОЛИКА, 03.11.2026). */
+    this.nodes.forEach(n=>{ let спит=false;
+      for(let у=n, k=0; у && k<40; k++){
+        if(у.doing){ break; } if(у.paused){ спит=true; break; }
+        const p=у.ref && у.ref.parent; у=p ? по[p] : null; }
       n._спит=спит; });
+    /* КАКИЕ СВЯЗИ РИСУЕТ ПОТОК — решается здесь, раз на сборку, а не в кадре: обычные проходы
+       _drawMain такие связи ПРОПУСКАЮТ (l._пот), и каждая ложится на холст одной линией. Прежде
+       поток рисовал поверх уже нарисованной связи, стирая её destination-out чуть шире — и вырезал
+       вместе с ней подсветку наведения и свечение ручных связей: у связей и пунктиров выходила
+       чёрная обводка (КРОЛИК, 03.11.2026). Ребёнок — тот конец, чей родитель другой конец (или кто
+       держится за хаб области): от родителя к нему течёт пунктир. */
+    for(const l of this.links){ l._пот=null;
+      const a=по[l.a], b=по[l.b]; if(!a||!b) continue;
+      const реб = (a.ref && a.ref.parent===l.b) || b.type==="hub" ? a : (b.ref && b.ref.parent===l.a) || a.type==="hub" ? b : null;
+      if(!реб || !реб._поток || реб.archived) continue;
+      const ст=реб._поток;
+      if(реб._спит) l._пот={вид:"спит", реб};
+      else if(реб.waiting && !ст.doing) l._пот={вид:"ждёт", реб};
+      else if(ст.open) l._пот={вид:"русло", реб, ст, ш:Math.round((1.2+4.6*Math.sqrt(ст.open/макс))*2)/2};   // шаг 0.5 px — иначе пачек столько же, сколько связей
+    }
+  }
+  /* ТОПОГРАФИЯ РАБОТЫ — рельеф, где высота = открытая работа. Не сумма гауссиан по каждой
+     клетке (на 950 нодах это сотни миллионов операций), а размазка нод в сетку мира с шагом
+     24 и три прохода прямоугольного размытия по осям — то же гауссово пятно за O(клеток).
+     Затем «бегущие квадраты» на восьми уровнях — отрезки складываются в Path2D по уровню.
+     Вес: открытая задача 1, «в работе» 1.6; закрытое и спящее (пауза в ветке) — 0.3: низкие
+     холмы, на которых сходятся только нижние, самые тусклые уровни. Равнина под закрытыми
+     деревьями оставляла на холсте дыры без рельефа (КРОЛИК, 03.11.2026). */
+  _topoBuild(){
+    // все ноды, кроме служебных: дерево заметок без единой задачи тоже не должно быть дырой
+    const ноды=this.nodes.filter(n=>n.ref && n.type!=="hub");
+    const вес=n=>(!kindIsTask(n.type) || n.done||n.archived||n._спит) ? 0.3 : n.doing ? 1.6 : 1;
+    this._topo={src:this.links, at:performance.now(), пути:[]};
+    if(!ноды.length) return;
+    const ШАГ=24, ЗАП=320;
+    let x0=Infinity, y0=Infinity, x1=-Infinity, y1=-Infinity;
+    ноды.forEach(n=>{ if(n.x<x0) x0=n.x; if(n.y<y0) y0=n.y; if(n.x>x1) x1=n.x; if(n.y>y1) y1=n.y; });
+    x0-=ЗАП; y0-=ЗАП; x1+=ЗАП; y1+=ЗАП;
+    const W=Math.min(600, Math.ceil((x1-x0)/ШАГ)+1), H=Math.min(600, Math.ceil((y1-y0)/ШАГ)+1);
+    let П=new Float32Array(W*H), Б=new Float32Array(W*H);
+    ноды.forEach(n=>{ const i=Math.round((n.x-x0)/ШАГ), j=Math.round((n.y-y0)/ШАГ);
+      if(i>=0&&i<W&&j>=0&&j<H) П[j*W+i]+=вес(n); });
+    const R=4;                                     // три прохода окна 2R+1 ≈ гаусс σ≈90 мировых единиц
+    for(let проход=0; проход<3; проход++){
+      for(let j=0;j<H;j++){ let с=0; for(let i=-R;i<W+R;i++){ if(i+R<W) с+=П[j*W+i+R]; if(i-R-1>=0) с-=П[j*W+i-R-1]; if(i>=0&&i<W) Б[j*W+i]=с; } }
+      for(let i=0;i<W;i++){ let с=0; for(let j=-R;j<H+R;j++){ if(j+R<H) с+=Б[(j+R)*W+i]; if(j-R-1>=0) с-=Б[(j-R-1)*W+i]; if(j>=0&&j<H) П[j*W+i]=с; } }
+    }
+    let макс=0; for(let k=0;k<П.length;k++) if(П[k]>макс) макс=П[k];
+    if(!макс) return;
+    const УР=8;
+    for(let у=1; у<=УР; у++){
+      const lv=макс*(у/(УР+1)), путь=new Path2D();
+      for(let j=0;j<H-1;j++) for(let i=0;i<W-1;i++){
+        const a=П[j*W+i], b=П[j*W+i+1], c=П[(j+1)*W+i+1], d=П[(j+1)*W+i];
+        const к=(a>lv?8:0)|(b>lv?4:0)|(c>lv?2:0)|(d>lv?1:0); if(!к || к===15) continue;
+        const x=x0+i*ШАГ, y=y0+j*ШАГ;
+        const t1=[x+ШАГ*(lv-a)/(b-a), y], t2=[x+ШАГ, y+ШАГ*(lv-b)/(c-b)], t3=[x+ШАГ*(lv-d)/(c-d), y+ШАГ], t4=[x, y+ШАГ*(lv-a)/(d-a)];
+        const сег={1:[t3,t4],2:[t2,t3],3:[t2,t4],4:[t1,t2],5:[t1,t4],6:[t1,t3],7:[t1,t4],8:[t1,t4],9:[t1,t3],10:[t1,t2],11:[t1,t2],12:[t2,t4],13:[t2,t3],14:[t3,t4]}[к];
+        if(сег){ путь.moveTo(сег[0][0], сег[0][1]); путь.lineTo(сег[1][0], сег[1][1]); }
+      }
+      this._topo.пути.push(путь);
+    }
   }
   heatNext(){
     const m=this._горящие; if(!m||!m.length) return;
@@ -1963,13 +2025,35 @@ class Graph{
   // а параллакс (par) остаётся на ПАНЕ — тот самый эффект глубины, ради которого всё делалось.
   /* Слои поля: sp — шаг сетки, sz — полуразмер звезды, a/aL — яркость (тёмная/светлая тема),
      wob — амплитуда собственного дрейфа, par — параллакс от пана. Общие для WebGL и canvas2d. */
+  /* ВИД ФОНА (настройки → «Фон холста», S.settings.graphBgKind; КРОЛИК 03.11.2026 выбрал из
+     demo_ноды-и-фон.html): clean — чистый тон без точек (по умолчанию), stars — звёздное поле,
+     dust — мелкая пыль с параллаксом, grid — сетка-чертёж по миру, topo — топография работы
+     (её рисует холст графа, см. _topoBuild). Старый выключатель graphBg=false = чистый тон.
+     Туманность областей отвергнута на этапе макета: облако на каждую ноду — дорогой фон. */
+  _bgKind(){ const s=S.settings||{}; if(s.graphBg===false) return "clean";
+    return ["clean","stars","dust","grid","topo"].indexOf(s.graphBgKind)>=0 ? s.graphBgKind : "clean"; }
+  /* Слои точечного фона. sp — ЭКРАННЫЙ шаг ячейки (px), sz — экранный размер точки (px), sharp —
+     доля чёткого ядра против мягкого ореола. Всё в экранных пикселях намеренно: в мировых точки
+     при приближении раздувались в размытые пятна до 64 px, а при отдалении слои выпадали целиком
+     (КРОЛИК, 03.11.2026). Как держится плотность на любом зуме — см. ОКТАВЫ в _drawBgGL.
+     Сетка и топография рисуются холстом графа (_drawMain), здесь у них слоёв нет. */
   _bgLayers(){
+    const вид=this._bgKind();
+    // пыль: густая мелкая взвесь с разбросом по глубине — фактура без ярких звёзд
+    if(вид==="dust") return [
+      // scat:1 — точка где угодно в своей ячейке, иначе узор решётки читается как плитка (КРОЛИК)
+      {par:0.10, sp:23, sz:1.3, a:0.15, aL:0.13, wob:3, sharp:1, scat:1},
+      {par:0.30, sp:31, sz:1.5, a:0.19, aL:0.16, wob:5, sharp:1, scat:1},
+      {par:0.60, sp:43, sz:1.8, a:0.24, aL:0.20, wob:7, sharp:1, scat:1},
+      {par:0.95, sp:59, sz:2.1, a:0.30, aL:0.24, wob:9, sharp:1, scat:1}
+    ];
+    if(вид!=="stars") return [];
     return [
-      {par:0.06, sp:36,  sz:1.4, a:0.028, aL:0.040, wob:4 },
-      {par:0.20, sp:50,  sz:2.0, a:0.045, aL:0.060, wob:7 },
-      {par:0.42, sp:68,  sz:2.9, a:0.070, aL:0.085, wob:11},
-      {par:0.68, sp:90,  sz:3.9, a:0.100, aL:0.120, wob:15},
-      {par:1.00, sp:118, sz:5.4, a:0.150, aL:0.175, wob:20}
+      {par:0.06, sp:34,  sz:1.6, a:0.14, aL:0.11, wob:2, sharp:0.8},
+      {par:0.20, sp:52,  sz:2.0, a:0.20, aL:0.15, wob:3, sharp:0.8},
+      {par:0.42, sp:76,  sz:2.4, a:0.27, aL:0.20, wob:4, sharp:0.8},
+      {par:0.68, sp:110, sz:2.9, a:0.35, aL:0.25, wob:5, sharp:0.8},
+      {par:1.00, sp:150, sz:3.4, a:0.45, aL:0.30, wob:6, sharp:0.8}
     ];
   }
   // Компиляция шейдеров + буфер индексов ячеек. Позицию, дрейф и мерцание каждой звезды считает
@@ -1985,7 +2069,7 @@ class Graph{
       "attribute float aIdx;",
       "uniform vec2 uRes; uniform vec2 uOff; uniform vec2 uBase;",
       "uniform float uCols; uniform float uTile; uniform float uT;",
-      "uniform float uWob; uniform float uSize; uniform float uAlpha;",
+      "uniform float uWob; uniform float uSize; uniform float uAlpha; uniform float uScat;",
       "varying float vA;",
       "float h(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453123); }",
       "void main(){",
@@ -1993,23 +2077,26 @@ class Graph{
       "  float gy = floor(aIdx / uCols) - 1.0;",
       "  vec2 cell = vec2(gx,gy) + uBase;",
       "  float hx=h(cell), hy=h(cell+vec2(37.0,17.0)), ho=h(cell+vec2(91.0,53.0));",
-      "  vec2 jit=(vec2(hx,hy)-0.5)*uTile*0.5;",
+      "  vec2 jit=(vec2(hx,hy)-0.5)*uTile*uScat;",   // разброс в ячейке: 0.5 — звёзды, 1 — пыль (вся ячейка, без решётки)
       "  vec2 wob=vec2(sin(uT*0.16+hx*6.283), cos(uT*0.13+hy*6.283))*uWob;",
       "  vec2 pos=vec2(gx,gy)*uTile - uOff + jit + wob;",
       "  vec2 nd=pos/uRes*2.0-1.0;",
       "  gl_Position=vec4(nd.x, -nd.y, 0.0, 1.0);",
-      "  gl_PointSize=uSize;",
-      "  vA=uAlpha*(0.35+0.65*(0.5+0.5*sin(uT*0.18+ho*6.283)));",   // то же «дыхание» яркости
+      "  float hs=h(cell+vec2(13.0,71.0));",
+      "  gl_PointSize=uSize*mix(1.0, 0.45+1.1*hs, clamp(uScat*2.0-1.0, 0.0, 1.0));",   // у пыли размер гуляет
+      "  vA=uAlpha*(0.35+0.65*(0.5+0.5*sin(uT*0.18+ho*6.283)));",   // «дыхание» яркости
       "}"
     ].join("\n");
     const FS=[
       "precision mediump float;",
-      "varying float vA; uniform vec3 uColor;",
+      "varying float vA; uniform vec3 uColor; uniform float uSharp;",
       "void main(){",
       "  vec2 d=gl_PointCoord-vec2(0.5);",
       "  float r=length(d)*2.0;",
       "  if(r>1.0) discard;",
-      "  float a=pow(1.0-r, 2.2)*vA;",                // профиль ~как у исходного спрайта-градиента
+      "  float soft=pow(1.0-r, 2.2);",                 // мягкий профиль прежнего спрайта-градиента
+      "  float crisp=(1.0-smoothstep(0.45,0.85,r))*0.85+soft*0.25;",   // чёткое ядро + слабый ореол
+      "  float a=min(1.0, mix(soft, crisp, uSharp)*vA);",
       "  gl_FragColor=vec4(uColor*a, a);",            // PREMULTIPLIED: цвет уже умножен на альфу
       "}"
     ].join("\n");
@@ -2020,7 +2107,7 @@ class Graph{
     gl.linkProgram(prog);
     if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
     gl.useProgram(prog);
-    const MAX=20000;                                   // потолок ячеек на слой (хватает и на 4K)
+    const MAX=60000;                                   // потолок ячеек на слой: мелкая октава пыли на 4K — ~45 тысяч
     const idx=new Float32Array(MAX); for(let i=0;i<MAX;i++) idx[i]=i;
     const buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf); gl.bufferData(gl.ARRAY_BUFFER,idx,gl.STATIC_DRAW);
     const loc=gl.getAttribLocation(prog,"aIdx");
@@ -2032,7 +2119,7 @@ class Graph{
     gl.clearColor(0,0,0,0);
     const U=n=>gl.getUniformLocation(prog,n);
     const st={ gl, prog, buf, max:MAX, u:{ res:U("uRes"), cols:U("uCols"), tile:U("uTile"), off:U("uOff"),
-      base:U("uBase"), t:U("uT"), wob:U("uWob"), size:U("uSize"), alpha:U("uAlpha"), color:U("uColor") } };
+      base:U("uBase"), t:U("uT"), wob:U("uWob"), size:U("uSize"), alpha:U("uAlpha"), color:U("uColor"), scat:U("uScat"), sharp:U("uSharp") } };
     // САМОПРОВЕРКА: убеждаемся, что путь РЕАЛЬНО даёт пиксели именно в этом окружении. Драйвер
     // или встроенный браузер могут молча не выводить слой (так фон и пропал целиком). Не дал
     // пикселей — возвращаем null и спокойно работаем на canvas2d.
@@ -2067,7 +2154,7 @@ class Graph{
       gl.uniform2f(G.u.res,w,h); gl.uniform1f(G.u.t,0); gl.uniform3f(G.u.color,1,1,1);
       gl.uniform1f(G.u.cols,4); gl.uniform1f(G.u.tile,16);
       gl.uniform2f(G.u.off,0,0); gl.uniform2f(G.u.base,0,0);
-      gl.uniform1f(G.u.wob,0); gl.uniform1f(G.u.size,24); gl.uniform1f(G.u.alpha,1);
+      gl.uniform1f(G.u.wob,0); gl.uniform1f(G.u.size,24); gl.uniform1f(G.u.alpha,1); gl.uniform1f(G.u.scat,0.5); gl.uniform1f(G.u.sharp,0);
       gl.drawArrays(gl.POINTS,0,16);
       const px=new Uint8Array(4*w*h);
       gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,px);
@@ -2086,7 +2173,8 @@ class Graph{
     if(cv.width!==W||cv.height!==H){ cv.width=W; cv.height=H; }
     gl.viewport(0,0,W,H);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    if(S.settings.graphBg===false) return;
+    const layers=this._bgLayers();
+    if(!layers.length) return;   // точек нет: чистый тон — сам фон холста, сетку и топографию рисует _drawMain
     const light=document.body.classList.contains("light");
     // время — по часам анимаций графа (см. _tick), не по системным: иначе после паузы (диалог
     // выбора папки, уход с вкладки) звёзды разом пересчитываются на новое время и поле дёргается
@@ -2099,32 +2187,43 @@ class Graph{
     // Общий множитель яркости: подобран замером так, чтобы суммарная «краска» кадра совпадала
     // с прежней canvas2d-отрисовкой (иначе поле выглядит бледнее оригинала).
     const BG_GAIN=1.15;
-    const layers=this._bgLayers();
+    /* ОКТАВЫ: поле держит одну и ту же экранную плотность на любом зуме. Шаг слоя в мире —
+       sp·2^-n, где n = floor(log2 z): внутри октавы точки приклеены к миру и плавно расходятся
+       при приближении, а на смене октавы их место занимает вдвое более частый ряд. Рисуются две
+       соседние октавы, крупная гаснет по мере роста, мелкая разгорается (вес f и 1-f) — поэтому
+       переход без скачка. Номер октавы входит в хеш ячейки, и ряд, ставший «крупным», остаётся
+       ТЕМИ ЖЕ точками, что были «мелким». Размер точки от зума почти не зависит (z^0.2 в узкой
+       вилке): приблизился — звёзд не становится меньше, и они не раздуваются в пятна. */
+    const l2=Math.log2(Math.max(1e-4, z)), n0=Math.floor(l2), f=l2-n0;
+    const zf=Math.max(0.8, Math.min(1.25, Math.pow(z, 0.2)));
     for(let li=0; li<layers.length; li++){
       const L=layers[li];
-      let tile=L.sp*z; if(tile<5) continue;
-      let cols=Math.ceil(w/tile)+2, rows=Math.ceil(h/tile)+2;
-      if((cols+1)*(rows+1)>G.max){                     // страховка от переполнения буфера
-        tile*=Math.sqrt((cols+1)*(rows+1)/G.max);
-        cols=Math.ceil(w/tile)+2; rows=Math.ceil(h/tile)+2;
+      gl.uniform1f(G.u.sharp, L.sharp||0);
+      gl.uniform1f(G.u.scat, L.scat||0.5);
+      for(const [n, вес] of [[n0, 1-f], [n0+1, f]]){
+        if(вес<0.02) continue;
+        let tile=L.sp*Math.pow(2, l2-n);                 // экранный шаг этой октавы: sp…2sp у крупной, sp/2…sp у мелкой
+        let cols=Math.ceil(w/tile)+2, rows=Math.ceil(h/tile)+2;
+        if((cols+1)*(rows+1)>G.max){                     // страховка от переполнения буфера
+          tile*=Math.sqrt((cols+1)*(rows+1)/G.max);
+          cols=Math.ceil(w/tile)+2; rows=Math.ceil(h/tile)+2;
+        }
+        const loX=-this.bgPanX*(1-L.par), loY=-this.bgPanY*(1-L.par);
+        const totX=-(this.tx+loX*z), totY=-(this.ty+loY*z);
+        gl.uniform1f(G.u.cols, cols+1);
+        gl.uniform1f(G.u.tile, tile);
+        gl.uniform2f(G.u.off, ((totX)%tile+tile)%tile, ((totY)%tile+tile)%tile);
+        gl.uniform2f(G.u.base, Math.floor(totX/tile)+n*131.0, Math.floor(totY/tile)+n*71.0);
+        gl.uniform1f(G.u.wob, L.wob*tile/L.sp);
+        // Точка меньше ~2 px гаснет в ноль: на неё приходится один фрагмент. Поэтому держим
+        // минимальный размер и компенсируем яркость по площади — «энергия» точки сохраняется.
+        const want=L.sz*1.5*zf*dpr, MINPX=2*dpr;
+        const size=Math.max(MINPX, Math.min(24, want));
+        const comp=want<MINPX ? (want/MINPX)*(want/MINPX) : 1;
+        gl.uniform1f(G.u.size, size);
+        gl.uniform1f(G.u.alpha, (light?L.aL:L.a)*comp*BG_GAIN*вес);
+        gl.drawArrays(gl.POINTS, 0, Math.min(G.max,(cols+1)*(rows+1)));
       }
-      const loX=-this.bgPanX*(1-L.par), loY=-this.bgPanY*(1-L.par);
-      const totX=-(this.tx+loX*z), totY=-(this.ty+loY*z);
-      gl.uniform1f(G.u.cols, cols+1);
-      gl.uniform1f(G.u.tile, tile);
-      gl.uniform2f(G.u.off, ((totX)%tile+tile)%tile, ((totY)%tile+tile)%tile);
-      gl.uniform2f(G.u.base, Math.floor(totX/tile), Math.floor(totY/tile));
-      gl.uniform1f(G.u.wob, L.wob*z);
-      // Точка меньше ~3 px гаснет в ноль: на неё приходится один фрагмент, и мягкое затухание
-      // умножает и без того малую яркость почти на ноль (canvas при уменьшении спрайта, наоборот,
-      // усредняет градиент и звезда остаётся видна). Поэтому задаём минимальный размер и
-      // компенсируем яркость по площади — суммарная «энергия» звезды сохраняется.
-      const want=L.sz*z*2*dpr, MINPX=3*dpr;
-      const size=Math.max(MINPX, Math.min(64, want));
-      const comp=want<MINPX ? (want/MINPX)*(want/MINPX) : 1;
-      gl.uniform1f(G.u.size, size);
-      gl.uniform1f(G.u.alpha, (light?L.aL:L.a)*comp*BG_GAIN);
-      gl.drawArrays(gl.POINTS, 0, Math.min(G.max,(cols+1)*(rows+1)));
     }
   }
   /* Фон рисует ТОЛЬКО WebGL. Прежний путь canvas2d удалён намеренно: он стоил 9-14 мс на кадр
@@ -2291,23 +2390,35 @@ class Graph{
     if(!блобов) return;
     // связи не должны «просвечивать» свечением: стираем свечение ровно из-под линий связей.
     // «дырки» невидимы — они всегда закрыты либо самой связью, либо нодой сверху (endpoints в центрах нод).
-    ctx.save(); ctx.globalCompositeOperation="destination-out"; ctx.strokeStyle="#000"; ctx.lineWidth=2.5; ctx.lineCap="round"; ctx.beginPath();
+    /* ШИРИНА ВЫРЕЗА — ОТ ШИРИНЫ САМОЙ ЛИНИИ, чуть уже её (0.8). Общие 2.5 px были шире тонких
+       линий («спит» — 0.6 px): по краям связи оставалась пустота без свечения, и через светящуюся
+       ноду связь шла с чёрной обводкой (КРОЛИК, 03.11.2026). Под пунктиром «ждёт» не вырезаем
+       вовсе — иначе тёмными стали бы промежутки между штрихами. Пакетами по ширине (шаг 0.5). */
+    const поток=S.settings.graphFlow!==false, тл=w=>Math.max(0.75, w*z);
+    const ширина=(l)=>{ const п=поток&&l._пот;
+      if(п) return п.вид==="ждёт" ? 0 : п.вид==="спит" ? Math.max(0.6, 0.45*z) : тл(п.ш);
+      return l.manual ? тл(1.8) : l.hubLink ? Math.max(1.2, 2.6*z) : тл(1.2); };
+    const вырезы=new Map();
+    ctx.save(); ctx.globalCompositeOperation="destination-out"; ctx.strokeStyle="#000"; ctx.lineCap="round";
     this.links.forEach(l=>{ const a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) return;
       const ax=(a.x+(a._ix||0))*z+tx, ay=(a.y+(a._iy||0))*z+ty, bx=(b.x+(b._ix||0))*z+tx, by=(b.y+(b._iy||0))*z+ty;
       /* Вырезаем только под связями В КАДРЕ: путь строится по всем 652 связям дерева, а видно
          из них меньше половины. Запас в 40 px — на толщину линии и прогиб. */
       if((ax<-40&&bx<-40)||(ax>cw+40&&bx>cw+40)||(ay<-40&&by<-40)||(ay>ch+40&&by>ch+40)) return;
-      ctx.moveTo(ax,ay);
+      const ш=Math.round(ширина(l)*0.8*2)/2; if(ш<=0) return;
+      let путь=вырезы.get(ш); if(!путь){ путь=new Path2D(); вырезы.set(ш, путь); }
+      путь.moveTo(ax,ay);
       /* Вырез повторяет ФОРМУ связи, включая прогиб (см. _linkPath). Пока он всегда шёл по
          прямой, а связь гнулась, вырез оставался на хорде: свечение там стёрто, а линии нет —
          и по светящейся ноде тянулась тёмная полоса. Смещение прогиба живёт в мировых
          координатах, поэтому на экране его надо умножить на зум. */
       const bd=l._bendC;
       if(bd){ const px=ax+(bx-ax)*bd.t, py=ay+(by-ay)*bd.t;
-        ctx.quadraticCurveTo(px+bd.ox*2*z, py+bd.oy*2*z, bx, by); }
-      else ctx.lineTo(bx,by);
+        путь.quadraticCurveTo(px+bd.ox*2*z, py+bd.oy*2*z, bx, by); }
+      else путь.lineTo(bx,by);
     });
-    ctx.stroke(); ctx.restore();
+    вырезы.forEach((путь,ш)=>{ ctx.lineWidth=ш; ctx.stroke(путь); });
+    ctx.restore();
   }
   /* Превью по одиночному клику: заглянуть внутрь, не открывая. Показывается через 350 мс —
      ждём, не будет ли второго клика (тогда открывается ридер, а превью отменяется).
@@ -4117,7 +4228,7 @@ class Graph{
     /* ТЕЧЕНИЕ ПОТОКА — тоже движение: пока в кадре есть связи к работе и анимация включена, граф
        в покой не уходит, но и не гонит кадры с частотой монитора — штрихам хватает ~30 к/с
        (см. _потокКадр в конце метода). Окно свёрнуто — не течёт. */
-    const течёт = this._течёт && S.settings.graphFlow!==false && S.settings.graphFlowAnim!==false && !document.hidden;
+    const течёт = ((this._течёт && S.settings.graphFlow!==false) || this._вращ) && S.settings.graphFlowAnim!==false && !document.hidden;
     this._потокКадр = течёт && this.alpha===0 && !camMoving && !busy && !this._hovId && !this._навЕдет;
     if(!force && this.alpha===0 && !camMoving && !busy && !камОстывает && !this._hovId && !this._навЕдет && !течёт){
       // то же условие, что у AMP ниже: дышат ноды или нет — от этого зависит, нужен ли полный кадр
@@ -4985,6 +5096,8 @@ class Graph{
       жар:    [в("--ur1","#b9a06a"), в("--ur2","#d98b46"), в("--ur3","#e0625a")],
       // поток работы (_drawMain): русло к работе — акцентом, штрихи течения — светлее него
       акцент: в("--accent","#e8a14b"), акцентСвет:в("--flow-hi","#ffd9a0"), жарСвет:в("--flow-hot","#ffb0a8"),
+      // штриховка «ждёт» (материал «иней»): холодная светлая на тёмной теме, тёмно-синяя на светлой
+      инейШтрих:в("--frost","rgba(188,212,240,.55)"),
     };
     return this._пал;
   }
@@ -5005,7 +5118,18 @@ class Graph{
     return "rgb("+Math.round(A[0]*k+B[0]*(1-k))+","+Math.round(A[1]*k+B[1]*(1-k))+","+Math.round(A[2]*k+B[2]*(1-k))+")";
   }
   // контур фигуры узла на холсте: круг, квадрат, ромб (тот же квадрат под 45°) и шестиугольник
-  _shapePath(ctx, форма, x, y, r){
+  _shapePath(ctx, форма, x, y, r, уг){
+    /* ПОВОРОТ — у ноды «в работе» (уг, радианы; см. МАТЕРИАЛ СТАТУСА). Вершины вращаются в самом
+       пути, а не трансформом холста: группы нод собираются в один путь на много фигур. */
+    if(уг && форма!=="circle"){
+      const c=Math.cos(уг), s=Math.sin(уг), D=r*1.41;
+      const в = форма==="square" ? [[-r,-r],[r,-r],[r,r],[-r,r]]
+              : форма==="diamond" ? [[0,-D],[D,0],[0,D],[-D,0]]
+              : форма==="hexagon" ? [0,1,2,3,4,5].map(i=>{ const a=Math.PI/180*(60*i-30); return [r*Math.cos(a), r*Math.sin(a)]; })
+              : null;
+      if(в){ в.forEach(([dx,dy],i)=>{ const px=x+dx*c-dy*s, py=y+dx*s+dy*c; if(i) ctx.lineTo(px,py); else ctx.moveTo(px,py); });
+        ctx.closePath(); return; }
+    }
     if(форма==="square"){ ctx.rect(x-r,y-r,r*2,r*2); return; }
     if(форма==="diamond"){ ctx.moveTo(x,y-r*1.41); ctx.lineTo(x+r*1.41,y); ctx.lineTo(x,y+r*1.41); ctx.lineTo(x-r*1.41,y); ctx.closePath(); return; }
     if(форма==="hexagon"){
@@ -5170,6 +5294,46 @@ class Graph{
     }
     const тень=1-(1-ГАСН)*this._прГаш;      // во сколько раз приглушено всё непричастное
     const заметен=(id)=>!активные||активные.has(id);
+    /* ФОН «ТОПОГРАФИЯ РАБОТЫ» — изолинии под графом (см. _topoBuild). Пути готовы в мировых
+       координатах: в кадре только смена трансформа и восемь stroke. Пересчёт — при пересборке
+       и раз в полсекунды, пока раскладка движется (ноды едут — рельеф едет за ними). */
+    /* ФОН «СЕТКА» — ЛИНИИ С ИЕРАРХИЕЙ, как бесконечная сетка 3D-редакторов. Точками в узлах она
+       при приближении расползалась в редкие крапины и сеткой не читалась (КРОЛИК, 03.11.2026).
+       Уровни идут через ×5 от шага 20 мира; яркость уровня зависит ТОЛЬКО от его экранного шага
+       (гаснет к 8 px, полная с 36), поэтому смена зума плавная, без скачков. Линия старшего уровня
+       лежит поверх младшей — крупные клетки ярче сами собой. Пиксельная привязка (+0.5) держит
+       линию в один пиксель на любом зуме. Стоит четыре stroke на кадр. */
+    if(this._bgKind()==="grid"){
+      // тише точек: сетка — подложка, а не рисунок, и не должна тянуть на себя взгляд (КРОЛИК)
+      const светлая=document.body.classList.contains("light"), A=светлая?0.04:0.028;
+      const wx0=-tx/z, wx1=(cw-tx)/z, wy0=-ty/z, wy1=(ch-ty)/z;
+      let шаг=20*Math.pow(5, Math.ceil(Math.log(8/(20*z))/Math.log(5)));
+      ctx.save(); ctx.lineWidth=1; ctx.strokeStyle=светлая?"#000":"#fff";
+      for(let ур=0; ур<4 && шаг*z<Math.max(cw,ch)*2; ур++, шаг*=5){
+        const T=шаг*z, сила=Math.min(1, Math.max(0, (T-8)/28));
+        if(сила>0){
+          ctx.globalAlpha=A*сила*(3-2*сила); ctx.beginPath();
+          for(let x=Math.ceil(wx0/шаг)*шаг; x<=wx1; x+=шаг){ const sx=Math.round(x*z+tx)+0.5; ctx.moveTo(sx,0); ctx.lineTo(sx,ch); }
+          for(let y=Math.ceil(wy0/шаг)*шаг; y<=wy1; y+=шаг){ const sy=Math.round(y*z+ty)+0.5; ctx.moveTo(0,sy); ctx.lineTo(cw,sy); }
+          ctx.stroke();
+        }
+      }
+      ctx.restore(); ctx.globalAlpha=1;
+    }
+    if(this._bgKind()==="topo"){
+      const сейчас=performance.now();
+      if(!this._topo || this._topo.src!==this.links || (this.alpha>0 && сейчас-this._topo.at>500)) this._topoBuild();
+      const т=this._topo;
+      if(т && т.пути.length){
+        ctx.save(); ctx.setTransform(dpr*z,0,0,dpr*z, dpr*tx, dpr*ty);
+        /* На отдалении изолинии сбиваются в мелкий узор и тают — ярче и чуть толще к общему виду
+           (КРОЛИК: «слишком тусклая при отдалении»); на рабочем зуме и ближе — как было. */
+        const отд=Math.min(2.4, Math.max(1, 1/Math.sqrt(z)));
+        ctx.lineWidth=Math.min(1.5, отд)/z; ctx.strokeStyle=пал.акцент; ctx.lineJoin="round";
+        т.пути.forEach((п,i)=>{ ctx.globalAlpha=Math.min(0.5, (0.045+i*0.018)*отд); ctx.stroke(п); });
+        ctx.restore(); ctx.globalAlpha=1;
+      }
+    }
     /* СВЯЗИ ОДНИМ ПУТЁМ. Каждая линия отдельным stroke() — это отдельный вызов отрисовки, а
        именно на их числе canvas и упирается (тот же урок, что и с фоном: 0.7 мкс на вызов).
        Поэтому копим все линии одного вида в один путь и обводим разом: тусклые отдельно от
@@ -5183,6 +5347,8 @@ class Graph{
     const тускло=(S.settings.graphFadedBright!=null?S.settings.graphFadedBright:0.5);
     const цветКонца=(n)=>n.archived ? пал.тусклая : (n.color || пал.связь);
     const цветные=new Set();
+    // связи, которые рисует проход потока (l._пот, см. _flowStats): обычные проходы их пропускают
+    const мимоПотока=(l)=>!!l._пот && S.settings.graphFlow!==false;
     // связь «своя», когда ОБА её конца в подсветке: так подсвечивается окружение выделенного,
     // а не лучи, уходящие в погашенную часть графа (то же правило, что у поиска в SVG)
     const свояСвязь=(l)=>!активные || (активные.has(l.a) && активные.has(l.b));
@@ -5190,6 +5356,7 @@ class Graph{
     const радуга=[[],[]];                       // разноцветные: каждой свой градиент
     for(let i=0;i<this.links.length;i++){
       const l=this.links[i]; if(l.faded) continue;                    // потухшие рисует общий проход ниже
+      if(мимоПотока(l)) continue;
       if(l.manual) continue;                                          // ручные — своим проходом, они толще и светятся
       if(l.hubLink) continue;                                         // луч «область → пустышка» — тоже своим, ещё толще
       const a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) continue;
@@ -5259,6 +5426,7 @@ class Graph{
         if(l.hubLink && !l.faded) continue;                           // «область → пустышка» тоже отдельным проходом
         if(подсвеченаВыделением(l)!==круг.своя) continue;
         if(цветные.has(i)) continue;                                  // уже нарисована цветным проходом
+        if(мимоПотока(l)) continue;
         const a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) continue;
         const ax=эx(a), ay=эy(a), bx=эx(b), by=эy(b);
         if((ax<вид.x1&&bx<вид.x1)||(ax>вид.x2&&bx>вид.x2)||(ay<вид.y1&&by<вид.y1)||(ay>вид.y2&&by>вид.y2)) continue;
@@ -5286,7 +5454,7 @@ class Graph{
     {
       ctx.lineWidth=Math.max(1.2, 2.6*z); ctx.lineCap="round";
       for(let i=0;i<this.links.length;i++){
-        const l=this.links[i]; if(!l.hubLink || l.faded) continue;
+        const l=this.links[i]; if(!l.hubLink || l.faded || мимоПотока(l)) continue;
         const a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) continue;
         const ax=эx(a), ay=эy(a), bx=эx(b), by=эy(b);
         if((ax<вид.x1&&bx<вид.x1)||(ax>вид.x2&&bx>вид.x2)||(ay<вид.y1&&by<вид.y1)||(ay>вид.y2&&by>вид.y2)) continue;
@@ -5307,7 +5475,7 @@ class Graph{
     {
       let ручных=0;
       for(let i=0;i<this.links.length;i++){
-        const l=this.links[i]; if(!l.manual || l.faded) continue;
+        const l=this.links[i]; if(!l.manual || l.faded || мимоПотока(l)) continue;
         const a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) continue;
         const ax=эx(a), ay=эy(a), bx=эx(b), by=эy(b);
         if((ax<вид.x1&&bx<вид.x1)||(ax>вид.x2&&bx>вид.x2)||(ay<вид.y1&&by<вид.y1)||(ay>вид.y2&&by>вид.y2)) continue;
@@ -5362,75 +5530,90 @@ class Graph{
       }
       ctx.restore();
     }
-    /* ПОТОК РАБОТЫ ПО СВЯЗЯМ («Поток 2.0», см. _flowStats). Поверх обычных связей, под нодами:
-       • РУСЛО — полупрозрачная полоса, тем шире, чем больше незакрытой работы ниже по ветке
-         (корень от √ доли, чтобы ствол не съедал экран); закрытая ветка русла не имеет — «пересохла»;
-       • цвет русла — что ниже: работа — акцент, просрочка — красный, иначе цвет самой связи;
-       • ТЕЧЕНИЕ — к работе и к просрочке бегут светлые штрихи от родителя к ребёнку (сдвиг
-         пунктира по часам кадра, без новых проходов);
-       • ЖДЁТ — связь к ноде «ждёт» пунктиром цвета ожидания: работа по ней сейчас не идёт;
-       • СПИТ — связи в ветку на паузе (сама нода или кто-то из предков) почти гаснут.
-       Обрыв связи у «ждёт» («плотина» из макета) снят: на живом графе он читался как сбой
-       отрисовки (КРОЛИК, 03.11.2026). Связи «ждёт» и «спит» перерисовываются: прежняя линия
-       стирается (destination-out), поверх ложится своя — иначе яркая обычная проступала бы.
+    /* ПОТОК РАБОТЫ ПО СВЯЗЯМ («Поток 2.0», см. _flowStats). Поверх обычных связей, под нодами.
+       Какие связи его — решено в _flowStats (l._пот), обычные проходы их пропускают, поэтому
+       каждая такая связь — ОДНА линия, без стирания и без подложек:
+       • РУСЛО — сама связь, шире, чем больше незакрытой работы ниже по ветке (корень от √ доли,
+         чтобы ствол не съедал экран); закрытая ветка русла не имеет — «пересохла». Полупрозрачная
+         полоса поверх обычной линии читалась как ДВЕ линии (КРОЛИК, 03.11.2026);
+       • цвет русла — цвета концов, как у обычной связи (градиент); только просрочка — красная;
+       • ТЕЧЕНИЕ — к работе и к просрочке бегут зёрна от родителя к ребёнку: цвет русла, только
+         светлее. Белые зёрна с тёмной подложкой выпрыгивали из линии (КРОЛИК, 03.11.2026);
+       • ЖДЁТ — связь к ноде «ждёт» пунктиром цвета самой связи: работа по ней сейчас не идёт;
+       • СПИТ — связи в ветку на паузе (ближайший явный статус — пауза) тонкие и тусклые.
+       Обрыв связи у «ждёт» («плотина» из макета) снят: на живом графе он читался как сбой.
        Пакетами по цвету и ширине — на сотнях связей это десяток stroke, а не сотни.
        Выключается в меню «…» (S.settings.graphFlow), течение — отдельно (graphFlowAnim). */
     this._течёт=false;
-    if(S.settings.graphFlow!==false && this._flowMax){
-      const пачки=new Map(), течение=[], ждут=[], спят=[], макс=this._flowMax;
+    if(S.settings.graphFlow!==false){
+      const пачки=new Map(), радугаП=[], течение=[], ждут=[], спят=[];
       const сейчас=performance.now(), анимация=S.settings.graphFlowAnim!==false;
       for(let i=0;i<this.links.length;i++){
-        const l=this.links[i], a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) continue;
-        // ребёнок — тот конец, чей родитель другой конец (или кто держится за хаб области)
-        const реб = (a.ref && a.ref.parent===l.b) || b.type==="hub" ? a : (b.ref && b.ref.parent===l.a) || a.type==="hub" ? b : null;
-        if(!реб || !реб._поток || реб.archived) continue;
-        const род = реб===a ? b : a, ст=реб._поток;
+        const l=this.links[i], п0=l._пот; if(!п0) continue;
+        const a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) continue;
+        const реб=п0.реб, род = реб===a ? b : a;
         const ax=эx(род), ay=эy(род), bx=эx(реб), by=эy(реб);
         if((ax<вид.x1&&bx<вид.x1)||(ax>вид.x2&&bx>вид.x2)||(ay<вид.y1&&by<вид.y1)||(ay>вид.y2&&by>вид.y2)) continue;
-        const bd=l._bendC, отр=[ax,ay,bx,by, bd?bd.t:0, bd?bd.ox:0, bd?bd.oy:0];
-        if(реб._спит){ спят.push({отр, цвет:цветКонца(реб)}); continue; }
-        if(реб.waiting && !ст.doing){ ждут.push(отр); continue; }
-        if(!ст.open) continue;
-        const ш=Math.round((1.2+4.6*Math.sqrt(ст.open/макс))*2)/2;     // шаг 0.5 px — иначе пачек столько же, сколько связей
-        const цвет=ст.doing ? пал.акцент : ст.over ? пал.время.просрочка : цветКонца(реб);
-        const ключ=цвет+"|"+ш+"|"+(ст.doing||ст.over?1:0);
-        let п=пачки.get(ключ); if(!п){ п={цвет, ш, ярко:ст.doing||ст.over, отр:[]}; пачки.set(ключ, п); }
-        п.отр.push(отр);
-        if(анимация && (ст.doing||ст.over)) течение.push({отр, цвет:ст.doing?пал.акцентСвет:пал.жарСвет, ш});
+        /* ПУТЬ ИДЁТ ОТ РОДИТЕЛЯ К РЕБЁНКУ (так течёт пунктир), а прогиб связи задан от её начала
+           l.a: доля t считается от a. Когда ребёнок — это a, путь развёрнут, и t нужно отразить
+           (1-t), иначе контрольная точка дуги уезжала и рядом ложилась вторая линия со своим
+           изгибом — «несколько связей друг на друге» (снимок КРОЛИКА, 03.11.2026). */
+        const bd=l._bendC, отр=[ax,ay,bx,by, bd?(реб===a?1-bd.t:bd.t):0, bd?bd.ox:0, bd?bd.oy:0];
+        const гас=свояСвязь(l)?1:тень;
+        if(п0.вид==="спит"){ спят.push({отр, цвет:цветКонца(реб), гас}); continue; }
+        if(п0.вид==="ждёт"){ ждут.push({отр, цвет:цветКонца(реб), гас}); continue; }
+        const ст=п0.ст, ш=п0.ш;
+        /* ЦВЕТ РУСЛА — ОТ КОНЦОВ, как у обычной связи: разноцветные ноды дают градиент. Единый
+           акцент на всё, что ведёт к работе, перекрашивал ветки в оранжевый и стирал, чья это
+           ветка (КРОЛИК, 03.11.2026). Своим цветом остаётся только просрочка — это тревога. */
+        const ca = ст.over&&!ст.doing ? пал.время.просрочка : цветКонца(род);
+        const cb = ст.over&&!ст.doing ? пал.время.просрочка : цветКонца(реб);
+        const ярко=ст.doing||ст.over;
+        if(ca===cb){
+          const ключ=ca+"|"+ш+"|"+(ярко?1:0)+"|"+гас;
+          let п=пачки.get(ключ); if(!п){ п={цвет:ca, ш, ярко, гас, отр:[]}; пачки.set(ключ, п); }
+          п.отр.push(отр);
+        } else радугаП.push({отр, ca, cb, ш, ярко, гас});
+        if(анимация && ярко) течение.push({отр, ca, cb, ш, гас});
       }
       ctx.lineCap="round";
-      // стереть обычную линию у «ждёт» и «спит» — поверх ляжет своя
-      if(ждут.length || спят.length){
-        ctx.save(); ctx.globalCompositeOperation="destination-out"; ctx.lineWidth=Math.max(1.2, 2.6*z)+3; ctx.beginPath();
-        for(const о of ждут) путьСвязи(о); for(const с of спят) путьСвязи(с.отр);
-        ctx.stroke(); ctx.restore();
-      }
+      /* «спит» — ТОНЬШЕ, а не темнее: тёмная линия той же толщины читалась как грязь (КРОЛИК);
+         тонкая в своём цвете — как «ветка отложена». */
       if(спят.length){
-        ctx.globalAlpha=0.2; ctx.lineWidth=толщ(1);
-        for(const с of спят){ ctx.strokeStyle=с.цвет; ctx.beginPath(); путьСвязи(с.отр); ctx.stroke(); }
+        ctx.lineWidth=Math.max(0.6, 0.45*z);
+        for(const с of спят){ ctx.globalAlpha=0.55*с.гас; ctx.strokeStyle=с.цвет; ctx.beginPath(); путьСвязи(с.отр); ctx.stroke(); }
         ctx.globalAlpha=1;
       }
+      // «ждёт» — пунктир ЦВЕТОМ САМОЙ СВЯЗИ (КРОЛИК): чужой голубой выдёргивал связь из ветки
       if(ждут.length){
-        const шл=толщ(1.5); ctx.setLineDash([Math.max(4, шл*2.6), Math.max(3, шл*2)]); ctx.lineCap="butt";
-        ctx.strokeStyle=пал.ждёт; ctx.globalAlpha=0.9; ctx.lineWidth=шл; ctx.beginPath();
-        for(const о of ждут) путьСвязи(о);
-        ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1; ctx.lineCap="round";
+        const шл=толщ(1.4); ctx.setLineDash([Math.max(4, шл*2.6), Math.max(3, шл*2)]); ctx.lineCap="butt";
+        ctx.lineWidth=шл;
+        for(const ж of ждут){ ctx.globalAlpha=0.9*ж.гас; ctx.strokeStyle=ж.цвет; ctx.beginPath(); путьСвязи(ж.отр); ctx.stroke(); }
+        ctx.setLineDash([]); ctx.globalAlpha=1; ctx.lineCap="round";
       }
       пачки.forEach(п=>{
-        ctx.globalAlpha=п.ярко?0.3:0.16; ctx.strokeStyle=п.цвет; ctx.lineWidth=толщ(п.ш)+0.5; ctx.beginPath();
+        ctx.globalAlpha=(п.ярко?0.85:0.6)*п.гас; ctx.strokeStyle=п.цвет; ctx.lineWidth=толщ(п.ш); ctx.beginPath();
         for(const о of п.отр) путьСвязи(о);
         ctx.stroke();
       });
+      // разноцветные — градиентом поштучно, как в общем проходе связей
+      for(const р of радугаП){ const о=р.отр, гр=ctx.createLinearGradient(о[0],о[1],о[2],о[3]);
+        гр.addColorStop(0,р.ca); гр.addColorStop(1,р.cb);
+        ctx.globalAlpha=(р.ярко?0.85:0.6)*р.гас; ctx.strokeStyle=гр; ctx.lineWidth=толщ(р.ш); ctx.beginPath(); путьСвязи(о); ctx.stroke(); }
       ctx.globalAlpha=1;
       if(течение.length){
         this._течёт=true;
         // шаг штриха и скорость — от толщины и зума: в экранных пикселях при приближении штрихи
         // раздувались в «бусины», а течение на отдалении неслось быстрее самого графа
         const ск=Math.max(0.6, Math.min(2.5, z));
-        for(const т of течение){ const шт=Math.max(1.4, толщ(т.ш)*0.5);
-          ctx.setLineDash([шт*0.8, шт*7]); ctx.lineDashOffset=-сейчас*0.04*ск;
-          ctx.strokeStyle=т.цвет; ctx.lineWidth=шт; ctx.beginPath(); путьСвязи(т.отр); ctx.stroke(); }
-        ctx.setLineDash([]); ctx.lineDashOffset=0;
+        const светлаяТема=document.body.classList.contains("light");
+        const светлее=(ц)=>this._mix(ц, светлаяТема?"#000000":"#ffffff", светлаяТема?0.6:0.45);
+        for(const т of течение){ const шт=Math.max(1.4, толщ(т.ш)*0.55);
+          ctx.setLineDash([шт*1.4, шт*5]); ctx.lineDashOffset=-сейчас*0.04*ск;
+          const о=т.отр; let цв=светлее(т.ca);
+          if(т.ca!==т.cb){ цв=ctx.createLinearGradient(о[0],о[1],о[2],о[3]); цв.addColorStop(0,светлее(т.ca)); цв.addColorStop(1,светлее(т.cb)); }
+          ctx.strokeStyle=цв; ctx.globalAlpha=т.гас; ctx.lineWidth=шт; ctx.beginPath(); путьСвязи(т.отр); ctx.stroke(); }
+        ctx.setLineDash([]); ctx.lineDashOffset=0; ctx.globalAlpha=1;
       }
     }
     /* ПУТЬ К ВЫБРАННОЙ НОДЕ (стиль A, аудит 2.1, шаг 3.4): от неё вверх по дереву до области — её
@@ -5479,11 +5662,14 @@ class Graph{
        Мелочь (приоритет, сроки, галочки, булавки, значки, подписи) копим в списки
        и рисуем следом отдельными проходами — их всегда меньше, чем узлов. */
     const группы=new Map();
+    // поворот нод «в работе» — по часам кадра; выключатель анимации общий с течением (меню «…»)
+    const сейчасКадр=performance.now(), крутить=S.settings.graphFlowAnim!==false && !this._bgReduce;
+    this._вращ=false;
     const приор=[], галочки=[], булавки=[], значки=[], подписи=[], выдел=[], навед=[];
     /* Новые признаки — своими списками и своими проходами: смена стиля внутри цикла узлов рвёт
        пакет отрисовки. Статусы «ждёт» и «на очереди» своего списка НЕ имеют — они рисуются
        глифом внутри ноды и едут общим проходом «значки», вместе со значками тегов. */
-    const сроки=[], рангЖар=[], прогресс=[];
+    const сроки=[], рангЖар=[], прогресс=[], материалы=[];
     /* ПРОГРЕСС ПОДЗАДАЧ (аудит 2.1, Р1): сколько детей-задач готово. Дети — по ДАННЫМ (ref.parent),
        как подсветка пути; «Готово» бывает и одним статусом без done (данные из пакета) — считаем,
        как таблица. Каждый кадр: на тысяче нод это сотые доли миллисекунды, зато статус, сменённый
@@ -5541,7 +5727,7 @@ class Graph{
       /* СТИЛЬ A (аудит 2.1, шаг 3.4): нода залита ТОНОМ своего цвета, а не фоном холста. Пустой
          контур на чёрном читался как дырка, и цвет ноды держала одна тонкая обводка. «В работе»
          при этом обязано остаться отличимым — у него тон вдвое плотнее (плюс своё свечение). */
-      let зал=this._mix(свой, пал.фонУзла, 0.14), обв=свой, лw=1.7, пункт=false, альфа=1;
+      let зал=this._mix(свой, пал.фонУзла, 0.14), обв=свой, лw=1.7, пункт=false, альфа=1, уг=0;
       if(n.type==="hub"){ зал=свой; обв=свой; лw=1; }
       else if(n.done){ зал=свой; }                                    // выполненная задача — залита своим цветом
       if(n.doing) зал=this._mix(свой, пал.фонУзла, 0.30);           // «в работе»: тон заметно плотнее обычного
@@ -5550,6 +5736,30 @@ class Graph{
          но приглушить, плюс пунктир и кольцо». Пунктир и серое кольцо (ниже) остаются признаком
          остановки — именно они отличают паузу от работы. */
       if(n.paused){ зал=this._mix(свой, пал.фонУзла, 0.16); обв=this._mix(свой, пал.кольцо, 0.55); лw=1.6; пункт=true; альфа=0.72; }
+      /* МАТЕРИАЛ СТАТУСА (выбор КРОЛИКА из demo_ноды-и-фон.html, 03.11.2026). Статус — фактура
+         самой формы, а не значок внутри: песочные часы, глаз и стрелка «выглядели слабо и визуально
+         и концептуально». Не начато — КАРКАС (почти пустой контур); очередь — ЗАРЯЖЕНО (внутри
+         лежит малая копия формы); в работе — форма ВРАЩАЕТСЯ, залитая тоном в 40% своего цвета;
+         ждёт — ИНЕЙ (холодная штриховка); проверка — ПОЛОВИНА НА ПОЛОВИНУ (диагональ); пауза —
+         ПЕПЕЛ (серая, пунктир) — и у самой ноды, и у всей её ветки; готово — сплошная с галкой.
+         Фактуры, которым мало цвета группы (иней, диагональ, ядро), рисуются отдельным
+         проходом после групп — таких нод в кадре единицы-десятки. */
+      const спит=!n.archived && !n.done && (n.paused || n._спит);
+      if(n.type!=="hub" && !n.hollow && !n.archived && !n.done){
+        if(спит){ зал=this._mix(пал.кольцо, пал.фонУзла, 0.12); обв=this._mix(свой, пал.кольцо, 0.2); лw=1.4; пункт=true; альфа=0.5; }
+        /* «В работе» — ФОРМА МЕДЛЕННО ВРАЩАЕТСЯ (вариант «Форма говорит» из demo_ноды-и-фон.html,
+           КРОЛИК 03.11.2026): живое видно боковым зрением, а заливка — тон в 40% своего цвета, не
+           сплошная. Сплошная с бликом была самым ярким пятном на графе и спорила с выделением.
+           Круг вращать нечего — его держат тон и свечение. Значок тега не вращается: он читается. */
+        else if(n.doing){ зал=this._mix(свой, пал.фонУзла, 0.4); обв=свой; лw=2;
+          if(форма!=="circle" && крутить){ уг=(сейчасКадр%12000)/12000*Math.PI*2; this._вращ=true; } }
+        // «ждёт» и «проверка» контур НЕ перекрашивают: статус несёт фактура внутри, а контур остаётся
+        // цветом ноды — чужой голубой или сиреневый контур выдёргивал ноду из её ветки (КРОЛИК, 03.11.2026)
+        else if(n.waiting){ зал=this._mix(свой, пал.фонУзла, 0.14); материалы.push({вид:"иней", x, y, r, форма}); }
+        else if(n.review){ зал=this._mix(свой, пал.фонУзла, 0.14); материалы.push({вид:"весы", x, y, r, форма}); }
+        else if(n.next){ зал=this._mix(свой, пал.фонУзла, 0.12); лw=1.8; материалы.push({вид:"заряд", x, y, r, форма, цвет:свой}); }
+        else { зал=this._mix(свой, пал.фонУзла, 0.05); лw=1.5; }       // каркас
+      }
       if(n.archived){ зал=n.done?пал.кольцо:пал.фонУзла; обв=пал.кольцо; лw=1.4; альфа=0.32; }
       /* ПУСТЫШКА — ЭТО ТА ЖЕ ОБЛАСТЬ, а не отдельная невзрачная нода: КРОЛИК прямо сказал, что
          пунктирный прозрачный контур терялся на графе и не читался как «часть области». Теперь
@@ -5563,20 +5773,20 @@ class Graph{
       /* ВЫДЕЛЕНИЕ — толстая обводка САМОЙ фигуры её цветом, как .g-node.sel .nd в стилях, а не
          кольцо вокруг: кольцо читалось как ещё один элемент, а не как «эта нода выбрана». */
       const выделен=this.selNodes&&this.selNodes.has(n.id);
-      if(выделен){ обв=свой; лw=4.5; пункт=false; альфа=1; выдел.push({x, y, r, форма, цвет:свой}); }
+      if(выделен){ обв=свой; лw=4.5; пункт=false; альфа=1; выдел.push({x, y, r, форма, уг, цвет:свой}); }
       // наведение светится своим цветом, но слабее выделения: подсказка «сюда можно нажать»
-      else if(n._нав>0.02) навед.push({x, y, r, форма, цвет:свой, сила:n._нав});
+      else if(n._нав>0.02) навед.push({x, y, r, форма, уг, цвет:свой, сила:n._нав});
       const ключ=форма+"|"+зал+"|"+обв+"|"+лw+"|"+(пункт?1:0)+"|"+альфа.toFixed(2);
       let гр=группы.get(ключ);
       if(!гр){ гр={форма, зал, обв, лw, пункт, альфа, точки:[]}; группы.set(ключ,гр); }
-      гр.точки.push(x,y,r);
+      гр.точки.push(x,y,r,уг);
       /* ПРИОРИТЕТ СЧИТАЕМ ДО ПОРОГА ДЕТАЛЕЙ (правка по просьбе КРОЛИКА). Раньше дужка копилась
          ниже `if(!детали(r)) continue`, и на общем виде — там, где как раз и ищут «что важное» —
          она пропадала вместе с остальной мелочью. Это единственный признак, которому отдалять
          нельзя: он про важность, а не про подробности. Всё прочее (кольца, глифы, подписи)
          порогу по-прежнему подчиняется — иначе 245 нод дадут кашу. */
       if(n.type==="task" && n.ref && !n.ref.done && n.ref.priority && !n.done && !n.archived)
-        приор.push({x, y, r, форма, лw, альфа, ур:Math.min(+n.ref.priority,3)});
+        приор.push({x, y, r, форма, уг, лw, альфа, ур:Math.min(+n.ref.priority,3)});
       /* ЖАР — ТОЖЕ ДО ПОРОГА ДЕТАЛЕЙ (правка по просьбе КРОЛИКА: «при сильном отдалении не видно
          номеров»). Тот же довод, что у приоритета: горящих не больше восьми (СРОЧНОСТЬ_ПРЕДЕЛ),
          и именно на общем виде — где всё остальное уже спрятал порог — нужно видеть, что вообще
@@ -5596,7 +5806,7 @@ class Graph{
         const гот=подзГотово.get(n.id)||0;
         if(гот){ const rп=r-толщ(лw)*0.5, выс=форма==="diamond" ? rп*1.41 : rп;
           верхЗаливки=y+выс-2*выс*(гот/вс);
-          прогресс.push({x, y, r:rп, форма, альфа, доля:гот/вс, цвет:this._mix(свой, пал.фонУзла, n.doing?0.85:0.72)}); }
+          прогресс.push({x, y, r:rп, форма, уг, альфа, доля:гот/вс, цвет:this._mix(свой, пал.фонУзла, n.doing?0.85:0.72)}); }
       }
       const доЗначка=значки.length;
       /* СТАТУС — ГЛИФОМ ВНУТРИ НОДЫ (правка по просьбе КРОЛИКА): песочные часы у «ждёт»,
@@ -5607,20 +5817,20 @@ class Graph{
          Место внутри делит со значком тега, и уступает ТЕГ: тег — постоянная классификация,
          а статус — состояние прямо сейчас, ради которого на ноду и смотрят. Снимут статус —
          значок тега вернётся сам. Пустышке глиф не ставим: внутри у неё значок своей области. */
-      const статусГлиф = n.hollow ? null
-        : n.waiting ? {и:СТАТУСЫ.waiting.иконка, ц:пал.ждёт}
-        : n.next    ? {и:СТАТУСЫ.next.иконка,    ц:пал.очередь}
-        : n.review  ? {и:СТАТУСЫ.review.иконка,  ц:пал.проверка}
-        : null;
+      /* Значков статуса больше нет — статус несёт МАТЕРИАЛ формы (см. выше). У «очереди», «ждёт» и
+         «проверки» внутри своя фактура (ядро, иней, диагональ), и значок тега на ней спорил бы с
+         ней: его там не рисуем. У «в работе» значок тёмный — на сплошной заливке своим цветом. */
+      const статусГлиф = null;
+      const безЗначка = !n.done && !n.archived && !спит && (n.next || n.waiting || n.review);
       // срок — плашкой на правом верхнем «углу» фигуры, булавка — значком на левом нижнем
       if(n.дней!=null && подписьВидна(r)) сроки.push({x, y, r, форма, альфа, дней:n.дней});
       if(n.fixed) булавки.push({x, y, r, форма, альфа});
       if(kindIsTask(n.type) && n.done) галочки.push(x,y,r);
       if(статусГлиф){ const гл=iconGlyph(статусГлиф.и);
         if(гл) значки.push({x, y, гл, кегль:Math.max(8,r*1.15), цвет:статусГлиф.ц, альфа}); }
-      else if(n.tagStyle && n.tagStyle.icon){ const гл=iconGlyph(n.tagStyle.icon);
+      else if(n.tagStyle && n.tagStyle.icon && !безЗначка){ const гл=iconGlyph(n.tagStyle.icon);
         if(гл) значки.push({x, y, гл, кегль:Math.max(8,r*1.25),
-                            цвет:(n.color&&n.type!=="hub")?n.color:пал.текст, альфа}); }
+                            цвет: спит ? пал.кольцо : (n.color&&n.type!=="hub")?n.color:пал.текст, альфа}); }
       /* ЗНАЧОК ОБЛАСТИ ВНУТРИ ПУСТЫШКИ — тот же глиф, что в карточке области и в панели слева
          (a.icon). Не значок тега (у пустышки его и не бывает): цель тут не «какой это тип
          ноды», а «какой это области принадлежит», и без иконки заливка+пунктир читались бы
@@ -5651,8 +5861,8 @@ class Graph{
         /* Свечение в два слоя, как два drop-shadow у .g-node.sel в стилях: ближний даёт плотность
            самой обводки, дальний — заметный ореол. Одним слоем выделение читалось слабее. */
         ctx.strokeStyle=в.цвет; ctx.shadowColor=в.цвет;
-        ctx.shadowBlur=9;  ctx.beginPath(); this._shapePath(ctx, в.форма, в.x, в.y, в.r); ctx.stroke();
-        ctx.shadowBlur=22; ctx.beginPath(); this._shapePath(ctx, в.форма, в.x, в.y, в.r); ctx.stroke();
+        ctx.shadowBlur=9;  ctx.beginPath(); this._shapePath(ctx, в.форма, в.x, в.y, в.r, в.уг); ctx.stroke();
+        ctx.shadowBlur=22; ctx.beginPath(); this._shapePath(ctx, в.форма, в.x, в.y, в.r, в.уг); ctx.stroke();
       }
       ctx.restore();
     }
@@ -5663,8 +5873,8 @@ class Graph{
       for(const в of навед){
         ctx.globalAlpha=в.сила; ctx.lineWidth=толщ(3.2);
         ctx.strokeStyle=в.цвет; ctx.shadowColor=в.цвет;
-        ctx.shadowBlur=8*в.сила;  ctx.beginPath(); this._shapePath(ctx, в.форма, в.x, в.y, в.r); ctx.stroke();
-        ctx.shadowBlur=20*в.сила; ctx.beginPath(); this._shapePath(ctx, в.форма, в.x, в.y, в.r); ctx.stroke();
+        ctx.shadowBlur=8*в.сила;  ctx.beginPath(); this._shapePath(ctx, в.форма, в.x, в.y, в.r, в.уг); ctx.stroke();
+        ctx.shadowBlur=20*в.сила; ctx.beginPath(); this._shapePath(ctx, в.форма, в.x, в.y, в.r, в.уг); ctx.stroke();
       }
       ctx.restore();
     }
@@ -5674,10 +5884,29 @@ class Graph{
          при приближении штрих становился короче толщины, и пунктир сливался в сплошную (КРОЛИК) */
       { const шл=толщ(гр.лw); ctx.setLineDash(гр.пункт?[Math.max(3.4, шл*2.4), Math.max(2.6, шл*1.8)]:[]); }
       ctx.beginPath();
-      for(let k=0;k<гр.точки.length;k+=3) this._shapePath(ctx, гр.форма, гр.точки[k], гр.точки[k+1], гр.точки[k+2]);
+      for(let k=0;k<гр.точки.length;k+=4) this._shapePath(ctx, гр.форма, гр.точки[k], гр.точки[k+1], гр.точки[k+2], гр.точки[k+3]);
       ctx.fill(); ctx.stroke();
     });
     ctx.setLineDash([]); ctx.globalAlpha=1;
+    /* ФАКТУРЫ МАТЕРИАЛА (см. «МАТЕРИАЛ СТАТУСА» в цикле узлов): иней ждущей,
+       диагональ проверки, ядро очереди. Клип по форме на каждую — их в кадре единицы-десятки. */
+    for(const м of материалы){
+      if(м.r<4) continue;                                             // на общем виде фактура неразличима — хватает цвета
+      ctx.save(); ctx.beginPath(); this._shapePath(ctx, м.форма, м.x, м.y, м.r); ctx.clip();
+      if(м.вид==="иней"){
+        const шаг=Math.max(2.6, м.r*0.3), D=м.r*1.6;
+        ctx.strokeStyle=пал.инейШтрих; ctx.lineWidth=Math.max(0.8, м.r*0.07); ctx.beginPath();
+        for(let k=-D*2; k<D*2; k+=шаг){ ctx.moveTo(м.x+k-D, м.y+D); ctx.lineTo(м.x+k+D, м.y-D); }
+        ctx.stroke();
+      } else if(м.вид==="весы"){
+        ctx.globalAlpha=0.75; ctx.fillStyle=пал.проверка; ctx.beginPath();
+        ctx.moveTo(м.x-м.r*2, м.y+м.r*2); ctx.lineTo(м.x+м.r*2, м.y-м.r*2); ctx.lineTo(м.x+м.r*2, м.y+м.r*2); ctx.closePath(); ctx.fill();
+        ctx.globalAlpha=1;
+      } else if(м.вид==="заряд"){
+        ctx.globalAlpha=0.75; ctx.fillStyle=м.цвет; ctx.beginPath(); this._shapePath(ctx, м.форма, м.x, м.y, м.r*0.5); ctx.fill(); ctx.globalAlpha=1;
+      }
+      ctx.restore();
+    }
     /* ЗАЛИВКА ПРОГРЕССА ПОДЗАДАЧ — снизу вверх внутри фигуры, по клипу её же контура (чуть внутрь,
        чтобы не залезть на обводку). Готовность шота или секвенции раньше считалась обходом детей
        глазами, потом — кольцом вокруг ноды; заливка не добавляет на граф ни одной новой линии.
@@ -5686,7 +5915,7 @@ class Graph{
       for(const п of прогресс){
         const выс=п.форма==="diamond" ? п.r*1.41 : п.r, верх=п.y+выс-2*выс*п.доля;
         ctx.save(); ctx.globalAlpha=п.альфа;
-        ctx.beginPath(); this._shapePath(ctx, п.форма, п.x, п.y, п.r); ctx.clip();
+        ctx.beginPath(); this._shapePath(ctx, п.форма, п.x, п.y, п.r, п.уг); ctx.clip();
         ctx.fillStyle=п.цвет; ctx.fillRect(п.x-выс-1, верх, 2*выс+2, п.y+выс-верх+1);
         ctx.restore();
       }
@@ -5710,7 +5939,9 @@ class Graph{
     for(const п of приор){
       ctx.globalAlpha=п.альфа; ctx.strokeStyle=пал.при[п.ур-1]||пал.при[0];
       ctx.lineWidth=толщ(Math.max(2, п.лw+0.4));
+      if(п.уг){ ctx.save(); ctx.translate(п.x,п.y); ctx.rotate(п.уг); ctx.translate(-п.x,-п.y); }   // участок обводки едет с формой
       ctx.beginPath(); this._topSegPath(ctx, п.форма, п.x, п.y, п.r, 0.25+0.15*п.ур); ctx.stroke();
+      if(п.уг) ctx.restore();
     }
     ctx.globalAlpha=1;
     /* ПЛАШКА В УГЛУ ФИГУРЫ — общий вид срока и номера очереди: капсула, приколотая к «углу» формы

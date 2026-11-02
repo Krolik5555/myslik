@@ -2354,3 +2354,14 @@ html.canvas-ui #cv-tr .toggle{background:none;box-shadow:none;padding:0;}
 /* поток работы на холсте (graph.js: _drawMain, проход «ПОТОК»): штрихи течения светлее русла */
 :root{--flow-hi:#ffd9a0;--flow-hot:#ffb0a8;}
 .light{--flow-hi:#9a560f;--flow-hot:#a33a33;}
+/* ФОН ХОЛСТА «чистый тон» (вид по умолчанию, graph.js: _bgKind) — глубокий тон с мягкой виньеткой,
+   чуть светлее в центре внимания. Остальные виды фона рисуются поверх этого же тона. */
+#graph-wrap{background:radial-gradient(120% 95% at 50% 42%,#16161b 0%,#0c0c0f 55%,#050506 100%);}
+.light #graph-wrap{background:radial-gradient(120% 95% at 50% 42%,#ffffff 0%,#f4f4f6 60%,#e9e9ee 100%);}
+.seg-wrap{flex-wrap:wrap;}
+/* штрихи течения — почти белые с оттенком (на тёмной подложке, см. graph.js) */
+:root{--flow-hi:#fff4e2;--flow-hot:#ffe2de;}
+.light{--flow-hi:#6b3a06;--flow-hot:#7a1f1a;}
+/* материал «иней» у нод «ждёт» (graph.js, проход «ФАКТУРЫ МАТЕРИАЛА») */
+:root{--frost:rgba(188,212,240,.55);}
+.light{--frost:rgba(60,95,140,.45);}

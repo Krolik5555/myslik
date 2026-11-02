@@ -479,7 +479,7 @@ function defaultState(){
        рождается сразу с нужными полями (см. fields.js). */
     templates:[],
     tags:[],   // реестр стилизованных тегов: {name, icon?, color?, size?, shape?} — все свойства опциональны
-    settings:{ theme:"dark", view:"today", graphDrift:4, graphSpread:1, graphBg:true, glow:1, graphLinkLen:1, graphNodeSize:1, graphDegScale:1, graphDoneScale:0.6, graphDoneLinkLen:0.6, graphLinkBright:1, graphFadedBright:0.5,
+    settings:{ theme:"dark", view:"today", graphDrift:4, graphSpread:1, graphBg:true, graphBgKind:"clean", glow:1, graphLinkLen:1, graphNodeSize:1, graphDegScale:1, graphDoneScale:0.6, graphDoneLinkLen:0.6, graphLinkBright:1, graphFadedBright:0.5,
       graphDoingGlow:true, graphDoingGlowRadius:110, graphDoingGlowBright:0.3, graphDoingGlowBlur:30,
       /* ЧЕМ РИСУЕТСЯ ГРАФ: "svg" — старый путь (создаёт DOM-элемент на каждый узел и связь),
          "canvas" — одним холстом. ДЕФОЛТ СМЕНЁН на canvas (2026-08-11): замер аудита — на

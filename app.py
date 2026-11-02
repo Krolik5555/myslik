@@ -2237,7 +2237,19 @@ def _install_maxinfo_fix(hwnd):
             except Exception:
                 return False
 
+        user32.IsZoomed.argtypes = [ctypes.c_void_p]
+        user32.IsZoomed.restype = ctypes.c_int
+        WM_NCCALCSIZE = 0x0083
+
         def _proc(h, msg, wp, lp):
+            # РАЗВЁРНУТОЕ ОКНО — БЕЗ СИСТЕМНОЙ РАМКИ. WS_THICKFRAME (нужен Aero Snap, см. _allow_snap)
+            # оставляет неклиентскую рамку в 7 px, и Windows рисует её серыми полосами по краям —
+            # у развёрнутого окна это «странные полоски по бокам» (КРОЛИК, 03.11.2026). Ответ 0 на
+            # расчёт клиентской области = клиентская область во всё окно; размер окна при развороте
+            # и так равен рабочей области (WM_GETMINMAXINFO ниже), за экран ничего не уезжает.
+            # Обычное окно не трогаем: за эту рамку тянут ресайз, поверх веб-окна его не поймать.
+            if msg == WM_NCCALCSIZE and wp and user32.IsZoomed(h):
+                return 0
             if msg != WM_GETMINMAXINFO:
                 return user32.CallWindowProcW(_MAXFIX["old"], h, msg, wp, lp)
             # Сначала ШТАТНАЯ обработка: система и .NET заполняют структуру своими значениями

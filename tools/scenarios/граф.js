@@ -981,7 +981,9 @@ t.push({имя:"возврат на вкладку пересобирает гр
       const px = 260 + 160*bd.t, cx = px + bd.ox*2, cy = 280 + bd.oy*2;
       const вершина = {x: (260 + 2*cx + 420)/4, y: (280 + 2*cy + 280)/4};
       t.push({имя:"свечение вырезано ПОД дугой, а не под хордой",
-              ок: альфа(вершина.x, вершина.y) === 0 && альфа(вершина.x, 280) > 0,
+              // вырез на 0.8 толщины линии (против чёрной каймы у тонких связей): на дуге
+              // свечение не ноль, но втрое слабее хорды, где выреза нет вовсе
+              ок: альфа(вершина.x, 280) > 0 && альфа(вершина.x, вершина.y) * 3 <= альфа(вершина.x, 280),
               факт:"на дуге " + альфа(вершина.x, вершина.y) + ", на хорде " + альфа(вершина.x, 280)});
     } else {
       t.push({имя:"свечение вырезано ПОД дугой, а не под хордой", ок:false, факт:"связь не прогнулась"});
@@ -2762,14 +2764,14 @@ t.push({имя:"возврат на вкладку пересобирает гр
    полные сериализации данных ради сравнения, которое ничего не найдёт. */
 {
   openSettings("graph"); await ж(60);
-  const btn=document.querySelector('#set-bg button[data-v="0"]');
+  const btn=document.querySelector('#set-bg button[data-v="grid"]');
   if(btn){
     let вызовов=0, последнийQuiet=null; const оригP=persist;
     window.persist=function(q){ вызовов++; последнийQuiet=q; return оригP(q); };
-    const было=S.settings.graphBg;
+    const было=S.settings.graphBgKind;
     btn.click();
     window.persist=оригP;
-    S.settings.graphBg=было; persist(true);
+    S.settings.graphBgKind=было; persist(true);
     t.push({имя:"переключатель настроек графа пишет тихо (persist(true))",
             ок: вызовов===1 && последнийQuiet===true,
             факт:"persist вызван "+вызовов+" раз(а), quiet="+последнийQuiet});
