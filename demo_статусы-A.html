@@ -6,68 +6,114 @@
 <title>Статусы нод — варианты</title>
 <link rel="stylesheet" href="ui/vendor/tabler-icons.min.css">
 <style>
-  /* Токены — копия ui/styles.css (стиль A), иначе макет врал бы о цвете. */
+  /* Токены — копия ui/styles.css (стиль A). */
   :root{
-    --bg:#060607; --surf:#0e0e11; --surf3:#212126; --l2:#121216;
-    --bd:rgba(255,255,255,.075); --bd2:rgba(255,255,255,.26); --link:rgba(255,255,255,.40);
+    --bg:#060607; --surf:#0e0e11; --l2:#121216; --l3:#17171b; --l4:#212126;
+    --bd:rgba(255,255,255,.075); --bd2:rgba(255,255,255,.26);
     --tx:#f4f4f5; --mut:#9a9aa3; --mut2:#7a7a83; --accent:#e8a14b;
-    --pri1:#5fb98e; --pri2:#e8a14b; --pri3:#e0625a;
-    --st-wait:#7f9fbf; --st-next:#dcdce2; --st-review:#a98fd0; --st-mark:#86868c;
-    --tm-far:#5f7f9e; --tm-week:#7b8794; --tm-soon:#9a9a92; --tm-near:#d8b04a; --tm-today:#e0873c; --tm-over:#e0625a;
     --font:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;
   }
   :root[data-theme="light"]{
-    --bg:#f3f3f5; --surf:#fafafb; --surf3:#e3e3e8; --l2:#ffffff;
-    --bd:rgba(0,0,0,.08); --bd2:rgba(0,0,0,.24); --link:rgba(0,0,0,.40);
+    --bg:#f3f3f5; --surf:#fafafb; --l2:#ffffff; --l3:#ededf0; --l4:#e3e3e8;
+    --bd:rgba(0,0,0,.08); --bd2:rgba(0,0,0,.24);
     --tx:#111114; --mut:#5f5f66; --mut2:#76767d; --accent:#c8821f;
-    --pri1:#3f9e72; --pri2:#c8821f; --pri3:#cc4b43;
-    --st-wait:#4a6f92; --st-next:#2b2b33; --st-review:#7a55b8; --st-mark:#666666;
-    --tm-far:#436a8c; --tm-week:#5d6b7a; --tm-soon:#7d7d74; --tm-near:#b8891f; --tm-today:#c4691f; --tm-over:#cc4b43;
   }
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{background:var(--bg);color:var(--tx);font-family:var(--font);font-size:14px;line-height:1.5;padding:28px 24px 60px;}
-  .wrap{max-width:1500px;margin:0 auto;}
-  h1{font-size:22px;font-weight:600;letter-spacing:-.01em;}
-  .lead{color:var(--mut);max-width:900px;margin:6px 0 18px;}
-  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px;}
-  .seg{display:inline-flex;gap:2px;padding:3px;border-radius:11px;background:var(--l2);box-shadow:inset 0 0 0 .5px var(--bd);}
-  .seg button{font:inherit;font-size:13px;color:var(--mut);background:none;border:0;padding:5px 11px;border-radius:8px;cursor:pointer;}
-  .seg button.on{background:var(--surf3);color:var(--tx);}
-  label.z{display:inline-flex;align-items:center;gap:8px;color:var(--mut);font-size:13px;}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:14px;}
-  .card{background:var(--l2);border-radius:16px;box-shadow:inset 0 0 0 .5px var(--bd);overflow:hidden;display:flex;flex-direction:column;}
-  .card.now{box-shadow:inset 0 0 0 1px var(--bd2);}
-  .card h2{font-size:15px;font-weight:600;padding:14px 16px 2px;}
-  .card .tag{font-size:11px;color:var(--mut2);padding:0 16px;}
-  .card p{font-size:12.5px;color:var(--mut);padding:6px 16px 0;}
-  .card canvas{display:block;width:100%;background:var(--surf);margin-top:10px;}
-  .card .cost{font-size:11.5px;color:var(--mut2);padding:8px 16px 14px;}
-  .card .cost b{color:var(--mut);font-weight:500;}
-  .key{display:flex;flex-wrap:wrap;gap:6px 14px;margin:16px 0 0;font-size:12px;color:var(--mut);}
-  .key span b{color:var(--tx);font-weight:500;}
+  html,body{height:100%;}
+  body{background:var(--bg);color:var(--tx);font-family:var(--font);font-size:14px;display:flex;flex-direction:column;overflow:hidden;}
+  header{flex:none;display:flex;align-items:center;gap:14px;padding:14px 18px 10px;flex-wrap:wrap;}
+  h1{font-size:16px;font-weight:600;letter-spacing:-.01em;margin-right:6px;}
+  .seg{display:inline-flex;gap:2px;padding:3px;border-radius:12px;background:var(--l2);box-shadow:inset 0 0 0 .5px var(--bd);}
+  .seg button{font:inherit;font-size:13px;color:var(--mut);background:none;border:0;padding:6px 12px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;}
+  .seg button:hover{color:var(--tx);background:var(--l3);}
+  .seg button.on{background:var(--l4);color:var(--tx);}
+  .seg button kbd{font:inherit;font-size:10.5px;color:var(--mut2);background:var(--l3);border-radius:5px;padding:0 5px;}
+  .seg button.on kbd{color:var(--tx);}
+  .desc{flex:none;display:flex;gap:24px;align-items:flex-start;padding:0 18px 12px;}
+  .desc .what{max-width:780px;font-size:13.5px;line-height:1.5;color:var(--mut);}
+  .desc .what b{color:var(--tx);font-weight:600;}
+  .desc .cost{font-size:12px;color:var(--mut2);max-width:360px;line-height:1.5;margin-left:auto;}
+  .desc .cost b{color:var(--mut);font-weight:500;}
+  main{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 18px 18px;}
+  .view{position:relative;border-radius:16px;overflow:hidden;box-shadow:inset 0 0 0 .5px var(--bd);background:var(--surf);}
+  .view canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
+  .view .lbl{position:absolute;left:12px;top:10px;z-index:2;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--mut2);font-weight:600;
+    background:var(--l2);padding:4px 9px;border-radius:8px;box-shadow:inset 0 0 0 .5px var(--bd);}
+  .legend{position:absolute;left:12px;bottom:10px;z-index:2;display:flex;flex-wrap:wrap;gap:4px 12px;max-width:calc(100% - 24px);font-size:11px;color:var(--mut);
+    background:var(--l2);padding:6px 10px;border-radius:10px;box-shadow:inset 0 0 0 .5px var(--bd);}
+  .legend span{display:inline-flex;align-items:center;gap:5px;}
+  .legend i{width:9px;height:9px;border-radius:3px;display:inline-block;}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>Статусы нод — четыре новых способа</h1>
-  <div class="lead">Одно и то же дерево в каждой карточке: проект → четыре шота → подзадачи, все семь статусов,
-    просрочка и срок «сегодня». Первая карточка — то, что стоит сейчас. Остальные четыре меняют сам способ
-    показа статуса, а не оттенки. Правило стиля A во всех: ничего поверх ноды. Ползунок масштаба показывает,
-    что остаётся на общем виде, когда подписи и значки уже скрыты.</div>
-  <div class="bar">
-    <div class="seg" id="theme"><button class="on" data-t="dark">Тёмная</button><button data-t="light">Светлая</button></div>
-    <label class="z">Масштаб <input type="range" id="zoom" min="0.45" max="1.5" step="0.05" value="1"> <span id="zv">1.0×</span></label>
-  </div>
-  <div class="grid" id="grid"></div>
-  <div class="key">
-    <span><b>SH010</b> — в работе</span><span><b>SH020</b> — ждёт</span><span><b>SH030</b> — на паузе</span>
-    <span><b>SH040</b> — на очереди, срок сегодня</span><span><b>Рендер</b> — готово</span><span><b>Сборка</b> — в работе</span>
-    <span><b>Звук</b> — на проверке</span><span><b>Монтаж</b> — не начато, просрочено, высокий приоритет</span>
-    <span><b>Свет</b> — не начато, внутри паузы</span><span><b>Анимация</b> — не начато, срок через 5 дней</span>
-  </div>
-</div>
+<header>
+  <h1>Статусы нод</h1>
+  <div class="seg" id="vars"></div>
+  <div class="seg" id="theme"><button class="on" data-t="dark">Тёмная</button><button data-t="light">Светлая</button></div>
+</header>
+<div class="desc"><div class="what" id="what"></div><div class="cost" id="cost"></div></div>
+<main>
+  <div class="view"><div class="lbl">Общий вид — весь граф</div><canvas id="far"></canvas><div class="legend" id="leg"></div></div>
+  <div class="view"><div class="lbl">Вблизи — SQ02</div><canvas id="near"></canvas></div>
+</main>
 <script>
+/* ================= данные: граф как у КРОЛИКА =================
+   область «Работа» → проект SFC_2026 → секвенции SQ01, SQ02 → шоты → «Рендер» и «Сборка».
+   Рядом — отложенный проект TikTok (на паузе) и заметка «Локация». */
 const css = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+const ТЕГ = {render:"#e0625a", build:"#6f9bd8"};
+const ШОТ = "#e8a14b", SQ = "#9d7fe0", SFC = "#e0625a", ОБЛ = "#dcdce2";
+const N = [], L = [];
+let нид = 0;
+function нода(о){ о.id = о.id || ("n" + (нид++)); N.push(о); if(о.p) L.push([о.p, о.id]); return о; }
+нода({id:"area", t:"Работа", k:"area", c:ОБЛ, st:"todo", x:-560, y:-60});
+нода({id:"sfc", t:"SFC_2026", k:"sfc", c:SFC, st:"doing", p:"area", x:-180, y:40});
+нода({id:"loc", t:"Локация", k:"note", c:"#6f9bd8", st:"note", p:"sfc", x:-230, y:-120});
+нода({id:"sq1", t:"SQ01", k:"sq", c:SQ, st:"todo", p:"sfc", x:-330, y:-190});
+нода({id:"sq2", t:"SQ02", k:"sq", c:SQ, st:"doing", p:"sfc", x:230, y:30});
+// шоты SQ02: [имя, статус шота, статус Рендера, статус Сборки, срок, приоритет]
+const ШОТЫ2 = [
+  ["SH010","doing","done","doing"], ["SH020","done","done","done"], ["SH030","doing","done","doing"],
+  ["SH035","waiting","waiting","todo"], ["SH036","waiting","done","waiting"], ["SH040","review","done","review"],
+  ["SH041","next","todo","todo",0], ["SH050","todo","todo","todo"], ["SH060","todo","todo","todo",-3,3],
+  ["SH070","todo","todo","todo",5], ["SH080","next","todo","todo",1,2],
+];
+ШОТЫ2.forEach((s, i) => { const a = -Math.PI*0.95 + i*(Math.PI*1.9/(ШОТЫ2.length - 1)), R = 200;
+  const ш = нода({t:s[0], k:"shot", c:ШОТ, st:s[1], p:"sq2", x:230 + Math.cos(a)*R, y:30 + Math.sin(a)*R, due:s[4], pri:s[5]});
+  [["Рендер", "render", s[2]], ["Сборка", "build", s[3]]].forEach(([т, тег, ст], j) => {
+    const b = a + (j ? .17 : -.17), R2 = R + 82;
+    нода({t:т, k:"task", tag:тег, c:ТЕГ[тег], st:ст, p:ш.id, x:230 + Math.cos(b)*R2, y:30 + Math.sin(b)*R2}); });
+});
+const ШОТЫ1 = [["SH010","done","done","done"],["SH020","todo","todo","todo"],["SH030","todo","todo","todo"],["SH040","todo","todo","todo",9]];
+ШОТЫ1.forEach((s, i) => { const a = -Math.PI*0.9 + i*0.42, R = 150;
+  const ш = нода({t:s[0], k:"shot", c:ШОТ, st:s[1], p:"sq1", x:-330 + Math.cos(a)*R, y:-190 + Math.sin(a)*R, due:s[4]});
+  [["Рендер", "render", s[2]], ["Сборка", "build", s[3]]].forEach(([т, тег, ст], j) => {
+    const b = a + (j ? .2 : -.2), R2 = R + 70;
+    нода({t:т, k:"task", tag:тег, c:ТЕГ[тег], st:ст, p:ш.id, x:-330 + Math.cos(b)*R2, y:-190 + Math.sin(b)*R2}); });
+});
+нода({id:"tt", t:"TikTok_Boombot", k:"sfc", c:"#7f9fbf", st:"paused", p:"area", x:-470, y:260});
+for(let i = 0; i < 5; i++){ const a = -0.2 + i*0.55, ш = нода({t:"SH0" + i, k:"shot", c:ШОТ, st:"paused", p:"tt", x:-470 + Math.cos(a)*140, y:260 + Math.sin(a)*140});
+  нода({t:"Рендер", k:"task", tag:"render", c:ТЕГ.render, st:"paused", p:ш.id, x:-470 + Math.cos(a)*215, y:260 + Math.sin(a)*215}); }
+const поId = Object.fromEntries(N.map(n => [n.id, n]));
+const дети = id => N.filter(n => n.p === id);
+N.forEach(n => { const д = дети(n.id).filter(x => x.k === "task" || x.k === "shot"); if(д.length) n.prog = д.filter(x => x.st === "done").length / д.length; });
+const вПаузе = n => { for(let k = n; k; k = поId[k.p]) if(k.st === "paused") return true; return false; };
+const живоВниз = (n, st) => n.st === st || дети(n.id).some(d => живоВниз(d, st));
+const горячий = new Set(); N.filter(n => n.st === "doing").forEach(n => { for(let k = n; k && k.p; k = поId[k.p]) горячий.add(k.id); });
+
+/* ================= палитра статусов ================= */
+function СТ(){ return {
+  todo:   {n:"Не начато",  c:css("--mut2") || "#7a7a83", g:"circle"},
+  next:   {n:"На очереди", c:"#dcdce2", g:"player-track-next"},
+  doing:  {n:"В работе",   c:css("--accent"), g:"player-play"},
+  waiting:{n:"Ждёт",       c:"#7f9fbf", g:"hourglass-low"},
+  review: {n:"На проверке",c:"#a98fd0", g:"eye"},
+  paused: {n:"На паузе",   c:"#6b6b74", g:"player-pause"},
+  done:   {n:"Готово",     c:"#5fb98e", g:"check"},
+  note:   {n:"Заметка",    c:"#6f9bd8", g:"note"},
+}; }
+
+/* ================= утилиты рисования ================= */
 const glyph = (() => { const c = {}; return name => { if(c[name] !== undefined) return c[name];
   const i = document.createElement("i"); i.className = "ti ti-" + name; i.style.cssText = "position:absolute;left:-9999px";
   document.body.appendChild(i); const raw = getComputedStyle(i, "::before").content; i.remove();
@@ -77,180 +123,186 @@ const rgb = s => { if(s.startsWith("rgb")) return s.match(/[\d.]+/g).slice(0,3).
   return [parseInt(s.slice(0,2),16), parseInt(s.slice(2,4),16), parseInt(s.slice(4,6),16)]; };
 const mix = (a, b, k) => { const A = rgb(a), B = rgb(b); return "rgb(" + A.map((v,i) => Math.round(v*k + B[i]*(1-k))).join(",") + ")"; };
 const rgba = (a, al) => "rgba(" + rgb(a).join(",") + "," + al + ")";
-
-/* ---- дерево: проект → шоты → подзадачи (позиции в долях карточки) ---- */
-const ДЕРЕВО = [
-  {id:"R",  t:"SQ02",    f:"circle",  st:"doing", c:"#9d7fe0", x:.5,  y:.11, big:true},
-  {id:"s1", t:"SH010",   f:"diamond", st:"doing",   c:"#dcdce2", p:"R",  x:.14, y:.40},
-  {id:"s2", t:"SH020",   f:"diamond", st:"waiting", c:"#dcdce2", p:"R",  x:.38, y:.40},
-  {id:"s3", t:"SH030",   f:"diamond", st:"paused",  c:"#dcdce2", p:"R",  x:.62, y:.40},
-  {id:"s4", t:"SH040",   f:"diamond", st:"next",    c:"#dcdce2", p:"R",  x:.86, y:.40, due:0},
-  {id:"a1", t:"Рендер",  f:"square",  st:"done",    c:"#e0625a", p:"s1", x:.07, y:.72},
-  {id:"a2", t:"Сборка",  f:"square",  st:"doing",   c:"#6f9bd8", p:"s1", x:.21, y:.84},
-  {id:"b1", t:"Звук",    f:"square",  st:"review",  c:"#6f9bd8", p:"s2", x:.33, y:.72},
-  {id:"b2", t:"Монтаж",  f:"square",  st:"todo",    c:"#6f9bd8", p:"s2", x:.44, y:.86, due:-2, pri:3},
-  {id:"c1", t:"Свет",    f:"square",  st:"todo",    c:"#6f9bd8", p:"s3", x:.62, y:.74, inPause:true},
-  {id:"d1", t:"Анимация",f:"square",  st:"todo",    c:"#6f9bd8", p:"s4", x:.86, y:.74, due:5},
-];
-const поId = Object.fromEntries(ДЕРЕВО.map(n => [n.id, n]));
-// готовность детей — для прогресса
-ДЕРЕВО.forEach(n => { const д = ДЕРЕВО.filter(x => x.p === n.id); if(д.length) n.prog = д.filter(x => x.st === "done").length / д.length; });
-// путь «работа течёт»: от каждой ноды «в работе» вверх до корня
-const горячиеСвязи = new Set();
-ДЕРЕВО.filter(n => n.st === "doing").forEach(n => { for(let k = n; k && k.p; k = поId[k.p]) горячиеСвязи.add(k.id); });
-
-/* ---- формы и их части ---- */
-function poly(n, r, cut){
-  // вершины по часовой от верхней точки; cut — срезанный угол: "br" | "bl" (стиль «билет»)
-  if(n.f === "circle") return null;
-  if(n.f === "diamond"){ const D = r*1.32; let pts = [[0,-D],[D,0],[0,D],[-D,0]];
-    if(cut === "br") pts = [[0,-D],[D*.6,-D*.4],[D*.6,D*.4],[0,D],[-D,0]];        // правая вершина срезана
-    if(cut === "bl") pts = [[0,-D],[D,0],[0,D],[-D*.6,D*.4],[-D*.6,-D*.4]];
-    return pts.map(([a,b]) => [n.px + a, n.py + b]); }
-  const s = r, k = r*.62; let pts = [[0,-s],[s,-s],[s,s],[-s,s],[-s,-s]];               // начало — середина верхней грани
-  if(cut === "br") pts = [[0,-s],[s,-s],[s,s-k],[s-k,s],[-s,s],[-s,-s]];
-  if(cut === "bl") pts = [[0,-s],[s,-s],[s,s],[-s+k,s],[-s,s-k],[-s,-s]];
-  return pts.map(([a,b]) => [n.px + a, n.py + b]);
-}
-function shapePath(ctx, n, r, cut){
-  ctx.beginPath(); const p = poly(n, r, cut);
-  if(!p){ ctx.arc(n.px, n.py, r, 0, Math.PI*2); return; }
-  ctx.moveTo(p[0][0], p[0][1]); for(let i = 1; i < p.length; i++) ctx.lineTo(p[i][0], p[i][1]); ctx.closePath();
-}
-// часть контура от верхней точки по часовой стрелке — доля 0…1
-function partialPath(ctx, n, r, доля){
+const серый = c => { const [r,g,b] = rgb(c), y = Math.round(r*.3 + g*.59 + b*.11); return "rgb(" + y + "," + y + "," + y + ")"; };
+const ФОРМА = {area:"circle", sfc:"hexagon", sq:"circle", shot:"diamond", task:"square", note:"circle"};
+const РАДИУС = {area:9, sfc:12, sq:14, shot:11, task:7, note:6};
+const ИКОНКА = {area:"briefcase", sfc:"puzzle", sq:"movie", shot:"video"};
+function path(ctx, f, x, y, r){
   ctx.beginPath();
-  if(n.f === "circle"){ ctx.arc(n.px, n.py, r, -Math.PI/2, -Math.PI/2 + Math.PI*2*доля); return; }
-  const p = poly(n, r); p.push(p[0]);
-  let всего = 0; for(let i = 1; i < p.length; i++) всего += Math.hypot(p[i][0]-p[i-1][0], p[i][1]-p[i-1][1]);
-  let ост = всего*доля; ctx.moveTo(p[0][0], p[0][1]);
-  for(let i = 1; i < p.length && ост > 0; i++){ const L = Math.hypot(p[i][0]-p[i-1][0], p[i][1]-p[i-1][1]);
-    const k = Math.min(1, ост/L); ctx.lineTo(p[i-1][0] + (p[i][0]-p[i-1][0])*k, p[i-1][1] + (p[i][1]-p[i-1][1])*k); ост -= L; }
+  if(f === "circle") ctx.arc(x, y, r, 0, Math.PI*2);
+  else if(f === "square") ctx.rect(x - r, y - r, r*2, r*2);
+  else if(f === "diamond"){ const D = r*1.35; ctx.moveTo(x, y - D); ctx.lineTo(x + D, y); ctx.lineTo(x, y + D); ctx.lineTo(x - D, y); ctx.closePath(); }
+  else { for(let i = 0; i < 6; i++){ const a = Math.PI/3*i - Math.PI/2, px = x + r*Math.cos(a), py = y + r*Math.sin(a); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.closePath(); }
 }
+function partial(ctx, f, x, y, r, доля){   // часть контура от верхней точки по часовой
+  ctx.beginPath();
+  if(f === "circle"){ ctx.arc(x, y, r, -Math.PI/2, -Math.PI/2 + Math.PI*2*доля); return; }
+  const D = f === "diamond" ? r*1.35 : r;
+  const pts = f === "diamond" ? [[0,-D],[D,0],[0,D],[-D,0],[0,-D]] : f === "square" ? [[0,-r],[r,-r],[r,r],[-r,r],[-r,-r],[0,-r]]
+            : [...Array(7)].map((_, i) => [r*Math.cos(Math.PI/3*i - Math.PI/2), r*Math.sin(Math.PI/3*i - Math.PI/2)]);
+  let всего = 0; for(let i = 1; i < pts.length; i++) всего += Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1]);
+  let ост = всего*доля; ctx.moveTo(x + pts[0][0], y + pts[0][1]);
+  for(let i = 1; i < pts.length && ост > 0; i++){ const L = Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1]), k = Math.min(1, ост/L);
+    ctx.lineTo(x + pts[i-1][0] + (pts[i][0]-pts[i-1][0])*k, y + pts[i-1][1] + (pts[i][1]-pts[i-1][1])*k); ост -= L; }
+}
+function glow(ctx, x, y, R, color, a){ if(a <= 0) return; const g = ctx.createRadialGradient(x, y, 0, x, y, R);
+  g.addColorStop(0, rgba(color, a)); g.addColorStop(.45, rgba(color, a*.35)); g.addColorStop(1, rgba(color, 0)); ctx.fillStyle = g; ctx.fillRect(x - R, y - R, R*2, R*2); }
 function pill(ctx, bx, by, w, h){ const rr = h/2; ctx.beginPath(); ctx.moveTo(bx-w/2+rr, by-h/2); ctx.arcTo(bx+w/2, by-h/2, bx+w/2, by+h/2, rr);
   ctx.arcTo(bx+w/2, by+h/2, bx-w/2, by+h/2, rr); ctx.arcTo(bx-w/2, by+h/2, bx-w/2, by-h/2, rr); ctx.arcTo(bx-w/2, by-h/2, bx+w/2, by-h/2, rr); ctx.closePath(); }
-function badge(ctx, n, r, text, fill, stroke, ink){
-  ctx.font = "600 10px " + css("--font"); const w = Math.max(15, ctx.measureText(text).width + 9), h = 15, z = Math.min(5, r*.45);
-  const кx = n.f === "square" ? n.px + r : n.px + r*.7, кy = n.f === "square" ? n.py - r : n.py - r*.7;
-  const bx = кx + (w/2 - z), by = кy - (h/2 - z);
-  pill(ctx, bx, by, w, h); ctx.fillStyle = fill; ctx.fill(); if(stroke){ ctx.lineWidth = 1; ctx.strokeStyle = stroke; ctx.stroke(); }
-  ctx.fillStyle = ink; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(text, bx, by + .5);
-}
-function glow(ctx, x, y, R, color, a){ const g = ctx.createRadialGradient(x, y, 0, x, y, R);
-  g.addColorStop(0, rgba(color, a)); g.addColorStop(1, rgba(color, 0)); ctx.fillStyle = g; ctx.fillRect(x-R, y-R, R*2, R*2); }
-const цветСрока = д => д < 0 ? css("--tm-over") : д === 0 ? css("--tm-today") : д === 1 ? css("--tm-near") : д <= 3 ? css("--tm-soon") : д <= 7 ? css("--tm-week") : css("--tm-far");
-const ГЛИФ = {waiting:["hourglass-low","--st-wait"], next:["player-track-next","--st-next"], review:["eye","--st-review"]};
 
-/* ---- варианты ---- */
+/* ================= варианты =================
+   Каждый вариант — функция «вид ноды» и «вид связи», плюс необязательный слой под графом.
+   Вид ноды: {stroke, fill, lw, dash, a, s (масштаб), icon:[глиф, цвет], glow:[цвет, сила], label:{a, w}, prog:"fill"|"edge"|null} */
 const ВАРИАНТЫ = [
-  {id:"now", name:"Сейчас (2.1)", tag:"уже в приложении", now:true,
-   text:"Тон заливки и обводка цветом ноды. «В работе» — тон плотнее и свет. «Ждёт», «очередь», «проверка» — значок внутри. Пауза — пунктир. Готово — сплошная заливка с галочкой. Прогресс — заливка снизу. На отдалении значки пропадают, и «ждёт» не отличить от «не начато».",
-   cost:"<b>базовая</b> — 0,2 мс на кадр холста."},
-  {id:"fill", name:"1 · Заполненность — это стадия", tag:"меняет вид всего графа",
-   text:"Статус читается по тому, сколько формы закрашено: «не начато» — пустой контур, «очередь» и ожидание — лёгкий тон, «в работе» — сплошная заливка своим цветом, «готово» — маленькая сплошная с галочкой. Путь задачи виден сам: пусто → тон → сплошь. Прогресс подзадач переезжает на обводку: зелёная часть контура растёт от верхней точки.",
-   cost:"<b>0</b> — те же группы отрисовки, другие цвета; прогресс — один проход контура вместо клипа."},
-  {id:"cut", name:"2 · Срезанный угол", tag:"меняет форму",
-   text:"«Ждёт» — у формы срезан правый нижний угол, «на проверке» — левый нижний, как вырез на билете. Это сама форма ноды, не значок: на общем виде срез различим, когда значки уже скрыты. «Очередь» и остальное — как сейчас.",
-   cost:"<b>0</b> — другой контур в той же отрисовке."},
-  {id:"flow", name:"3 · Работа течёт по связям", tag:"меняет связи",
-   text:"Статус показывают ветки, а не только ноды. От корня к каждой ноде «в работе» связь горит акцентом, к «ждёт» — пунктир цвета ожидания, внутрь паузы — почти гаснет, остальные — тихие. На большом графе сразу видно, в каких ветках идёт работа, даже если сами ноды мелкие.",
-   cost:"<b>≈0,02 мс</b> — одна группа связей; путь вверх считается как подсветка пути к выбранной."},
-  {id:"timer", name:"4 · Контур-таймер", tag:"меняет показ срока",
-   text:"Срок — окрашенной частью обводки: от верхней точки по часовой, чем ближе срок, тем больше контура в цвете шкалы времени. Весь контур — срок сегодня, красный и толще — просрочка. Плашка с цифрой — только на крупном масштабе. Видно на любом отдалении, без плашек на всём графе.",
-   cost:"<b>≈0,03 мс</b> — один проход контура у нод со сроком."},
+ {key:"now", name:"Сейчас",
+  what:"<b>Как в 2.1.</b> Цвет ноды — тег (шот оранжевый, «Рендер» красный, «Сборка» синяя). Статус — мелкими признаками: тон плотнее и свет у «в работе», значок у «ждёт» и «проверки», пунктир у паузы. На общем виде признаки пропадают, и граф читается как разноцветный, но не как «где работа».",
+  cost:"<b>Базовая цена</b> — 0,2 мс на кадр холста.",
+  node(n, ст, фон){ const c = n.c; const v = {stroke:c, fill:mix(c, фон, n.st === "doing" ? .30 : .14), lw:1.7, a:1, s:1, prog:"fill"};
+    if(n.st === "done"){ v.fill = c; v.a = .45; v.s = .8; }
+    if(n.st === "paused"){ v.stroke = mix(c, "#86868c", .45); v.fill = mix(c, фон, .12); v.dash = true; v.a = .6; }
+    if(n.st === "doing") v.glow = [c, .42];
+    if(n.st === "waiting") v.glow = ["#3f5f8f", .35];
+    v.icon = ст[n.st] && ["waiting","next","review"].includes(n.st) ? [ст[n.st].g, ст[n.st].c] : ИКОНКА[n.k] ? [ИКОНКА[n.k], c] : null;
+    return v; },
+  link(a, b, ст){ return {c:rgba(b.c, .45), w:1.2}; } },
+
+ {key:"color", name:"Цвет — это статус",
+  what:"<b>Нода красится цветом статуса, а не тега.</b> Янтарь — в работе, синий — ждёт, лаванда — проверка, белый — очередь, серый — не начато, зелёный и маленькие — готово, тёмные пунктиром — пауза. Тег («Рендер», «Сборка») остаётся значком внутри своим цветом. Весь граф становится картой состояния: на общем виде видно, где работа, где затык и что закрыто.",
+  cost:"<b>0</b> — те же группы отрисовки, другой источник цвета. Тег уходит в значок, который уже рисуется.",
+  node(n, ст, фон){ const c = (ст[n.st] || ст.todo).c; const v = {stroke:c, fill:mix(c, фон, n.st === "doing" ? .42 : n.st === "todo" ? .06 : .2), lw:n.st === "todo" ? 1.3 : 1.8, a:1, s:1, prog:"fill"};
+    if(n.st === "done"){ v.fill = c; v.s = .7; v.a = .85; }
+    if(n.st === "paused"){ v.dash = true; v.a = .55; }
+    if(n.st === "doing") v.glow = [c, .5];
+    v.icon = ИКОНКА[n.k] ? [ИКОНКА[n.k], n.c] : n.tag ? ["point-filled", n.c] : null;
+    if(n.st === "done") v.icon = ["check", фон];
+    return v; },
+  link(a, b, ст){ const c = (ст[b.st] || ст.todo).c; return {c:rgba(c, b.st === "todo" ? .22 : .5), w:b.st === "doing" ? 1.8 : 1.1}; } },
+
+ {key:"zone", name:"Территории работы",
+  what:"<b>Статус ветки — мягкой территорией под ней.</b> Под каждой веткой, где идёт работа, — тёплое пятно, под застрявшей на «ждёт» — холодное, под просроченным — красноватое. Сами ноды спокойные, в цвете тега. С общего вида граф читается как карта: где жарко, где ждём, где горит срок.",
+  cost:"<b>≈0,1 мс</b> — по одному спрайту света на ветку (их десятки, не сотни), в слое свечения, который уже есть.",
+  under(ctx, z, ст){ N.forEach(n => { if(!(n.k === "shot" || n.k === "sq")) return;
+      const д = дети(n.id); const xs = [n, ...д].map(d => d.x), ys = [n, ...д].map(d => d.y);
+      const cx = xs.reduce((a,b)=>a+b)/xs.length, cy = ys.reduce((a,b)=>a+b)/ys.length;
+      const R = (n.k === "sq" ? 330 : 95)*z;
+      if(n.k === "sq" && n.st === "doing") glow(ctx, cx*z, cy*z, R, ст.doing.c, .10);
+      if(n.k !== "shot") return;
+      if(n.st === "doing") glow(ctx, cx*z, cy*z, R, ст.doing.c, .48);
+      else if(n.st === "waiting" || live(n, "waiting")) glow(ctx, cx*z, cy*z, R, ст.waiting.c, .42);
+      else if(n.due != null && n.due < 0) glow(ctx, cx*z, cy*z, R, "#e0625a", .44);
+      else if(n.st === "review") glow(ctx, cx*z, cy*z, R, ст.review.c, .26); }); },
+  node(n, ст, фон){ const c = n.c; const v = {stroke:c, fill:mix(c, фон, .14), lw:1.6, a:1, s:1, prog:"fill"};
+    if(n.st === "done"){ v.fill = c; v.a = .45; v.s = .8; }
+    if(n.st === "paused" || вПаузе(n)){ v.stroke = серый(c); v.fill = mix(серый(c), фон, .1); v.dash = n.st === "paused"; v.a = .5; }
+    v.icon = ИКОНКА[n.k] ? [ИКОНКА[n.k], v.stroke] : null; return v; },
+  link(a, b, ст){ return {c:rgba(вПаузе(b) ? серый(b.c) : b.c, .35), w:1.1}; } },
+
+ {key:"depth", name:"Живое выпукло, готовое в тени",
+  what:"<b>Статус задаёт глубину.</b> «В работе» — крупнее, плотной заливкой и со светом, будто ближе к глазу. «Не начато» и «очередь» — обычные. Готовое съёживается в точку и почти гаснет, пауза уходит в серое. На большом графе исчезает шум закрытого и отложенного — остаётся то, с чем работать.",
+  cost:"<b>0</b> — масштаб и прозрачность узла, считаются в пересборке.",
+  node(n, ст, фон){ const c = n.c; const v = {stroke:c, fill:mix(c, фон, .14), lw:1.6, a:1, s:1, prog:"edge"};
+    if(n.st === "doing"){ v.s = 1.3; v.fill = mix(c, фон, .5); v.lw = 2.2; v.glow = [c, .6]; v.label = {w:700}; }
+    if(n.st === "next"){ v.stroke = "#ffffff"; v.lw = 2; }
+    if(n.st === "waiting" || n.st === "review"){ v.icon = [ст[n.st].g, ст[n.st].c]; }
+    if(n.st === "done"){ v.s = .45; v.fill = mix(c, фон, .7); v.a = .32; v.label = {a:0}; }
+    if(n.st === "paused" || вПаузе(n)){ v.stroke = серый(c); v.fill = mix(серый(c), фон, .08); v.a = .35; v.s = .85; v.dash = n.st === "paused"; }
+    if(!v.icon && ИКОНКА[n.k] && n.st !== "done") v.icon = [ИКОНКА[n.k], v.stroke];
+    return v; },
+  link(a, b, ст){ const мёртво = b.st === "done" || вПаузе(b); return {c:rgba(мёртво ? "#86868c" : b.c, мёртво ? .14 : b.st === "doing" ? .75 : .38), w:b.st === "doing" ? 2 : 1}; } },
+
+ {key:"flow", name:"Заливка стадии + поток",
+  what:"<b>Сколько формы закрашено — такая и стадия, а ветки показывают, куда течёт работа.</b> «Не начато» — пустой контур, «очередь» и ожидание — лёгкий тон, «в работе» — сплошная заливка, готово — маленькая сплошная с галкой. От корня к работе ветка горит, к «ждёт» — пунктир, в паузу связи гаснут. Прогресс подзадач — зелёной частью контура.",
+  cost:"<b>≈0,02 мс</b> — одна группа связей; путь вверх уже считается для подсветки выбранной ноды.",
+  node(n, ст, фон){ const c = n.c; const v = {stroke:c, fill:"rgba(0,0,0,0)", lw:1.7, a:1, s:1, prog:"edge"};
+    if(["next","waiting","review","note"].includes(n.st)) v.fill = mix(c, фон, .22);
+    if(n.st === "doing"){ v.fill = c; v.glow = [c, .4]; }
+    if(n.st === "done"){ v.fill = c; v.s = .7; v.icon = ["check", фон]; }
+    if(n.st === "paused" || вПаузе(n)){ v.dash = true; v.a = .45; v.fill = mix(c, фон, .06); }
+    if(n.st === "waiting" || n.st === "review") v.icon = [ст[n.st].g, ст[n.st].c];
+    if(!v.icon && ИКОНКА[n.k]) v.icon = [ИКОНКА[n.k], n.st === "doing" ? фон : c];
+    return v; },
+  link(a, b, ст){ if(горячий.has(b.id)) return {c:css("--accent"), w:2.2, halo:true};
+    if(b.st === "waiting") return {c:ст.waiting.c, w:1.5, dash:[5,4]};
+    if(вПаузе(b)) return {c:rgba("#86868c", .12), w:1};
+    return {c:rgba(b.c, .3), w:1.1}; } },
 ];
+function live(n, st){ return дети(n.id).some(d => d.st === st); }
 
-function drawVariant(cv, v){
-  const dpr = devicePixelRatio || 1, W = cv.clientWidth, H = 400, z = +document.getElementById("zoom").value;
-  if(cv.width !== Math.round(W*dpr) || cv.height !== Math.round(H*dpr)){ cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr); cv.style.height = H + "px"; }
-  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
-  const фон = css("--surf"), текст = css("--tx"), под = css("--mut"), светлая = document.documentElement.dataset.theme === "light";
-  ДЕРЕВО.forEach(n => { n.px = n.x*W; n.py = 16 + n.y*(H - 56); n.r = (n.big ? 16 : n.f === "diamond" ? 13 : 10)*z; });
-  const цвет = n => (светлая && (n.c === "#ffffff" || n.c === "#dcdce2")) ? "#2b2b33" : n.c;
-  const вПаузе = n => n.st === "paused" || (n.p && поId[n.p].st === "paused");
-
-  /* связи */
-  ДЕРЕВО.forEach(n => { if(!n.p) return; const p = поId[n.p];
-    let col = rgba(цвет(n), .45), w = 1.2, dash = [];
-    if(v.id === "flow"){
-      col = rgba(светлая ? "#000000" : "#ffffff", .16); w = 1;
-      if(горячиеСвязи.has(n.id)){ col = css("--accent"); w = 2.2; }
-      else if(n.st === "waiting"){ col = css("--st-wait"); w = 1.6; dash = [4, 3]; }
-      else if(вПаузе(n)){ col = rgba(светлая ? "#000000" : "#ffffff", .06); }
-    }
-    if(v.id === "flow" && горячиеСвязи.has(n.id)){ ctx.strokeStyle = rgba(css("--accent"), .22); ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(p.px, p.py); ctx.lineTo(n.px, n.py); ctx.stroke(); }
-    ctx.setLineDash(dash); ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(p.px, p.py); ctx.lineTo(n.px, n.py); ctx.stroke(); ctx.setLineDash([]);
-  });
-
-  /* ноды */
-  ДЕРЕВО.forEach(n => {
-    const свой = цвет(n); let r = n.r, альфа = 1;
-    let зал = mix(свой, фон, .14), обв = свой, лw = 1.7, пункт = false, cut = null, знак = ГЛИФ[n.st], галка = n.st === "done";
-    if(n.st === "doing") зал = mix(свой, фон, .30);
-    if(n.st === "done") зал = свой;
-    if(n.st === "paused"){ зал = mix(свой, фон, .16); обв = mix(свой, css("--st-mark"), .55); пункт = true; альфа = .72; }
-    if(v.id === "fill"){
-      знак = (n.st === "waiting" || n.st === "review") ? ГЛИФ[n.st] : null;
-      if(n.st === "todo") зал = "rgba(0,0,0,0)";
-      if(n.st === "next" || n.st === "waiting" || n.st === "review") зал = mix(свой, фон, .2);
-      if(n.st === "doing") зал = свой;
-      if(n.st === "paused") зал = mix(свой, фон, .06);
-      if(n.st === "done") r *= .72;
-    }
-    if(v.id === "cut"){ if(n.st === "waiting"){ cut = "br"; знак = null; } if(n.st === "review"){ cut = "bl"; знак = null; } }
-    // свет «в работе» — во всех вариантах, как в приложении
-    if(n.st === "doing") glow(ctx, n.px, n.py, r*3.4, свой, .4*альфа);
-    if(v.id === "flow" && вПаузе(n)) альфа *= .55;
-    ctx.globalAlpha = альфа; ctx.setLineDash(пункт ? [3.4*z, 2.6*z] : []);
-    shapePath(ctx, n, r, cut); ctx.fillStyle = зал; ctx.fill(); ctx.lineWidth = Math.max(.8, лw*z); ctx.strokeStyle = обв; ctx.stroke(); ctx.setLineDash([]);
-    // прогресс подзадач
-    if(n.prog != null && n.st !== "done"){
-      if(v.id === "fill"){ if(n.prog > 0){ partialPath(ctx, n, r, n.prog); ctx.lineWidth = Math.max(2, 2.6*z); ctx.strokeStyle = css("--pri1"); ctx.stroke(); } }
-      else if(n.prog > 0){ ctx.save(); shapePath(ctx, n, r - лw*z/2, cut); ctx.clip(); ctx.fillStyle = mix(свой, фон, .36);
-        const выс = n.f === "diamond" ? r*1.32 : r, верх = n.py + выс - 2*выс*n.prog; ctx.fillRect(n.px - выс, верх, выс*2, n.py + выс - верх); ctx.restore(); }
-    }
+/* ================= отрисовка ================= */
+let текущий = 0;
+const ЗВЁЗДЫ = [...Array(140)].map((_, i) => { const r = Math.sin(i*12.9898)*43758.5453; const f = r - Math.floor(r);
+  const r2 = Math.sin(i*78.233)*43758.5453; return [f, r2 - Math.floor(r2), (i % 5)/5]; });
+function draw(cv, камера){
+  const dpr = devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if(cv.width !== Math.round(W*dpr) || cv.height !== Math.round(H*dpr)){ cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr); }
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const светлая = document.documentElement.dataset.theme === "light", фон = css("--surf"), текст = css("--tx"), под = css("--mut");
+  // фон — как у холста приложения: мягкий радиальный градиент и редкие звёзды
+  const g = ctx.createRadialGradient(W*.45, H*.45, 0, W*.5, H*.5, Math.max(W, H)*.8);
+  g.addColorStop(0, светлая ? "#ffffff" : "#121217"); g.addColorStop(1, светлая ? "#f0f0f3" : "#070709"); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  if(!светлая) ЗВЁЗДЫ.forEach(([x, y, a]) => { ctx.fillStyle = "rgba(255,255,255," + (.05 + a*.12) + ")"; ctx.fillRect(x*W, y*H, 1.2, 1.2); });
+  const z = камера.z; ctx.save(); ctx.translate(W/2 - камера.x*z, H/2 - камера.y*z);
+  const В = ВАРИАНТЫ[текущий], ст = СТ();
+  const видN = new Map(N.map(n => [n.id, В.node(n, ст, фон)]));
+  const R = n => РАДИУС[n.k]*Math.max(.55, Math.min(1.6, z))*(видN.get(n.id).s || 1);
+  // слой под графом (территории) — с переходом в «светлое» режим наложения
+  ctx.globalCompositeOperation = светлая ? "multiply" : "screen";
+  if(В.under) В.under(ctx, z, ст);
+  // свет нод
+  N.forEach(n => { const v = видN.get(n.id); if(v.glow) glow(ctx, n.x*z, n.y*z, R(n)*4.2, v.glow[0], v.glow[1]*(v.a ?? 1)); });
+  ctx.globalCompositeOperation = "source-over";
+  // связи
+  L.forEach(([ia, ib]) => { const a = поId[ia], b = поId[ib], s = В.link(a, b, ст); ctx.lineCap = "round";
+    if(s.halo){ ctx.strokeStyle = rgba(s.c, .22); ctx.lineWidth = s.w*3.4; ctx.beginPath(); ctx.moveTo(a.x*z, a.y*z); ctx.lineTo(b.x*z, b.y*z); ctx.stroke(); }
+    ctx.setLineDash(s.dash || []); ctx.strokeStyle = s.c; ctx.lineWidth = s.w; ctx.beginPath(); ctx.moveTo(a.x*z, a.y*z); ctx.lineTo(b.x*z, b.y*z); ctx.stroke(); ctx.setLineDash([]); });
+  // ноды
+  const подписи = z >= .8;
+  N.forEach(n => { const v = видN.get(n.id), r = R(n), x = n.x*z, y = n.y*z, f = ФОРМА[n.k];
+    ctx.globalAlpha = v.a ?? 1;
+    path(ctx, f, x, y, r); ctx.fillStyle = v.fill; ctx.fill();
+    // прогресс подзадач: заливка снизу или зелёная часть контура
+    if(n.prog && n.st !== "done" && v.prog === "fill"){ ctx.save(); path(ctx, f, x, y, r - v.lw/2); ctx.clip();
+      const выс = f === "diamond" ? r*1.35 : r, верх = y + выс - 2*выс*n.prog; ctx.fillStyle = mix(n.c, фон, .42); ctx.fillRect(x - выс, верх, выс*2, y + выс - верх); ctx.restore(); }
+    ctx.setLineDash(v.dash ? [3.2, 2.6] : []); path(ctx, f, x, y, r); ctx.lineWidth = v.lw; ctx.strokeStyle = v.stroke; ctx.stroke(); ctx.setLineDash([]);
+    if(n.prog && n.st !== "done" && v.prog === "edge"){ partial(ctx, f, x, y, r, n.prog); ctx.lineWidth = v.lw + 1.2; ctx.strokeStyle = ст.done.c; ctx.stroke(); }
     // приоритет — участок обводки сверху
-    if(n.pri){ ctx.beginPath(); if(n.f === "square"){ const w = r*Math.min(1, (.25 + .15*n.pri)*1.3); ctx.moveTo(n.px - w, n.py - r); ctx.lineTo(n.px + w, n.py - r); }
-      ctx.lineWidth = Math.max(2, 2.1*z); ctx.strokeStyle = css("--pri" + n.pri); ctx.stroke(); }
-    // срок
-    if(n.due != null){
-      if(v.id === "timer"){
-        const д = n.due, доля = д < 0 ? 1 : Math.max(.08, Math.min(1, 1 - д/10));
-        partialPath(ctx, n, r, доля); ctx.lineWidth = Math.max(2, (д < 0 ? 3 : 2.4)*z); ctx.strokeStyle = цветСрока(д); ctx.lineCap = "butt"; ctx.stroke();
-        if(z >= 1.2) badge(ctx, n, r, д < 0 ? String(д) : д === 0 ? "сег" : String(д), mix(цветСрока(д), фон, .24), цветСрока(д), цветСрока(д));
-      } else {
-        const д = n.due;
-        if(д < 0) badge(ctx, n, r, String(д), css("--tm-over"), null, фон);
-        else if(д <= 3) badge(ctx, n, r, д === 0 ? "сег" : String(д), mix(цветСрока(д), фон, .24), цветСрока(д), цветСрока(д));
-        else badge(ctx, n, r, String(д), фон, mix(цветСрока(д), фон, .35), цветСрока(д));
-      }
-    }
-    // значки внутри (на отдалении скрыты — как в приложении)
-    const виден = n.r >= 6.5 && z >= .55;
-    if(знак && виден){ ctx.font = (r*1.1).toFixed(1) + 'px "tabler-icons"'; ctx.fillStyle = css(знак[1]); ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(glyph(знак[0]), n.px, n.py); }
-    if(галка){ ctx.beginPath(); const s = r/8; ctx.moveTo(n.px - 3.2*s, n.py + .3*s); ctx.lineTo(n.px - 1*s, n.py + 2.7*s); ctx.lineTo(n.px + 3.2*s, n.py - 2.3*s);
-      ctx.lineWidth = 1.6*s; ctx.strokeStyle = фон; ctx.lineJoin = "round"; ctx.stroke(); }
-    if(v.id === "fill" && n.st === "doing" && виден && !n.big){ ctx.font = (r*1.1).toFixed(1) + 'px "tabler-icons"'; ctx.fillStyle = фон; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(glyph("player-play"), n.px, n.py); }
+    if(n.pri && n.st !== "done"){ const D = f === "diamond" ? r*1.35 : r, t = .25 + .15*n.pri; ctx.beginPath(); ctx.moveTo(x - D*t, y - D*(1 - t)); ctx.lineTo(x, y - D); ctx.lineTo(x + D*t, y - D*(1 - t));
+      ctx.lineWidth = v.lw + .6; ctx.strokeStyle = ["", "#5fb98e", "#e8a14b", "#e0625a"][n.pri]; ctx.lineJoin = "round"; ctx.stroke(); }
+    // значок внутри
+    if(v.icon && r >= 5.5){ ctx.font = (r*(f === "square" ? 1.2 : 1.05)).toFixed(1) + 'px "tabler-icons"'; ctx.fillStyle = v.icon[1]; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(glyph(v.icon[0]), x, y + .5); }
     ctx.globalAlpha = 1;
-    // подпись
-    if(виден){ const лист = !ДЕРЕВО.some(x => x.p === n.id);
-      ctx.font = (лист ? "10.5px " : "600 12px ") + css("--font"); ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.lineJoin = "round";
-      const yy = n.py + (n.f === "diamond" ? r*1.32 : r) + 6; ctx.lineWidth = 4; ctx.strokeStyle = фон; ctx.strokeText(n.t, n.px, yy);
-      ctx.globalAlpha = альфа; ctx.fillStyle = лист ? mix(под, текст, .25) : mix(под, текст, .85); ctx.fillText(n.t, n.px, yy); ctx.globalAlpha = 1; }
+    // срок — плашкой на углу
+    if(n.due != null && n.st !== "done" && r >= 6){ const д = n.due, тx = д < 0 ? String(д) : д === 0 ? "сег" : д === 1 ? "зав" : String(д);
+      const цв = д < 0 ? "#e0625a" : д === 0 ? "#e0873c" : д <= 3 ? "#d8b04a" : "#7b8794";
+      ctx.font = "600 10px " + css("--font"); const w = Math.max(15, ctx.measureText(тx).width + 9), h = 15, D = f === "diamond" ? r*.68 : r;
+      const bx = x + D + w/2 - 4, by = y - D - h/2 + 4; pill(ctx, bx, by, w, h);
+      ctx.fillStyle = д < 0 ? цв : mix(цв, фон, .24); ctx.fill(); if(д >= 0){ ctx.lineWidth = 1; ctx.strokeStyle = цв; ctx.stroke(); }
+      ctx.fillStyle = д < 0 ? фон : цв; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(тx, bx, by + .5); }
+    // подпись: листья мельче и тише, узлы с детьми полужирные
+    const lab = v.label || {};
+    if(подписи && (lab.a ?? 1) > 0){ const лист = n.k === "task" || n.k === "note";
+      ctx.font = (lab.w ? lab.w + " " : лист ? "" : "600 ") + (лист ? "10.5px " : "12px ") + css("--font");
+      ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.lineJoin = "round"; ctx.lineWidth = 4; ctx.strokeStyle = фон;
+      const yy = y + (f === "diamond" ? r*1.35 : r) + 6; ctx.strokeText(n.t, x, yy);
+      ctx.globalAlpha = (v.a ?? 1)*(lab.a ?? 1); ctx.fillStyle = лист ? mix(под, текст, .3) : mix(под, текст, .85); ctx.fillText(n.t, x, yy); ctx.globalAlpha = 1; }
   });
+  ctx.restore();
 }
-
-const grid = document.getElementById("grid");
-ВАРИАНТЫ.forEach(v => {
-  const c = document.createElement("div"); c.className = "card" + (v.now ? " now" : "");
-  c.innerHTML = `<h2>${v.name}</h2><div class="tag">${v.tag}</div><p>${v.text}</p><canvas></canvas><div class="cost">Цена на 950 нодах: ${v.cost}</div>`;
-  grid.appendChild(c); v.cv = c.querySelector("canvas");
-});
-const всё = () => ВАРИАНТЫ.forEach(v => drawVariant(v.cv, v));
-document.getElementById("zoom").oninput = e => { document.getElementById("zv").textContent = (+e.target.value).toFixed(1) + "×"; всё(); };
+// камеры: общий вид вписывает весь граф, «вблизи» — SQ02 крупно
+const ВСЕ = {x:-120, y:40, z:1}, БЛИЗКО = {x:230, y:30, z:1.3};
+function fit(cv){ const xs = N.map(n => n.x), ys = N.map(n => n.y), w = Math.max(...xs) - Math.min(...xs) + 140, h = Math.max(...ys) - Math.min(...ys) + 120;
+  ВСЕ.x = (Math.max(...xs) + Math.min(...xs))/2; ВСЕ.y = (Math.max(...ys) + Math.min(...ys))/2; ВСЕ.z = Math.min(cv.clientWidth/w, cv.clientHeight/h); }
+const far = document.getElementById("far"), near = document.getElementById("near");
+function всё(){ fit(far); draw(far, ВСЕ); БЛИЗКО.z = Math.min(1.5, near.clientWidth/640, near.clientHeight/640); draw(near, БЛИЗКО);
+  const В = ВАРИАНТЫ[текущий]; document.getElementById("what").innerHTML = В.what; document.getElementById("cost").innerHTML = "Цена на 950 нодах: " + В.cost;
+  const ст = СТ(); document.getElementById("leg").innerHTML = ["todo","next","doing","waiting","review","paused","done"].map(k => `<span><i style="background:${ст[k].c}"></i>${ст[k].n}</span>`).join("");
+  document.querySelectorAll("#vars button").forEach((b, i) => b.classList.toggle("on", i === текущий)); }
+document.getElementById("vars").innerHTML = ВАРИАНТЫ.map((v, i) => `<button>${v.name}<kbd>${i}</kbd></button>`).join("");
+document.querySelectorAll("#vars button").forEach((b, i) => b.onclick = () => { текущий = i; всё(); });
+addEventListener("keydown", e => { const k = +e.key; if(e.key >= "0" && e.key <= "4"){ текущий = k; всё(); }
+  if(e.key === "ArrowRight"){ текущий = (текущий + 1) % ВАРИАНТЫ.length; всё(); } if(e.key === "ArrowLeft"){ текущий = (текущий + ВАРИАНТЫ.length - 1) % ВАРИАНТЫ.length; всё(); } });
 document.getElementById("theme").onclick = e => { const b = e.target.closest("button"); if(!b) return;
-  document.querySelectorAll("#theme button").forEach(x => x.classList.toggle("on", x === b));
-  document.documentElement.dataset.theme = b.dataset.t; всё(); };
+  document.querySelectorAll("#theme button").forEach(x => x.classList.toggle("on", x === b)); document.documentElement.dataset.theme = b.dataset.t; всё(); };
 addEventListener("resize", всё);
 document.fonts.ready.then(всё);
 </script>
