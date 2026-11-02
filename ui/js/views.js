@@ -173,12 +173,20 @@ function asideTreeRows(nodes, limit){
 function asideNodeRow(n, lvl, role){
   // у задачи в дереве панели свой значок — галочка в квадрате, а не список: строка тут про
   // состояние одной ноды, а не про перечень (реестр KINDS в core.js даёт остальные)
-  const икона = n.kind==="task" ? "ti-checkbox" : kindIcon(n.kind);
+  // значок — у тега со стилем (шот — камера), как на графе; иначе значок вида
+  const стильТега = (n.tags||[]).map(tagStyle).find(t=>t && t.icon);
+  const икона = стильТега ? стильТега.icon : (n.kind==="task" ? "ti-checkbox" : kindIcon(n.kind));
   const имя = (n.title||"").trim();
   const пусто = kindRu(n.kind)+" без названия";
-  return `<button class="as-link${lvl?" as-sub":""}" style="--lvl:${lvl||0}" data-go="${esc(n.id)}"><i class="ti ${икона}"></i>
-    <span${имя?"":' class="as-dim"'}>${esc(имя||пусто)}</span>
-    ${role?`<em class="as-role">${role}</em>`:""}</button>`;
+  /* СТАТУС ТОЧКОЙ И СЛОВОМ (эталон demo_дизайн.html): «родитель · в работе». Без него, чтобы
+     узнать, в каком состоянии соседняя нода, приходилось на неё переходить. У нейтрального
+     статуса точки нет — шуметь ей нечем. */
+  const ст = n.done ? "done" : (СТАТУСЫ[n.status] ? n.status : нейтральныйСтатус(n.kind));
+  const нейтр = ст===нейтральныйСтатус(n.kind);
+  const подпись = [role, нейтр ? "" : (СТАТУСЫ[ст].имя||"").toLowerCase()].filter(Boolean).join(" · ");
+  return `<button class="as-link${lvl?" as-sub":""}" style="--lvl:${lvl||0}" data-go="${esc(n.id)}"><i class="ti ${esc(икона)}"></i>
+    <span${имя?"":' class="as-dim"'}>${esc(имя||пусто)}</span>${нейтр?"":`<i class="as-dot st-${ст}"></i>`}
+    ${подпись?`<em class="as-role">${подпись}</em>`:""}</button>`;
 }
 
 // Выделили рамкой несколько нод — показываем сводку, а не пустоту: сколько и чего выбрано,
@@ -417,6 +425,10 @@ function asideCard(it){
        ${Object.keys(KINDS).map(k=>`<option value="${k}" ${it.kind===k?"selected":""}>${esc(kindName(k))}</option>`).join("")}
      </select>`;
   const стр = [];
+  /* «ЕЩЁ: ПОВТОР, НАПОМИНАНИЕ» (эталон demo_дизайн.html, вариант A): у большинства нод эти поля
+     пусты, а две пустые строки отодвигали описание и поля вниз. Заданные показываются всегда,
+     пустые — под раскрывашкой; раскрытие помнится (S.settings.asideMore). */
+  const ещё = [];
   // у полотна тип уезжает в шапку, к названию: строк не остаётся вовсе, и доска берёт их высоту
   if(it.kind!=="flow") стр.push(строка("Тип", ["ti-category"], выборТипа));
   /* У ПОЛОТНА в панели только название и тип. Область, папка и теги ему не нужны — полотно
@@ -425,10 +437,10 @@ function asideCard(it){
   const холст = it.kind==="flow";
   // внутри подграфа областей не бывает — селект с единственным «Без области» только занимал бы строку
   if(!холст && !inSubGraph()) стр.push(строка("Область", [areaIcon(it.area), areaColor(it.area)],
-    `<select class="as-sel" data-f="area">
+    `<select class="as-sel" data-f="area"${areaColor(it.area)?` style="color:${esc(areaColor(it.area))}"`:""}>
        <option value="">Без области</option>
        ${S.areas.map(a=>`<option value="${esc(a.id)}" ${it.area===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}
-     </select>${it.areaAuto ? `<span class="as-note" title="Область взята у родительской ноды">наследуется</span>` : ""}`));
+     </select>${it.areaAuto ? `<span class="as-note" title="Область взята у родительской ноды">наследуется${родитель?" от "+esc((родитель.title||"").trim()||"родителя"):""}</span>` : ""}`));
   /* СТАТУС ПОКАЗЫВАЕМ И ЗАМЕТКЕ (2026-09-01). Раньше строка рисовалась только у задачи, а в живом
      файле 20 заметок носили задачные статусы — поменять их в панели было нечем вовсе. Список
      значений берётся из общего реестра (core.js), а не переписывается здесь: тернарник на четыре
@@ -462,14 +474,14 @@ function asideCard(it){
     стр.push(строка("Приоритет", ["ti-flag"],
       `<input type="hidden" data-f="priority" value="${пр}">
        <span class="as-chips">${["—","низкий","средний","высокий"].map((n,p)=>`<button type="button" class="as-q pri-${p}${пр===p?" on":""}" data-pri="${p}">${n}</button>`).join("")}</span>`));
-    стр.push(строка("Повтор", ["ti-repeat"],
+    (it.repeat && it.repeat!=="none" ? стр : ещё).push(строка("Повтор", ["ti-repeat"],
       `<select class="as-sel" data-f="repeat">
          ${Object.entries(REPEAT).map(([k,v])=>`<option value="${k}" ${(it.repeat||"none")===k?"selected":""}>${k==="none"?"не повторяется":v}</option>`).join("")}
        </select>`));
   }
   // напоминание — у задачи И у заметки (не только у задачи, в отличие от срока/приоритета);
   // своя дата+время, отдельно от срока (см. docs/УВЕДОМЛЕНИЯ.md)
-  if(!холст) стр.push(строка("Напоминание", ["ti-bell"], eventControlHtml(it.eventAt, it.eventRepeat, {data:"eventAt", repeatData:"eventRepeat"})));
+  if(!холст) (it.eventAt ? стр : ещё).push(строка("Напоминание", ["ti-bell"], eventControlHtml(it.eventAt, it.eventRepeat, {data:"eventAt", repeatData:"eventRepeat"})));
   /* Папка ноды — здесь, а не только в окне правки: путь нужен по ходу работы (открыть рендеры,
      скопировать для смежника), а ради этого открывать окно поверх графа — лишний шаг.
      Показываем УКОРОЧЕННЫЙ путь (см. shortFolder): полный не влезает в панель и всё равно
@@ -492,6 +504,11 @@ function asideCard(it){
       }).join("")}
       <button class="as-chip as-add" data-addtag="1" title="Добавить тег"><i class="ti ti-plus"></i></button>
       <button class="as-chip as-add" data-tagmgr="1" title="Теги со стилем: цвет, иконка, размер"><i class="ti ti-settings"></i></button></span>`));
+  if(ещё.length){
+    const открыто = !!S.settings.asideMore;
+    стр.push(`<button type="button" class="as-more${открыто?" on":""}" data-more="1"><i class="ti ti-chevron-${открыто?"up":"down"}"></i>${открыто?"Скрыть":"Ещё"}: ${ещё.length===2?"повтор, напоминание":(kindIsTask(it.kind)?"повтор":"напоминание")}</button>
+      <div class="as-more-rows"${открыто?"":" hidden"}>${ещё.join("")}</div>`);
+  }
 
   /* ПОДГРАФ — КНОПКА ВХОДА ПРЯМО В ПАНЕЛИ, а не только двойной клик по ноде. Двойной клик
      знает не всякий, а выбранной нода бывает и тогда, когда на холсте её не видно вовсе:
@@ -513,7 +530,7 @@ function asideCard(it){
            <button class="btn primary as-open" data-open="1"><i class="ti ti-artboard"></i>Открыть доску</button>`)
     // именованные поля идут под описанием и правятся прямо здесь (панель из fields.js)
     : `<div class="as-sec">Описание</div><textarea class="as-area" data-f="body" placeholder="Описание…">${esc(it.body||"")}</textarea>
-       <div class="flds aside-flds" id="as-fields"></div>`;
+       <div class="as-sec">Поля</div><div class="flds aside-flds" id="as-fields"></div>`;
 
   /* Связанные ноды показываем ИЕРАРХИЕЙ, а не свалкой: родитель сверху, под ним сама нода
      (приглушённо, как «ты здесь»), под ней — вложенные. Плоский список не давал понять, где
@@ -548,7 +565,7 @@ function asideCard(it){
     <span>${esc((it.title||"").trim()||"эта нода")}</span><em class="as-role">эта</em></div>`);
   детиLive.slice(0,20).forEach(n=>ветка.push(asideNodeRow(n, свой+1, "вложена")));
 
-  const связанные = рядом ? `<div class="as-sec">Связанные ноды<span class="as-cnt">${рядом}</span></div>
+  const связанные = рядом ? `<div class="as-sec">Связи<span class="as-cnt as-cnt-l">${рядом}</span></div>
     <div class="as-links">${ветка.join("")}</div>
     ${боковые.length?`<div class="as-sec as-sec2">Связаны без вложенности</div>
       <div class="as-links">${боковые.slice(0,20).map(n=>asideNodeRow(n,0,"")).join("")}</div>`:""}` : "";
@@ -576,9 +593,25 @@ function asideCard(it){
   const обл = it.area ? areaById(it.area) : null;
   const путь = (обл||предки.length) ? `<div class="as-crumbs">${обл?`<span class="as-cr-area">${esc(обл.name)}</span>`:""}${глубже?`<span class="as-cr-sep">›</span><span>…</span>`:""}${
       предки.map(n=>`<span class="as-cr-sep">›</span><button class="as-cr" data-go="${esc(n.id)}">${esc((n.title||"").trim()||"без названия")}</button>`).join("")}</div>` : "";
-  const цветВида = it.color || areaColor(it.area) || "";
-  const плитка = `<span class="as-tile"${цветВида?` style="--c:${esc(цветВида)}"`:""} title="${esc(тип)}"><i class="ti ${it.kind==="task"?"ti-checkbox":kindIcon(it.kind)}"></i></span>`;
-  return `<div class="as-head">${плитка}<div class="as-hmain">${путь}<h2 class="as-title" contenteditable="plaintext-only" data-ph="без названия">${esc(it.title||"")}</h2></div>
+  /* ЦВЕТ И ЗНАЧОК ПЛИТКИ — те же, что у ноды на графе (эталон demo_дизайн.html, вариант A): цвет
+     граф выводит сам (свой → тег → область → протекание по связям), и только у него он и есть
+     в готовом виде; значок — у тега со стилем (шот — камера), иначе значок вида. Плитка и тёплый
+     отсвет шапки её цветом связывают карточку с выбранной нодой глазом. */
+  const узел = (typeof graph!=="undefined" && graph && graph.byId) ? graph.byId[it.id] : null;
+  const цветВида = (узел && узел.color) || it.color || areaColor(it.area) || "";
+  const стильТега = (it.tags||[]).map(tagStyle).find(t=>t && t.icon);
+  const значокВида = стильТега ? стильТега.icon : (it.kind==="task" ? "ti-checkbox" : kindIcon(it.kind));
+  const плитка = `<span class="as-tile" title="${esc(тип)}"><i class="ti ${esc(значокВида)}"></i></span>`;
+  /* ЧИПЫ ПОД НАЗВАНИЕМ — сводка с одного взгляда, цветом: область её цветом, срок по шкале
+     времени, теги своими цветами. Править их — в строках ниже; чип ничего не прячет. */
+  const срокЧип = kindIsTask(it.kind) ? (()=>{ const п=dueLabel(it.due);
+    return `<span class="as-pc as-pc-due${п&&п.cls?" "+esc(п.cls):""}"><i class="ti ti-calendar"></i>${it.due?esc(dueButtonText(it.due)):"Без срока"}</span>`; })() : "";
+  const чипы = холст ? "" : `<div class="as-pchips">
+      ${обл?`<span class="as-pc as-pc-area" style="--pc:${esc(обл.color||"var(--mut)")}"><i class="ti ${esc(обл.icon||"ti-circle")}"></i>${esc(обл.name)}</span>`:""}
+      ${срокЧип}
+      ${(it.tags||[]).map(t=>{ const ст=tagStyle(t); return `<span class="as-pc as-pc-tag"${ст&&ст.color?` style="--pc:${esc(ст.color)}"`:""}>#${esc(t)}</span>`; }).join("")}
+    </div>`;
+  return `<div class="as-head"${цветВида?` style="--c:${esc(цветВида)}"`:""}>${плитка}<div class="as-hmain">${путь}<h2 class="as-title" contenteditable="plaintext-only" data-ph="без названия">${esc(it.title||"")}</h2></div>
       ${холст?`<span class="as-kind">${выборТипа}</span>`:""}
       <div class="as-acts">
         ${(typeof aiEnabled==="function" && aiEnabled())
@@ -586,6 +619,7 @@ function asideCard(it){
         <button class="as-ic" data-edit="1" title="Править"><i class="ti ti-pencil"></i></button>
         <button class="as-ic" data-close="1" title="Закрыть панель"><i class="ti ti-x"></i></button>
       </div></div>
+    ${чипы}
     ${статусы}
     ${стр.length?`${холст?"":`<div class="as-sec">Свойства</div>`}<div class="as-rows${холст?" compact":""}">${стр.join("")}</div>`:""}
     ${вход}
@@ -692,6 +726,7 @@ function wireAside(it){
     const поле=a.querySelector('[data-f="'+f+'"]'); if(!поле || поле.value===кн.dataset[ключ]) return;
     поле.value=кн.dataset[ключ]; поле.onchange && поле.onchange();
   });
+  b("[data-more]", ()=>{ S.settings.asideMore=!S.settings.asideMore; persist(); renderAside(); });
   рядом("[data-st]", "status", "st");
   рядом("[data-pri]", "priority", "pri");
   // подзадачи: галка — тем же toggleDone, что галочка на графе и в списках

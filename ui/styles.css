@@ -2268,3 +2268,55 @@ html.canvas-ui #cv-tr .toggle{background:none;box-shadow:none;padding:0;}
 /* совсем узкая панель (≤300 px у ряда статусов): подписей нет ни у одной кнопки, включая выбранную —
    «Не начато» в 29 px кнопки не помещается (линейка вёрстки, 300 px). Имя — в подсказке. */
 @container (max-width:300px){ .as-st-b.on span{display:none;} }
+
+/* ========================================================================
+   ПАНЕЛЬ ПО ЭТАЛОНУ demo_дизайн.html, ВАРИАНТ A (КРОЛИК 03.11.2026: «нравится, что некоторые
+   вещи выделены цветами, нравится, как выглядят поля»).
+   ======================================================================== */
+/* шапка: тёплый отсвет цветом ноды из левого верхнего угла, плитка 38 px её цветом */
+/* отсвет — фоном самой шапки, растянутой на поля панели отрицательным отступом: псевдоэлемент
+   за её краями линейка вёрстки законно считала вылезанием */
+.as-head{margin:-16px -18px 0;padding:16px 18px 4px;border-radius:var(--r-l) var(--r-l) 0 0;
+  background:radial-gradient(80% 130px at 12% 0%,color-mix(in srgb,var(--c,var(--accent)) 15%,transparent),transparent 70%);}
+.as-tile{width:38px;height:38px;border-radius:11px;font-size:19px;}
+/* чипы-сводка под названием */
+.as-pchips{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 2px;}
+.as-pc{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;font-size:12px;background:var(--l3);color:var(--tx);max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.as-pc i{font-size:13px;flex:none;}
+.as-pc-area,.as-pc-tag[style]{color:color-mix(in srgb,var(--pc) 72%,var(--tx));background:color-mix(in srgb,var(--pc) 13%,transparent);}
+.as-pc-tag{color:var(--mut);}
+.as-pc-due.over{color:var(--tm-over);background:color-mix(in srgb,var(--tm-over) 14%,transparent);}
+.as-pc-due.today{color:var(--tm-today);background:color-mix(in srgb,var(--tm-today) 14%,transparent);}
+/* «Ещё: повтор, напоминание» */
+.as-more{display:flex;align-items:center;gap:6px;height:28px;padding:0 2px;font-size:12px;color:var(--mut2);background:none;border:0;text-align:left;}
+.as-more:hover{color:var(--tx);}
+.as-more-rows{display:flex;flex-direction:column;gap:1px;}
+.as-more-rows[hidden]{display:none;}
+/* путь папки — моноширинным в плашке тоном, кнопки справа */
+.as-row:has([data-folder="open"]) .as-v{background:var(--l3);border-radius:8px;height:32px;padding:0 4px 0 8px;margin-left:-8px;flex-wrap:nowrap;}
+.as-path{font-family:"Cascadia Code",Consolas,monospace;font-size:11.5px;}
+/* поля: три пунктирные плитки «Текст / Картинка / Доска», шаблоны — тихими ссылками */
+#aside .fld-add:not(.fld-tpl){display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+#aside .fld-add > span{display:none;}
+#aside .fld-add:not(.fld-tpl) button{height:58px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border-radius:10px;
+  border:1px dashed var(--bd2);background:transparent;font-size:12px;color:var(--mut);text-transform:capitalize;}
+#aside .fld-add:not(.fld-tpl) button i{font-size:17px;margin:0;}
+#aside .fld-add:not(.fld-tpl) button:hover{background:var(--l3);color:var(--tx);border-color:var(--bd3);}
+#aside .fld-tpl{display:flex;gap:14px;margin-top:8px;}
+#aside .fld-tpl button{border:0;background:none;padding:0;height:auto;font-size:12px;color:var(--mut2);}
+#aside .fld-tpl button:hover{background:none;color:var(--tx);}
+#aside .fld-tpl button::first-letter{text-transform:uppercase;}
+/* связи: статус точкой сразу за названием, роль и статус словами справа */
+.as-link span{flex:0 1 auto;}
+.as-role{margin-left:auto;}
+.as-dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--sc);box-shadow:0 0 8px var(--sc);font-style:normal;}
+.as-dot.st-next{--sc:var(--st-next);} .as-dot.st-doing{--sc:var(--accent);} .as-dot.st-waiting{--sc:var(--st-wait);}
+.as-dot.st-review{--sc:var(--st-review);} .as-dot.st-paused{--sc:var(--st-mark);box-shadow:none;} .as-dot.st-done{--sc:var(--pri1);box-shadow:none;}
+/* легенда — островком со счётчиками (эталон demo_дизайн.html): тон l2, контур тоном, число тише */
+.graph-legend{gap:4px;padding:4px;border-radius:11px;background:var(--l2);box-shadow:inset 0 0 0 .5px var(--bd);}
+.graph-legend > span{height:26px;padding:0 9px;gap:6px;border-radius:7px;font-size:11.5px;color:var(--mut);}
+.graph-legend b{font-weight:500;color:var(--mut2);}
+.graph-legend:empty{display:none;}
+/* кнопки срока — в одну строку с «Без срока», как в макете */
+#aside .date-ctl .date-btn{width:auto;flex:none;}

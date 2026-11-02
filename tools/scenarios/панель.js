@@ -334,7 +334,8 @@ t.push({имя:"описание правится на месте", ок: зад
 // строки панели выровнены в одну сетку: подпись, слот иконки, значение
 asideSelect(зад.id); await ж(150);
 {
-  const левые = [...document.querySelectorAll("#aside .as-row .as-v")].map(v => Math.round(v.getBoundingClientRect().left));
+  // строки под «Ещё: повтор, напоминание» свёрнуты и координат не имеют — их не считаем
+  const левые = [...document.querySelectorAll("#aside .as-row .as-v")].filter(v => v.offsetParent).map(v => Math.round(v.getBoundingClientRect().left));
   t.push({имя:"значения полей стоят одной колонкой", ок: new Set(левые).size === 1,
           факт: "левых краёв: " + [...new Set(левые)].join(", ")});
   // правые края полей тоже должны совпадать: иначе стрелки выпадающих списков идут лесенкой
@@ -347,12 +348,12 @@ asideSelect(зад.id); await ж(150);
      против соседнего списка — так ловится любое чужое правило, а не только это. */
   const срок = document.querySelector("#aside .date-ctl [data-datepick]");
   // сосед — список повтора: статус и приоритет с шага 3.5 — ряды кнопок, а не списки
-  const статус = document.querySelector('#aside [data-f="repeat"]');
+  const статус = document.querySelector('#aside [data-f="kind"]');
   const hс = срок ? срок.getBoundingClientRect().height : 0;
   const hст = статус ? статус.getBoundingClientRect().height : 0;
   t.push({имя:"поле срока — строка той же высоты, что соседние поля",
           ок: !!срок && !!статус && Math.abs(hс - hст) <= 2 && Math.round(hс) <= 34,
-          факт: "срок " + Math.round(hс) + " px против повтора " + Math.round(hст) + " px"});
+          факт: "срок " + Math.round(hс) + " px против типа " + Math.round(hст) + " px"});
   t.push({имя:"кнопка срока не ловит чужой стиль пустого состояния",
           ок: !!срок && !срок.classList.contains("empty")
               && Math.round((срок.querySelector("i")||{getBoundingClientRect:()=>({height:0})}).getBoundingClientRect().height) <= 24,

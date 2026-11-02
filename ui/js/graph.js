@@ -114,6 +114,20 @@ function subCrumbsWire(){
     render();
   });
 }
+/* ЛЕГЕНДА СО СЧЁТЧИКАМИ (эталон demo_дизайн.html, вариант A): «Задачи 26 · Заметки 1 · Области 3».
+   Голый список видов ничего не сообщал, а счёт отвечает на вопрос «много ли тут всего». Виды,
+   которых в графе нет, не показываем. Внутри подграфа областей нет — там залитый кружок это
+   КОРЕНЬ, и легенда не обещает «область», которой в этом графе не бывает. */
+function graphLegendHtml(){
+  const живые = (S.items||[]).filter(it=>!it.deleted && inWeb(it));
+  const счёт = k => живые.filter(it=>it.kind===k).length;
+  const пункты = [
+    ["hub", inSubGraph() ? "Корень" : "Области", inSubGraph() ? 1 : (S.areas||[]).length],
+    ["task", "Задачи", счёт("task")], ["note", "Заметки", счёт("note")],
+    ["flow", "Полотна", счёт("flow")], ["sub", "Подграфы", счёт("sub")],
+  ].filter(п=>п[2] > 0);
+  return пункты.map(([к, имя, n])=>`<span><span class="lg-dot ${к}"></span>${имя}<b>${n}</b></span>`).join("");
+}
 function renderNotes(v){
   recomputeHierarchy();   // иерархия всегда выводится от области (чинит и старые данные)
   head("Заметки", notesMode==="graph"?"Граф связей · тяни узлы · двойной клик = закрепить":"Все заметки карточками",
@@ -170,15 +184,7 @@ function renderNotes(v){
     <div class="graph-search" id="g-search-box" style="display:none">
       <i class="ti ti-search"></i><input type="text" placeholder="Найти по названию или #тегу…" spellcheck="false"><span class="gs-count"></span><button class="gs-close" title="Закрыть (Esc)"><i class="ti ti-x"></i></button>
     </div>
-    <div class="graph-legend">
-      ${/* Внутри подграфа областей нет, а залитый кружок на холсте есть — это КОРЕНЬ. Легенда,
-           обещающая «область», отправляла бы искать то, чего в этом графе не бывает. */""}
-      <span><span class="lg-dot hub"></span>${inSubGraph()?"корень":"область"}</span>
-      <span><span class="lg-dot note"></span>заметка</span>
-      <span><span class="lg-dot task"></span>задача</span>
-      <span><span class="lg-dot flow"></span>полотно</span>
-      <span><span class="lg-dot sub"></span>подграф</span>
-    </div>
+    <div class="graph-legend">${graphLegendHtml()}</div>
     ${/* ИИ — СВОЯ КНОПКА В УГЛУ, а не пункт в меню «…» (КРОЛИК, 07.09.2026). Пунктом она стояла
          в одном ряду с перераскладкой и счётчиком кадров — среди редких служебных действий, тогда
          как работа с нейросетью это отдельный вход, к которому возвращаются постоянно. Правый
@@ -1392,6 +1398,7 @@ class Graph{
       this._горящие.push(у);
     });
     this._heatPanel();
+    { const лг=$("#graph-wrap .graph-legend"); if(лг) лг.innerHTML=graphLegendHtml(); }   // счёт живёт вместе с графом
 
     while(this.svg.firstChild) this.svg.removeChild(this.svg.firstChild);
     this.root=document.createElementNS(NS,"g"); this.svg.appendChild(this.root);
