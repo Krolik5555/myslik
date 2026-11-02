@@ -3151,5 +3151,29 @@ t.push({имя:"возврат на вкладку пересобирает гр
   graph.selNodes.clear(); recomputeHierarchy(); render(); await ж(120);
 }
 
+/* ===== прогресс подзадач на холсте: закрытая подзадача остаётся в счёте ГОТОВОЙ =====
+   Закрытая задача потухает (archived), и счёт выкидывал её: «0 из 3» после галки становилось
+   «0 из 2», а заливка прогресса не появлялась никогда (КРОЛИК, 03.11.2026). */
+{
+  const рендерБыл = S.settings.graphRender; S.settings.graphRender = "canvas";
+  const р = cmdParse(JSON.stringify({ops:[
+    {op:"node", as:"ш", kind:"task", title:"ПРГ-ШОТ", area:(S.areas[0] || {}).id},
+    {op:"node", as:"a", kind:"task", title:"ПРГ-Рендер"}, {op:"link", from:"ш", to:"a"},
+    {op:"node", as:"b", kind:"task", title:"ПРГ-Сборка"}, {op:"link", from:"ш", to:"b"},
+    {op:"node", as:"c", kind:"task", title:"ПРГ-Звук"},   {op:"link", from:"ш", to:"c"}]}));
+  const ит = р.errors.length ? null : cmdApply(р.ops);
+  view = "notes"; notesMode = "graph"; render(); await ж(400);
+  if(ит){
+    const шот = ит.alias["ш"];
+    toggleDone(S.items.find(x => x.id === ит.alias["a"]));
+    graph.build(); graph._drawCanvas(); await ж(100);
+    t.push({имя:"прогресс: закрытая подзадача считается готовой и остаётся в счёте",
+            ок: graph._subTotal && graph._subTotal.get(шот) === 3 && graph._subDone.get(шот) === 1,
+            факт: graph._subTotal ? (graph._subDone.get(шот) || 0) + " из " + graph._subTotal.get(шот) : "нет счёта"});
+  }
+  S.items.filter(x => /^ПРГ-/.test(x.title || "")).forEach(x => hardDeleteItem(x.id));
+  S.settings.graphRender = рендерБыл; recomputeHierarchy(); render(); await ж(120);
+}
+
 hardDeleteItem(мысль.id); render();
 return t;
