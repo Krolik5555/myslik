@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="graphite">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Панель и темы</title>
+<link rel="stylesheet" href="ui/vendor/tabler-icons.min.css">
+<style>
+/* ===== ТЕМЫ — только токены; всё ниже берёт цвета отсюда ===== */
+:root{ --font:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif; --node:#e8a14b; --node2:#9b7fd8; }
+[data-theme="graphite"]{ --bg:#060607; --cv:#0b0b0d; --s1:#0e0e11; --s2:#17171b; --s3:#212126; --tx:#f4f4f5; --mut:#9a9aa3; --mut2:#6e6e77;
+  --acc:#e8a14b; --hair:rgba(255,255,255,.075); --hi:rgba(255,255,255,.07); --lo:rgba(0,0,0,.45); --lift:0 18px 50px rgba(0,0,0,.45); --glass:rgba(14,14,17,.62); --dark:1; }
+[data-theme="midnight"]{ --bg:#04060b; --cv:#070b13; --s1:#0b1018; --s2:#121a26; --s3:#1a2433; --tx:#eef3fa; --mut:#8b98ab; --mut2:#617086;
+  --acc:#5cc8ff; --hair:rgba(140,190,255,.09); --hi:rgba(170,210,255,.08); --lo:rgba(0,0,0,.5); --lift:0 18px 50px rgba(0,8,20,.55); --glass:rgba(11,16,24,.6); --dark:1; }
+[data-theme="moss"]{ --bg:#050705; --cv:#090c09; --s1:#0d110e; --s2:#151b16; --s3:#1e261f; --tx:#eef2ec; --mut:#93a091; --mut2:#677366;
+  --acc:#9fd36b; --hair:rgba(190,230,170,.08); --hi:rgba(200,240,180,.07); --lo:rgba(0,0,0,.5); --lift:0 18px 50px rgba(0,10,0,.5); --glass:rgba(13,17,14,.6); --dark:1; }
+[data-theme="plum"]{ --bg:#07050a; --cv:#0c0910; --s1:#110d16; --s2:#1a1421; --s3:#241c2d; --tx:#f3eef7; --mut:#a094ad; --mut2:#736880;
+  --acc:#c792ff; --hair:rgba(220,190,255,.085); --hi:rgba(230,200,255,.07); --lo:rgba(0,0,0,.5); --lift:0 18px 50px rgba(10,0,20,.5); --glass:rgba(17,13,22,.6); --dark:1; }
+[data-theme="espresso"]{ --bg:#090605; --cv:#0e0a08; --s1:#14100c; --s2:#1d1712; --s3:#28201a; --tx:#f6efe8; --mut:#a8998a; --mut2:#7a6c60;
+  --acc:#ff8a4c; --hair:rgba(255,220,190,.08); --hi:rgba(255,225,200,.07); --lo:rgba(0,0,0,.5); --lift:0 18px 50px rgba(20,8,0,.5); --glass:rgba(20,16,12,.6); --dark:1; }
+[data-theme="paper"]{ --bg:#e9e4db; --cv:#efeae2; --s1:#f8f5f0; --s2:#ece7df; --s3:#e0d9ce; --tx:#1d1a16; --mut:#6f685e; --mut2:#948b7f;
+  --acc:#c2410c; --hair:rgba(60,40,20,.12); --hi:rgba(255,255,255,.8); --lo:rgba(60,40,20,.12); --lift:0 14px 40px rgba(60,40,20,.12); --glass:rgba(248,245,240,.7); --dark:0; --node:#c47a1c; }
+[data-theme="frost"]{ --bg:#e7ebf1; --cv:#eef1f5; --s1:#f8fafc; --s2:#e8edf3; --s3:#dbe2ea; --tx:#0f141a; --mut:#5c6773; --mut2:#8892a0;
+  --acc:#2563eb; --hair:rgba(20,40,70,.11); --hi:rgba(255,255,255,.85); --lo:rgba(20,40,70,.10); --lift:0 14px 40px rgba(20,40,70,.10); --glass:rgba(248,250,252,.7); --dark:0; --node:#c47a1c; }
+
+*{box-sizing:border-box} html,body{margin:0}
+body{background:var(--bg); color:var(--tx); font:13px/1.45 var(--font); padding:0 0 80px; transition:background .25s}
+.wrap{max-width:1560px; margin:0 auto; padding:0 24px}
+h1{font-size:22px; margin:28px 0 4px; letter-spacing:-.01em} h2{font-size:17px; margin:44px 0 6px} .lead{color:var(--mut); max-width:900px; margin:0 0 18px}
+.bar{position:sticky; top:0; z-index:20; background:color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter:blur(10px); border-bottom:1px solid var(--hair); padding:10px 0}
+.bar .wrap{display:flex; gap:14px; align-items:center; flex-wrap:wrap}
+.bar b{font-size:12px; color:var(--mut); font-weight:600; letter-spacing:.04em; text-transform:uppercase}
+.th{display:flex; gap:6px; flex-wrap:wrap}
+.th button{display:flex; align-items:center; gap:7px; border:0; background:var(--s2); color:var(--tx); font:inherit; padding:6px 11px 6px 7px; border-radius:9px; cursor:pointer}
+.th button i.sw{width:18px; height:18px; border-radius:6px; display:inline-block; box-shadow:inset 0 0 0 1px rgba(127,127,127,.25)}
+.th button.on{box-shadow:inset 0 0 0 1.5px var(--acc)}
+.note{color:var(--mut2); font-size:12px}
+
+/* ===== сцена: полоска холста + панель ===== */
+.grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(640px, 1fr)); gap:22px}
+.card{border-radius:16px; overflow:hidden; background:var(--cv); box-shadow:0 0 0 1px var(--hair)}
+.card .cap{padding:12px 16px 10px; background:var(--s1); border-bottom:1px solid var(--hair)}
+.card .cap h3{margin:0; font-size:15px} .card .cap p{margin:3px 0 0; color:var(--mut); font-size:12.5px}
+.card .cap .cost{color:var(--mut2); font-size:11.5px; margin-top:4px}
+.scene{position:relative; height:800px; display:flex; background:var(--cv); overflow:hidden}
+.scene .cvs{position:absolute; inset:0; overflow:hidden}
+.scene .cvs svg{position:absolute; inset:0; width:100%; height:100%}
+.scene .glowspot{position:absolute; width:340px; height:340px; border-radius:50%; left:40px; top:150px; background:radial-gradient(circle, color-mix(in srgb, var(--node) 30%, transparent), transparent 65%); filter:blur(4px)}
+.scene .glowspot.c{left:auto; right:90px; top:430px; width:380px; height:380px; background:radial-gradient(circle, color-mix(in srgb, #5fb98e 30%, transparent), transparent 65%)}
+.scene .glowspot.b{left:-60px; top:420px; width:260px; height:260px; background:radial-gradient(circle, color-mix(in srgb, var(--node2) 26%, transparent), transparent 65%)}
+
+/* ===== общая начинка панели ===== */
+.pn{width:380px; flex:none; margin:12px 12px 12px auto; z-index:2; border-radius:16px; position:relative; display:flex; flex-direction:column; overflow:hidden}
+.pn .in{padding:16px 16px 14px; overflow:hidden; display:flex; flex-direction:column; gap:12px; position:relative; z-index:1}
+.hd{display:flex; gap:12px; align-items:flex-start}
+.tile{width:40px; height:40px; border-radius:11px; flex:none; display:grid; place-items:center; font-size:20px; color:var(--node); background:color-mix(in srgb, var(--node) 16%, var(--s2))}
+.crumb{font-size:11.5px; color:var(--mut)} .ttl{font-size:17px; font-weight:650; line-height:1.25; margin-top:1px}
+.hd .act{margin-left:auto; display:flex; gap:2px; color:var(--mut)} .hd .act i{font-size:16px; padding:5px; border-radius:7px}
+.chips{display:flex; gap:6px; flex-wrap:wrap}
+.chip{display:inline-flex; align-items:center; gap:5px; font-size:12px; padding:4px 9px; border-radius:8px; background:var(--s2); color:var(--tx)}
+.chip i{font-size:13px; color:var(--mut)} .chip.c{color:var(--node)} .chip.c i{color:var(--node)}
+.sec{font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--mut2); font-weight:650; display:flex; align-items:center; gap:7px}
+.seg{display:grid; grid-template-columns:repeat(7,1fr); gap:3px; padding:3px; border-radius:11px; background:var(--s2)}
+.seg span{display:flex; flex-direction:column; align-items:center; gap:2px; font-size:9.5px; color:var(--mut); padding:6px 0 5px; border-radius:8px; text-align:center; line-height:1.1}
+.seg span i{font-size:15px}
+.seg span.on{color:var(--node); background:color-mix(in srgb, var(--node) 15%, var(--s3)); box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--node) 55%, transparent)}
+.rows{display:flex; flex-direction:column; gap:1px}
+.row{display:grid; grid-template-columns:110px 1fr; align-items:center; min-height:30px; font-size:12.5px}
+.row .k{color:var(--mut); display:flex; gap:8px; align-items:center} .row .k i{font-size:15px; color:var(--mut2)}
+.row .v{display:flex; gap:5px; align-items:center; flex-wrap:wrap}
+.pill{font-size:11.5px; padding:3px 8px; border-radius:7px; background:var(--s2); color:var(--mut)} .pill.on{background:color-mix(in srgb, var(--node) 18%, var(--s2)); color:var(--tx)}
+.desc{border-radius:11px; background:var(--s2); padding:10px 12px; color:var(--mut); font-size:12.5px; min-height:54px}
+.flds{display:grid; grid-template-columns:1.2fr 1fr; gap:8px}
+.fld{border-radius:11px; background:var(--s2); overflow:hidden}
+.fld .fh{font-size:11px; color:var(--mut); padding:7px 10px 0; display:flex; gap:6px; align-items:center} .fld .fh i{font-size:13px}
+.fld .fb{padding:4px 10px 10px; font-size:12px; color:var(--tx)}
+.fld .img{height:74px; margin:6px 8px 8px; border-radius:8px; background:linear-gradient(135deg, color-mix(in srgb, var(--node) 45%, #333), color-mix(in srgb, var(--node2) 40%, #222))}
+.subs{display:flex; flex-direction:column; gap:4px}
+.sub{display:flex; align-items:center; gap:9px; font-size:12.5px; padding:5px 8px; border-radius:8px}
+.sub .d{width:12px; height:12px; border-radius:3px; box-shadow:inset 0 0 0 1.5px var(--c,var(--mut))} .sub.done{color:var(--mut2); text-decoration:line-through} .sub.done .d{background:var(--c)}
+.sub .r{margin-left:auto; font-size:11px; color:var(--mut2)}
+.prog{height:4px; border-radius:3px; background:var(--s3); overflow:hidden} .prog b{display:block; height:100%; width:40%; background:var(--node); border-radius:3px}
+.btn{display:flex; align-items:center; justify-content:center; gap:7px; height:36px; border-radius:10px; background:var(--tx); color:var(--bg); font-weight:600; font-size:12.5px}
+
+/* ===== КОНЦЕПЦИЯ 1 — «Слои» (нынешняя, доведённая): тон без рамок ===== */
+.k-layers .pn{background:var(--s1); box-shadow:var(--lift)}
+
+/* ===== КОНЦЕПЦИЯ 2 — «Стекло»: холст просвечивает сквозь панель ===== */
+.k-glass .pn{background:var(--glass); backdrop-filter:blur(22px) saturate(1.35); -webkit-backdrop-filter:blur(22px) saturate(1.35);
+  box-shadow:var(--lift), inset 0 1px 0 var(--hi), inset 0 0 0 1px var(--hair)}
+.k-glass .seg, .k-glass .desc, .k-glass .fld, .k-glass .chip, .k-glass .pill{background:color-mix(in srgb, var(--s3) 55%, transparent)}
+
+/* ===== КОНЦЕПЦИЯ 3 — «Отсвет ноды»: панель освещена цветом выбранной ноды ===== */
+.k-glow .pn{background:var(--s1); box-shadow:var(--lift)}
+.k-glow .pn::before{content:""; position:absolute; inset:0; background:
+  radial-gradient(120% 60% at 0% 0%, color-mix(in srgb, var(--node) 22%, transparent), transparent 60%),
+  linear-gradient(180deg, color-mix(in srgb, var(--node) 7%, transparent), transparent 40%)}
+.k-glow .pn::after{content:""; position:absolute; left:0; top:18px; bottom:18px; width:2px; border-radius:2px;
+  background:linear-gradient(180deg, var(--node), color-mix(in srgb, var(--node) 0%, transparent))}
+.k-glow .mark{position:absolute; right:-46px; top:-46px; width:170px; height:170px; transform:rotate(45deg); border-radius:22px;
+  border:2px solid color-mix(in srgb, var(--node) 40%, transparent); z-index:0; animation:spin 12s linear infinite}
+@keyframes spin{to{transform:rotate(405deg)}}
+.k-glow .sec::before{content:""; width:5px; height:5px; border-radius:50%; background:var(--node)}
+
+/* ===== КОНЦЕПЦИЯ 4 — «Карточки»: разделы плавают отдельными плитками ===== */
+.k-bento .pn{background:transparent; margin-right:10px}
+.k-bento .pn .in{padding:0; gap:8px}
+.k-bento .blk{background:var(--s1); border-radius:14px; padding:12px 14px; box-shadow:0 8px 24px rgba(0,0,0,calc(.28 * var(--dark) + .06)), inset 0 1px 0 var(--hi); display:flex; flex-direction:column; gap:10px}
+.k-bento .blk.head{background:linear-gradient(160deg, color-mix(in srgb, var(--node) 20%, var(--s1)), var(--s1) 70%)}
+.k-bento .seg, .k-bento .desc, .k-bento .fld{background:var(--s2)}
+
+/* ===== КОНЦЕПЦИЯ 5 — «Паспорт»: корешок цвета ноды, плотные ряды, тонкие разделители ===== */
+.k-pass .pn{background:var(--s1); box-shadow:var(--lift); border-radius:6px 16px 16px 6px}
+.k-pass .pn .spine{position:absolute; left:0; top:0; bottom:0; width:5px; background:var(--node)}
+.k-pass .pn .in{padding-left:22px}
+.k-pass .stbar{display:flex; align-items:center; gap:8px; margin:-16px -16px 0 -22px; padding:9px 16px 9px 22px; font-size:11.5px; font-weight:600;
+  background:color-mix(in srgb, var(--node) 16%, var(--s1)); color:var(--node); border-bottom:1px solid color-mix(in srgb, var(--node) 30%, transparent)}
+.k-pass .stbar .r{margin-left:auto; color:var(--mut); font-weight:500}
+.k-pass .row{border-bottom:1px solid var(--hair)} .k-pass .row:last-child{border-bottom:0}
+.k-pass .seg{background:transparent; padding:0; gap:0; border:1px solid var(--hair)} .k-pass .seg span{border-radius:0} .k-pass .seg span+span{border-left:1px solid var(--hair)}
+.k-pass .desc, .k-pass .fld{background:transparent; box-shadow:inset 0 0 0 1px var(--hair)}
+.k-pass .tile{border-radius:8px}
+
+/* ===== обводки ===== */
+.otab{display:grid; grid-template-columns:200px repeat(6, 1fr); gap:10px; align-items:center; background:var(--cv); border-radius:16px; padding:18px; box-shadow:0 0 0 1px var(--hair)}
+.otab .h{font-size:11px; color:var(--mut2); text-transform:uppercase; letter-spacing:.06em; font-weight:650}
+.otab .lbl b{display:block; font-size:13px} .otab .lbl span{font-size:11.5px; color:var(--mut)}
+.cmp{display:flex; align-items:center; justify-content:center; min-height:58px}
+.c-btn{padding:8px 14px; border-radius:10px; background:var(--s2); font-size:12.5px; display:flex; gap:6px; align-items:center}
+.c-inp{width:100%; padding:8px 11px; border-radius:10px; background:var(--s1); color:var(--mut); font-size:12.5px}
+.c-chip{padding:4px 10px; border-radius:8px; background:var(--s2); font-size:12px}
+.c-isl{width:100%; height:46px; border-radius:13px; background:var(--s1); display:flex; align-items:center; gap:10px; padding:0 12px; color:var(--mut)}
+.c-isl i{font-size:17px}
+.c-act{padding:8px 14px; border-radius:10px; font-size:12.5px; color:var(--node); background:color-mix(in srgb, var(--node) 14%, var(--s2)); display:flex; gap:6px; align-items:center}
+.c-tile{width:100%; height:52px; border-radius:11px; background:var(--s2)}
+/* стили обводок */
+.o-none .c-act{box-shadow:none}
+.o-hair .c-btn, .o-hair .c-inp, .o-hair .c-chip, .o-hair .c-isl, .o-hair .c-tile{box-shadow:inset 0 0 0 1px var(--hair)}
+.o-hair .c-act{box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--node) 55%, transparent)}
+.o-bevel .c-btn, .o-bevel .c-chip, .o-bevel .c-isl, .o-bevel .c-tile{box-shadow:inset 0 1px 0 var(--hi), inset 0 -1px 0 var(--lo)}
+.o-bevel .c-inp{box-shadow:inset 0 1px 2px var(--lo), inset 0 -1px 0 var(--hi)}
+.o-bevel .c-act{box-shadow:inset 0 1px 0 color-mix(in srgb, var(--node) 50%, transparent), inset 0 -1px 0 var(--lo)}
+.o-grad .c-btn, .o-grad .c-inp, .o-grad .c-chip, .o-grad .c-isl, .o-grad .c-tile, .o-grad .c-act{position:relative}
+.o-grad .c-btn::after, .o-grad .c-inp::after, .o-grad .c-chip::after, .o-grad .c-isl::after, .o-grad .c-tile::after, .o-grad .c-act::after{content:""; position:absolute; inset:0; border-radius:inherit; padding:1px;
+  background:linear-gradient(160deg, color-mix(in srgb, var(--tx) 22%, transparent), transparent 45%, transparent 70%, color-mix(in srgb, var(--tx) 8%, transparent));
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude; pointer-events:none}
+.o-grad .c-act::after{background:linear-gradient(160deg, var(--node), transparent 60%)}
+.o-ring .c-act{box-shadow:0 0 0 2px var(--cv), 0 0 0 3.5px var(--node)}
+.o-ring .c-inp{box-shadow:0 0 0 2px var(--cv), 0 0 0 3.5px var(--acc)}
+.o-ring .c-btn, .o-ring .c-chip, .o-ring .c-isl, .o-ring .c-tile{box-shadow:inset 0 1px 0 var(--hi)}
+.o-mix .c-isl, .o-mix .c-tile{box-shadow:inset 0 1px 0 var(--hi), inset 0 -1px 0 var(--lo)}
+.o-mix .c-inp{box-shadow:inset 0 0 0 1px var(--hair)}
+.o-mix .c-btn, .o-mix .c-chip{box-shadow:none}
+.o-mix .c-act{position:relative}
+.o-mix .c-act::after{content:""; position:absolute; inset:0; border-radius:inherit; padding:1px; background:linear-gradient(160deg, var(--node), transparent 65%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude}
+
+/* ===== витрина тем ===== */
+.themes{display:grid; grid-template-columns:repeat(auto-fill, minmax(300px,1fr)); gap:16px}
+.tcard{border-radius:14px; overflow:hidden; cursor:pointer; box-shadow:0 0 0 1px rgba(127,127,127,.2); transition:transform .15s}
+.tcard:hover{transform:translateY(-2px)} .tcard.on{box-shadow:0 0 0 2px var(--acc)}
+.tprev{height:170px; position:relative; background:var(--cv); display:flex}
+.tprev svg{flex:1}
+.tprev .mp{width:118px; margin:10px 10px 10px 0; border-radius:10px; background:var(--s1); box-shadow:var(--lift); padding:10px; display:flex; flex-direction:column; gap:6px}
+.tprev .mp i{display:block; height:6px; border-radius:3px; background:var(--s3)} .tprev .mp i.t{height:9px; width:70%; background:var(--tx); opacity:.85} .tprev .mp i.a{background:var(--acc); width:55%}
+.tprev .mp i.s{height:18px; border-radius:6px; background:var(--s2)}
+.tinfo{padding:10px 14px 12px; background:var(--s1); color:var(--tx)} .tinfo b{font-size:14px} .tinfo p{margin:2px 0 0; font-size:12px; color:var(--mut)}
+.tinfo .sw{display:flex; gap:4px; margin-top:8px} .tinfo .sw i{width:20px; height:12px; border-radius:4px; box-shadow:inset 0 0 0 1px rgba(127,127,127,.25)}
+
+.verdict{margin-top:16px; padding:14px 16px; border-radius:12px; background:var(--s1); box-shadow:inset 0 0 0 1px var(--hair); max-width:980px}
+.verdict b{color:var(--acc)}
+</style>
+</head>
+<body>
+<div class="bar"><div class="wrap">
+  <b>Тема</b><div class="th" id="themes"></div>
+  <span class="note">меняет весь макет — панели, обводки и холст</span>
+</div></div>
+
+<div class="wrap">
+<h1>Правая панель, обводки и темы</h1>
+<p class="lead">Одна и та же карточка — шот SH035 «в работе», цвет его тега оранжевый — в пяти оформлениях. Слева полоска холста, чтобы было видно, как панель живёт поверх графа. Наверху переключатель тем: всё на странице перекрашивается разом, сравнивать удобнее по одной концепции в разных темах.</p>
+
+<h2>1. Фон и оформление панели</h2>
+<p class="lead">Отличаются не цветом, а тем, чем панель отделена от холста и как она связана с выбранной нодой.</p>
+<div class="grid" id="concepts"></div>
+
+<h2>2. Обводки элементов</h2>
+<p class="lead">Сейчас обводок нет вовсе — элементы различаются только тоном (строка «Без обводки»). Шесть вариантов на одних и тех же элементах: кнопка, поле ввода, чип, островок холста, плитка поля и активный элемент (выбранный статус).</p>
+<div class="otab" id="outlines"></div>
+<div class="verdict">Моё предложение — <b>«Смешанная»</b> (нижняя строка): у поверхностей, которые лежат над холстом (островки, плитки полей), — фаска; у полей ввода — волосок, их надо находить глазом; у кнопок и чипов обводки нет, они и так залиты тоном; градиентная кромка цвета ноды — только у активного элемента. Обводка тогда несёт смысл (поверхность / ввод / выбрано), а не украшение на всём подряд.</div>
+
+<h2>3. Цветовые темы</h2>
+<p class="lead">Тема меняет поверхности, текст и акцент интерфейса. Цвета нод (теги, области) остаются вашими в любой теме — тема их не перекрашивает. Клик по карточке включает тему для всей страницы.</p>
+<div class="themes" id="tgrid"></div>
+<div class="verdict">Светлые темы («Бумага», «Иней») требуют проверить весь граф: свечение «в работе» и течение по связям на светлом фоне сделаны тёмными, их нужно будет пересмотреть на живых данных. Тёмные темы ложатся на нынешний холст без доработок — меняются только токены.</div>
+</div>
+
+<script>
+const THEMES=[
+  {id:"graphite", n:"Графит", d:"Как сейчас: нейтральный тёмный, акцент янтарный", sw:["#060607","#17171b","#9a9aa3","#e8a14b"]},
+  {id:"midnight", n:"Полночь", d:"Холодный сине-чёрный, акцент небесный", sw:["#04060b","#121a26","#8b98ab","#5cc8ff"]},
+  {id:"moss", n:"Мох", d:"Тёмно-зелёный оттенок, акцент лаймовый", sw:["#050705","#151b16","#93a091","#9fd36b"]},
+  {id:"plum", n:"Слива", d:"Фиолетовый подтон, акцент лиловый", sw:["#07050a","#1a1421","#a094ad","#c792ff"]},
+  {id:"espresso", n:"Эспрессо", d:"Тёплый коричневый, акцент оранжевый", sw:["#090605","#1d1712","#a8998a","#ff8a4c"]},
+  {id:"paper", n:"Бумага", d:"Светлая тёплая, как лист, акцент ржавый", sw:["#e9e4db","#ece7df","#6f685e","#c2410c"]},
+  {id:"frost", n:"Иней", d:"Светлая холодная, акцент синий", sw:["#e7ebf1","#e8edf3","#5c6773","#2563eb"]},
+];
+const CONCEPTS=[
+  {k:"k-layers", n:"Слои — как сейчас, доведённое", d:"Панель отделена от холста тоном и тенью, рамок нет. Самая тихая: всё внимание графу.", c:"Цена: ничего не меняется."},
+  {k:"k-glass", n:"Стекло", d:"Полупрозрачная панель с размытием: сквозь неё видно свечение и связи под ней. Панель не отрезает кусок холста, а лежит на нём.", c:"Цена: размытие подложки пересчитывается каждый кадр анимации графа — на слабой видеокарте заметно. Нужен замер."},
+  {k:"k-glow", n:"Отсвет ноды", d:"Панель подсвечена цветом выбранной ноды, у края к холсту — кромка того же цвета, в углу медленно вращается контур её формы (как сама нода «в работе»). Видно, ЧЬЯ это карточка, не читая названия.", c:"Цена: копейки, это два градиента и одна CSS-анимация."},
+  {k:"k-bento", n:"Карточки", d:"Разделы панели — отдельные плитки с зазорами, холст виден между ними. Шапка тонирована цветом ноды. Длинная карточка читается кусками.", c:"Цена: занимает чуть больше высоты — зазоры между плитками."},
+  {k:"k-pass", n:"Паспорт", d:"Корешок цвета ноды по левому краю и полоса статуса сверху. Ряды плотнее, разделены тонкими линиями — как документ. Больше свойств помещается без прокрутки.", c:"Цена: строже и суше остальных; единственная с линиями-разделителями."},
+];
+const OUTL=[
+  {o:"o-none", n:"Без обводки", s:"как сейчас — только тон"},
+  {o:"o-hair", n:"Волосок", s:"1 px полупрозрачный по периметру"},
+  {o:"o-bevel", n:"Фаска", s:"светлая кромка сверху, тень снизу"},
+  {o:"o-grad", n:"Градиентная кромка", s:"свет падает с угла"},
+  {o:"o-ring", n:"Кольцо", s:"отступ и кольцо у активного и фокуса"},
+  {o:"o-mix", n:"Смешанная", s:"своя обводка у каждого вида"},
+];
+
+function canvasSvg(){
+  // кусочек графа: выбранный ромб «в работе», ветка со связями-градиентами, течение
+  return `<svg viewBox="0 0 640 800" preserveAspectRatio="xMinYMin slice">
+  <defs><linearGradient id="lg1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--node)"/><stop offset="1" stop-color="var(--node2)"/></linearGradient></defs>
+  <g stroke-linecap="round" fill="none">
+    <path d="M150 270 L 70 560" stroke="url(#lg1)" stroke-width="3.2" opacity=".85"/>
+    <path d="M150 270 L 70 560" stroke="color-mix(in srgb, var(--node) 55%, #fff)" stroke-width="1.8" stroke-dasharray="2.5 9"><animate attributeName="stroke-dashoffset" from="0" to="-23" dur="1.2s" repeatCount="indefinite"/></path>
+    <path d="M150 270 L 60 120" stroke="#6f9bd8" stroke-width="1.3" opacity=".5"/>
+    <path d="M150 270 L 250 150" stroke="#e0625a" stroke-width="1.3" opacity=".5"/>
+    <path d="M150 270 L 520 600" stroke="#5fb98e" stroke-width="1.6" opacity=".6"/>
+    <path d="M150 270 L 470 200" stroke="#d8b04a" stroke-width="1.3" opacity=".5"/>
+    <path d="M520 600 L 600 700" stroke="#5fb98e" stroke-width="1.3" opacity=".45"/>
+  </g>
+  <rect x="47" y="98" width="26" height="26" rx="2" fill="color-mix(in srgb, #6f9bd8 14%, var(--cv))" stroke="#6f9bd8" stroke-width="1.6"/>
+  <rect x="238" y="138" width="26" height="26" rx="2" fill="color-mix(in srgb, #e0625a 14%, var(--cv))" stroke="#e0625a" stroke-width="1.6"/>
+  <g transform="translate(150 270)"><g><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="12s" repeatCount="indefinite"/>
+    <rect x="-24" y="-24" width="48" height="48" transform="rotate(45)" fill="color-mix(in srgb, var(--node) 40%, var(--cv))" stroke="var(--node)" stroke-width="4.5"/></g>
+    <text y="4" text-anchor="middle" font-family="tabler-icons" font-size="20" fill="var(--node)">&#xed22;</text></g>
+  <text x="150" y="325" text-anchor="middle" fill="var(--tx)" font-size="12.5" font-weight="650" font-family="Segoe UI">SH035</text>
+  <rect x="506" y="586" width="28" height="28" rx="2" fill="color-mix(in srgb, #5fb98e 40%, var(--cv))" stroke="#5fb98e" stroke-width="2"/>
+  <rect x="458" y="188" width="24" height="24" rx="2" fill="color-mix(in srgb, #d8b04a 14%, var(--cv))" stroke="#d8b04a" stroke-width="1.6"/>
+  <circle cx="70" cy="560" r="20" fill="color-mix(in srgb, var(--node2) 20%, var(--cv))" stroke="var(--node2)" stroke-width="2.4"/>
+  <text x="70" y="600" text-anchor="middle" fill="var(--mut)" font-size="11" font-family="Segoe UI">SQ02</text>
+  </svg>`;
+}
+function panelInner(k){
+  const head=`<div class="hd"><div class="tile"><i class="ti ti-video"></i></div>
+      <div><div class="crumb">Работа · SFC_2026 · SQ02</div><div class="ttl">SH035 — сборка шота</div></div>
+      <div class="act"><i class="ti ti-pencil"></i><i class="ti ti-x"></i></div></div>
+    <div class="chips"><span class="chip c"><i class="ti ti-briefcase"></i>Работа</span><span class="chip"><i class="ti ti-calendar"></i>Завтра</span><span class="chip">#blender</span><span class="chip">#сборка</span></div>`;
+  const status=`<div class="sec">Статус</div>
+    <div class="seg"><span><i class="ti ti-circle"></i>Не<br>начато</span><span><i class="ti ti-player-track-next"></i>На<br>очереди</span><span class="on"><i class="ti ti-player-play"></i>В<br>работе</span><span><i class="ti ti-hourglass"></i>Ждёт</span><span><i class="ti ti-eye"></i>На<br>проверке</span><span><i class="ti ti-player-pause"></i>На<br>паузе</span><span><i class="ti ti-check"></i>Готово</span></div>`;
+  const props=`<div class="sec">Свойства</div>
+    <div class="rows">
+      <div class="row"><div class="k"><i class="ti ti-category"></i>Тип</div><div class="v">Задача</div></div>
+      <div class="row"><div class="k"><i class="ti ti-calendar"></i>Срок</div><div class="v"><span class="pill">Сегодня</span><span class="pill on">Завтра</span><span class="pill">+3 дня</span><span class="pill">Пт</span></div></div>
+      <div class="row"><div class="k"><i class="ti ti-flag"></i>Приоритет</div><div class="v"><span class="pill">низкий</span><span class="pill on">средний</span><span class="pill">высокий</span></div></div>
+      <div class="row"><div class="k"><i class="ti ti-folder"></i>Папка</div><div class="v" style="color:var(--mut)">\\\\nas\\SFC\\SQ02\\SH035</div></div>
+    </div>`;
+  const body=`<div class="sec">Поля</div>
+    <div class="flds"><div class="fld"><div class="fh"><i class="ti ti-align-left"></i>Заметка</div><div class="fb">Свет как в SH030, камера на 35 мм, проверить motion blur.</div></div>
+      <div class="fld"><div class="fh"><i class="ti ti-photo"></i>Референс</div><div class="img"></div></div></div>`;
+  const subs=`<div class="sec">Подзадачи · 2 из 5</div><div class="prog"><b></b></div>
+    <div class="subs"><div class="sub done" style="--c:#6f9bd8"><span class="d"></span>Сборка сцены<span class="r">готово</span></div>
+      <div class="sub done" style="--c:#5fb98e"><span class="d"></span>VFX: дым<span class="r">готово</span></div>
+      <div class="sub" style="--c:#e0625a"><span class="d"></span>Рендер<span class="r">ждёт фермы</span></div></div>`;
+  if(k==="k-bento") return `<div class="blk head">${head}</div><div class="blk">${status}</div><div class="blk">${props}</div><div class="blk">${body}</div><div class="blk">${subs}</div>`;
+  if(k==="k-pass") return `<div class="stbar"><i class="ti ti-player-play"></i>В работе<span class="r">срок завтра</span></div>${head}${status}${props}${body}${subs}`;
+  return `${head}${status}${props}${body}${subs}`;
+}
+document.getElementById("concepts").innerHTML=CONCEPTS.map((c,i)=>`
+  <div class="card ${c.k}"><div class="cap"><h3>${i+1}. ${c.n}</h3><p>${c.d}</p><div class="cost">${c.c}</div></div>
+   <div class="scene"><div class="cvs"><div class="glowspot"></div><div class="glowspot b"></div><div class="glowspot c"></div>${canvasSvg()}</div>
+    <div class="pn">${c.k==="k-pass"?'<div class="spine"></div>':''}${c.k==="k-glow"?'<div class="mark"></div>':''}<div class="in">${panelInner(c.k)}</div></div></div></div>`).join("");
+
+const COMPS=[["Кнопка",`<span class="c-btn"><i class="ti ti-download"></i>Экспорт</span>`],["Поле ввода",`<span class="c-inp">Сбросить мысль…</span>`],["Чип",`<span class="c-chip">#blender</span>`],
+  ["Островок",`<span class="c-isl"><i class="ti ti-search"></i><i class="ti ti-focus-2"></i><i class="ti ti-home"></i></span>`],["Плитка поля",`<span class="c-tile"></span>`],["Активный",`<span class="c-act"><i class="ti ti-player-play"></i>В работе</span>`]];
+document.getElementById("outlines").innerHTML=`<div></div>${COMPS.map(c=>`<div class="h">${c[0]}</div>`).join("")}`+
+  OUTL.map(o=>`<div class="lbl"><b>${o.n}</b><span>${o.s}</span></div>${COMPS.map(c=>`<div class="cmp ${o.o}">${c[1]}</div>`).join("")}`).join("");
+
+const mini=`<svg viewBox="0 0 180 170"><g stroke-linecap="round"><path d="M70 85 L30 140" stroke="var(--node)" stroke-width="2.4" opacity=".85"/><path d="M70 85 L40 30" stroke="#6f9bd8" stroke-width="1.2" opacity=".55"/><path d="M70 85 L140 60" stroke="#5fb98e" stroke-width="1.2" opacity=".55"/><path d="M70 85 L150 130" stroke="#e0625a" stroke-width="1.2" opacity=".55"/></g>
+  <circle cx="70" cy="85" r="34" fill="color-mix(in srgb, var(--node) 16%, transparent)"/><rect x="58" y="73" width="24" height="24" transform="rotate(45 70 85)" fill="color-mix(in srgb, var(--node) 40%, var(--cv))" stroke="var(--node)" stroke-width="2.4"/>
+  <rect x="32" y="22" width="16" height="16" fill="none" stroke="#6f9bd8" stroke-width="1.5"/><rect x="132" y="52" width="16" height="16" fill="none" stroke="#5fb98e" stroke-width="1.5"/><rect x="142" y="122" width="16" height="16" fill="none" stroke="#e0625a" stroke-width="1.5"/><circle cx="30" cy="140" r="9" fill="none" stroke="#9b7fd8" stroke-width="1.8"/></svg>`;
+document.getElementById("tgrid").innerHTML=THEMES.map(t=>`<div class="tcard" data-t="${t.id}"><div data-theme="${t.id}" style="display:block"><div class="tprev">${mini}<div class="mp"><i class="t"></i><i></i><i class="a"></i><i class="s"></i><i></i><i class="s"></i></div></div>
+  <div class="tinfo"><b>${t.n}</b><p>${t.d}</p><div class="sw">${t.sw.map(c=>`<i style="background:${c}"></i>`).join("")}</div></div></div></div>`).join("");
+
+function setTheme(id){ document.documentElement.dataset.theme=id; try{localStorage.setItem("demoTheme",id)}catch(e){}
+  document.querySelectorAll("#themes button").forEach(b=>b.classList.toggle("on",b.dataset.t===id));
+  document.querySelectorAll(".tcard").forEach(c=>c.classList.toggle("on",c.dataset.t===id)); }
+document.getElementById("themes").innerHTML=THEMES.map(t=>`<button data-t="${t.id}"><i class="sw" style="background:linear-gradient(135deg, ${t.sw[1]} 50%, ${t.sw[3]} 50%)"></i>${t.n}</button>`).join("");
+document.querySelectorAll("#themes button, .tcard").forEach(b=>b.onclick=()=>setTheme(b.dataset.t));
+let тема="graphite"; try{ тема=localStorage.getItem("demoTheme")||тема; }catch(e){}
+setTheme(тема);
+</script>
+</body>
+</html>
