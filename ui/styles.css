@@ -2320,3 +2320,28 @@ html.canvas-ui #cv-tr .toggle{background:none;box-shadow:none;padding:0;}
 .graph-legend:empty{display:none;}
 /* кнопки срока — в одну строку с «Без срока», как в макете */
 #aside .date-ctl .date-btn{width:auto;flex:none;}
+
+/* ========================================================================
+   ПОЛЯ НОДЫ В СТИЛЕ A (КРОЛИК 03.11.2026: «поля выбиваются из контекста и выглядят как раньше»).
+   Карточка поля — тоном l3 с контуром тоном, как описание и плитки «Текст / Картинка / Доска»;
+   шапка — без отдельной полосы и черты; пустое название — тихой подсказкой, не жирным курсивом;
+   картинка и доска — скруглённой вставкой внутри карточки. Одна и та же панель полей живёт в
+   правой панели, ридере и окне правки, поэтому правило общее.
+   ======================================================================== */
+.fld{border:0;border-radius:12px;background:var(--l3);box-shadow:inset 0 0 0 .5px var(--bd);}
+.fld-bar{background:transparent;border-bottom:0;padding:6px 6px 2px 12px;min-height:34px;}
+.fld.off .fld-bar{padding-bottom:6px;}
+.fld-bar>.ti,.fld-ico{color:var(--mut2);}
+.fld-name em{font-style:normal;font-weight:400;color:var(--mut2);}
+.flds .fld-name,.fld-name-off{font-weight:600;font-size:12.5px;}
+.flds .fld-name:focus{background:var(--l4);}
+.fld-b:hover{background:var(--l4);}
+.fld-b.on{background:var(--l4);color:var(--tx);}
+.flds .fld-text{padding:4px 12px 12px;}
+.flds .fld-text:focus{background:transparent;}
+.fld-box{margin:2px 8px 8px;border-radius:9px;background:var(--l2);box-shadow:inset 0 0 0 .5px var(--bd);}
+.fld-box.live{margin:2px 8px 8px;}
+.fld-board{background:#fff;}
+.fld-empty{color:var(--mut2);}
+.fld-empty:hover{color:var(--tx);}
+.fld.тащим{border-color:transparent;box-shadow:0 18px 40px var(--sh),inset 0 0 0 1px var(--bd3);}
