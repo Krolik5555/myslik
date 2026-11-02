@@ -1872,3 +1872,164 @@ body.fld-drag{user-select:none;cursor:grabbing;}
 .tpl-pick>.ti{font-size:16px;color:var(--mut);flex:none;}
 .tpl-pick .nm{font-size:13px;flex:none;}
 .tpl-pick .tpl-cnt{font-size:11.5px;color:var(--mut2);margin-left:auto;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* =====================================================================
+   ТАБЛИЦА (table.js): строка — ребёнок выбранного узла, колонка — подзадача. Стиль A: строки —
+   полосы слоя l2 с зазором, а не сетка линий; статус — пилюля своего цвета.
+   ===================================================================== */
+.tb-head{display:flex;flex-direction:column;gap:10px;margin:6px 0 12px;}
+/* подборки — переключатель одним островком, как «Граф / Таблица» */
+.tb-tabs{display:flex;gap:2px;padding:3px;border-radius:var(--r-m);background:var(--l2);box-shadow:inset 0 0 0 .5px var(--bd);align-self:flex-start;flex-wrap:wrap;}
+.tb-tabs button{height:32px;padding:0 12px;border-radius:var(--r-s);display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--mut);}
+.tb-tabs button:hover{color:var(--tx);background:var(--l3);}
+.tb-tabs button.on{background:var(--l4);color:var(--tx);}
+.tb-tabs button .ti{font-size:15px;}
+.tb-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.tb-search{display:flex;align-items:center;gap:7px;height:32px;padding:0 10px;border-radius:var(--r-s);background:var(--l3);border:.5px solid var(--bd);min-width:240px;color:var(--mut);}
+.tb-search input{flex:1;background:none;border:0;outline:none;font-size:13px;min-width:0;}
+.tb-tools select{height:32px;padding:0 10px;border-radius:var(--r-s);background:var(--l3);border:.5px solid var(--bd);font-size:13px;max-width:300px;}
+.tb-chk{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--mut);}
+.tb-count{margin-left:auto;font-size:12px;color:var(--mut);}
+.tb-root{display:flex;align-items:center;gap:8px;font-size:var(--fs-s);color:var(--mut);}
+.tb-root select{height:32px;padding:0 10px;border-radius:var(--r-s);background:var(--l3);border:.5px solid var(--bd);font-size:13px;max-width:320px;}
+.tb-wrap{overflow:auto;}
+.tb{width:100%;border-collapse:separate;border-spacing:0 3px;font-size:13px;}
+.tb th{text-align:left;font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--mut2);padding:0 9px 6px;white-space:nowrap;}
+.tb td{height:42px;padding:0 9px;background:var(--l2);white-space:nowrap;}
+.tb td:first-child{border-radius:var(--r-s) 0 0 var(--r-s);}
+.tb td:last-child{border-radius:0 var(--r-s) var(--r-s) 0;}
+.tb tbody tr{cursor:pointer;}
+.tb tbody tr:hover td{background:var(--l3);}
+.tb tbody tr.sel td{background:var(--l3);box-shadow:inset 0 1px 0 var(--bd3),inset 0 -1px 0 var(--bd3);}
+.tb tbody tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--acc),inset 0 1px 0 var(--bd3),inset 0 -1px 0 var(--bd3);}
+.tb-sort{cursor:pointer;user-select:none;}
+.tb-sort:hover,.tb-sort.on{color:var(--tx);}
+.tb-sort .ti{font-size:11px;}
+/* важность — та же срочность, что «что горит» на графе: полоска и её уровень цветом */
+.tb-imp{width:58px;}
+.tb-u{display:block;width:44px;height:6px;border-radius:6px;background:var(--l4);overflow:hidden;}
+.tb-u i{display:block;height:100%;background:var(--mut2);}
+.tb-u.l1 i{background:var(--ur1);} .tb-u.l2 i{background:var(--ur2);} .tb-u.l3 i{background:var(--ur3);}
+.tb-name{min-width:200px;max-width:340px;white-space:normal;line-height:1.25;padding-top:5px;padding-bottom:5px;}
+.tb-nm{display:flex;align-items:center;gap:8px;}
+.tb-nm b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tb-nm .ti{color:var(--mut);font-size:15px;flex:none;}
+.tb-path{display:block;font-size:11px;color:var(--mut2);margin:2px 0 0 23px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tb-area{color:var(--mut);font-size:12.5px;}
+.tb-area .ti{margin-right:6px;font-size:14px;vertical-align:-2px;}
+.tb-act{text-align:right;width:64px;padding-right:6px!important;}
+.tb-act button{width:28px;height:28px;border-radius:var(--r-s);color:var(--mut2);display:inline-flex;align-items:center;justify-content:center;font-size:15px;}
+.tb-act button:hover{background:var(--l4);color:var(--tx);}
+.tb-more{display:block;margin:10px auto 4px;height:34px;padding:0 16px;border-radius:var(--r-s);background:var(--l3);color:var(--tx);font-size:13px;}
+.tb-more:hover{background:var(--l4);}
+.tb-pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:7px;font-size:12px;color:var(--tx);
+  background:color-mix(in srgb,var(--sc) 15%,transparent);}
+.tb-pill .ti{color:var(--sc);font-size:13px;}
+.tb-pill:hover{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--sc) 60%,transparent);}
+.tb-none{color:var(--mut2);}
+.tb-due{color:var(--mut);} .tb-due.soon{color:var(--tm-today);} .tb-due.over{color:var(--tm-over);} .tb-due.mut{color:var(--mut2);}
+.tb-pri.p1{color:var(--pri1);} .tb-pri.p2{color:var(--pri2);} .tb-pri.p3{color:var(--pri3);}
+.tb-prog{color:var(--mut);font-size:12px;}
+.tb-bar{display:inline-block;width:48px;height:5px;border-radius:5px;background:var(--l4);overflow:hidden;vertical-align:middle;margin-right:8px;}
+.tb-bar i{display:block;height:100%;background:var(--pri1);}
+.tb-empty{padding:60px 20px;text-align:center;color:var(--mut);line-height:1.6;}
+.tb-empty .ti{display:block;font-size:30px;margin-bottom:8px;color:var(--mut2);}
+.tb-menu{position:fixed;z-index:400;min-width:200px;padding:5px;border-radius:var(--r-m);background:var(--l2);border:.5px solid var(--bd);box-shadow:var(--lift);}
+.tb-menu button{display:flex;align-items:center;gap:10px;width:100%;height:32px;padding:0 10px;border-radius:var(--r-s);font-size:13px;color:var(--tx);text-align:left;}
+.tb-menu button:hover{background:var(--l4);}
+.tb-menu button > .ti:first-child{color:var(--sc);font-size:15px;}
+.tb-menu .tb-ok{margin-left:auto;color:var(--acc);}
+
+/* =====================================================================
+   КАРКАС «ХОЛСТ ВО ВЕСЬ ЭКРАН» (аудит 2.1, шаг 3.2; эталон — demo_холст.html)
+   Включает класс html.canvas-ui: в приложении — вместе с окном без нативной полосы
+   (PLANNER_NOTITLE=1), в деве — параметром ?canvas. Без класса не меняется НИЧЕГО.
+   Функции не переписаны — переставлены: островки зовут те же кнопки и списки, что полоса
+   слева (canvasUiInit в main.js), поэтому обработчики и проверки у них общие.
+   ===================================================================== */
+/* верхняя строка — уже не полоса, а захват островком по центру; пустое место пропускает мышь в граф */
+/* строка занимает ТОЛЬКО промежуток между левым и правым островками (--cv-l/--cv-r считает cvSync
+   по их фактической ширине): в окне 1184 px захват шириной от окна наезжал на «Граф / Список» */
+/* поля по 80 px по бокам — гарантированное место схватить окно: захват в фокусе (а он в фокусе
+   с самого старта) растягивался на весь промежуток, и тянуть окно было не за что */
+html.canvas-ui #topbar{position:absolute;top:12px;left:var(--cv-l,240px);right:var(--cv-r,420px);z-index:30;padding:0 80px;justify-content:center;pointer-events:none;}
+html.canvas-ui #topbar > *{pointer-events:auto;}
+html.canvas-ui #cap-wrap{flex:0 1 auto;width:420px;max-width:100%;margin:0;transition:width .25s cubic-bezier(.2,.8,.2,1);}
+html.canvas-ui #cap-wrap:focus-within{width:640px;}
+html.canvas-ui #cap{border-color:transparent;box-shadow:inset 0 0 0 .5px var(--bd),0 10px 30px var(--sh);}
+html.canvas-ui #cap:focus{box-shadow:inset 0 0 0 1px var(--bd3),0 14px 40px var(--sh);}
+html.canvas-ui #body{height:100vh;}
+/* граф — на всё окно, без рамки и скругления: края окна и есть его края */
+html.canvas-ui #view{padding:64px 22px 20px 72px;}
+html.canvas-ui #view:has(#graph-wrap){padding:0;}
+html.canvas-ui #graph-wrap{border-radius:0;box-shadow:none;}
+/* панель — плавающая карточка ниже правого островка; закрыть её = свернуть в язычок (#cv-tab) */
+html.canvas-ui #aside{margin:64px 12px 12px 0;}
+html.canvas-ui #splitter{margin-top:64px;}
+/* полоса слева сжата до столбика ОБЛАСТЕЙ посередине: графы ушли в переключатель, кнопки
+   файла и настроек — в меню логотипа. Сами списки те же, их рисует renderNav. */
+html.canvas-ui #side,html.canvas-ui #side.slim,html.canvas-ui #side.side-off{position:absolute;left:12px;top:50%;transform:translateY(-50%);z-index:25;
+  width:auto;min-width:0;padding:5px;gap:2px;align-items:center;border-radius:var(--r-m);background:var(--l2);
+  box-shadow:inset 0 0 0 .5px var(--bd),0 10px 30px var(--sh);overflow:visible;max-height:calc(100vh - 170px);}
+html.canvas-ui #side > .side-toggles,html.canvas-ui #side > #nav,html.canvas-ui #side > .sh-graphs,html.canvas-ui #side > #graphs,
+html.canvas-ui #side > .side-foot,html.canvas-ui #side > .side-ver{display:none!important;}
+html.canvas-ui #side > #areas,html.canvas-ui #side > .sh-areas{display:flex!important;}
+html.canvas-ui #areas{flex-direction:column;gap:2px;overflow-y:auto;}
+html.canvas-ui #side .sh-areas{order:2;margin:2px 0 0;padding:4px 0 0;justify-content:center;border-top:.5px solid var(--bd);}
+html.canvas-ui #side .sh-areas .side-h-lbl{display:none;}
+html.canvas-ui #areas .areai{width:36px;height:36px;padding:0;gap:0;justify-content:center;border-radius:var(--r-s);}
+html.canvas-ui #areas .areai .nm,html.canvas-ui #areas .areai .cnt{display:none;}
+html.canvas-ui #areas .areai i{font-size:16px;width:auto;}
+html.canvas-ui #areas .areai.on{background:var(--l3);box-shadow:inset 0 0 0 1px var(--bd2);}
+/* тулбар графа — док внизу по центру; кнопка ИИ переезжает в него (canvasUiInit) */
+html.canvas-ui .graph-toolbar{top:auto;bottom:14px;left:50%;transform:translateX(-50%);max-width:calc(100% - 160px);flex-wrap:nowrap;}
+html.canvas-ui .graph-toolbar .graph-ai{position:static;width:auto;height:30px;padding:0 10px;gap:6px;font-size:13px;color:#c9a7ff;background:none;border:0;box-shadow:none;border-radius:var(--r-s);}
+html.canvas-ui .graph-toolbar .graph-ai:hover{background:var(--l4);}
+html.canvas-ui .graph-more{top:auto;bottom:62px;left:50%;transform:translateX(-50%);}
+html.canvas-ui .graph-hint{top:64px;}
+/* легенда — наверх, под левый островок: внизу слева она ложилась на док в окне меньше ~1300 px */
+html.canvas-ui .graph-legend{left:14px;top:64px;bottom:auto;}
+/* островки */
+.cv-isl{position:absolute;z-index:30;display:flex;align-items:center;gap:2px;padding:4px;border-radius:var(--r-m);
+  background:var(--l2);box-shadow:inset 0 0 0 .5px var(--bd),0 10px 30px var(--sh);user-select:none;}
+#cv-tl{left:12px;top:12px;}
+#cv-tr{right:12px;top:12px;}
+#cv-tr .head-actions{gap:4px;}
+#cv-tr .head-actions .btn{height:32px;}
+#cv-tr .kbd{border:0;background:var(--l3);padding:6px 9px;border-radius:var(--r-s);cursor:pointer;}
+.cv-ib{height:32px;min-width:32px;padding:0 9px;border-radius:var(--r-s);display:inline-flex;align-items:center;justify-content:center;gap:7px;color:var(--mut);font-size:13px;white-space:nowrap;}
+.cv-ib i{font-size:16px;}
+.cv-ib:hover{background:var(--l4);color:var(--tx);}
+.cv-logo{color:var(--tx);font-weight:600;letter-spacing:.22em;font-size:11px;}
+.cv-logo .ti-feather{letter-spacing:0;font-size:16px;}
+.cv-logo .ti-chevron-down,.cv-graph .ti-chevron-down{font-size:12px;letter-spacing:0;color:var(--mut2);}
+.cv-graph{color:var(--tx);font-weight:600;max-width:220px;}
+.cv-graph .nm{overflow:hidden;text-overflow:ellipsis;}
+.cv-gi{width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;flex:none;}
+.cv-sp{width:1px;height:18px;background:var(--bd2);margin:0 4px;flex:none;}
+.cv-win{display:flex;}
+.cv-win .cv-ib{min-width:38px;}
+.cv-win .cv-ib.cv-close:hover{background:#c42b1c;color:#fff;}
+html.canvas-ui:not(.notitle) .cv-win,html.canvas-ui:not(.notitle) #cv-tr .cv-sp.w{display:none;}   /* в деве окном управляет браузер */
+/* ЗА ЧТО ТЯНУТЬ ОКНО — вся верхняя полоса вне островков и захвата. Первая версия давала 8 px у
+   кромки, и КРОЛИК в неё не попадал (03.11.2026). Полоса лежит ПОД островками (z 28 < 30) и
+   под строкой захвата, а та пропускает мышь сквозь пустые места — получается настоящий
+   заголовок окна во всю ширину. Верх графа под ней не панорамируется: он и так за островками.
+   При наведении — лёгкая подсветка, чтобы было видно, где хвататься. */
+#cv-drag{position:absolute;left:0;right:0;top:0;height:52px;z-index:28;transition:background .2s;}
+html.notitle #cv-drag:hover{background:linear-gradient(to bottom,color-mix(in srgb,var(--tx) 5%,transparent),transparent);}
+html.canvas-ui:not(.notitle) #cv-drag{display:none;}     /* в деве окном управляет браузер — граф не теряет верх */
+.cv-menu{position:absolute;z-index:400;min-width:250px;padding:5px;border-radius:var(--r-m);background:var(--l2);border:.5px solid var(--bd);box-shadow:var(--lift);}
+.cv-menu button{display:flex;align-items:center;gap:10px;width:100%;height:32px;padding:0 10px;border-radius:var(--r-s);font-size:13px;color:var(--tx);text-align:left;}
+.cv-menu button:hover{background:var(--l4);}
+.cv-menu button > i{font-size:15px;color:var(--mut);width:18px;text-align:center;flex:none;}
+.cv-menu .k{margin-left:auto;padding-left:14px;color:var(--mut2);font-size:11px;}
+.cv-menu .on .ti-check{color:var(--acc);}
+.cv-menu hr{border:0;border-top:.5px solid var(--bd);margin:4px 2px;}
+.cv-menu .hd{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut2);padding:7px 10px 3px;}
+.cv-menu .ver{font-size:11.5px;color:var(--mut2);padding:6px 10px 4px;}
+#cv-tab{position:absolute;right:12px;top:50%;transform:translateY(-50%);z-index:30;width:34px;padding:10px 0;display:none;flex-direction:column;align-items:center;gap:8px;
+  border-radius:var(--r-m);background:var(--l2);box-shadow:inset 0 0 0 .5px var(--bd),0 10px 30px var(--sh);color:var(--mut);cursor:pointer;}
+#cv-tab:hover{color:var(--tx);}
+#cv-tab.show{display:flex;}
+#cv-tab .vt{writing-mode:vertical-rl;transform:rotate(180deg);font-size:12px;}

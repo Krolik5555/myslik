@@ -121,8 +121,11 @@ function renderNotes(v){
     // Сам приём сообщений жив — он в настройках и в палитре команд.
     `<div class="toggle" id="notes-toggle">
        <button data-nm="graph" class="${notesMode==="graph"?"on":""}"><i class="ti ti-affiliate"></i>Граф</button>
-       <button data-nm="list" class="${notesMode==="list"?"on":""}"><i class="ti ti-layout-grid"></i>Список</button>
+       <button data-nm="table" class="${notesMode==="table"?"on":""}"><i class="ti ti-table"></i>Таблица</button>
      </div>`);   // кнопки «Заметка»/«Полотно» убраны — создаём через ПКМ по холсту
+  /* «Список» в переключателе заменила ТАБЛИЦА (table.js, аудит 2.1): списком не пользовались.
+     Сам список жив — renderNotesList остаётся для notesMode==="list", кнопки к нему нет. */
+  if(notesMode==="table"){ if(graph){ const g=graph; graph=null; g.destroy(); } return renderNotesTable(v); }
   if(notesMode==="list"){ if(graph){ const g=graph; graph=null; g.destroy(); } return renderNotesList(v); }
   v.innerHTML=`<div id="graph-wrap">
     <canvas class="graph-bg-canvas"></canvas>

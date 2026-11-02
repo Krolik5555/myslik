@@ -187,8 +187,17 @@ function openTimer(){
 let _noTitleWired=false;
 function wireNoTitleDrag(){
   if(_noTitleWired) return; _noTitleWired=true;
-  const пусто=e=>document.documentElement.classList.contains("notitle") && e.target.closest &&
-    e.target.closest("#topbar") && !e.target.closest("input,textarea,button,a,#cap-preview,#head-actions,#kbd-hint");
+  const кнопка="input,textarea,button,a,.btn,.kbd,#cap-preview,#head-actions";
+  /* За что тянуть окно. В каркасе «холст» (.canvas-ui) пустое место наверху — это уже граф, и
+     хватать его надо для панорамы, а не для окна: окно тянут верхняя кромка (#cv-drag) и пустые
+     места островков. Без каркаса — пустое место верхней строки, как в пробе 3.0. */
+  const пусто=e=>{
+    const h=document.documentElement;
+    if(!h.classList.contains("notitle") || !e.target.closest) return false;
+    if(e.target.closest("#cv-drag")) return true;
+    if(e.target.closest(".cv-isl")) return !e.target.closest(кнопка);
+    return !h.classList.contains("canvas-ui") && !!e.target.closest("#topbar") && !e.target.closest(кнопка);
+  };
   document.addEventListener("mousedown", e=>{
     // второй щелчок двойного клика не тащит — его ловит dblclick ниже
     if(e.button!==0 || e.detail>1 || !пусто(e) || !HasPy()) return;
@@ -200,6 +209,141 @@ function wireNoTitleDrag(){
     e.preventDefault();
     try{ window.pywebview.api.win_max(); }catch(err){}
   }, true);
+  // меню окна по ПКМ — его давал CSS app-region, а таскать окно им нельзя (см. выше); зовём сами
+  document.addEventListener("contextmenu", e=>{
+    if(!пусто(e) || !HasPy() || !window.pywebview.api.win_sysmenu) return;
+    e.preventDefault();
+    try{ window.pywebview.api.win_sysmenu(); }catch(err){}
+  }, true);
+}
+
+/* ===== КАРКАС «ХОЛСТ ВО ВЕСЬ ЭКРАН» (аудит 2.1, шаг 3.2; эталон — demo_холст.html) =====
+   Включается вместе с окном без нативной полосы (класс notitle от app.py) или в деве параметром
+   ?canvas. Ни одна функция не переписана: островки НАЖИМАЮТ те же кнопки и списки, что полоса
+   слева (#f-export, #graphs [data-graph], #add-graph…), — обработчики и проверки у них общие,
+   разойтись им нечем. Разметка самой полосы не меняется, её только прячут и переставляют в CSS. */
+let _cvOn=false;
+function canvasUiWanted(){
+  return document.documentElement.classList.contains("notitle") || /[?&]canvas\b/.test(location.search);
+}
+function canvasUiInit(){
+  const h=document.documentElement;
+  const включить=()=>{ if(_cvOn || !canvasUiWanted()) return; _cvOn=true; h.classList.add("canvas-ui"); cvMount(); cvSync(); };
+  включить();
+  // окно без нативной полосы — спрашиваем у Python сами. Раньше класс подсовывал app.py из своего
+  // потока после перезагрузки страницы, и эта перезагрузка оставляла окно пустым (03.11.2026)
+  if(HasPy() && window.pywebview.api.win_mode){
+    Promise.resolve(window.pywebview.api.win_mode()).then(r=>{ if(r && r.notitle){ h.classList.add("notitle"); включить(); } }, ()=>{});
+  }
+}
+function cvMount(){
+  const app=$("#app"); if(!app) return;
+  const tl=document.createElement("div"); tl.className="cv-isl"; tl.id="cv-tl";
+  tl.innerHTML=`<button class="cv-ib cv-logo" data-cv="logo" title="Экспорт, импорт, таймер, клавиши, настройки"><i class="ti ti-feather"></i>МЫСЛИК<i class="ti ti-chevron-down"></i></button>`+
+    `<i class="cv-sp"></i><button class="cv-ib cv-graph" data-cv="graphs" title="Графы: переключить, создать, настроить"></button>`;
+  // правый островок забирает СУЩЕСТВУЮЩИЕ узлы: на #head-actions висит делегированный обработчик,
+  // а views.js пишет в него по id — переезд в другой родитель им безразличен
+  const tr=document.createElement("div"); tr.className="cv-isl"; tr.id="cv-tr";
+  const ha=$("#head-actions"), kh=$("#kbd-hint");
+  if(ha) tr.appendChild(ha);
+  if(kh) tr.appendChild(kh);
+  tr.insertAdjacentHTML("beforeend",`<i class="cv-sp w"></i><div class="cv-win">`+
+    `<button class="cv-ib" data-cv="min" title="Свернуть"><i class="ti ti-minus"></i></button>`+
+    `<button class="cv-ib" data-cv="max" title="Развернуть"><i class="ti ti-square"></i></button>`+
+    `<button class="cv-ib cv-close" data-cv="close" title="Закрыть"><i class="ti ti-x"></i></button></div>`);
+  const drag=document.createElement("div"); drag.id="cv-drag";
+  const tab=document.createElement("div"); tab.id="cv-tab"; tab.title="Показать панель";
+  tab.innerHTML=`<i class="ti ti-layout-sidebar-right-expand"></i><span class="vt">Панель</span>`;
+  app.append(tl,tr,drag,tab);
+  const cap=$("#cap"); if(cap) cap.placeholder="Сбросить мысль…   клавиша /";
+  tab.onclick=()=>{ S.settings.asideOn=true; persist(); asideApplyWidth(); cvSync(); };
+  app.addEventListener("click",e=>{
+    const b=e.target.closest("[data-cv]"); if(!b) return;
+    const к=b.dataset.cv;
+    if(к==="logo") cvLogoMenu(b);
+    else if(к==="graphs") cvGraphMenu(b);
+    else if(к==="min" && HasPy()) window.pywebview.api.win_min();
+    else if(к==="max" && HasPy()) window.pywebview.api.win_max();
+    else if(к==="close" && window.appRequestClose) window.appRequestClose();
+  });
+  document.addEventListener("mousedown",e=>{ if(!e.target.closest(".cv-menu,[data-cv]")) cvMenuClose(); },true);
+  // на window, а не на document: глобальный Escape приложения стоит раньше и гасит событие
+  window.addEventListener("keydown",e=>{ if(e.key==="Escape" && document.querySelector(".cv-menu")){ cvMenuClose(); e.stopImmediatePropagation(); } },true);
+  // граф перерисовывает тулбар целиком, панель меняет класс off — догоняем по факту, а не вызовами
+  const v=$("#view"); if(v) new MutationObserver(cvSync).observe(v,{childList:true});
+  const a=$("#aside"); if(a) new MutationObserver(cvSync).observe(a,{attributes:true,attributeFilter:["class"]});
+  addEventListener("resize", cvGap);
+  // кнопки вида рисует views.js при каждом render — ширина правого островка от этого меняется
+  if(typeof ResizeObserver==="function") new ResizeObserver(cvGap).observe(tr);
+}
+function cvSync(){
+  if(!_cvOn) return;
+  // кнопка ИИ — в док к остальным инструментам графа: в углу холста её накрыл бы правый островок
+  const ai=$("#g-ai"), tb=document.querySelector(".graph-toolbar");
+  if(ai && tb && ai.parentElement!==tb){ tb.appendChild(ai); if(!ai.querySelector(".cvl")) ai.insertAdjacentHTML("beforeend",'<span class="cvl">ИИ</span>'); }
+  const gsw=document.querySelector('#cv-tl [data-cv="graphs"]');
+  if(gsw){
+    const все=graphsTop(), g=все.find(x=>x.id===graphTopId())||все[0]||{}, c=g.color||"#8fb4ea";
+    gsw.innerHTML=`<span class="cv-gi" style="background:color-mix(in srgb,${c} 20%,transparent);color:${c}"><i class="ti ${esc(g.icon||GRAPH_ICON_DEF)}"></i></span>`+
+      `<span class="nm">${esc(g.name||"Граф")}</span><i class="ti ti-chevron-down"></i>`;
+  }
+  const tab=$("#cv-tab"); if(tab) tab.classList.toggle("show", S.settings.asideOn===false);
+  cvGap();
+}
+// промежуток для строки захвата — по фактической ширине островков (имя графа и кнопки вида меняют её)
+function cvGap(){
+  const tl=$("#cv-tl"), tr=$("#cv-tr"), h=document.documentElement;
+  if(tl) h.style.setProperty("--cv-l", (tl.offsetLeft+tl.offsetWidth+12)+"px");
+  if(tr) h.style.setProperty("--cv-r", (innerWidth-tr.offsetLeft+12)+"px");
+}
+function cvMenuClose(){ document.querySelectorAll(".cv-menu").forEach(m=>m.remove()); }
+function cvMenu(btn, html, onPick){
+  cvMenuClose();
+  const m=document.createElement("div"); m.className="cv-menu"; m.innerHTML=html; document.body.appendChild(m);
+  const r=btn.getBoundingClientRect();
+  m.style.left=Math.max(8, Math.min(r.left, innerWidth-m.offsetWidth-8))+"px"; m.style.top=(r.bottom+8)+"px";
+  m.addEventListener("click",e=>{ const it=e.target.closest("[data-m]"); if(!it) return; cvMenuClose(); onPick(it.dataset.m); });
+  return m;
+}
+function cvLogoMenu(btn){
+  const ver=(($(".side-ver .sv-t")||{}).textContent||"").trim();
+  cvMenu(btn,
+    `<button data-m="export"><i class="ti ti-download"></i>Экспорт в файл</button>`+
+    `<button data-m="import"><i class="ti ti-upload"></i>Импорт из файла</button><hr>`+
+    `<button data-m="timer"><i class="ti ti-clock"></i>Таймер фокуса</button>`+
+    `<button data-m="keys"><i class="ti ti-keyboard"></i>Горячие клавиши и жесты</button>`+
+    `<button data-m="tour"><i class="ti ti-gift"></i>Что нового</button><hr>`+
+    `<button data-m="settings"><i class="ti ti-settings"></i>Настройки</button>`+
+    `<button data-m="feedback"><i class="ti ti-message-report"></i>Сообщить о проблеме</button>`+
+    (ver?`<div class="ver">${esc(ver)}</div>`:""),
+    к=>{
+      const нажать=id=>{ const b=$(id); if(b) b.click(); };
+      if(к==="export") нажать("#f-export"); else if(к==="import") нажать("#f-import");
+      else if(к==="timer") нажать("#f-timer"); else if(к==="settings") нажать("#f-settings");
+      else if(к==="feedback") нажать("#f-feedback");
+      else if(к==="keys" && typeof openShortcuts==="function") openShortcuts();
+      else if(к==="tour" && typeof turOpen==="function") turOpen(true);
+    });
+}
+function cvGraphMenu(btn){
+  const все=graphsTop(), свой=graphTopId();
+  const m=cvMenu(btn,
+    `<div class="hd">Графы</div>`+
+    все.map(g=>{ const c=g.color||"#8fb4ea";
+      return `<button data-m="g:${esc(g.id)}" class="${g.id===свой?"on":""}" title="Правая кнопка — имя, значок, цвет, удалить">`+
+        `<span class="cv-gi" style="background:color-mix(in srgb,${c} 20%,transparent);color:${c}"><i class="ti ${esc(g.icon||GRAPH_ICON_DEF)}"></i></span>${esc(g.name)}`+
+        `<span class="k">${(g.items||[]).length}</span>${g.id===свой?'<i class="ti ti-check"></i>':""}</button>`; }).join("")+
+    `<hr><button data-m="new"><i class="ti ti-plus"></i>Новый граф</button>`+
+    `<button data-m="edit"><i class="ti ti-adjustments"></i>Этот граф: имя, значок, цвет</button>`,
+    к=>{
+      // переключение — тем же кликом по строке полосы: там и graphSwitch, и уход в «Заметки», и тост
+      if(к.startsWith("g:")){ const b=document.querySelector(`#graphs [data-graph="${CSS.escape(к.slice(2))}"]`); if(b) b.click(); }
+      else if(к==="new"){ const b=$("#add-graph"); if(b) b.click(); }
+      else if(к==="edit"){ const g=все.find(x=>x.id===свой); if(g) openGraphEditor(g); }
+    });
+  // ПКМ по строке графа — его настройки, как ПКМ по графу в полосе
+  m.addEventListener("contextmenu",e=>{ const it=e.target.closest('[data-m^="g:"]'); if(!it) return; e.preventDefault();
+    const g=все.find(x=>x.id===it.dataset.m.slice(2)); cvMenuClose(); if(g) openGraphEditor(g); });
 }
 
 /* ===========================================================
@@ -207,6 +351,7 @@ function wireNoTitleDrag(){
    =========================================================== */
 function wireGlobal(){
   wireNoTitleDrag();
+  canvasUiInit();
   // Страховка от «съезда» вёрстки: если корневой documentElement/body всё же получил
   // прокрутку (WebView2 иногда прокручивает корень при возврате фокуса колесом) — тут же
   // возвращаем в 0. Внутренние скроллы (#view, списки, модалки) это не трогает.

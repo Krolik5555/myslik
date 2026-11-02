@@ -143,7 +143,7 @@ def _check_data():
 def _code_symbols():
     """Все имена, определённые во фронте и в питоне, — чтобы сверять с ними карту."""
     имена = set()
-    for f in ("core.js", "model.js", "notify.js", "views.js", "graph.js", "overlays.js", "draw.js",
+    for f in ("core.js", "model.js", "notify.js", "views.js", "graph.js", "table.js", "overlays.js", "draw.js",
               "fields.js", "cmd.js", "ai.js", "report.js", "main.js"):
         s = _read("ui/js/" + f)
         for a, b, c in re.findall(r'^(?:async\s+)?function\s+([A-Za-zА-Яа-я_$][\w$]*)'
@@ -400,7 +400,7 @@ def run_scenarios(names=None, quiet=False):
 
 def cmd_map():
     out = []
-    for f in ("core.js", "model.js", "views.js", "graph.js", "overlays.js", "draw.js", "fields.js",
+    for f in ("core.js", "model.js", "views.js", "graph.js", "table.js", "overlays.js", "draw.js", "fields.js",
               "ai.js", "report.js", "main.js"):
         s = _read("ui/js/" + f)
         top = re.findall(r'^(?:async\s+)?function\s+([A-Za-zА-Яа-я_$][\w$]*)|^class\s+([A-Za-z_$][\w$]*)'
@@ -441,7 +441,7 @@ def cmd_where(слово=None):
             print("  %-5d %s" % (n, s[:150]))
 
     # символы кода: где определено имя, содержащее слово
-    JS = ("core.js", "model.js", "views.js", "graph.js", "overlays.js", "draw.js", "fields.js",
+    JS = ("core.js", "model.js", "views.js", "graph.js", "table.js", "overlays.js", "draw.js", "fields.js",
           "ai.js", "report.js", "main.js")
     найдено = []
     for f in JS:

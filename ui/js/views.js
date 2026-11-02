@@ -94,6 +94,8 @@ function renderNav(){
       + (areaFilter===a.id ? " · выделена: новые ноды с пустого места попадут сюда" : "");
     return `<button class="areai ${areaFilter===a.id?"on":""}" data-area="${a.id}" title="${esc(подпись)}"><i class="ti ${a.icon}" ${col}></i><span class="nm">${esc(a.name)}</span><span class="cnt">${n||""}${pct!=null?" ("+pct+"%)":""}</span></button>`;
   }).join("");
+  // каркас «холст»: переключатель графа в островке показывает то же, что полоса (имя, значок, цвет)
+  if(typeof cvSync==="function") cvSync();
 }
 
 /* ===== правая панель: выбранный элемент ===== */
