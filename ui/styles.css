@@ -2160,3 +2160,5 @@ html.canvas-ui:not(.notitle) #cv-drag{display:none;}     /* в деве окно
   .as-st-b.on{flex:2.6;}
   .as-st-b.on span{display:block;}
 }
+/* SVG-путь графа (запасной, настройки → «Отрисовка графа») — без колец вокруг нод, как и холст */
+.g-halo,.g-node.paused .g-halo-pause{display:none;}
