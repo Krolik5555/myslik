@@ -873,148 +873,119 @@ async function autoCheckUpdate(delayed){
    Шаг без цели — обычная карточка по центру: так рассказываются вещи, у которых нет своей
    кнопки (запись на диск, скорость графа). Цели может не оказаться на экране вовсе — тогда
    шаг молча становится центральным, а не ломает тур. */
-const ТУР_ID="2.0.6.1";
-/* Шаги версий 2.0.5, 2.0.5.1 и 2.0.5.2 убраны вместе с их иллюстрациями (ТУР_ВИЗ_СТАТУСЫ,
-   СРОК, ЖАР, ТОСТ): глубина тура — два релиза, иначе обновившийся через полгода получает
-   простыню из десятка карточек про то, чем давно пользуется. Клипов в ui/media нет и в этот
-   раз — видео пишется руками (рецепт в docs/СБОРКА-И-РЕЛИЗ.md), поэтому ТУР_ДЕМО не нужен.
-
-   .tour-mock — статичные иллюстрации ЧЕСТНЫМИ цветами (КРОЛИК: «без обмана»): не подобраны
-   на глаз, а взяты теми же именами CSS-переменных, что рисует сам граф. Здесь это особенно
-   важно у подграфа: шестиугольник в карточке обязан выглядеть как настоящая нода, иначе
-   человек не узнает её на холсте. */
-const ТУР_ВИЗ_ПОДГРАФ=`
-  <div class="tour-mock tm-sub">
-    ${/* Шестиугольник — тем же приёмом, что метка подграфа в легенде графа (.lg-dot.sub):
-         clip-path вместо SVG-полигона, а значок обычным <i>. Кодов глифов шрифта руками не
-         пишем — их легко перепутать, и в карточке оказался бы не тот значок. */""}
-    <span class="tm-sub-hex"><i class="ti ti-hierarchy-2"></i></span>
-    <i class="ti ti-arrow-right tm-sub-arrow"></i>
-    <svg viewBox="0 0 128 74" class="tm-sub-svg" aria-hidden="true">
-      <rect x="2" y="4" width="124" height="66" rx="9" fill="none" stroke="var(--bd2)" stroke-width="1" stroke-dasharray="4 3"/>
-      <line x1="40" y1="37" x2="74" y2="22" stroke="var(--acc)" stroke-width="1.2" opacity=".55"/>
-      <line x1="40" y1="37" x2="74" y2="52" stroke="var(--acc)" stroke-width="1.2" opacity=".55"/>
-      <line x1="74" y1="22" x2="104" y2="18" stroke="var(--acc)" stroke-width="1.2" opacity=".55"/>
-      <circle cx="40" cy="37" r="7" fill="var(--acc)"/>
-      <rect x="68" y="16" width="12" height="12" rx="2.5" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
-      <rect x="68" y="46" width="12" height="12" rx="2.5" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
-      <circle cx="104" cy="18" r="5.5" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
+const ТУР_ID="2.1.0";
+/* Шаги 2.0.6 убраны вместе с их иллюстрациями (ТУР_ВИЗ_ПОДГРАФ, АГЕНТ, ПОРЯДОК, СХЕМА): глубина
+   тура — два релиза. Клипов в ui/media нет и в этот раз — видео пишется руками (рецепт в
+   docs/СБОРКА-И-РЕЛИЗ.md), поэтому ТУР_ДЕМО не нужен. Шаги 2.1 — со статичными иллюстрациями
+   (.tour-mock) ЧЕСТНЫМИ цветами: те же CSS-переменные, которыми рисует сам граф и панель, иначе
+   человек не узнает на экране то, что видел в карточке (КРОЛИК: «тур слабый, нужны иллюстрации»). */
+/* ГРАФ НА ВСЁ ОКНО: схема окна — островки по краям, док снизу, панель поверх, граф во всю площадь */
+const ТУР_ВИЗ_ХОЛСТ=`
+  <div class="tour-mock tm-c">
+    <svg viewBox="0 0 260 140" class="tm-wide-svg" aria-hidden="true">
+      <rect x="1" y="1" width="258" height="138" rx="8" fill="var(--bg)" stroke="var(--bd2)" stroke-width=".8"/>
+      <g stroke="var(--bd3)" stroke-width="1.1"><line x1="70" y1="70" x2="110" y2="48"/><line x1="70" y1="70" x2="104" y2="96"/><line x1="110" y1="48" x2="140" y2="62"/><line x1="104" y1="96" x2="138" y2="104"/></g>
+      <g fill="var(--accent)"><circle cx="70" cy="70" r="6"/></g><g fill="none" stroke="var(--mut)" stroke-width="1.4"><rect x="105" y="43" width="10" height="10"/><rect x="99" y="91" width="10" height="10"/><circle cx="140" cy="62" r="4.5"/><circle cx="138" cy="104" r="4.5"/></g>
+      <rect x="8" y="8" width="50" height="11" rx="4" fill="var(--l2)" stroke="var(--bd2)" stroke-width=".6"/>
+      <rect x="86" y="8" width="70" height="11" rx="4" fill="var(--l2)" stroke="var(--bd2)" stroke-width=".6"/>
+      <rect x="196" y="8" width="56" height="11" rx="4" fill="var(--l2)" stroke="var(--bd2)" stroke-width=".6"/>
+      <rect x="8" y="46" width="11" height="44" rx="4" fill="var(--l2)" stroke="var(--bd2)" stroke-width=".6"/>
+      <rect x="74" y="123" width="70" height="10" rx="4" fill="var(--l2)" stroke="var(--bd2)" stroke-width=".6"/>
+      <rect x="176" y="25" width="76" height="106" rx="6" fill="var(--l2)" stroke="var(--edge-b)" stroke-width=".9"/>
+      <rect x="183" y="32" width="10" height="10" rx="3" fill="color-mix(in srgb,var(--accent) 30%,var(--l2))"/>
+      <rect x="197" y="33" width="40" height="4" rx="2" fill="var(--tx)" opacity=".8"/><rect x="197" y="40" width="26" height="3" rx="1.5" fill="var(--mut2)"/>
+      <rect x="183" y="52" width="62" height="10" rx="3" fill="var(--l3)"/><rect x="183" y="68" width="62" height="3" rx="1.5" fill="var(--l4)"/>
+      <rect x="183" y="76" width="48" height="3" rx="1.5" fill="var(--l4)"/><rect x="183" y="84" width="56" height="3" rx="1.5" fill="var(--l4)"/>
+      <rect x="183" y="118" width="62" height="7" rx="3" fill="var(--tx)" opacity=".85"/>
+    </svg>
+    <div class="tm-legend"><span>островки по краям</span><span>док инструментов</span><span>панель поверх</span></div>
+  </div>`;
+/* ПОТОК: одна ветка, три связи — к работе (широко, бегут зёрна), к «ждёт» (пунктир), к паузе (тонко) */
+const ТУР_ВИЗ_ПОТОК=`
+  <div class="tour-mock tm-c">
+    <svg viewBox="0 0 260 110" class="tm-wide-svg" aria-hidden="true">
+      <line x1="40" y1="55" x2="200" y2="20" stroke="color-mix(in srgb,var(--accent) 85%,transparent)" stroke-width="5" stroke-linecap="round"/>
+      <line x1="40" y1="55" x2="200" y2="20" stroke="color-mix(in srgb,var(--accent) 55%,#fff)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="3 12">
+        <animate attributeName="stroke-dashoffset" from="0" to="-30" dur="1.2s" repeatCount="indefinite"/></line>
+      <line x1="40" y1="55" x2="200" y2="58" stroke="var(--st-wait)" stroke-width="1.6" stroke-dasharray="5 4"/>
+      <line x1="40" y1="55" x2="200" y2="94" stroke="var(--mut2)" stroke-width=".7" opacity=".7"/>
+      <rect x="31" y="46" width="18" height="18" fill="color-mix(in srgb,var(--accent) 40%,var(--bg))" stroke="var(--accent)" stroke-width="2"/>
+      <rect x="193" y="13" width="14" height="14" fill="color-mix(in srgb,var(--accent) 40%,var(--bg))" stroke="var(--accent)" stroke-width="1.8"/>
+      <rect x="193" y="51" width="14" height="14" fill="var(--bg)" stroke="var(--st-wait)" stroke-width="1.6"/>
+      <rect x="193" y="87" width="14" height="14" fill="var(--bg)" stroke="var(--mut2)" stroke-width="1.4" stroke-dasharray="3 2" opacity=".6"/>
+      <text x="214" y="24" font-size="9" fill="var(--mut)">в работе</text><text x="214" y="62" font-size="9" fill="var(--mut)">ждёт</text><text x="214" y="98" font-size="9" fill="var(--mut)">пауза</text>
     </svg>
   </div>`;
-/* АГЕНТ И ГРАФ — две стороны и обмен между ними. Рисуем схемой, а не записью экрана: показывать
-   тут нечего, вся работа агента происходит без единого движения в интерфейсе, и человеку важно
-   понять СВЯЗЬ («он читает и пишет сам»), а не увидеть нажатие. */
-const ТУР_ВИЗ_АГЕНТ=`
-  <div class="tour-mock tm-ag">
-    <div class="tm-tidy-one">
-      <div class="tm-ag-box"><i class="ti ti-robot"></i></div>
-      <span class="tm-st-l">Claude Code</span>
-    </div>
-    <i class="ti ti-arrows-exchange tm-sub-arrow"></i>
-    <div class="tm-tidy-one">
-      <svg viewBox="0 0 110 78" aria-hidden="true">
-        <line x1="55" y1="39" x2="24" y2="20" stroke="var(--acc)" stroke-width="1.2" opacity=".6"/>
-        <line x1="55" y1="39" x2="24" y2="58" stroke="var(--acc)" stroke-width="1.2" opacity=".6"/>
-        <line x1="55" y1="39" x2="88" y2="27" stroke="var(--acc)" stroke-width="1.2" opacity=".6"/>
-        <line x1="88" y1="27" x2="92" y2="56" stroke="var(--acc)" stroke-width="1.2" opacity=".6"/>
-        <rect x="48" y="32" width="14" height="14" rx="3" fill="var(--acc)"/>
-        <circle cx="24" cy="20" r="6" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
-        <circle cx="24" cy="58" r="6" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
-        <circle cx="88" cy="27" r="6" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
-        <circle cx="92" cy="56" r="6" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
-      </svg>
-      <span class="tm-st-l">твой граф</span>
-    </div>
+/* СТАТУС НА НОДЕ: пять материалов одной и той же квадратной ноды */
+const ТУР_ВИЗ_СТАТУС=`
+  <div class="tour-mock tm-st5">
+    <svg viewBox="0 0 280 74" class="tm-wide-svg" aria-hidden="true">
+      <defs><pattern id="tmHatch" width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="5" stroke="var(--frost)" stroke-width="1.4"/></pattern>
+        <clipPath id="tmRev"><rect x="137" y="14" width="30" height="30"/></clipPath></defs>
+      <g transform="translate(30 29)"><rect x="-15" y="-15" width="30" height="30" fill="color-mix(in srgb,var(--accent) 40%,var(--bg))" stroke="var(--accent)" stroke-width="2.2">
+        <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="12s" repeatCount="indefinite"/></rect></g>
+      <rect x="77" y="14" width="30" height="30" fill="color-mix(in srgb,var(--accent) 14%,var(--bg))" stroke="var(--accent)" stroke-width="1.8"/>
+      <rect x="77" y="14" width="30" height="30" fill="url(#tmHatch)"/>
+      <rect x="137" y="14" width="30" height="30" fill="color-mix(in srgb,var(--accent) 14%,var(--bg))" stroke="var(--accent)" stroke-width="1.8"/>
+      <polygon points="137,44 167,14 167,44" fill="var(--st-review)" opacity=".75" clip-path="url(#tmRev)"/>
+      <rect x="197" y="14" width="30" height="30" fill="color-mix(in srgb,var(--accent) 12%,var(--bg))" stroke="var(--accent)" stroke-width="1.8"/>
+      <rect x="205" y="22" width="14" height="14" fill="var(--accent)" opacity=".75"/>
+      <rect x="252" y="14" width="26" height="30" fill="color-mix(in srgb,var(--bd3) 12%,var(--bg))" stroke="var(--mut2)" stroke-width="1.4" stroke-dasharray="4 3" opacity=".6"/>
+      <g font-size="9" fill="var(--mut)" text-anchor="middle"><text x="30" y="64">в работе</text><text x="92" y="64">ждёт</text><text x="152" y="64">проверка</text><text x="212" y="64">очередь</text><text x="265" y="64">пауза</text></g>
+    </svg>
   </div>`;
-const ТУР_ВИЗ_ПОРЯДОК=`
-  <div class="tour-mock tm-tidy">
-    <div class="tm-tidy-one">
-      <svg viewBox="0 0 110 78" aria-hidden="true">
-        <line x1="26" y1="20" x2="84" y2="58" stroke="var(--mut2)" stroke-width="1.2"/>
-        <line x1="84" y1="20" x2="30" y2="56" stroke="var(--mut2)" stroke-width="1.2"/>
-        <line x1="26" y1="20" x2="58" y2="40" stroke="var(--mut2)" stroke-width="1.2"/>
-        <line x1="58" y1="40" x2="62" y2="44" stroke="var(--mut2)" stroke-width="1.2"/>
-        <circle cx="26" cy="20" r="6" fill="var(--surf)" stroke="var(--mut)" stroke-width="1.5"/>
-        <circle cx="84" cy="20" r="6" fill="var(--surf)" stroke="var(--mut)" stroke-width="1.5"/>
-        <circle cx="58" cy="40" r="6" fill="var(--surf)" stroke="var(--mut)" stroke-width="1.5"/>
-        <circle cx="62" cy="44" r="6" fill="var(--surf)" stroke="var(--mut)" stroke-width="1.5"/>
-        <circle cx="84" cy="58" r="6" fill="var(--surf)" stroke="var(--mut)" stroke-width="1.5"/>
-        <circle cx="30" cy="56" r="6" fill="var(--surf)" stroke="var(--mut)" stroke-width="1.5"/>
-      </svg>
-      <span class="tm-st-l">как легло</span>
-    </div>
-    <i class="ti ti-arrow-right tm-sub-arrow"></i>
-    <div class="tm-tidy-one">
-      <svg viewBox="0 0 110 78" aria-hidden="true">
-        <line x1="20" y1="39" x2="58" y2="15" stroke="var(--acc)" stroke-width="1.2" opacity=".6"/>
-        <line x1="20" y1="39" x2="58" y2="39" stroke="var(--acc)" stroke-width="1.2" opacity=".6"/>
-        <line x1="20" y1="39" x2="58" y2="63" stroke="var(--acc)" stroke-width="1.2" opacity=".6"/>
-        <line x1="58" y1="15" x2="92" y2="15" stroke="var(--acc)" stroke-width="1.2" opacity=".6"/>
-        <line x1="58" y1="63" x2="92" y2="63" stroke="var(--acc)" stroke-width="1.2" opacity=".6"/>
-        <circle cx="20" cy="39" r="6.5" fill="var(--acc)"/>
-        <circle cx="58" cy="15" r="6" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
-        <circle cx="58" cy="39" r="6" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
-        <circle cx="58" cy="63" r="6" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
-        <circle cx="92" cy="15" r="6" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
-        <circle cx="92" cy="63" r="6" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
-      </svg>
-      <span class="tm-st-l">после кнопки</span>
-    </div>
+/* ПАНЕЛЬ: кусок новой карточки — ряд статусов, быстрые сроки, подзадачи с галками */
+const ТУР_ВИЗ_ПАНЕЛЬ=`
+  <div class="tour-mock tm-pn">
+    <div class="tm-pn-st">${["ti-circle","ti-player-track-next","ti-player-play","ti-hourglass-low","ti-eye","ti-player-pause","ti-check"].map((и,к)=>`<span class="${к===2?"on":""}"><i class="ti ${и}"></i></span>`).join("")}</div>
+    <div class="tm-pn-row"><span class="tm-pn-k">Срок</span>${["Сегодня","Завтра","+3 дня","Пт"].map((т,к)=>`<span class="tm-pn-chip${к===1?" on":""}">${т}</span>`).join("")}</div>
+    <div class="tm-pn-row"><span class="tm-pn-k">Приоритет</span>${["низкий","средний","высокий"].map((т,к)=>`<span class="tm-pn-chip${к===1?" on":""}">${т}</span>`).join("")}</div>
+    <div class="tm-pn-sub"><span class="tm-pn-chk on"><i class="ti ti-check"></i></span><s>Сборка</s></div>
+    <div class="tm-pn-sub"><span class="tm-pn-chk"></span>Рендер</div>
   </div>`;
-/* СХЕМА ОТ НЕЙРОСЕТИ: слева та, кто отвечает, справа — что из этого выходит на полотне. Блоки
-   и стрелки теми же цветами, что у настоящей доски в тёмной теме приложения (--acc/--surf):
-   человек должен узнать в карточке то, что увидит на холсте, а не «картинку про схемы». */
-const ТУР_ВИЗ_СХЕМА=`
-  <div class="tour-mock tm-ag">
-    <div class="tm-tidy-one">
-      <div class="tm-ag-box"><i class="ti ti-sparkles"></i></div>
-      <span class="tm-st-l">нейросеть</span>
+/* ТЕМЫ: образцы всех тем — тон поверхности и полоска её кромки, — и пять фонов холста */
+const ТУР_ВИЗ_ТЕМЫ=`
+  <div class="tour-mock tm-th">
+    <div class="tm-th-pal">${Object.values(PALETTES).map(п=>`<span title="${п.n}" style="--a:${п.sw[0]};--b:${п.sw[1]};--e1:${п.sw[2]};--e2:${п.sw[3]}"></span>`).join("")}</div>
+    <div class="tm-th-bg">
+      <span class="b-clean"></span><span class="b-grid"></span><span class="b-topo"></span><span class="b-dust"></span><span class="b-stars"></span>
     </div>
-    <i class="ti ti-arrow-right tm-sub-arrow"></i>
-    <div class="tm-tidy-one">
-      <svg viewBox="0 0 120 84" aria-hidden="true">
-        <rect x="38" y="4" width="44" height="14" rx="7" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
-        <line x1="60" y1="18" x2="60" y2="27" stroke="var(--acc)" stroke-width="1.2"/>
-        <rect x="38" y="27" width="44" height="14" rx="2.5" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
-        <line x1="60" y1="41" x2="60" y2="50" stroke="var(--acc)" stroke-width="1.2"/>
-        <polygon points="60,50 76,60 60,70 44,60" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
-        <line x1="44" y1="60" x2="30" y2="60" stroke="var(--acc)" stroke-width="1.2"/>
-        <line x1="30" y1="60" x2="30" y2="68" stroke="var(--acc)" stroke-width="1.2"/>
-        <line x1="76" y1="60" x2="90" y2="60" stroke="var(--acc)" stroke-width="1.2"/>
-        <line x1="90" y1="60" x2="90" y2="68" stroke="var(--acc)" stroke-width="1.2"/>
-        <rect x="8" y="68" width="44" height="13" rx="2.5" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
-        <rect x="68" y="68" width="44" height="13" rx="2.5" fill="var(--surf)" stroke="var(--acc)" stroke-width="1.5"/>
-        <text x="33" y="58" font-size="7" fill="var(--mut)" text-anchor="end">да</text>
-        <text x="87" y="58" font-size="7" fill="var(--mut)" text-anchor="start">нет</text>
-      </svg>
-      <span class="tm-st-l">схема на полотне</span>
-    </div>
+    <div class="tm-legend"><span>9 тем</span><span>6 оформлений панели</span><span>5 фонов</span></div>
+  </div>`;
+/* ТАБЛИЦА: те же ноды строками — важность полоской, статус чипом, срок */
+const ТУР_ВИЗ_ТАБЛИЦА=`
+  <div class="tour-mock tm-tb">
+    ${[["SH035","В работе","doing","—",3],["Сборка","Ждёт","wait","завтра",2],["Рендер","На проверке","rev","−2 дн.",4],["SQ02","В работе","doing","—",1]].map(([н,с,к,д,в])=>
+      `<div class="tm-tb-r"><span class="tm-tb-imp" style="--w:${в*8}px"></span><span class="tm-tb-n">${н}</span><span class="tm-tb-s ${к}">${с}</span><span class="tm-tb-d${д.startsWith("−")?" over":""}">${д}</span></div>`).join("")}
   </div>`;
 /* Тексты — простым языком, без жаргона (КРОЛИК: «понятным, корректным для рядового
    пользователя»). «Нода» оставлена: это уже родное слово интерфейса — так же подписана
    кнопка поиска («Найти ноду»), не наш профессиональный сленг из комментариев. А вот
    «попап»/«глиф» и подобное — убраны, это слова для комментариев к коду, не для человека. */
 const ТУР=[
-  {v:"2.0.6", значок:"ti-hierarchy-2", ttl:"Подграф — нода, внутри которой свой граф", виз:ТУР_ВИЗ_ПОДГРАФ,
-   txt:"Новый вид ноды. Снаружи она обычная: связывается с чем угодно, носит описание, поля, теги и срок, её можно завершить. Двойной клик — и ты внутри: чистый холст только для её содержимого, а в центре стоит корень с названием самого подграфа, от него и растёт дерево. Наружу — по дорожке над холстом, двойным кликом по корню или клавишей Escape. Создаётся правой кнопкой по пустому месту графа.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.0.6", значок:"ti-sparkles", ttl:"Планер понимает нейросети", цель:"#g-ai",
-   txt:"Копируешь отсюда промпт, отдаёшь его любой нейросети со своей просьбой — «разбей проект на этапы» — и вставляешь ответ обратно. Приложение покажет, что получится, и сделает это только по кнопке; отменяется всё одним Ctrl+Z. В том же окне подключается ИИ-агент вроде Claude Code.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.0.6", значок:"ti-chart-dots-3", ttl:"Нейросеть рисует схемы на полотне", виз:ТУР_ВИЗ_СХЕМА,
-   txt:"Попроси в том же окне «нарисуй роадмап» или «собери блок-схему процесса» — и вместе с нодами приедет готовая схема: блоки, стрелки с подписями, развилки. Перед выполнением она видна в предпросмотре картинкой. Новое дорисовывается ниже того, что на доске уже есть, а стереть доску целиком нейросеть может только с отдельного разрешения. Ctrl+Z возвращает доску к прежнему виду вместе с нодами.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.0.6", значок:"ti-robot", ttl:"ИИ-агент правит планер сам", виз:ТУР_ВИЗ_АГЕНТ,
-   txt:"Claude Code и другие агенты подключаются к Мыслику напрямую — в том же окне кнопкой «Промпт для Claude»: агент настроит себя сам, ставить ничего не нужно, ни Python, ни пакетов. Дальше он читает нужную ветку и создаёт ноды без копипаста; видит он и полотно — читает, что на доске уже нарисовано, и дорисовывает схему сам. Доступ выключен, пока сам не включишь, работает только на этом компьютере и только с ключом; удаления агент делает по отдельному разрешению, а после каждой правки появляется сообщение с кнопкой «Вернуть».",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.0.6", значок:"ti-layout-grid", ttl:"Упорядочить выделенное", виз:ТУР_ВИЗ_ПОРЯДОК,
-   txt:"Выдели ветку и нажми значок сетки — он в полосе выделения, в правой панели и в меню по правой кнопке. Дерево соберётся кустами: ветки расходятся вокруг на разном удалении, у каждой свои ноды рядом с ней, а корень останется ровно там, где стоял. Раскладка обходит ноды, которых нет в выделении, и старается не пересекать связи; длинная цепочка складывается компактно, а не тянется через весь экран. Ноды доезжают плавно — дальше форму доводишь руками.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.0.6", значок:"ti-arrow-back-up", ttl:"Ctrl+Z возвращает и раскладку",
-   txt:"Раньше откат касался только содержимого: перетащил ноды неудачно — вернуть их на место было нечем. Теперь перетаскивание, «Сбросить дом» и «Перераскладка» — обычные шаги истории, и Ctrl+Z возвращает форму дерева ровно такой, какой она была до жеста.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
   {v:"2.0.6.1", значок:"ti-clipboard-check", ttl:"Ctrl+V снова кладёт копию на холст",
    txt:"Вставка нод сообщала «Вставлено», но копия не появлялась нигде: она уезжала в никуда, если курсор в этот момент стоял над холстом — то есть почти всегда. Теперь Ctrl+V кладёт копию под курсор, а несколько нод — серединой набора в ту же точку.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.1.0", значок:"ti-maximize", ttl:"Граф на всё окно", виз:ТУР_ВИЗ_ХОЛСТ,
+   txt:"Шапки и полосы слева больше нет — граф занимает всё окно. Управление собрано островками по краям: графы и меню — слева сверху, вид и поиск — справа, инструменты графа — в доке внизу, области — столбиком слева. Правая панель плавает поверх и убирается крестиком.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.1.0", значок:"ti-robot", ttl:"ИИ-агент видит и умеет больше", цель:"#g-ai",
+   txt:"Агент ищет ноды по названию и тегам, собирает повестку — что горит и что на сегодня, — записывает мысль одной строкой и дописывает в описание. Текст нод он читает, только если разрешить это здесь, в окне ИИ. Откатить агент может лишь свою последнюю правку — твою он не тронет.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.1.0", значок:"ti-route", ttl:"Связи показывают, куда идёт работа", виз:ТУР_ВИЗ_ПОТОК,
+   txt:"Чем больше незакрытых задач ниже по ветке, тем шире связь к ней. К нодам в работе и к просроченным бегут светлые зёрна — цветом самой связи. К ноде «ждёт» ведёт пунктир, в ветку на паузе — тонкая тихая линия. Выключается в меню «…» на холсте.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.1.0", значок:"ti-shape", ttl:"Статус виден по самой ноде", виз:ТУР_ВИЗ_СТАТУС,
+   txt:"Значков статуса больше нет — его несёт форма. Нода в работе медленно вращается, у «ждёт» — холодная штриховка, у проверки — диагональ, у очереди внутри лежит малая копия формы, на паузе нода серая и пунктирная. Прогресс подзадач заливает форму снизу вверх — по всей ветке, а не только по прямым детям.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.1.0", значок:"ti-layout-sidebar-right", ttl:"Правая панель по-новому", виз:ТУР_ВИЗ_ПАНЕЛЬ,
+   txt:"Статус — рядом кнопок, срок — быстрыми «Сегодня», «Завтра», «+3 дня», «Пт», приоритет — кнопками, подзадачи — с галками, поля — плитками. Выделил несколько нод — панель показывает сводку: статус и свойства всем сразу, упорядочить, собрать отчёт.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.1.0", значок:"ti-palette", ttl:"Темы, оформление панели и фон", виз:ТУР_ВИЗ_ТЕМЫ, цель:"#cv-tl",
+   txt:"Настройки — в меню логотипа, вкладка «Вид»: девять цветовых тем — у каждой контур панелей светится двумя своими цветами; шесть оформлений правой панели — стекло, отсвет ноды, карточки, паспорт и их сочетания; пять фонов холста — чистый тон, сетка, топография работы, пыль и звёзды. Фоны держат вид на любом приближении.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.1.0", значок:"ti-table", ttl:"Таблица вместо списка", виз:ТУР_ВИЗ_ТАБЛИЦА, цель:'[data-nm="table"]',
+   txt:"Второй взгляд на граф — таблица: те же ноды строками, по важности или сроку, с готовыми отборами «В работе», «Срочное», «Все задачи». Статус меняется прямо в строке. Переключатель — справа сверху, рядом с «Графом».",
    before(){ view="notes"; notesMode="graph"; render(); }},
 ];
 /* СЛОЁНЫЙ ТУР: человек видит только то, чего ещё не видел. Каждый шаг помечен версией, в которой

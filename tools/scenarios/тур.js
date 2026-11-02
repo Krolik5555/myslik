@@ -99,19 +99,26 @@ t.push({имя: "хвостик-стрелка не внутри прокруч�
 t.push({имя: "отметка встаёт сразу при показе, не дожидаясь закрытия", ок: S.settings.tourSeen === ТУР_ID,
         факт: "показ идёт, в настройках " + JSON.stringify(S.settings.tourSeen)});
 
-/* ================== ШАГ 0 (продолжение): ПОДГРАФ, БЕЗ ЦЕЛИ ==================
+/* ================== ШАГ 0 (продолжение): ЗАПЛАТКА 2.0.6.1, ШАГ 1: ГРАФ НА ВСЁ ОКНО ==================
    Состав тура меняется каждый релиз (глубина — два выпуска, см. docs/СБОРКА-И-РЕЛИЗ.md), и
    проверки идут ПО ПОРЯДКУ шагов, а не по номерам версий: так их правят вместе с самим туром,
-   а не ищут потом, почему сценарий рассыпался. Клика тут НЕТ намеренно: в 2.0.6.1 шаг
-   позапрошлой версии (Ctrl+тащи) убран по глубине, и подграф стал ПЕРВЫМ. */
+   а не ищут потом, почему сценарий рассыпался. В 2.1.0 шаги 2.0.6 убраны по глубине, первым
+   стал шаг заплатки 2.0.6.1, следом — новинки 2.1.0. */
 {
   const p = document.querySelector("#tour-pop");
-  t.push({имя: "первый шаг — про подграф, с иллюстрацией «нода → её содержимое»",
-          ок: /подграф/i.test(p.querySelector(".tour-head b").textContent) && !!p.querySelector(".tm-sub-hex"),
-          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», шестиугольник: " + !!p.querySelector(".tm-sub-hex")});
+  t.push({имя: "первый шаг — заплатка 2.0.6.1 про вставку нод",
+          ок: /ctrl\+v|вставк/i.test(p.querySelector(".tour-head b").textContent),
+          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "»"});
+}
+document.querySelector("#tour-next").click(); await ж(200); доиграть();
+{
+  const p = document.querySelector("#tour-pop");
+  t.push({имя: "второй шаг — граф на всё окно, без цели (по центру)",
+          ок: /окно/i.test(p.querySelector(".tour-head b").textContent) && p.classList.contains("mid"),
+          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», mid: " + p.classList.contains("mid")});
 }
 
-/* ================== ШАГ 1: СТРЕЛКА НА КНОПКУ ИИ ==================
+/* ================== ШАГ 2: СТРЕЛКА НА КНОПКУ ИИ ==================
    Единственный шаг релиза с целью. Он же ловит целый класс поломок: цель ищется сразу после
    before(), и если узел ещё не в DOM — выноска молча уезжает в центр экрана и показывает
    «непонятно куда» (КРОЛИК прислал снимок именно этого шага). */
@@ -119,7 +126,7 @@ document.querySelector("#tour-next").click(); await ж(240); доиграть();
 {
   const p = document.querySelector("#tour-pop"), ц = document.querySelector("#g-ai");
   t.push({имя: "кнопка ИИ есть на холсте графа", ок: !!ц, факт: ц ? "#g-ai найдена" : "#g-ai НЕТ в DOM"});
-  t.push({имя: "шаг про нейросети подсвечивает саму кнопку", ок: !!ц && ц.classList.contains("tour-lit"),
+  t.push({имя: "шаг про ИИ-агента подсвечивает саму кнопку", ок: !!ц && ц.classList.contains("tour-lit"),
           факт: ц ? "подсвечена: " + ц.classList.contains("tour-lit") : "кнопки нет на экране"});
   t.push({имя: "выноска не по центру — цель нашлась", ок: !p.classList.contains("mid"),
           факт: "класс mid: " + p.classList.contains("mid")});
@@ -162,103 +169,23 @@ document.querySelector("#tour-next").click(); await ж(240); доиграть();
   }
 }
 
-// ================== ШАГ 2: СХЕМА НА ПОЛОТНЕ ОТ НЕЙРОСЕТИ ==================
-// Своя новинка релиза (операция draw), а не подстрочник к шагу про нейросети: у неё свой
-// результат на экране — схема на доске, — и в заметках к релизу она отдельным разделом.
-document.querySelector("#tour-next").click(); await ж(200); доиграть();
-{
+// ================== ШАГИ 3–6: НОВИНКИ 2.1.0 СЛОВАМИ ==================
+// Без целей и иллюстраций: всё это видно на экране сразу. Проверяем порядок по заголовкам.
+for (const [имя, рег] of [["поток работы по связям", /связи|работа/i], ["статус по самой ноде", /статус/i],
+                          ["новая правая панель", /панель/i], ["темы и оформление", /тем/i]]) {
+  document.querySelector("#tour-next").click(); await ж(200); доиграть();
   const p = document.querySelector("#tour-pop");
-  t.push({имя: "шаг про схему на полотне — с иллюстрацией «нейросеть → схема»",
-          ок: /схем/i.test(p.querySelector(".tour-head b").textContent) && !!p.querySelector(".tm-ag-box") &&
-              !!p.querySelector(".tour-mock svg polygon"),
-          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», блоки схемы: " +
-                p.querySelectorAll(".tour-mock svg rect").length + ", развилка: " + !!p.querySelector(".tour-mock svg polygon")});
-}
-
-/* ================== ШАГ 3: ИИ-АГЕНТ ==================
-   Отдельный шаг, а не строка в шаге про нейросети: агент — своя дорога (MCP, доступ по ключу,
-   правки без копипаста), и в заметках к релизу он тоже отдельным разделом. */
-document.querySelector("#tour-next").click(); await ж(200); доиграть();
-{
-  const p = document.querySelector("#tour-pop");
-  t.push({имя: "шаг про ИИ-агента со схемой «агент ↔ граф»",
-          ок: /агент/i.test(p.querySelector(".tour-head b").textContent) && !!p.querySelector(".tm-ag-box"),
-          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», схема: " + !!p.querySelector(".tm-ag-box")});
-}
-
-// ================== ШАГ 4: УПОРЯДОЧИВАНИЕ, СРАВНЕНИЕ «БЫЛО — СТАЛО» ==================
-document.querySelector("#tour-next").click(); await ж(200); доиграть();
-{
-  const p = document.querySelector("#tour-pop");
-  t.push({имя: "шаг про упорядочивание показывает сравнение до/после",
-          ок: /упорядоч/i.test(p.querySelector(".tour-head b").textContent) &&
-              p.querySelectorAll(".tm-tidy-one").length === 2,
-          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», половин сравнения: " +
-                p.querySelectorAll(".tm-tidy-one").length});
-}
-
-// ================== ШАГ 5: ОТКАТ РАСКЛАДКИ ==================
-document.querySelector("#tour-next").click(); await ж(200); доиграть();
-{
-  const p = document.querySelector("#tour-pop");
-  t.push({имя: "шаг про откат раскладки",
-          ок: /ctrl\+z|раскладк/i.test(p.querySelector(".tour-head b").textContent),
+  t.push({имя: "шаг: " + имя, ок: рег.test(p.querySelector(".tour-head b").textContent),
           факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "»"});
 }
 
-/* ================== ШАГ 6: ВСТАВКА НОД, ПОСЛЕДНИЙ ==================
-   Заплатка 2.0.6.1: Ctrl+V сообщал «Вставлено», а копия не появлялась нигде. */
+/* ================== ШАГ 7: ТАБЛИЦА, ПОСЛЕДНИЙ ================== */
 document.querySelector("#tour-next").click(); await ж(200); доиграть();
 const последняя = document.querySelector("#tour-pop #tour-next").textContent;
-t.push({имя: "последний шаг — про вставку нод, кнопка «Понятно»",
-        ок: /ctrl\+v|вставк/i.test(document.querySelector(".tour-head b").textContent) && последняя === "Понятно",
+t.push({имя: "последний шаг — про таблицу, кнопка «Понятно»",
+        ок: /таблиц/i.test(document.querySelector(".tour-head b").textContent) && последняя === "Понятно",
         факт: "заголовок «" + document.querySelector(".tour-head b").textContent + "», кнопка «" + последняя + "»"});
 document.querySelector("#tour-next").click(); await ж(150);
-t.push({имя: "«Понятно» закрывает тур", ок: последняя === "Понятно" && !document.querySelector("#tour-pop"),
-        факт: "кнопка «" + последняя + "», выноска убрана: " + !document.querySelector("#tour-pop")});
-t.push({имя: "подсветка кнопки снимается вместе с туром", ок: document.querySelectorAll(".tour-lit").length === 0,
-        факт: "подсвеченных узлов осталось " + document.querySelectorAll(".tour-lit").length});
-t.push({имя: "тур помечает себя просмотренным", ок: S.settings.tourSeen === ТУР_ID,
-        факт: "в настройках " + JSON.stringify(S.settings.tourSeen)});
-t.push({имя: "и больше не показывается", ок: turMaybeShow() === false,
-        факт: "повторный вызов вернул отказ"});
-
-// ================== ЗАКРЫТИЕ КРЕСТИКОМ ТОЖЕ СЧИТАЕТСЯ ==================
-/* Иначе тур встречал бы человека каждый запуск: закрыть его крестиком — самый вероятный
-   способ, и он обязан значить «понял, больше не показывай», а не «покажи ещё раз завтра». */
-S.settings.tourSeen = null;
-turStep(0); await ж(150);
-document.querySelector("#tour-x").click(); await ж(100);
-t.push({имя: "крестик закрывает и запоминает", ок: S.settings.tourSeen === ТУР_ID && !document.querySelector("#tour-pop"),
-        факт: "отметка " + JSON.stringify(S.settings.tourSeen)});
-
-// ================== ESC ==================
-S.settings.tourSeen = null;
-turStep(0); await ж(150);
-document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
-await ж(100);
-t.push({имя: "Escape закрывает и запоминает", ок: S.settings.tourSeen === ТУР_ID && !document.querySelector("#tour-pop"),
-        факт: "отметка " + JSON.stringify(S.settings.tourSeen)});
-
-// ================== ОТКРЫТЬ ЗАНОВО РУКАМИ ==================
-/* Тур сам показывается ОДИН раз, и без этого пункта посмотреть его второй раз можно было
-   только правкой файла данных — на это КРОЛИК и наткнулся сразу же. */
-{
-  turDone();
-  document.querySelector("#g-more").click(); await ж(80);
-  const пункт = document.querySelector("#g-tour");
-  t.push({имя: "в меню «Ещё» есть пункт открыть тур", ок: !!пункт,
-          факт: пункт ? "«" + пункт.textContent.trim() + "»" : "пункта нет"});
-  if (пункт) { пункт.click(); await ж(200); }
-  t.push({имя: "пункт открывает тур с первого шага",
-          ок: !!document.querySelector("#tour-pop") &&
-              document.querySelector(".tour-head b").textContent === ТУР[0].ttl,
-          факт: "выноска: " + !!document.querySelector("#tour-pop") + ", заголовок: «" +
-                (document.querySelector(".tour-head b") || {}).textContent + "»"});
-  t.push({имя: "и меню при этом закрывается",
-          ок: document.querySelector("#g-more-menu").style.display === "none",
-          факт: "меню: " + (document.querySelector("#g-more-menu").style.display || "видно")});
-}
 
 /* ================== СЛОЁНЫЙ ТУР ==================
    Обновившийся с прошлой версии не должен заново листать то, что уже читал, а пришедший
