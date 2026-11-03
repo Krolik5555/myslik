@@ -6507,7 +6507,7 @@ class Graph{
       </div>
       ${auto?`<div class="np-meta" style="opacity:.7;margin-bottom:8px;">Авто-связь с областью. Убрать = открепить от области.</div>`:""}
       <div class="np-len"><span class="np-len-lbl">Длина</span><input class="np-len-in" type="range" min="0.4" max="2.5" step="0.1" value="${(l.lenMul||1)}"><span class="np-len-val">${(l.lenMul||1).toFixed(1)}×</span></div>
-      <div class="np-row"><button class="btn" data-lp="del"><i class="ti ti-unlink"></i>${auto?"Открепить":"Убрать связь"}</button></div>`;
+      <div class="np-row"><button class="btn" data-lp="ins" title="Новая нода в точке клика, между концами связи"><i class="ti ti-git-commit"></i>Вставить ноду</button><button class="btn" data-lp="del"><i class="ti ti-unlink"></i>${auto?"Открепить":"Убрать связь"}</button></div>`;
     const wrap=$("#graph-wrap"); wrap.appendChild(pop);
     const rc=this.svg.getBoundingClientRect();
     const pw=pop.offsetWidth||240, ph=pop.offsetHeight||140;
@@ -6552,6 +6552,52 @@ class Graph{
       recomputeHierarchy();   // пересобрать иерархию от области
       this._closePop(); this.build(); toast("Связь убрана");
     };
+    // точку снимаем сейчас: к нажатию кнопки курсор уже стоит на меню, а не на связи
+    const wp=this._pt(e);
+    pop.querySelector('[data-lp="ins"]').onclick=()=>{
+      this._askKind(e, k=>this._insertOnLink(l, k, wp.x, wp.y));
+      const t=$("#node-pop .np-ttl"); if(t) t.innerHTML=`<i class="ti ti-git-commit"></i> Вставить на связь`;
+    };
+  }
+  /* НОДА НА СВЯЗИ: A–B превращается в A–N–B. Иерархию руками не правим — её выводит
+     recomputeHierarchy из связей, и N встаёт между концами сама (B был ребёнком A — станет
+     ребёнком N). Нить к области (авто-связь) в S.links не живёт, она строится из it.area:
+     там область переезжает на N, а конец её теряет и наследует уже через N.
+     ОДИН ШАГ ОТКАТА: всё внутри транзакции, включая дома, — иначе Ctrl+Z снимал бы вставку
+     по кускам (сперва дом, потом связи). Название по умолчанию ставим тоже внутри: пустую
+     ноду Escape в _inlineRename сносит вместе со связями, и концы остались бы разорваны. */
+  _insertOnLink(l, kind, wx, wy){
+    const a=l.a, b=l.b;
+    txBegin();
+    let it;
+    try{
+      const data={kind, title:kindIsTask(kind)?"Новая задача":"Новая заметка"};
+      if(kindIsTask(kind)) data.status="todo";
+      if(kind==="note"||kind==="task"){ const з=templateSeed(templateDefault(), kind); if(з && з.fields.length) data.fields=з.fields; }
+      it=addItem(data); it.x=Math.round(wx); it.y=Math.round(wy);
+      if(l.manual){
+        const мн=l.src && l.src[2];
+        removeLink(a,b); addLink(a,it.id); addLink(it.id,b);
+        // длину, заданную человеком, наследуют обе половины — иначе вставка ломала бы форму
+        if(мн) S.links.forEach(x=>{ if((x[0]===a&&x[1]===it.id)||(x[0]===it.id&&x[1]===b)) x[2]=мн; });
+      } else {
+        const конец=S.items.find(x=>x.id===(isHubId(a)?b:a));
+        if(конец){ it.area=конец.area; конец.area=null; delete конец.areaAuto; addLink(it.id, конец.id); }
+      }
+      recomputeHierarchy();
+      /* Дома — от ЖИВЫХ владельцев (_ownerNode берёт узлы), значит после сборки. Концу,
+         у которого владелец сменился на N, дом пересчитываем там, где он стоит: старое смещение
+         мерилось от A, и от N он прыгнул бы на длину связи. */
+      this.build();
+      if(S.settings.graphHome){
+        this._homeFromDrag(it);
+        [a,b].forEach(id=>{ const x=S.items.find(i=>i.id===id), n=this.byId[id];
+          if(x && n && x.hx!=null){ x.x=Math.round(n.x); x.y=Math.round(n.y); this._homeFromDrag(x); } });
+      }
+      persist();
+    } finally { txEnd(); }
+    this.build(); this.alpha=Math.max(this.alpha,0.3); this._wake();
+    this._inlineRename(it.id);
   }
   _closePop(){ const p=$("#node-pop"); if(p)p.remove(); this.sel=null; }
   // пауза/возобновление цикла анимации: когда окно не в фокусе/свёрнуто, останавливаем rAF,
