@@ -1070,7 +1070,8 @@ class Graph{
      выпуская курсора из поля; ДВОЙНОЙ клик по виду делает его умолчанием — у КРОЛИКА бывает,
      что подряд идут одни задачи, и щёлкать вид на каждой ноде незачем. То же — в настройках
      графа. Пустое поле ничего не создаёт: Escape, клик мимо и Enter без текста — отказ. */
-  _askTitleKind(e, wx, wy, fromId){
+  // готово(вид, текст) — чужой создатель вместо _quickAdd: так коробку берёт и вставка на связь
+  _askTitleKind(e, wx, wy, fromId, готово, подсказка){
     this._closePop();
     const wrap=$("#graph-wrap"); if(!wrap) return;
     const old=wrap.querySelector(".g-inline, .g-quick"); if(old) old.remove();
@@ -1078,7 +1079,7 @@ class Graph{
     const умолч=()=>KINDS[S.settings.altKind] ? S.settings.altKind : "note";
     let вид=умолч();
     const box=el("div","g-quick");
-    box.innerHTML=`<input class="g-inline" placeholder="${fromId?"Новая связанная…":"Новая мысль…"}">
+    box.innerHTML=`<input class="g-inline" placeholder="${esc(подсказка||(fromId?"Новая связанная…":"Новая мысль…"))}">
       <div class="g-quick-kinds">${виды.map(k=>`<button type="button" data-qk="${k}" title="${esc(kindName(k))} · двойной клик — по умолчанию"><i class="ti ${kindIcon(k)}"></i>${esc(kindName(k))}</button>`).join("")}</div>`;
     wrap.appendChild(box);
     const rc=wrap.getBoundingClientRect();
@@ -1092,7 +1093,7 @@ class Graph{
     const finish=(save)=>{ if(done) return; done=true;
       document.removeEventListener("pointerdown",мимо,true);
       const v=inp.value.trim(); box.remove();
-      if(save && v) this._quickAdd(вид, wx, wy, fromId, v);
+      if(save && v){ if(готово) готово(вид, v); else this._quickAdd(вид, wx, wy, fromId, v); }
     };
     const мимо=ev=>{ if(!box.contains(ev.target)) finish(true); };   // клик мимо = как Enter: текст не теряем
     $$("[data-qk]",box).forEach(b=>{
@@ -6646,9 +6647,9 @@ class Graph{
     };
     // точку снимаем сейчас: к нажатию кнопки курсор уже стоит на меню, а не на связи
     const wp=this._pt(e);
+    // создание — той же коробкой, что Alt (КРОЛИК): сперва текст, вид под ним, умолчание из настроек
     pop.querySelector('[data-lp="ins"]').onclick=()=>{
-      this._askKind(e, k=>this._insertOnLink(l, k, wp.x, wp.y));
-      const t=$("#node-pop .np-ttl"); if(t) t.innerHTML=`<i class="ti ti-git-commit"></i> Вставить на связь`;
+      this._askTitleKind(e, wp.x, wp.y, null, (k,v)=>this._insertOnLink(l, k, wp.x, wp.y, v), "Нода на связи…");
     };
   }
   /* НОДА НА СВЯЗИ: A–B превращается в A–N–B. Иерархию руками не правим — её выводит
@@ -6656,14 +6657,14 @@ class Graph{
      ребёнком N). Нить к области (авто-связь) в S.links не живёт, она строится из it.area:
      там область переезжает на N, а конец её теряет и наследует уже через N.
      ОДИН ШАГ ОТКАТА: всё внутри транзакции, включая дома, — иначе Ctrl+Z снимал бы вставку
-     по кускам (сперва дом, потом связи). Название по умолчанию ставим тоже внутри: пустую
-     ноду Escape в _inlineRename сносит вместе со связями, и концы остались бы разорваны. */
-  _insertOnLink(l, kind, wx, wy){
+     по кускам (сперва дом, потом связи). Название приходит уже введённым (_askTitleKind):
+     пустой ноды здесь не бывает, а значит и сноса её вместе со связями по Escape. */
+  _insertOnLink(l, kind, wx, wy, title){
     const a=l.a, b=l.b;
     txBegin();
     let it;
     try{
-      const data={kind, title:kindIsTask(kind)?"Новая задача":"Новая заметка"};
+      const data={kind, title:title||(kindIsTask(kind)?"Новая задача":"Новая заметка")};
       if(kindIsTask(kind)) data.status="todo";
       if(kind==="note"||kind==="task"){ const з=templateSeed(templateDefault(), kind); if(з && з.fields.length) data.fields=з.fields; }
       it=addItem(data); it.x=Math.round(wx); it.y=Math.round(wy);
@@ -6689,7 +6690,7 @@ class Graph{
       persist();
     } finally { txEnd(); }
     this.build(); this.alpha=Math.max(this.alpha,0.3); this._wake();
-    this._inlineRename(it.id);
+    if(title && S.settings.aiGraphSuggest===true && typeof aiRefineCapture==="function") aiRefineCapture(it, title);
   }
   _closePop(){ const p=$("#node-pop"); if(p)p.remove(); this.sel=null; }
   // пауза/возобновление цикла анимации: когда окно не в фокусе/свёрнуто, останавливаем rAF,
