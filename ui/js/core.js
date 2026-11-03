@@ -391,10 +391,28 @@ const itemColor = it => it.color || (it.area?areaColor(it.area):null) || null;
 // Набор кружков выбора цвета. «Нет цвета» рисуем приглушённым кружком с прочерком (.none),
 // а НЕ белым: белый кружок читался как «белый цвет», хотя означал «наследовать» — и нода
 // в зелёной области становилась зелёной. Явный белый теперь отдельный кружок палитры.
+/* ЗНАЧОК СТАТУСА — МАТЕРИАЛОМ ФОРМЫ, как сама нода на графе (КРОЛИК 03.11.2026: значки
+   «кружок / песочные часы / глаз» устарели — на холсте статус давно несёт форма): каркас, ядро
+   очереди, тон в работе (чуть повёрнут — на графе она вращается), иней ждущей, диагональ
+   проверки, пепел паузы, залитая с галкой. Рисуется currentColor — цвет задаёт кнопка. */
+function statusMat(k){
+  const r='<rect x="2.5" y="2.5" width="11" height="11" rx="1.6"';
+  const тело = {
+    todo:   `${r} fill="currentColor" fill-opacity=".08" stroke="currentColor" stroke-width="1.4"/>`,
+    next:   `${r} fill="currentColor" fill-opacity=".1" stroke="currentColor" stroke-width="1.4"/><rect x="5.6" y="5.6" width="4.8" height="4.8" rx=".8" fill="currentColor"/>`,
+    doing:  `<g transform="rotate(14 8 8)">${r} fill="currentColor" fill-opacity=".42" stroke="currentColor" stroke-width="1.6"/></g>`,
+    waiting:`${r} fill="currentColor" fill-opacity=".08" stroke="currentColor" stroke-width="1.4"/><path d="M3.6 8.4 8.4 3.6M3.6 12.4 12.4 3.6M7.6 12.4 12.4 7.6" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity=".75"/>`,
+    review: `${r} fill="currentColor" fill-opacity=".08" stroke="currentColor" stroke-width="1.4"/><path d="M12.8 3.6V12.8H3.6Z" fill="currentColor" opacity=".7"/>`,
+    paused: `${r} fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-width="1.3" stroke-dasharray="2.4 1.8" opacity=".7"/>`,
+    done:   `${r} fill="currentColor" stroke="currentColor" stroke-width="1.4"/><path d="M5.3 8.2 7.2 10.1 10.9 6" fill="none" style="stroke:var(--bg)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`,
+    note:   `<circle cx="8" cy="8" r="5.5" fill="currentColor" fill-opacity=".1" stroke="currentColor" stroke-width="1.4"/>`
+  }[k] || `${r} fill="none" stroke="currentColor" stroke-width="1.4"/>`;
+  return `<svg class="st-mat" viewBox="0 0 16 16" aria-hidden="true">${тело}</svg>`;
+}
 function swatchRow(current){
   return PALETTE.map((c,i)=> c
-    ? `<button class="swatch${(current||null)===c?" on":""}" data-ci="${i}" title="${c==="#ffffff"?"Белый — свой цвет, область его не перекроет":c}" style="background:${c}"></button>`
-    : `<button class="swatch none${current?"":" on"}" data-ci="${i}" title="Без своего цвета — наследует цвет области">—</button>`
+    ? `<button class="swatch${(current||null)===c?" on":""}" data-ci="${i}" title="${c==="#ffffff"?"Белый — свой цвет, область его не перекроет":c}" style="background:${c};--sw:${c}"></button>`
+    : `<button class="swatch none${current?"":" on"}" data-ci="${i}" title="Без своего цвета — наследует цвет области"><i class="ti ti-arrow-up-left"></i></button>`
   ).join("");
 }
 

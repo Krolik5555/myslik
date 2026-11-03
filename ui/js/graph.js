@@ -6377,7 +6377,7 @@ class Graph{
             const с=СТАТУСЫ[k];
             const активен = (k==="done") ? !!it.done : (!it.done && it.status===k);
             const нейтраль = (k===нейтральныйСтатус(it.kind));
-            return `<button class="btn ${активен?"primary":""}" data-st="${k}" title="${esc(с.имя)}${нейтраль?" — снять статус":""}"><i class="ti ${с.иконка}"></i><span>${esc(с.кратко||с.имя)}</span></button>`;
+            return `<button class="btn ${активен?"primary":""}" data-st="${k}" title="${esc(с.имя)}${нейтраль?" — снять статус":""}">${statusMat(k)}<span>${esc(с.кратко||с.имя)}</span></button>`;
           }).join("")}
       </div>`}
       <div class="np-row np-act">

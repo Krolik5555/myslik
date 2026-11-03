@@ -294,7 +294,7 @@ function tableStatusMenu(btn){
   const сейчас = tableStatusOf(it);
   const m = document.createElement("div"); m.className = "tb-menu";
   m.innerHTML = статусыДляВида(it.kind).map(k => `<button data-v="${k}" class="${k === сейчас ? "on" : ""}" style="--sc:${TABLE_ST_COLOR[k] || "var(--mut)"}">`+
-    `<i class="ti ${СТАТУСЫ[k].иконка}"></i>${esc(СТАТУСЫ[k].имя)}${k === сейчас ? '<i class="ti ti-check tb-ok"></i>' : ""}</button>`).join("");
+    `${statusMat(k)}${esc(СТАТУСЫ[k].имя)}${k === сейчас ? '<i class="ti ti-check tb-ok"></i>' : ""}</button>`).join("");
   document.body.appendChild(m);
   const r = btn.getBoundingClientRect();
   m.style.left = Math.min(r.left, innerWidth - m.offsetWidth - 8) + "px";

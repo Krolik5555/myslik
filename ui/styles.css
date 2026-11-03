@@ -2584,6 +2584,26 @@ body.as-pass .as-foot{margin-left:-24px;padding-left:24px;}
 #node-pop .np-size .np-sz-btn:hover{background:var(--l4);}
 #node-pop .np-size .np-sz-val{min-width:38px;text-align:center;font-size:12px;font-variant-numeric:tabular-nums;}
 
+/* ЗНАЧОК СТАТУСА МАТЕРИАЛОМ (statusMat в core.js) — размер от кегля места, где стоит, как у глифа */
+.st-mat{width:1.15em;height:1.15em;flex:none;display:block;}
+#node-pop .np-stat .btn .st-mat{width:17px;height:17px;}
+.as-st-b .st-mat{width:17px;height:17px;}
+
+/* ОБРАЗЦЫ ЦВЕТА — как сама нода этого цвета: тон внутри и контур им же, скруглённый квадрат
+   (КРОЛИК: «доработать выбор и отображение цветов»). Выбранный — кольцо снаружи и галка его цветом;
+   «без своего цвета» — пунктирная рамка со стрелкой «от области». Заливку из разметки перебиваем:
+   в других окнах образцы остаются прежними кружками. */
+#node-pop .swatch,#aside .swatch{border-radius:7px;border:0;position:relative;}
+#node-pop .swatch:not(.none),#aside .swatch:not(.none){
+  background:color-mix(in srgb,var(--sw) 26%,var(--l3)) !important;box-shadow:inset 0 0 0 2px var(--sw);transition:transform .1s;}
+#node-pop .swatch:hover,#aside .swatch:hover{transform:scale(1.12);}
+#node-pop .swatch.on,#aside .swatch.on{box-shadow:inset 0 0 0 2px var(--sw),0 0 0 2px var(--l2),0 0 0 3.5px var(--sw);}
+#node-pop .swatch.on:not(.none)::after,#aside .swatch.on:not(.none)::after{content:"";position:absolute;left:50%;top:46%;width:5px;height:9px;
+  border:solid var(--sw);border-width:0 2px 2px 0;transform:translate(-50%,-50%) rotate(45deg);}
+#node-pop .swatch.none,#aside .swatch.none{background:transparent;box-shadow:none;outline:1.5px dashed var(--mut2);outline-offset:-2px;
+  color:var(--mut);font-size:12px;display:flex;align-items:center;justify-content:center;}
+#node-pop .swatch.none.on,#aside .swatch.none.on{outline-color:var(--tx);color:var(--tx);box-shadow:0 0 0 2px var(--l2),0 0 0 3.5px var(--mut);}
+
 /* поиск по графу в каркасе «холст» — над доком, рядом со своей кнопкой: сверху по центру он
    открывался ПОД строкой захвата (островок выше по слоям), и кнопка казалась мёртвой (КРОЛИК) */
 html.canvas-ui .graph-search{top:auto;bottom:62px;z-index:31;}

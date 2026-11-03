@@ -284,7 +284,7 @@ function renderAside(){
       <div class="as-st" role="radiogroup" aria-label="Статус всем">
         <input type="hidden" data-all="status" value="">
         ${статусыГр.map(k=>`<button type="button" class="as-st-b st-${k}${общий===k?" on":""}" data-allst="${k}" title="${esc(СТАТУСЫ[k].имя)} — всем выделенным">
-          <i class="ti ${СТАТУСЫ[k].иконка}"></i><span>${esc(СТАТУСЫ[k].имя).replace(" ","<br>")}</span></button>`).join("")}
+          ${statusMat(k)}<span>${esc(СТАТУСЫ[k].имя).replace(" ","<br>")}</span></button>`).join("")}
       </div>
       <div class="as-sec">Свойства всем</div>
       <div class="as-rows">
@@ -505,7 +505,7 @@ function asideCard(it){
       <div class="as-st" role="radiogroup" aria-label="Статус">
       <input type="hidden" data-f="status" value="${esc(ст)}">
       ${список.map((k,i)=>`<button type="button" class="as-st-b st-${k}${ст===k?" on":""}" data-st="${k}" role="radio" aria-checked="${ст===k}" title="${esc(СТАТУСЫ[k].имя)} — Alt+${i+1}">
-        <i class="ti ${СТАТУСЫ[k].иконка}"></i><span>${подпись(k)}</span></button>`).join("")}
+        ${statusMat(k)}<span>${подпись(k)}</span></button>`).join("")}
     </div>`;
   }
   if(kindIsTask(it.kind)){
