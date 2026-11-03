@@ -194,7 +194,7 @@ function renderNotes(v){
          верхний угол свободен и симметричен тулбару слева. */""}
     <button class="graph-ai" id="g-ai" title="ИИ: пакеты команд от нейросети и подключение агента"><i class="ti ti-sparkles"></i></button>
     <!-- подсказку можно закрыть: висеть постоянно ей незачем, а вернуть — из меню «…» -->
-    <div class="graph-hint${S.settings.graphHint===false?" off":""}" id="g-hint"><span>Alt+тащи от ноды — связь/заметка · Ctrl+тащи — копия выделенного · ПКМ — меню / создать · ЛКМ-рамка — выделить · двойной клик — открыть (подграф — войти внутрь) · средняя кнопка — двигать · колесо — зум · Delete — удалить</span><button id="g-hint-x" title="Скрыть подсказку"><i class="ti ti-x"></i></button></div>
+    <div class="graph-hint${S.settings.graphHint===false?" off":""}" id="g-hint"><span>Alt+тащи от ноды — связь/заметка · Ctrl+тащи — копия выделенного · Shift+тащи — одну ноду, без куста · ПКМ — меню / создать · ЛКМ-рамка — выделить · двойной клик — открыть (подграф — войти внутрь) · средняя кнопка — двигать · колесо — зум · Delete — удалить</span><button id="g-hint-x" title="Скрыть подсказку"><i class="ti ti-x"></i></button></div>
     <!-- только счётчик: кнопка «Отчёт» уехала в правую панель, где отчёт и собирается -->
     <div class="graph-selbar" id="g-selbar" style="display:none">
       <span class="gsb-n"></span>
@@ -1729,7 +1729,17 @@ class Graph{
         // Alt+тащи — связь / новая связанная заметка. От области тоже: бросок на ноду
         // назначает ей эту область, и тянуть связь оттуда так же естественно, как от ноды.
         if(e.altKey){ this._startConnectDrag(n,e); svg.setPointerCapture(e.pointerId); return; }
-        if(e.shiftKey){ if(this.selNodes.has(n.id)) this.selNodes.delete(n.id); else this.selNodes.add(n.id); this._paintSel(); this._syncAside(); return; }   // shift-клик — в выделение
+        /* SHIFT — СОЛЬНЫЙ ХВАТ. Клик без протяжки по-прежнему кладёт ноду в выделение (это решает
+           отпускание), а протяжка двигает ОДНУ эту ноду: физика на время жеста стоит (_tick), дети
+           на домах остаются, где были, — на отпускании их дома пересчитываются от нового места
+           владельца. Без этого переставить узел, не разворотив его куст, было нечем. */
+        if(e.shiftKey){
+          this.drag=n; n._moved=false; n._grabbed=true; this._solo=true; this.dragMates=null;
+          this._dragFrom={x:e.clientX,y:e.clientY};
+          { const p0=this._pt(e); this._grab={dx:n.x-p0.x, dy:n.y-p0.y}; }
+          svg.setPointerCapture(e.pointerId);
+          return;
+        }
         if(!this.selNodes.has(n.id)){ this.selNodes.clear(); this.selNodes.add(n.id); this._paintSel(); }   // обычный клик по ноде — выделить
         /* ПРАВУЮ ПАНЕЛЬ ОБНОВЛЯЕТ ОТПУСКАНИЕ, А НЕ НАЖАТИЕ (см. pointerup). Раньше asideSelect
            стоял здесь, и на нём висели обе жалобы КРОЛИКА — «ноду хватаю, микрофризы» и
@@ -1826,7 +1836,9 @@ class Graph{
         const М=this.dragMates;
         if(М) for(let i=0;i<М.length;i++){ const м=М[i], q=м.n;
           q.x=this.drag.x+м.dx; q.y=this.drag.y+м.dy; q.vx=0; q.vy=0; }
-        this.alpha=Math.max(this.alpha,.4); this._wake(); return;
+        // сольный хват раскладку не греет: соседи обязаны стоять (см. pointerdown с Shift)
+        if(!this._solo) this.alpha=Math.max(this.alpha,.4);
+        this._wake(); return;
       }
       /* ПАН СЧИТАЕТСЯ ПРИРАЩЕНИЯМИ, а не от точки нажатия. Раньше tx/ty каждый раз пересчитывались
          абсолютно (`панинг.tx + весь путь курсора`), и стоило крутнуть колесо с зажатой средней
@@ -1897,6 +1909,11 @@ class Graph{
              Хабу области дом не нужен вовсе: его x/y И ЕСТЬ дом, а дома детей — смещения от
              него, и за хабом они едут сами, без единой дополнительной строки. */
           if(S.settings.graphHome) группа.forEach(q=>{ if(q.ref) this._homeFromDrag(q.ref); });
+          /* Сольный хват: дети на домах стоят там, где стояли, — переписываем их дома от нового
+             места владельца. Иначе первое же пробуждение физики увезло бы куст следом. */
+          if(this._solo && S.settings.graphHome) this.nodes.forEach(c=>{
+            const it=c.ref; if(!it || c===n || it.hx==null || this._ownerNode(it)!==n) return;
+            it.x=c.x; it.y=c.y; this._homeFromDrag(it); });
           /* ЖЕСТ — ОДИН ШАГ ИСТОРИИ. Кладём его ПЕРЕД persist: тот откроет окно дебаунса и снимет
              свой, обычный шаг, а раскладка в него не входит (см. _noXY в core.js). Без этой
              строки Ctrl+Z после перетаскивания не возвращал ничего. */
@@ -1904,6 +1921,10 @@ class Graph{
           // с БОЛЬШИМ дебаунсом: серия «тащу — отпускаю — снова тащу» обязана уехать на диск
           // одной записью после того, как рука остановилась (разбор — у ЗАПИСЬ_ЖЕСТ_МС в core.js)
           persist(false, ЗАПИСЬ_ЖЕСТ_МС);
+        } else if(this._solo){
+          // Shift-клик без протяжки — прежний смысл: нода в выделение или из него
+          if(this.selNodes.has(n.id)) this.selNodes.delete(n.id); else this.selNodes.add(n.id);
+          this._paintSel();
         } else {
           // ручное определение двойного клика (надёжнее нативного dblclick при pointer capture)
           // Два РАЗНЫХ окна, их нельзя мерить одним числом:
@@ -1936,7 +1957,7 @@ class Graph{
         n._grabbed=false;
         if(this.dragMates){ this.dragMates.forEach(м=>{ м.n._grabbed=false; }); this.dragMates=null; }
         this._dragHollowAreas=null; this.copyDrag=false; svg.style.cursor="";
-        this.drag=null;
+        this.drag=null; this._solo=false;
       }
       this.panning=null;
     };
@@ -3049,7 +3070,7 @@ class Graph{
     return `M ${ax.toFixed(1)} ${ay.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${bx.toFixed(1)} ${by.toFixed(1)}`;
   }
   startLink(id){ this.linkFrom=id; this.svg.classList.add("linking"); $("#g-hint").innerHTML="Режим связи: кликни по второму узлу. Esc — отмена."; this._closePop(); }
-  cancelLink(){ this.linkFrom=null; this.svg.classList.remove("linking"); this.tempLine.style.display="none"; if($("#g-hint"))$("#g-hint").innerHTML="Alt+тащи от ноды — связь/заметка · Ctrl+тащи — копия выделенного · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · Delete — удалить"; }
+  cancelLink(){ this.linkFrom=null; this.svg.classList.remove("linking"); this.tempLine.style.display="none"; if($("#g-hint"))$("#g-hint").innerHTML="Alt+тащи от ноды — связь/заметка · Ctrl+тащи — копия выделенного · Shift+тащи — одну ноду, без куста · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · Delete — удалить"; }
   // Связать два узла. Связывать можно с чем угодно (заметка/задача/область), но не сам с собой
   // и не область с областью. ОБЛАСТЬ — ОСОБЫЙ СЛУЧАЙ: членство в области это поле it.area, а не
   // связь — линию элемент↔область граф рисует сам (см. build). Поэтому конец в хабе означает
@@ -4290,7 +4311,8 @@ class Graph{
       if(this._ппТик===0) this._reevaluateAnchors();
     }
     const _физ0=_прФ?performance.now():0;
-    if(this.alpha>0){   // физика раскладки — только пока не остыло (при alpha=0 все силы = 0, движения нет → пропускаем весь цикл)
+    // при сольном хвате (Shift+тащи) физика стоит целиком: соседи и куст не едут за рукой
+    if(this.alpha>0 && !this._solo){   // физика раскладки — только пока не остыло (при alpha=0 все силы = 0, движения нет → пропускаем весь цикл)
     let mx=0, my=0;
     for(let i=0;i<N.length;i++){ mx+=N[i].x; my+=N[i].y; }
     if(N.length){ mx/=N.length; my/=N.length; } else { mx=cx; my=cy; }
