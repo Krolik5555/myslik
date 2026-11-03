@@ -19,8 +19,8 @@
   if(/[?&]canvas\b/.test(q) || (!/[?&]dev\b/.test(q) && !классика)) document.documentElement.classList.add("canvas-ui","cv-auto"); })();
 </script>
 <link rel="icon" type="image/png" href="icon.png">
-<link rel="stylesheet" href="vendor/tabler-icons.min.css?v=690">
-<link rel="stylesheet" href="styles.css?v=690">
+<link rel="stylesheet" href="vendor/tabler-icons.min.css?v=691">
+<link rel="stylesheet" href="styles.css?v=691">
 </head>
 <body>
 <div id="app">
@@ -95,26 +95,26 @@
 <!-- модули загружаются как классические скрипты (общая глобальная область),
      порядок важен: core → model → views → graph → overlays → main.
      ES-модули НЕ используем: реальный аппа грузится по file://, где import блокируется CORS. -->
-<script src="js/core.js?v=690"></script>
-<script src="js/model.js?v=690"></script>
+<script src="js/core.js?v=691"></script>
+<script src="js/model.js?v=691"></script>
 <!-- тикер напоминаний по датам событий (it.eventAt/it.eventRepeat) — после core/model, до views -->
-<script src="js/notify.js?v=690"></script>
-<script src="js/views.js?v=690"></script>
-<script src="js/graph.js?v=690"></script>
+<script src="js/notify.js?v=691"></script>
+<script src="js/views.js?v=691"></script>
+<script src="js/graph.js?v=691"></script>
 <!-- таблица — третий взгляд на граф (вместо «Списка»); после graph.js: её зовёт renderNotes -->
-<script src="js/table.js?v=690"></script>
-<script src="js/overlays.js?v=690"></script>
+<script src="js/table.js?v=691"></script>
+<script src="js/overlays.js?v=691"></script>
 <!-- доска (Excalidraw); сам вендор подгружается лениво, при первом заходе на вкладку -->
-<script src="js/draw.js?v=690"></script>
+<script src="js/draw.js?v=691"></script>
 <!-- поля ноды (текст/картинка/доска) и шаблоны нод; зовётся из окон и панели, поэтому после них -->
-<script src="js/fields.js?v=690"></script>
+<script src="js/fields.js?v=691"></script>
 <!-- язык команд: пакет операций от сторонней нейросети (разбор, предпросмотр, применение).
      После fields.js — зовёт fieldMake/fieldShrink; после overlays.js — своё окно и uiConfirm -->
-<script src="js/cmd.js?v=690"></script>
+<script src="js/cmd.js?v=691"></script>
 <!-- локальный ИИ (умный захват) — опционально; нет движка/модели → молчит -->
-<script src="js/ai.js?v=690"></script>
+<script src="js/ai.js?v=691"></script>
 <!-- отчёт из выделенного (простой + через ИИ) -->
-<script src="js/report.js?v=690"></script>
-<script src="js/main.js?v=690"></script>
+<script src="js/report.js?v=691"></script>
+<script src="js/main.js?v=691"></script>
 </body>
 </html>

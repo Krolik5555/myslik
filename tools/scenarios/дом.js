@@ -326,6 +326,44 @@ t.push({имя: "повторное включение возвращает пр
   graph.selNodes = new Set();
 }
 
+/* ================== СБРОС ДОМА У НОДЫ С КУСТОМ — КУСТ НЕ УЛЕТАЕТ ==================
+   Баг 04.11.2026: «Сбросить дом» у ноды с множеством детей — и нода вместе с детьми уезжала
+   непонятно куда. Причина: дети на домах едут за ней, а она, ставшая свободной, получала от них
+   пружины и отталкивание без встречной реакции — тяга не кончалась, пока не остынет alpha.
+   Ставим детей ОДНОЙ СТОРОНОЙ (так тяга не гасится симметрией), сбрасываем дом владельцу и
+   смотрим, насколько он уедет. До починки — сотни пикселей, после — только своё равновесие. */
+{
+  if (!S.settings.graphHome) graph.toggleHome();
+  const P = addItem({kind: "note", title: "дом-куст", area: обл});
+  P.x = A.x - 420; P.y = A.y + 360;
+  const дети = [];
+  for (let i = 0; i < 8; i++) {
+    const k = addItem({kind: "note", title: "дом-куст-" + i});
+    addLink(P.id, k.id); дети.push(k);
+  }
+  recomputeHierarchy(); persist();
+  graph.build(); graph.alpha = 0.5; graph._wake();
+  for (let i = 0; i < 260; i++) graph._tick(true);           // своё равновесие без домов
+  const уP = graph.byId[P.id];
+  // дети веером ПО ОДНУ сторону, в 130 px — так пружины к ним (покой 45) тянут владельца вправо
+  дети.forEach((k, i) => { const у = graph.byId[k.id], уг = (i / 7 - 0.5) * 1.6;
+    у.x = уP.x + 130 * Math.cos(уг); у.y = уP.y + 130 * Math.sin(уг); у.vx = у.vy = 0;
+    k.x = у.x; k.y = у.y; graph._homeFromDrag(k); });
+  P.x = уP.x; P.y = уP.y; graph._homeFromDrag(P);
+  const все = дети.every(k => k.hx != null) && P.hx != null;
+  graph.selNodes = new Set([P.id]);
+  graph._resetHome(уP);
+  const у0 = graph.byId[P.id], x0 = у0.x, y0 = у0.y;
+  for (let i = 0; i < 300; i++) { if (graph.alpha < 0.2) graph.alpha = 0.2; graph._tick(true); }
+  const у1 = graph.byId[P.id], уехал = Math.hypot(у1.x - x0, у1.y - y0);
+  t.push({имя: "сброс дома у ноды с кустом: нода с детьми не улетает",
+          ок: все && P.hx == null && уехал < 60,
+          факт: "домов у детей " + дети.filter(k => k.hx != null).length + "/8, владелец уехал на " +
+                Math.round(уехал) + " px за 300 кадров (норма <60)"});
+  graph.selNodes = new Set();
+  deletePack([P.id].concat(дети.map(k => k.id))); render(); await ж(150);
+}
+
 /* ================== ОТКАТ РАСКЛАДКИ ==================
    Перетаскивание в обычный шаг истории не попадает (ключ выбрасывает координаты и дома, иначе
    физика плодила бы шаги пачками), поэтому у раскладки свой вид шага. Проверяем контракт:
