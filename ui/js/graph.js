@@ -4198,6 +4198,31 @@ class Graph{
   }
   /* Владелец ноды как УЗЕЛ на холсте — та же формула, что у _homeFromDrag и физики в _tick.
      Держим её одной функцией: разъедься эти три места, дома поехали бы вразнобой. */
+  /* СМЕНА ВИДА ИЗ МЕНЮ — на всё выделение, как статус и цвет. Правит один applyKind (views.js):
+     он снимает срок, приоритет и галочку у незадачных видов и согласует статус по реестру.
+     ПОДГРАФ, СТАВШИЙ ЗАМЕТКОЙ, СВОЙ ГРАФ НЕ ТЕРЯЕТ: ключ "gs_"+id выведен из id ноды, а не из
+     вида, поэтому удаление (subDrop), копия (subPack) и уборка санитайзера по-прежнему ведут
+     его за нодой, а возврат вида открывает то же содержимое. Невидимым оно при этом становится —
+     поэтому непустой подграф спрашиваем, а не меняем молча. */
+  async _setKind(n, kind){
+    if(!KINDS[kind]) return;
+    const ids=(this.selNodes.has(n.id) && this.selNodes.size>1) ? [...this.selNodes] : [n.id];
+    const ноды=ids.map(id=>S.items.find(x=>x.id===id)).filter(it=>it && !it.hollow && it.kind!==kind);
+    if(!ноды.length) return;
+    const внутри=ноды.filter(it=>it.kind==="sub" && kind!=="sub")
+      .reduce((s,it)=>{ const g=subGraphOf(it.id); return s+((g && g.items) ? g.items.length : 0); }, 0);
+    if(внутри){
+      this._closePop();
+      const ок=await uiConfirm(`Внутри подграфа нод: ${внутри}. Они спрячутся и вернутся, если снова сделать ноду подграфом. Удаление ноды унесёт их вместе с ней.`,
+        {title:"Сменить вид", okLabel:"Сменить"});
+      if(!ок) return;
+    }
+    let k=0; ноды.forEach(it=>{ if(applyKind(it, kind)) k++; });
+    if(!k) return;
+    persist(); this._closePop(); this.build();
+    if(typeof renderAside==="function") renderAside();
+    toast(k<2 ? ("Теперь это "+kindRu(kind)) : (kindName(kind)+" · нод: "+k), {icon:kindIcon(kind)});
+  }
   _ownerNode(it){
     if(!it) return null;
     if(it.parent && this.byId[it.parent]) return this.byId[it.parent];
@@ -6460,6 +6485,12 @@ class Graph{
             return `<button class="btn ${активен?"primary":""}" data-st="${k}" title="${esc(с.имя)}${нейтраль?" — снять статус":""}">${statusMat(k)}<span>${esc(с.кратко||с.имя)}</span></button>`;
           }).join("")}
       </div>`}
+      ${/* ВИД — тем же рядом, что статус, и из того же реестра KINDS: смена идёт через applyKind,
+           который знает, что срок и приоритет живут только у задачных видов. */""}
+      <div class="np-stat-lbl">Вид</div>
+      <div class="np-row np-stat np-kind">
+        ${Object.keys(KINDS).map(k=>`<button class="btn ${it.kind===k?"primary":""}" data-kind="${k}" title="${esc(kindName(k))}"><i class="ti ${kindIcon(k)}"></i><span>${esc(kindName(k))}</span></button>`).join("")}
+      </div>
       <div class="np-row np-act">
         ${it.folder
           ? `<div class="np-split">
@@ -6512,6 +6543,7 @@ class Graph{
         else this._setStatus(n, k===нейтральныйСтатус(it.kind) ? "__neutral__" : k);
       };
     });
+    $$('[data-kind]', pop).forEach(b=>{ b.onclick=()=>{ if(!b.classList.contains("primary")) this._setKind(n, b.dataset.kind); }; });
     const setSize=(d)=>{ const cur=+it.size||1; it.size=Math.max(0.4,Math.min(3,+(cur+d).toFixed(2))); touch(it); persist(); this.build(); const v=$(".np-sz-val",pop); if(v) v.textContent=(+it.size).toFixed(1)+"×"; };
     if(pop.querySelector('[data-pop="size-"]')) pop.querySelector('[data-pop="size-"]').onclick=()=>setSize(-0.2);
     if(pop.querySelector('[data-pop="size+"]')) pop.querySelector('[data-pop="size+"]').onclick=()=>setSize(0.2);
