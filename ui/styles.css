@@ -2490,16 +2490,19 @@ body.as-glow #aside[data-st="doing"] .as-blk-head::after{animation:asSpin 12s li
 
 /* ---- СТЕКЛО: полупрозрачная панель с размытием. В каркасе «холст» панель ложится ПОВЕРХ графа
    (граф во всю ширину окна), иначе под стеклом был бы только пустой фон страницы ---- */
-body.as-glass #aside{background:color-mix(in srgb,var(--l2) 68%,transparent);backdrop-filter:blur(10px) saturate(1.1);}
+body.as-glass #aside{background:color-mix(in srgb,var(--l2) 60%,transparent);backdrop-filter:blur(20px) saturate(1.25);}
 body.as-glass.as-glow #aside{background:
   radial-gradient(130% 380px at 30% -90px,color-mix(in srgb,var(--c,var(--accent)) 20%,transparent),transparent 62%),
   linear-gradient(180deg,color-mix(in srgb,var(--c,var(--accent)) 7%,transparent),transparent 320px),
-  color-mix(in srgb,var(--l2) 66%,transparent);}
+  color-mix(in srgb,var(--l2) 58%,transparent);}
 body.as-glass .as-foot{background:linear-gradient(to bottom,transparent,color-mix(in srgb,var(--l2) 70%,transparent) 40%);}
 /* только над ГРАФОМ: таблицу и прочие виды стекло накрывало бы, и строки уходили под панель (КРОЛИК) */
 html.canvas-ui body.as-glass #split:has(#graph-wrap){position:relative;}
-html.canvas-ui body.as-glass #split:has(#graph-wrap) > #aside-wrap{position:absolute;right:0;top:0;bottom:0;z-index:20;}
-html.canvas-ui body.as-glass #split:has(#graph-wrap) > #splitter{position:absolute;top:0;bottom:12px;right:calc(var(--asw,440px) + 12px);z-index:21;}
+html.canvas-ui body.as-glass #split:has(#graph-wrap) > #aside-wrap{position:absolute;right:0;top:0;bottom:0;z-index:20;margin-right:0;}
+/* стекло прижато к правому краю окна: зазор в 12 px показывал граф без размытия полоской (КРОЛИК);
+   размытие 20 px, а не 10 — на слабом при движении графа стекло шумело */
+html.canvas-ui body.as-glass #split:has(#graph-wrap) > #aside-wrap,html.canvas-ui body.as-glass #split:has(#graph-wrap) #aside{border-radius:var(--r-l) 0 0 var(--r-l);}
+html.canvas-ui body.as-glass #split:has(#graph-wrap) > #splitter{position:absolute;top:0;bottom:12px;right:var(--asw,440px);z-index:21;}
 
 /* ---- КАРТОЧКИ: разделы — отдельные плитки с зазорами, сквозь зазоры виден холст ---- */
 body.as-cards #aside{background:transparent;box-shadow:none;padding:0;}
@@ -2508,9 +2511,9 @@ body.as-cards .as-blk{position:relative;background:var(--l2);border-radius:14px;
 body.as-cards .as-blk-head{background:radial-gradient(120% 200px at 30% -60px,color-mix(in srgb,var(--c,var(--accent)) 20%,transparent),transparent 70%),var(--l2);}
 body.as-cards .as-blk > .as-sec:first-child{margin-top:0;}
 body.as-cards .as-foot{margin:0;padding:4px 0 12px;background:none;}
-body.as-cards.as-glass .as-blk{background:color-mix(in srgb,var(--l2) 68%,transparent);backdrop-filter:blur(10px) saturate(1.1);}
+body.as-cards.as-glass .as-blk{background:color-mix(in srgb,var(--l2) 60%,transparent);backdrop-filter:blur(20px) saturate(1.25);}
 body.as-cards.as-glass .as-blk-head{background:radial-gradient(120% 200px at 30% -60px,color-mix(in srgb,var(--c,var(--accent)) 22%,transparent),transparent 70%),
-  color-mix(in srgb,var(--l2) 68%,transparent);}
+  color-mix(in srgb,var(--l2) 60%,transparent);}
 
 /* ---- ПАСПОРТ: корешок цвета ноды по левому краю, полоса статуса сверху, ряды через линию ---- */
 body.as-pass #aside-wrap,body.as-pass #aside{border-radius:6px var(--r-l) var(--r-l) 6px;}
