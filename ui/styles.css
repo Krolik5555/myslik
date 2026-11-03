@@ -2558,11 +2558,35 @@ body.as-pass .as-foot{margin-left:-24px;padding-left:24px;}
 #node-pop .np-act .btn:hover{background:var(--l3);}
 #node-pop .np-act .btn:hover i{color:var(--c,var(--accent));}
 #node-pop .np-act .np-split .np-side{justify-content:center;flex:0 0 32px;width:32px;min-width:32px;padding:0;}
+/* вторая версия (КРОЛИК: «реворк слабый»): шапка светится цветом ноды, у статусов подписи, у
+   действий значок в плитке её цвета — меню читается как карточка этой ноды, а не как список */
+#node-pop{width:340px;isolation:isolate;}
+#node-pop::before{content:"";position:absolute;left:0;right:0;top:0;height:130px;border-radius:inherit;z-index:-1;pointer-events:none;
+  background:radial-gradient(110% 120px at 30% -30px,color-mix(in srgb,var(--c,var(--accent)) 24%,transparent),transparent 72%);}
+#node-pop .np-tile{width:40px;height:40px;border-radius:12px;font-size:20px;}
+#node-pop .np-hd .np-ttl{font-size:15px;}
+#node-pop .np-sw{background:transparent;padding:0 2px;gap:7px;}
+#node-pop .np-sw .swatch{width:22px;height:22px;}
+#node-pop .np-stat{grid-template-columns:repeat(auto-fit,minmax(0,1fr));}
+#node-pop .np-stat .btn{height:44px;flex-direction:column;gap:3px;}
+#node-pop .np-stat .btn{padding:0 1px;}
+#node-pop .np-stat .btn span{font-size:8px;letter-spacing:-.1px;line-height:1;white-space:nowrap;max-width:100%;overflow:hidden;}
+
+
+#node-pop .np-act .btn{height:36px;padding:0 6px;}
+#node-pop .np-act .btn > i:first-child{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex:none;font-size:15px;
+  color:var(--c,var(--accent));background:color-mix(in srgb,var(--c,var(--accent)) 14%,var(--l3));}
+#node-pop .np-act .btn:hover > i:first-child{background:color-mix(in srgb,var(--c,var(--accent)) 24%,var(--l3));}
+#node-pop .np-act .np-split .np-side > i:first-child{background:none;width:auto;height:auto;color:var(--mut);}
 #node-pop .np-size{margin-top:8px;padding:6px 6px 0 10px;border-top:.5px solid var(--bd);align-items:center;}
 #node-pop .np-size .np-sz-lbl{flex:1;font-size:12px;color:var(--mut);}
 #node-pop .np-size .np-sz-btn{width:26px;height:26px;border-radius:7px;border:0;background:var(--l3);color:var(--tx);}
 #node-pop .np-size .np-sz-btn:hover{background:var(--l4);}
 #node-pop .np-size .np-sz-val{min-width:38px;text-align:center;font-size:12px;font-variant-numeric:tabular-nums;}
+
+/* поиск по графу в каркасе «холст» — над доком, рядом со своей кнопкой: сверху по центру он
+   открывался ПОД строкой захвата (островок выше по слоям), и кнопка казалась мёртвой (КРОЛИК) */
+html.canvas-ui .graph-search{top:auto;bottom:62px;z-index:31;}
 
 /* ---- ТОСТ НАД ДОКОМ, ПОДСКАЗКА НЕ ПОД ПАНЕЛЬЮ ---- */
 /* в каркасе «холст» внизу по центру стоит док инструментов — тост ложился на него («Отменено») */

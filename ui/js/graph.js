@@ -5947,38 +5947,36 @@ class Graph{
       if(п.уг) ctx.restore();
     }
     ctx.globalAlpha=1;
-    /* ПЛАШКА В УГЛУ ФИГУРЫ — общий вид срока и номера очереди: капсула, приколотая к «углу» формы
-       (_cornerAt) и заходящая на него на несколько пикселей — как значок-счётчик на иконке, а не
-       подпись, висящая рядом. Размер в экранных пикселях, как у подписей. */
-    const плашка=(п, sx, sy, текст, кегль, заливка, обводка, цветТекста, жирно)=>{
-      ctx.font=(жирно?"600 ":"500 ")+кегль+"px system-ui, -apple-system, Segoe UI, sans-serif";
-      const ww=Math.max(кегль+5, ctx.measureText(текст).width+9), hh=кегль+5;
-      const у=this._cornerAt(п.форма, п.x, п.y, п.r, sx, sy), зах=Math.min(5, п.r*0.45);
-      const bx=у[0]+sx*(ww/2-зах), by=у[1]+sy*(hh/2-зах);
-      this._pillPath(ctx, bx, by, ww, hh);
-      ctx.fillStyle=заливка; ctx.fill();
-      if(обводка){ ctx.lineWidth=1; ctx.strokeStyle=обводка; ctx.stroke(); }
-      ctx.fillStyle=цветТекста; ctx.fillText(текст, bx, by+0.5);
-    };
-    /* СРОК ЦИФРАМИ. Рисуется ПОСЛЕ приоритета, чтобы текст в любом случае лёг поверх линии, а не
-       под неё. Кегль в ЭКРАННЫХ пикселях, как у подписей: текст, уменьшенный вместе с зумом,
-       читаться перестаёт, а стоит столько же. Просрочка отличается ФОРМОЙ — залитая плашка
-       против голых цифр: одним цветом она потерялась бы на цветном графе. */
-    /* Плотность плашки растёт с близостью срока: далёкий — тихая тёмная капсула с цифрой его
-       цветом, ближайшие три дня — капсула, тонированная цветом срока, с обводкой им же,
-       просрочка — сплошная заливка. Один и тот же предмет, громкость по нужде. */
+    /* СРОК — МЕТКОЙ НАД НОДОЙ (рисуется после приоритета, поверх обводки), тем же предметом, что метка жара (КРОЛИК 03.11.2026: угловая
+       плашка «-40» выглядела слабо). Капсула по центру над формой: значок часов и срок словами
+       («−40 дн.», «сегодня», «завтра»). Громкость растёт с близостью срока: далёкий — тихая тёмная
+       капсула его цветом, ближайшие три дня — тонированная с обводкой, просрочка — сплошная заливка. */
+    const срокСловами=д=> д==null ? "" : д<0 ? "−"+Math.min(99,-д)+" дн." : д===0 ? "сегодня" : д===1 ? "завтра" : д+" дн.";
+    const шрифтМетки=" system-ui, -apple-system, Segoe UI, sans-serif";
     if(сроки.length){
-      ctx.textAlign="center"; ctx.textBaseline="middle";
+      const часы=iconGlyph("clock");
+      ctx.textBaseline="middle";
       for(const с of сроки){
-        const д=с.дней, прос=д<0, т=короткийСрок(д), близко=!прос && д<=3;
+        const д=с.дней, прос=д<0, близко=!прос && д<=3;
         const цв = прос?пал.время.просрочка : д===0?пал.время.сегодня : д===1?пал.время.завтра
                  : д<=3?пал.время.скоро : д<=7?пал.время.неделя : пал.время.далеко;
+        const т=срокСловами(д), H=18, верх=(с.форма==="diamond"?с.r*1.41:с.r), cy=с.y-верх-H/2-6;
+        ctx.font=(прос||близко?"700 ":"600 ")+"11px"+шрифтМетки;
+        const W=ctx.measureText(т).width+(часы?30:16), x0=с.x-W/2;
+        const зал = прос ? цв : близко ? this._mix(цв, пал.фонУзла, 0.22) : пал.фонУзла;
+        const тк  = прос ? пал.фон : цв;
         ctx.globalAlpha=с.альфа;
-        if(прос) плашка(с, 1, -1, т, 10.5, цв, null, пал.фон, true);
-        else if(близко) плашка(с, 1, -1, т, 10.5, this._mix(цв, пал.фон, 0.24), цв, цв, true);
-        else плашка(с, 1, -1, т, 10.5, пал.фонУзла, this._mix(цв, пал.фон, 0.35), цв, false);
+        if(прос){ ctx.save(); ctx.shadowColor=цв; ctx.shadowBlur=8; }
+        this._pillPath(ctx, с.x, cy, W, H); ctx.fillStyle=зал; ctx.fill();
+        if(прос) ctx.restore();
+        if(!прос){ ctx.lineWidth=1; ctx.strokeStyle=близко?цв:this._mix(цв, пал.фон, 0.4); ctx.stroke(); }
+        ctx.fillStyle=тк; ctx.textAlign="left";
+        let xx=x0+8;
+        if(часы){ ctx.font='11px "tabler-icons"'; ctx.fillText(часы, xx, cy+0.5); xx+=15;
+          ctx.font=(прос||близко?"700 ":"600 ")+"11px"+шрифтМетки; }
+        ctx.fillText(т, xx, cy+0.5);
       }
-      ctx.globalAlpha=1;
+      ctx.globalAlpha=1; ctx.textAlign="center";
     }
     /* НОМЕР В ОЧЕРЕДИ у горящих — плашкой на левом верхнем «углу» фигуры, зеркально сроку
        (стиль A: обе метки прикреплены к форме; прежде номер висел слева под 160°, чтобы не
@@ -6001,8 +5999,7 @@ class Graph{
        в очереди, справа — срок словами («−40 дн.», «сегодня»), просрочка красным. Под меткой —
        мягкое свечение её цвета: горящих не больше восьми, тень по карману. */
     if(рангЖар.length){
-      const огонь=iconGlyph("flame"), шрифт=" system-ui, -apple-system, Segoe UI, sans-serif";
-      const срокСловами=д=> д==null ? "" : д<0 ? "−"+Math.min(99,-д)+" дн." : д===0 ? "сегодня" : д===1 ? "завтра" : д+" дн.";
+      const огонь=iconGlyph("flame"), шрифт=шрифтМетки;
       ctx.textBaseline="middle";
       for(const р of рангЖар){
         const цв=пал.жар[р.ур-1]||пал.жар[0], верх=(р.форма==="diamond"?р.r*1.41:р.r);
@@ -6124,7 +6121,10 @@ class Graph{
       let cwR=cw;
       { const об=document.getElementById("aside-wrap");
         if(об && об.offsetWidth && getComputedStyle(об).position==="absolute"){
-          const л=об.getBoundingClientRect().left-this.mainCanvas.getBoundingClientRect().left-8;
+          // от #graph-wrap, а не от холста: при сдвиге колесом холст на время едет целиком, и метка
+          // с края кадра «телепортировалась» в середину экрана и висела там (КРОЛИК)
+          const обёртка=this.svg.parentNode||this.mainCanvas;
+          const л=об.getBoundingClientRect().left-обёртка.getBoundingClientRect().left-8;
           if(л>поле*4) cwR=Math.min(cw, л); } }
       this._горящие.forEach(у=>{
         const x=эx(у), y=эy(у);
@@ -6377,7 +6377,7 @@ class Graph{
             const с=СТАТУСЫ[k];
             const активен = (k==="done") ? !!it.done : (!it.done && it.status===k);
             const нейтраль = (k===нейтральныйСтатус(it.kind));
-            return `<button class="btn ${активен?"primary":""}" data-st="${k}" title="${esc(с.имя)}${нейтраль?" — снять статус":""}"><i class="ti ${с.иконка}"></i></button>`;
+            return `<button class="btn ${активен?"primary":""}" data-st="${k}" title="${esc(с.имя)}${нейтраль?" — снять статус":""}"><i class="ti ${с.иконка}"></i><span>${esc(с.кратко||с.имя)}</span></button>`;
           }).join("")}
       </div>`}
       <div class="np-row np-act">
@@ -6454,8 +6454,12 @@ class Graph{
     // по умолчанию справа-снизу от узла; если не влезает — разворачиваем влево/вверх (а не прижимаем к краю)
     let px = (nx+14+pw <= rc.width-8) ? nx+14 : nx-14-pw;
     let py = (ny+14+ph <= rc.height-8) ? ny+14 : ny-14-ph;
-    px=Math.max(8, Math.min(px, rc.width-pw-8));
-    py=Math.max(8, Math.min(py, rc.height-ph-8));
+    /* В каркасе «холст» сверху лежат островки, а снизу док — они в слое ВЫШЕ графа, и меню у края
+       окна уходило под логотип (КРОЛИК). Поля по вертикали — под островки, а не 8 px. */
+    const холст=document.documentElement.classList.contains("canvas-ui");
+    const верх=холст?60:8, низ=холст?64:8, лево=холст?62:8;   // слева — столбик областей
+    px=Math.max(лево, Math.min(px, rc.width-pw-8));
+    py=Math.max(верх, Math.min(py, rc.height-ph-низ));
     pop.style.left=px+"px"; pop.style.top=py+"px";
   }
   _nodeLabel(id){ const n=this.byId[id]; return n?n.label:id; }
@@ -6477,8 +6481,12 @@ class Graph{
     const cx=e.clientX-rc.left, cy=e.clientY-rc.top;
     let px = (cx+12+pw <= rc.width-8) ? cx+12 : cx-12-pw;   // разворот влево у правого края
     let py = (cy+12+ph <= rc.height-8) ? cy+12 : cy-12-ph;  // разворот вверх у нижнего края
-    px=Math.max(8, Math.min(px, rc.width-pw-8));
-    py=Math.max(8, Math.min(py, rc.height-ph-8));
+    /* В каркасе «холст» сверху лежат островки, а снизу док — они в слое ВЫШЕ графа, и меню у края
+       окна уходило под логотип (КРОЛИК). Поля по вертикали — под островки, а не 8 px. */
+    const холст=document.documentElement.classList.contains("canvas-ui");
+    const верх=холст?60:8, низ=холст?64:8, лево=холст?62:8;   // слева — столбик областей
+    px=Math.max(лево, Math.min(px, rc.width-pw-8));
+    py=Math.max(верх, Math.min(py, rc.height-ph-низ));
     pop.style.left=px+"px"; pop.style.top=py+"px";
     const li=$(".np-len-in",pop);   // индивидуальная длина связи: пишем в lenMul (живо) + в данные, будим симуляцию
     if(li) li.oninput=()=>{
