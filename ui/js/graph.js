@@ -5795,7 +5795,7 @@ class Graph{
          горит. Показываем ТОЛЬКО в режиме «что горит» (Ctrl+G). Сам жар — тёплым светом в слое
          свечения (_drawGlow); здесь только номер очереди плашкой. Второй контур вокруг ноды
          убран: вместе с кольцом прогресса и дужкой приоритета он давал три обводки на одной ноде. */
-      if(n.жар && !n.archived && this._показатьЖар) рангЖар.push({x, y, r, форма, ранг:n.ранг, ур:n.жар});
+      if(n.жар && !n.archived && this._показатьЖар) рангЖар.push({x, y, r, форма, ранг:n.ранг, ур:n.жар, дней:n.дней, альфа});
       if(!детали(r)) continue;
       /* Ореола-кольца вокруг хаба и пустышки больше нет (стиль A, 03.11.2026): тонкий круг на
          зазоре от залитой ноды и был тем самым «кружком самим по себе», на который жаловался
@@ -5825,7 +5825,8 @@ class Graph{
       const статусГлиф = null;
       const безЗначка = !n.done && !n.archived && !спит && (n.next || n.waiting || n.review);
       // срок — плашкой на правом верхнем «углу» фигуры, булавка — значком на левом нижнем
-      if(n.дней!=null && подписьВидна(r)) сроки.push({x, y, r, форма, альфа, дней:n.дней});
+      // у горящей ноды в «Что горит» срок уезжает в общую метку над ней (см. МЕТКА ЖАРА) — без дубля
+      if(n.дней!=null && подписьВидна(r) && !(n.жар && !n.archived && this._показатьЖар)) сроки.push({x, y, r, форма, альфа, дней:n.дней});
       if(n.fixed) булавки.push({x, y, r, форма, альфа});
       if(kindIsTask(n.type) && n.done) галочки.push(x,y,r);
       if(статусГлиф){ const гл=iconGlyph(статусГлиф.и);
@@ -5994,9 +5995,33 @@ class Graph{
        Префикс «№», а не голая цифра, — чтобы номер очереди не путался с цифрами срока: цвет
        верхнего жара (--ur3) совпадает с цветом просрочки (--tm-over) — совпадение палитр, не
        опечатка, — а «№1» от «−4» не отличить только не читая. */
+    /* МЕТКА ЖАРА (КРОЛИК 03.11.2026: «просрочка и приоритет в режиме „что горит“ выглядят слабо»).
+       Две мелкие красные плашки по углам — номер и срок — читались шумом и сливались друг с другом.
+       Теперь это ОДНА метка над нодой: слева сегмент цветом уровня жара со значком огня и номером
+       в очереди, справа — срок словами («−40 дн.», «сегодня»), просрочка красным. Под меткой —
+       мягкое свечение её цвета: горящих не больше восьми, тень по карману. */
     if(рангЖар.length){
-      ctx.textAlign="center"; ctx.textBaseline="middle";
-      for(const р of рангЖар) плашка(р, -1, -1, "№"+р.ранг, 10.5, пал.жар[р.ур-1]||пал.жар[0], null, пал.фон, true);
+      const огонь=iconGlyph("flame"), шрифт=" system-ui, -apple-system, Segoe UI, sans-serif";
+      const срокСловами=д=> д==null ? "" : д<0 ? "−"+Math.min(99,-д)+" дн." : д===0 ? "сегодня" : д===1 ? "завтра" : д+" дн.";
+      ctx.textBaseline="middle";
+      for(const р of рангЖар){
+        const цв=пал.жар[р.ур-1]||пал.жар[0], верх=(р.форма==="diamond"?р.r*1.41:р.r);
+        const H=20, cx=р.x, cy=р.y-верх-H/2-7, номер=String(р.ранг), срок=срокСловами(р.дней);
+        ctx.font="700 12px"+шрифт; const wN=ctx.measureText(номер).width;
+        const wL=(огонь?15:0)+wN+15;
+        ctx.font="600 11px"+шрифт; const wR=срок ? ctx.measureText(срок).width+16 : 0;
+        const W=wL+wR, x0=cx-W/2;
+        ctx.globalAlpha=р.альфа==null?1:р.альфа;
+        ctx.save(); ctx.shadowColor=цв; ctx.shadowBlur=12; this._pillPath(ctx, cx, cy, W, H); ctx.fillStyle=пал.фонУзла; ctx.fill(); ctx.restore();
+        ctx.save(); this._pillPath(ctx, cx, cy, W, H); ctx.clip(); ctx.fillStyle=цв; ctx.fillRect(x0, cy-H/2, wL, H); ctx.restore();
+        this._pillPath(ctx, cx, cy, W, H); ctx.lineWidth=1; ctx.strokeStyle=цв; ctx.stroke();
+        ctx.textAlign="left"; ctx.fillStyle=пал.фон;
+        let xx=x0+8;
+        if(огонь){ ctx.font='12px "tabler-icons"'; ctx.fillText(огонь, xx, cy+0.5); xx+=15; }
+        ctx.font="700 12px"+шрифт; ctx.fillText(номер, xx, cy+0.5);
+        if(срок){ ctx.font="600 11px"+шрифт; ctx.fillStyle=р.дней<0 ? пал.время.просрочка : пал.текст; ctx.fillText(срок, x0+wL+8, cy+0.5); }
+      }
+      ctx.globalAlpha=1; ctx.textAlign="center";
     }
     /* БУЛАВКА — глиф ti-pin на левом нижнем «углу» фигуры, с подложкой обводкой цвета фона (как
        подписи), а не пунктирное кольцо вокруг ноды: кольцо было ещё одним кругом поверх формы. */
@@ -6094,16 +6119,23 @@ class Graph{
        друга, когда несколько горящих лежали в одной стороне. Плашки раздвигаются вдоль края. */
     if(this._показатьЖар && this._горящие && this._горящие.length){
       const поле=22, метки=[];
+      /* У «стекла» панель лежит поверх графа — правый край кадра для человека проходит по её левой
+         кромке, а не по краю окна: иначе указатель уходил под панель. Меряем только в этом режиме. */
+      let cwR=cw;
+      { const об=document.getElementById("aside-wrap");
+        if(об && об.offsetWidth && getComputedStyle(об).position==="absolute"){
+          const л=об.getBoundingClientRect().left-this.mainCanvas.getBoundingClientRect().left-8;
+          if(л>поле*4) cwR=Math.min(cw, л); } }
       this._горящие.forEach(у=>{
         const x=эx(у), y=эy(у);
-        if(x>=поле && x<=cw-поле && y>=поле && y<=ch-поле) return;   // нода в кадре — стрелка не нужна
-        метки.push({у, x, y, цx:Math.max(поле, Math.min(cw-поле, x)), цy:Math.max(поле, Math.min(ch-поле, y))});
+        if(x>=поле && x<=cwR-поле && y>=поле && y<=ch-поле) return;   // нода в кадре — стрелка не нужна
+        метки.push({у, x, y, цx:Math.max(поле, Math.min(cwR-поле, x)), цy:Math.max(поле, Math.min(ch-поле, y))});
       });
       // раздвигаем: метки ближе 24 px друг к другу сдвигаем вдоль края (по y у боковых, по x у верхней и нижней)
       for(let i=1;i<метки.length;i++) for(let j=0;j<i;j++){
         const a=метки[i], b=метки[j];
         if(Math.abs(a.цx-b.цx)<24 && Math.abs(a.цy-b.цy)<24){
-          if(a.цx<=поле || a.цx>=cw-поле) a.цy=Math.min(ch-поле, b.цy+24); else a.цx=Math.min(cw-поле, b.цx+28);
+          if(a.цx<=поле || a.цx>=cwR-поле) a.цy=Math.min(ch-поле, b.цy+24); else a.цx=Math.min(cwR-поле, b.цx+28);
         }
       }
       ctx.save(); ctx.textAlign="center"; ctx.textBaseline="middle";
@@ -6113,9 +6145,13 @@ class Graph{
         ctx.save(); ctx.translate(м.цx, м.цy); ctx.rotate(Math.atan2(м.y-м.цy, м.x-м.цx));
         ctx.fillStyle=цв; ctx.beginPath(); ctx.moveTo(15,0); ctx.lineTo(9,-4.5); ctx.lineTo(9,4.5); ctx.closePath(); ctx.fill();
         ctx.restore();
-        const т="№"+м.у.ранг, ww=Math.max(20, ctx.measureText(т).width+10);
-        this._pillPath(ctx, м.цx, м.цy, ww, 16); ctx.fillStyle=цв; ctx.fill();
-        ctx.fillStyle=пал.фон; ctx.fillText(т, м.цx, м.цy+0.5);
+        // тем же предметом, что метка жара над нодой: огонь и номер на заливке цветом уровня
+        const огонь=iconGlyph("flame"), т=String(м.у.ранг), ww=Math.max(28, ctx.measureText(т).width+(огонь?26:12));
+        this._pillPath(ctx, м.цx, м.цy, ww, 18); ctx.fillStyle=цв; ctx.fill();
+        ctx.fillStyle=пал.фон;
+        if(огонь){ ctx.font='11px "tabler-icons"'; ctx.fillText(огонь, м.цx-ww/2+10, м.цy+0.5);
+          ctx.font="700 11px system-ui, -apple-system, Segoe UI, sans-serif"; ctx.fillText(т, м.цx+6, м.цy+0.5); }
+        else ctx.fillText(т, м.цx, м.цy+0.5);
       }
       ctx.restore();
     }
@@ -6184,7 +6220,7 @@ class Graph{
       pop.innerHTML=`
         <div class="np-ttl"><i class="ti ti-circle-dashed"></i> ${esc(it.title)||"Пустышка"}</div>
         <div class="np-meta"><span><i class="ti ${a?a.icon:"ti-folder"}"></i>пустышка области «${esc(a?a.name:areaName(it.area))}»</span></div>
-        <div class="np-row" style="margin-bottom:6px;">
+        <div class="np-row np-act">
           <button class="btn" data-pop="hollow2"><i class="ti ti-circle-dashed"></i>Ещё пустышка</button>
           <button class="btn" data-pop="link"><i class="ti ti-plus"></i>Связать</button>
         </div>
@@ -6225,7 +6261,7 @@ class Graph{
           <span><i class="ti ${kindIcon("sub")}"></i>корень подграфа</span>
           <span><i class="ti ti-affiliate"></i>${S.items.length}</span>
         </div>
-        <div class="np-row" style="margin-bottom:6px;">
+        <div class="np-row np-act">
           <button class="btn" data-pop="out"><i class="ti ti-corner-left-up"></i>Наружу</button>
           <button class="btn" data-pop="link"><i class="ti ti-plus"></i>Связать</button>
         </div>
@@ -6253,16 +6289,16 @@ class Graph{
         <div class="np-ttl">${esc(a.name)}</div>
         <div class="np-meta"><span><i class="ti ${a.icon}"></i>область</span></div>
         <div class="swatches np-sw" style="margin-bottom:10px;">${swatchRow(a.color)}</div>
-        <div class="np-row" style="margin-bottom:6px;">
+        <div class="np-row np-act">
           <button class="btn" data-pop="tasks"><i class="ti ti-checklist"></i>Задачи</button>
           <button class="btn" data-pop="link"><i class="ti ti-plus"></i>Связать</button>
         </div>
         <!-- пустышка: узел-развилка внутри области, к которому перецепляют часть нод, чтобы
              разгрузить лучи от хаба и само пространство графа -->
-        <div class="np-row" style="margin-bottom:6px;">
+        <div class="np-row np-act">
           <button class="btn" data-pop="hollow"><i class="ti ti-circle-dashed"></i>Пустышка</button>
         </div>
-        <div class="np-row" style="margin-bottom:6px;">
+        <div class="np-row np-act">
           <button class="btn" data-pop="pin"><i class="ti ${n.fixed?"ti-pin-filled":"ti-pin"}"></i>${n.fixed?"Открепить":"Закрепить"}</button>
           <button class="btn" data-pop="arename"><i class="ti ti-pencil"></i>Изменить</button>
         </div>
@@ -6298,6 +6334,7 @@ class Graph{
     const it=n.ref; if(!it) return;
     this.sel=n.id;
     const pop=el("div"); pop.id="node-pop";
+    pop.style.setProperty("--c", it.color || areaColor(it.area) || "var(--accent)");
     const conn=linksOf(it.id);
     const km = {i:kindIcon(it.kind), n:kindRu(it.kind)};
     const hasOpen = (it.kind==="note" || it.kind==="flow" || it.kind==="sub");
@@ -6306,17 +6343,22 @@ class Graph{
     // занимали половину окна, ничего не добавляя (всё это написано в подсказке графа).
     // «Закрепить» — иконкой в шапке: это переключатель состояния, ему не нужна целая строка.
     pop.innerHTML=`
+      ${/* ШАПКА — как у правой панели (КРОЛИК: «панели на ПКМ нужен реворк»): плитка её цветом и
+           значком тега, название, под ним чипы. Цвет ноды (--c) красит и выбранный статус ниже. */""}
       <div class="np-hd">
-        <div class="np-ttl">${esc(it.title)}</div>
+        <span class="np-tile"><i class="ti ${(n.tagStyle&&n.tagStyle.icon)||km.i}"></i></span>
+        <div class="np-hmain">
+          <div class="np-ttl">${esc(it.title)||"Без названия"}</div>
+          <div class="np-meta">
+            <span><i class="ti ${km.i}"></i>${km.n}</span>
+            ${it.area?`<span><i class="ti ${areaIcon(it.area)}"></i>${esc(areaName(it.area))}</span>`:""}
+            ${conn.length?`<span><i class="ti ti-link"></i>${conn.length}</span>`:""}
+          </div>
+        </div>
         <button class="np-pin${n.fixed?" on":""}" data-pop="pin" title="${n.fixed?"Открепить":"Закрепить"}"><i class="ti ${n.fixed?"ti-pin-filled":"ti-pin"}"></i></button>
       </div>
-      <div class="np-meta">
-        <span><i class="ti ${km.i}"></i> ${km.n}</span>
-        ${it.area?`<span><i class="ti ${areaIcon(it.area)}"></i>${esc(areaName(it.area))}</span>`:""}
-        ${conn.length?`<span><i class="ti ti-link"></i>${conn.length}</span>`:""}
-      </div>
-      <div class="swatches np-sw" style="margin-bottom:10px;">${swatchRow(it.color)}</div>
-      ${hasOpen?`<div class="np-row" style="margin-bottom:6px;">
+      <div class="swatches np-sw">${swatchRow(it.color)}</div>
+      ${hasOpen?`<div class="np-row np-act">
         <button class="btn" data-pop="open"><i class="ti ${(it.kind==="flow"||it.kind==="sub")?kindIcon(it.kind):"ti-eye"}"></i>${it.kind==="sub"?"Войти в подграф":"Открыть"}</button>
       </div>`:""}
       ${/* СТАТУС — РЯД ИКОНОК, а не две кнопки с подписями (2026-09-01).
@@ -6330,7 +6372,7 @@ class Graph{
            поэтому скрываем ряд только у того, что потухло ОТ РОДИТЕЛЯ, а не от своей галочки. */""}
       ${(n.archived && !it.done)?"":`
       <div class="np-stat-lbl">Статус<span>Alt+1…${статусыДляВида(it.kind).length}</span></div>
-      <div class="np-row np-stat" style="margin-bottom:6px;">
+      <div class="np-row np-stat">
         ${статусыДляВида(it.kind).map(k=>{
             const с=СТАТУСЫ[k];
             const активен = (k==="done") ? !!it.done : (!it.done && it.status===k);
@@ -6338,7 +6380,7 @@ class Graph{
             return `<button class="btn ${активен?"primary":""}" data-st="${k}" title="${esc(с.имя)}${нейтраль?" — снять статус":""}"><i class="ti ${с.иконка}"></i></button>`;
           }).join("")}
       </div>`}
-      <div class="np-row" style="margin-bottom:6px;">
+      <div class="np-row np-act">
         ${it.folder
           ? `<div class="np-split">
                <button class="btn" data-pop="folder-open" title="${esc(it.folder)}"><i class="ti ti-folder"></i>Папка</button>
@@ -6352,7 +6394,7 @@ class Graph{
            выделению, потому что и действие идёт на него: выделил ветку, сбросил разом. */""}
       ${/* УПОРЯДОЧИТЬ — только когда выделено дерево, а не одна нода: раскладывать нечего,
            и кнопка без дела занимала бы строку в окне из шести пунктов. */""}
-      ${(this.selNodes.has(n.id) && this.selNodes.size>2) ? `<div class="np-row" style="margin-bottom:6px;">
+      ${(this.selNodes.has(n.id) && this.selNodes.size>2) ? `<div class="np-row np-act">
         <button class="btn" data-pop="tidy" title="Разложить выделенное деревом: без наложений и пересечений связей. Ноды доедут по домам, форму потом доводишь руками."><i class="ti ti-layout-grid"></i>Упорядочить · ${this.selNodes.size}</button>
       </div>` : ""}
       ${(()=>{
@@ -6360,7 +6402,7 @@ class Graph{
         const ids=(this.selNodes.has(n.id) && this.selNodes.size>1) ? [...this.selNodes] : [n.id];
         const сдомом=ids.filter(id=>{ const x=S.items.find(i=>i.id===id); return x && x.hx!=null && x.hy!=null; }).length;
         if(!сдомом) return "";
-        return `<div class="np-row" style="margin-bottom:6px;">
+        return `<div class="np-row np-act">
           <button class="btn" data-pop="home-off" title="Нода перестанет держаться за своё место и встанет по родителю. Дом назначится заново, когда её потянут."><i class="ti ti-home-off"></i>Сбросить дом${сдомом>1?" · "+сдомом:""}</button>
         </div>`;
       })()}
