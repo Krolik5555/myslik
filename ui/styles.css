@@ -2436,9 +2436,12 @@ html.canvas-ui #cv-tr .toggle{background:none;box-shadow:none;padding:0;}
 /* тёмные темы: страница и холст НЕЙТРАЛЬНЫЕ (графитовые), тон темы — только у поверхностей панелей и
    еле заметный; вся окраска в кромке и кнопке. Подкрашенный холст и отсвет по углам читались как
    зелёный фильтр поверх графа (КРОЛИК, 03.11.2026, дважды) */
-body.pal-midnight,body.pal-moss,body.pal-plum,body.pal-espresso,body.pal-dusk{--edge-ka:46%;--edge-kb:40%;
+body.pal-midnight,body.pal-moss,body.pal-plum,body.pal-espresso,body.pal-dusk,body.pal-custom:not(.light){--edge-ka:46%;--edge-kb:40%;
   --bg:#060607;--l1:var(--surf);--l3:var(--surf2);--l4:var(--surf3);--cv1:#16161b;--cv2:#0c0c0f;--cv3:#050506;}
 body.light.pal-paper,body.light.pal-frost{--edge-ka:44%;--edge-kb:38%;--l1:var(--surf);--l3:var(--surf2);--l4:var(--surf3);--btn-tx:#ffffff;}
+/* СВОЯ ТЕМА: цвета кладёт на body инлайном main.js: applyTheme (customThemeVars в core.js), здесь —
+   только то, что у неё общее с заготовками своей яркости. --btn-tx тоже считается там, по светлоте кнопки */
+body.light.pal-custom{--edge-ka:44%;--edge-kb:38%;--l1:var(--surf);--l3:var(--surf2);--l4:var(--surf3);}
 body.pal-midnight{--surf:#0e0f12;--surf2:#16181c;--surf3:#1f2126;--l2:#111216;--tx:#f0f2f5;--mut:#989ba3;--mut2:#7d808a;
   --hue-a:#5cc8ff;--hue-b:#8b6cff;--btn-a:#7fd6ff;--btn-b:#a48bff;}
 body.pal-moss{--surf:#0f100f;--surf2:#171817;--surf3:#202220;--l2:#121312;--tx:#f1f3f0;--mut:#9a9e98;--mut2:#80847e;
@@ -2644,3 +2647,44 @@ html.canvas-ui body.as-glass #split:has(#graph-wrap) .graph-hint{right:calc(var(
   background:linear-gradient(135deg,var(--a) 0 55%,var(--b) 55%);box-shadow:inset 0 0 0 1px rgba(127,127,127,.25);}
 .sp-sw::after{content:"";position:absolute;left:0;right:0;bottom:0;height:5px;background:linear-gradient(90deg,var(--e1),var(--e2));}
 .sp-n{padding:0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sp-own .sp-sw .ti{position:absolute;right:5px;top:4px;font-size:13px;color:var(--tx);opacity:.8;}
+
+/* ---- СВОЯ ТЕМА: строки ролей под сеткой тем (overlays.js: ownThemeHtml) ---- */
+.set-own{display:grid;grid-template-columns:110px minmax(0,1fr);align-items:center;gap:9px 12px;margin-top:12px;padding-top:12px;border-top:0.5px solid var(--bd);}
+.set-own[hidden]{display:none;}
+.so-k{font-size:12px;color:var(--mut);}
+.so-v{display:flex;align-items:center;gap:8px;min-width:0;}
+.so-v .seg{flex-wrap:nowrap;}
+.so-v input[type=range]{flex:1;min-width:60px;width:auto;}
+.so-chip{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 10px 0 4px;border:0;border-radius:9px;flex:none;
+  background:var(--surf2);color:var(--tx);font-size:12px;font-family:ui-monospace,Consolas,monospace;cursor:pointer;}
+.so-chip:hover{background:var(--surf3);}
+.so-chip.act{box-shadow:inset 0 0 0 1.5px var(--tx);}
+.so-chip.dim{opacity:.55;}
+.so-chip b{width:22px;height:22px;border-radius:6px;box-shadow:inset 0 0 0 1px rgba(127,127,127,.3);}
+.so-bar{flex:1;height:6px;border-radius:3px;min-width:24px;}
+.so-ib{width:30px;height:30px;flex:none;border:0;border-radius:8px;background:var(--surf2);color:var(--mut);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;}
+.so-ib:hover{color:var(--tx);background:var(--surf3);}
+.so-ib.on{color:var(--bg);background:var(--tx);}
+
+/* ---- ПОПАП ЦВЕТА (overlays.js: openColorPicker) — свой, как календарь срока: системное окно
+   input[type=color] у WebView2 чужое по шрифтам и акцентам. Живёт в body с position:fixed ---- */
+.cpk{position:fixed;z-index:220;width:250px;padding:12px;border-radius:var(--r-m);background:var(--surf2);border:0.5px solid var(--bd2);
+  box-shadow:0 12px 34px var(--sh),0 0 20px var(--glow);outline:none;font-size:12px;color:var(--tx);animation:dpIn .13s cubic-bezier(.2,.8,.2,1) both;}
+.cpk-ttl{font-size:12.5px;font-weight:600;margin:0 0 9px;}
+.cpk-sv{position:relative;height:150px;border-radius:9px;cursor:crosshair;touch-action:none;
+  background:linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,hsl(var(--h),100%,50%));}
+.cpk-k{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;border:2px solid #fff;pointer-events:none;
+  box-shadow:0 0 0 1px rgba(0,0,0,.5),0 2px 6px rgba(0,0,0,.5);}
+.cpk-hue{position:relative;height:12px;border-radius:6px;margin-top:10px;cursor:pointer;touch-action:none;
+  background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);}
+.cpk-hue .cpk-k{top:50%;}
+.cpk-row{display:flex;gap:8px;align-items:center;margin-top:10px;}
+.cpk-now{width:30px;height:30px;border-radius:8px;flex:none;box-shadow:inset 0 0 0 1px rgba(127,127,127,.3);}
+.cpk-row input{flex:1;min-width:0;height:30px;border:0.5px solid var(--bd);border-radius:8px;background:var(--surf3);color:var(--tx);
+  font-family:ui-monospace,Consolas,monospace;font-size:12px;padding:0 9px;outline:none;}
+.cpk-row input:focus{border-color:var(--bd3);}
+.cpk-l{color:var(--mut2);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:650;margin:11px 0 6px;}
+.cpk-pal{display:flex;flex-wrap:wrap;gap:5px;}
+.cpk-pal button{width:20px;height:20px;border-radius:6px;border:0;padding:0;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(127,127,127,.3);}
+.cpk-pal button:hover{transform:scale(1.15);}

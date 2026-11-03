@@ -220,6 +220,66 @@ function openDatePicker(кнопка, значение, выбрать){
     база.setMonth(база.getMonth()+(e.deltaY>0?1:-1)); рисовать();
   }, {passive:false});
 }
+
+/* ПОПАП ЦВЕТА — для своей темы (выбор КРОЛИКА из demo_своя-тема.html). Свой, а не
+   input[type=color], по той же причине, что календарь срока: системное окно WebView2 — чужие
+   шрифты и синие акценты Chromium. Квадрат насыщенность×яркость, полоса оттенка, hex и цвета,
+   которые в приложении уже есть. Значение уходит наружу ЖИВЬЁМ, чтобы тема перекрашивалась под
+   пальцем, а второй аргумент `конец` говорит, что жест закончен: тогда и пишется файл. */
+const _hex2hsv=hex=>{ const [r,g,b]=_hex2rgb(hex).map(x=>x/255), mx=Math.max(r,g,b), d=mx-Math.min(r,g,b);
+  let h=0; if(d){ h=mx===r ? ((g-b)/d)%6 : mx===g ? (b-r)/d+2 : (r-g)/d+4; h*=60; if(h<0) h+=360; }
+  return [h, mx?d/mx:0, mx]; };
+const _hsv2hex=(h,s,v)=>{ const f=n=>{ const k=(n+h/60)%6; return Math.round((v-v*s*Math.max(0,Math.min(k,4-k,1)))*255); };
+  return "#"+[f(5),f(3),f(1)].map(x=>x.toString(16).padStart(2,"0")).join(""); };
+let colorPopOff=null, colorPopFor=null;
+function closeColorPicker(){ if(colorPopOff){ const f=colorPopOff; colorPopOff=null; colorPopFor=null; f(); } }
+function openColorPicker(кнопка, значение, заголовок, выбрать){
+  closeColorPicker();
+  let [h,s,v]=_hex2hsv(hexNorm(значение)||"#ffffff");
+  const кружки=list=>list.map(c=>`<button type="button" data-c="${c}" style="background:${c}" title="${c}"></button>`).join("");
+  const pop=el("div","cpk"); pop.tabIndex=-1;
+  pop.innerHTML=`<div class="cpk-ttl">${esc(заголовок)}</div>
+    <div class="cpk-sv"><i class="cpk-k"></i></div><div class="cpk-hue"><i class="cpk-k"></i></div>
+    <div class="cpk-row"><span class="cpk-now"></span><input type="text" spellcheck="false" maxlength="7"></div>
+    <div class="cpk-l">Цвета нод</div><div class="cpk-pal">${кружки(PALETTE.filter(Boolean))}</div>
+    <div class="cpk-l">Из готовых тем</div><div class="cpk-pal">${кружки([...new Set(Object.values(PALETTES).flatMap(п=>[п.sw[2],п.sw[3]]))])}</div>`;
+  document.body.appendChild(pop);
+  const sv=pop.querySelector(".cpk-sv"), hu=pop.querySelector(".cpk-hue"), поле=pop.querySelector("input");
+  const показать=изПоля=>{ const c=_hsv2hex(h,s,v); sv.style.setProperty("--h",h);
+    sv.firstElementChild.style.cssText=`left:${s*100}%;top:${(1-v)*100}%`; hu.firstElementChild.style.left=(h/3.6)+"%";
+    pop.querySelector(".cpk-now").style.background=c; if(!изПоля) поле.value=c; return c; };
+  const к01=x=>Math.max(0,Math.min(1,x));
+  const тянуть=(узел,ход)=>узел.addEventListener("pointerdown",e=>{ e.preventDefault(); узел.setPointerCapture(e.pointerId);
+    const шаг=ev=>{ const r=узел.getBoundingClientRect(); ход(к01((ev.clientX-r.left)/r.width), к01((ev.clientY-r.top)/r.height)); выбрать(показать(),false); };
+    const стоп=()=>{ ["pointermove","pointerup","pointercancel"].forEach((t,i)=>узел.removeEventListener(t,i?стоп:шаг)); выбрать(_hsv2hex(h,s,v),true); };
+    шаг(e); узел.addEventListener("pointermove",шаг); узел.addEventListener("pointerup",стоп); узел.addEventListener("pointercancel",стоп); });
+  тянуть(sv,(x,y)=>{ s=x; v=1-y; });
+  тянуть(hu,x=>{ h=x*360; });
+  // недобитый hex («#5c») молчит, а не красит тему в чёрный на каждой букве
+  поле.oninput=()=>{ if(!/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.test(поле.value.trim())) return;
+    const c=hexNorm(поле.value); [h,s,v]=_hex2hsv(c); показать(true); выбрать(c,true); };
+  pop.querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>{ [h,s,v]=_hex2hsv(b.dataset.c); выбрать(показать(),true); });
+  показать();
+  // место — как у календаря: под кнопкой, у нижнего края разворот вверх
+  const r=кнопка.getBoundingClientRect(), ш=pop.offsetWidth, в=pop.offsetHeight;
+  let x=r.left, y=r.bottom+6;
+  if(y+в>innerHeight-8) y=Math.max(8, r.top-6-в);
+  pop.style.left=Math.max(8, Math.min(x, innerWidth-ш-8))+"px"; pop.style.top=y+"px";
+  кнопка.classList.add("act");
+  /* Escape и клик мимо — В ПЕРЕХВАТЕ и с глушением, как у календаря: иначе тот же Escape закрыл
+     бы окно настроек под попапом, а клик мимо ушёл бы в подложку и закрыл его. */
+  const клав=e=>{ if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); closeColorPicker(); } };
+  const мимо=e=>{ if(!pop.contains(e.target) && !кнопка.contains(e.target)) closeColorPicker(); };
+  // окно настроек закрыли вместе с кнопкой — попап в body сам об этом не узнал бы (см. сторож календаря)
+  const сторож=new MutationObserver(()=>{ if(!кнопка.isConnected) closeColorPicker(); });
+  document.addEventListener("keydown",клав,true); document.addEventListener("mousedown",мимо,true);
+  document.addEventListener("scroll",closeColorPicker,true);
+  сторож.observe(document.body,{childList:true,subtree:true});
+  colorPopFor=кнопка;
+  colorPopOff=()=>{ pop.remove(); кнопка.classList.remove("act"); сторож.disconnect();
+    document.removeEventListener("keydown",клав,true); document.removeEventListener("mousedown",мимо,true);
+    document.removeEventListener("scroll",closeColorPicker,true); };
+}
 /* Навесить поведение на все контролы даты внутри узла. Зовут и окно правки, и правая панель:
    разметка у них одна, разница только в том, кто слушает change у скрытого поля. */
 function wireDateControls(root){
@@ -1221,6 +1281,65 @@ function openShortcuts(){
 // openSettings("data") — открыть сразу на нужной вкладке. Без этого тост «Вышла новая версия»
 // открывал «Вид», а блок обновлений оставался в скрытой панели: человек видел тему и свечение
 // и не понимал, при чём тут обновление.
+/* СВОЯ ТЕМА в настройках — строки ролей под сеткой тем (вариант «Роли и квадрат» из
+   demo_своя-тема.html): у каждой роли свой образец, клик открывает openColorPicker. Хранение и
+   расчёт токенов — core.js: customTheme / customThemeVars, применение — main.js: applyTheme. */
+const OWN_ROLES={tone:"Тон панелей", edgeA:"Кромка сверху", edgeB:"Кромка снизу", btnA:"Кнопка слева", btnB:"Кнопка справа", accent:"Акцент"};
+function ownThemeHtml(видно){
+  const чип=р=>`<button type="button" class="so-chip" data-role="${р}" title="${esc(OWN_ROLES[р])}"><b></b><span></span></button>`;
+  return `<div class="set-own" id="set-own" ${видно?"":"hidden"}>
+    <span class="so-k">Яркость</span><div class="so-v"><div class="seg" id="so-light"><button data-v="0">Тёмная</button><button data-v="1">Светлая</button></div></div>
+    <span class="so-k">Тон панелей</span><div class="so-v">${чип("tone")}<input type="range" id="so-k" min="0" max="16" step="1" title="Сила тона"></div>
+    <span class="so-k">Кромка</span><div class="so-v">${чип("edgeA")}<i class="so-bar" id="so-ebar"></i>${чип("edgeB")}
+      <button type="button" class="so-ib" id="so-swap" title="Поменять местами"><i class="ti ti-arrows-exchange"></i></button></div>
+    <span class="so-k">Кнопка</span><div class="so-v"><button type="button" class="so-ib" id="so-link" title="Как кромка — меняется вместе с ней"><i class="ti ti-link"></i></button>
+      ${чип("btnA")}<i class="so-bar" id="so-bbar"></i>${чип("btnB")}</div>
+    <span class="so-k">Акцент</span><div class="so-v">${чип("accent")}</div>
+    <div class="set-hint" style="grid-column:1/-1">Тон ложится только на панели — холст графа остаётся графитовым. Акцент — течение потока работы и отсвет панели у ноды без цвета.</div>
+  </div>`;
+}
+// первая «своя» — копия текущей темы: токены снимаются с body, чего нет — берётся по умолчанию
+function ownThemeSeed(){
+  const cs=getComputedStyle(document.body), g=(n,d)=>hexNorm(cs.getPropertyValue(n).trim())||d, D=CUSTOM_THEME_DEF;
+  const a=g("--hue-a",D.edgeA), базовая=["graphite","light"].includes(S.settings.palette);
+  return {light:S.settings.theme==="light", tone:a, toneK:базовая?0:D.toneK, edgeA:a, edgeB:g("--hue-b",D.edgeB),
+    btnLink:true, btnA:g("--btn-a",D.btnA), btnB:g("--btn-b",D.btnB), accent:g("--accent",D.accent)};
+}
+// образцы и плитку «Своя» — по данным; правится на месте, без перерисовки: под чипом может висеть попап
+function ownThemeSync(m){
+  const t=customTheme(), [ba,bb]=customBtn(t), зн={...t, btnA:ba, btnB:bb}, св=customThemeVars(t);
+  $$("#set-own .so-chip",m).forEach(c=>{ const р=c.dataset.role; c.querySelector("b").style.background=зн[р];
+    c.querySelector("span").textContent=зн[р]; c.classList.toggle("dim", t.btnLink && (р==="btnA"||р==="btnB")); });
+  $("#so-ebar",m).style.background=`linear-gradient(90deg,${t.edgeA},${t.edgeB})`;
+  $("#so-bbar",m).style.background=`linear-gradient(90deg,${ba},${bb})`;
+  $("#so-link",m).classList.toggle("on", t.btnLink);
+  $("#so-k",m).value=t.toneK;
+  $$("#so-light button",m).forEach(b=>b.classList.toggle("on", +b.dataset.v===(t.light?1:0)));
+  const sw=$("#set-theme .sp-own .sp-sw",m);
+  [["--a",св["--bg"]||"#060607"],["--b",св["--surf2"]],["--e1",t.edgeA],["--e2",t.edgeB]].forEach(([n,x])=>sw.style.setProperty(n,x));
+}
+function ownThemeWire(m){
+  const s=S.settings;
+  /* Цвет под пальцем — только applyTheme (токены на body), файл — по концу жеста. Режим «Заметки»
+     перерисовывается так же, как при выборе готовой темы. */
+  const править=(патч,конец)=>{ s.customTheme={...customTheme(), ...патч}; applyTheme(); ownThemeSync(m);
+    if(конец){ persist(true); if(view==="notes") render(); } };
+  $$("#set-own .so-chip",m).forEach(c=>c.onclick=()=>{
+    if(colorPopFor===c){ closeColorPicker(); return; }
+    const р=c.dataset.role, t=customTheme(), кн=customBtn(t);
+    // кнопку «как кромка» тронули руками — дальше она своя, начиная с того, что было видно
+    const доп=(р==="btnA"||р==="btnB") ? {btnLink:false, btnA:кн[0], btnB:кн[1]} : {};
+    openColorPicker(c, р==="btnA"?кн[0]:р==="btnB"?кн[1]:t[р], OWN_ROLES[р], (цв,конец)=>править({...доп,[р]:цв},конец)); });
+  $("#so-k",m).oninput=e=>править({toneK:+e.target.value},false);
+  $("#so-k",m).onchange=e=>править({toneK:+e.target.value},true);
+  $("#so-swap",m).onclick=()=>{ const t=customTheme(); править({edgeA:t.edgeB, edgeB:t.edgeA},true); };
+  $("#so-link",m).onclick=()=>{ const t=customTheme(), кн=customBtn(t);
+    править(t.btnLink ? {btnLink:false, btnA:кн[0], btnB:кн[1]} : {btnLink:true}, true); };
+  $$("#so-light button",m).forEach(b=>b.onclick=()=>{ const св=b.dataset.v==="1"; if(customTheme().light===св) return;
+    closeColorPicker(); править({light:св},true); applySettings();   // --glow и нативная полоса окна зависят от яркости
+    if(typeof drawRetheme==="function") drawRetheme(); });
+  ownThemeSync(m);
+}
 function openSettings(tab){
   const s=S.settings, def=defaultState().settings;
   const gd=()=> s.graphDrift!=null?s.graphDrift:def.graphDrift, gs=()=> s.graphSpread!=null?s.graphSpread:def.graphSpread,
@@ -1246,9 +1365,11 @@ function openSettings(tab){
       ${/* ТЕМА — цветовая (PALETTES в core.js): тон поверхностей и два цвета кромки. Яркость
            (s.theme) выводится из темы, отдельного переключателя «тёмная / светлая» больше нет. */""}
       <div class="field"><label>Тема</label>
-        <div class="set-pal" id="set-theme">${(()=>{ const тек=(PALETTES[s.palette] && PALETTES[s.palette].light===(s.theme==="light")) ? s.palette : (s.theme==="light"?"light":"graphite");
+        <div class="set-pal" id="set-theme">${(()=>{ const тек=s.palette==="custom" ? "custom" : (PALETTES[s.palette] && PALETTES[s.palette].light===(s.theme==="light")) ? s.palette : (s.theme==="light"?"light":"graphite");
           return Object.entries(PALETTES).map(([k,п])=>`<button data-v="${k}" class="${тек===k?"on":""}" title="${esc(п.n)}">
-            <span class="sp-sw" style="--a:${п.sw[0]};--b:${п.sw[1]};--e1:${п.sw[2]};--e2:${п.sw[3]}"></span><span class="sp-n">${esc(п.n)}</span></button>`).join(""); })()}</div></div>
+            <span class="sp-sw" style="--a:${п.sw[0]};--b:${п.sw[1]};--e1:${п.sw[2]};--e2:${п.sw[3]}"></span><span class="sp-n">${esc(п.n)}</span></button>`).join("")+
+            `<button data-v="custom" class="sp-own ${тек==="custom"?"on":""}" title="Своя — цвета выбираешь сам"><span class="sp-sw"><i class="ti ti-pencil"></i></span><span class="sp-n">Своя</span></button>`; })()}</div>
+        ${ownThemeHtml(s.palette==="custom")}</div>
       <div class="field"><label>Оформление панели</label>
         <div class="seg seg-wrap" id="set-aside">${Object.entries(ASIDE_STYLES).map(([k,в])=>
           `<button data-v="${k}" class="${(ASIDE_STYLES[s.asideStyle]?s.asideStyle:"glow")===k?"on":""}">${esc(в.n)}</button>`).join("")}</div>
@@ -1385,13 +1506,19 @@ function openSettings(tab){
      _undoSnap()+_undoKey() — две полные сериализации items/links/areas/tags — ради сравнения,
      которое и так ничего не найдёт. На протяжке ползунка (десятки oninput подряд) это лишняя
      работа на каждое отпускание. Тот же класс бага, что уже чинили для камеры графа. */
-  $$("#set-theme button",m).forEach(b=>b.onclick=()=>{ const п=PALETTES[b.dataset.v]; if(!п) return;
-    const сменаЯркости = (s.theme==="light") !== п.light;
-    s.palette=b.dataset.v; s.theme=п.light?"light":"dark"; persist(true); applySettings();
+  $$("#set-theme button",m).forEach(b=>b.onclick=()=>{ const свой=b.dataset.v==="custom", п=PALETTES[b.dataset.v]; if(!свой && !п) return;
+    const былаСветлая = s.theme==="light";
+    // своя тема в первый раз стартует КОПИЕЙ той, что стоит сейчас: править проще, чем собирать с нуля
+    if(свой){ if(!s.customTheme) s.customTheme=ownThemeSeed(); s.palette="custom"; s.theme=customTheme().light?"light":"dark"; }
+    else { s.palette=b.dataset.v; s.theme=п.light?"light":"dark"; }
+    const сменаЯркости = былаСветлая !== (s.theme==="light");
+    persist(true); applySettings();
     $$("#set-theme button",m).forEach(x=>x.classList.toggle("on",x===b));
+    closeColorPicker(); $("#set-own",m).hidden=!свой; if(свой) ownThemeSync(m);
     if(view==="notes") render();
     // доска берёт яркость пропом при отрисовке корня — сама о смене не узнает (см. toggleTheme)
     if(сменаЯркости && typeof drawRetheme==="function") drawRetheme(); });
+  ownThemeWire(m);
   $$("#set-aside button",m).forEach(b=>b.onclick=()=>{ s.asideStyle=b.dataset.v; persist(true); applySettings();
     $$("#set-aside button",m).forEach(x=>x.classList.toggle("on",x===b));
     renderAside();

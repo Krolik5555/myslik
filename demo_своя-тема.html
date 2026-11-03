@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Мыслик — демо своей цветовой темы</title>
+<link rel="stylesheet" href="ui/vendor/tabler-icons.min.css">
+<style>
+  /* Страница демо — графит из ui/styles.css. Всё, что красит «Своя тема», живёт ТОЛЬКО внутри
+     .app (миниатюра приложения) и .set (окно настроек): страница вокруг остаётся графитом, чтобы
+     было видно, что меняется, а что нет. */
+  :root{
+    --bg:#060607; --surf:#0e0e11; --surf2:#17171b; --surf3:#212126; --l2:#121216;
+    --bd:rgba(255,255,255,.075); --bd2:rgba(255,255,255,.26);
+    --tx:#f4f4f5; --mut:#9a9aa3; --mut2:#7a7a83;
+    --font:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;min-height:100%;background:var(--bg);color:var(--tx);font-family:var(--font);-webkit-font-smoothing:antialiased;}
+  header{padding:14px 22px 10px;border-bottom:1px solid var(--bd);}
+  h1{margin:0;font-size:15px;font-weight:600;}
+  .sub{margin:6px 0 0;font-size:12.5px;color:var(--mut);max-width:118ch;line-height:1.55;}
+  .bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding:10px 22px;border-bottom:1px solid var(--bd);background:var(--surf);font-size:12.5px;color:var(--mut);}
+  .seg{display:inline-flex;background:var(--surf2);border-radius:9px;padding:3px;gap:2px;}
+  .seg button{background:transparent;border:0;color:var(--mut);font:inherit;font-size:12.5px;padding:5px 12px;border-radius:7px;cursor:pointer;}
+  .seg button.on{background:var(--tx);color:var(--bg);}
+  .stage{display:flex;gap:22px;padding:22px;align-items:flex-start;flex-wrap:wrap;}
+  .note{max-width:118ch;margin:0 22px 22px;padding:12px 16px;border-radius:12px;background:var(--surf);font-size:12.5px;color:var(--mut);line-height:1.6;}
+  .note b{color:var(--tx);font-weight:600;}
+  .note p{margin:0 0 6px;}
+  code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--tx);}
+
+  /* ===== ТОКЕНЫ ТЕМЫ — ровно те, что в ui/styles.css. Внутри .themed их задаёт JS (setVars) ===== */
+  .themed{--edge-a:color-mix(in srgb,var(--hue-a) var(--edge-ka),transparent);--edge-b:color-mix(in srgb,var(--hue-b) var(--edge-kb),transparent);color:var(--tx);}
+  .edge{position:relative;}
+  .edge::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;z-index:3;
+    background:linear-gradient(180deg,var(--edge-a),var(--edge-b));
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;}
+
+  /* ===== МИНИАТЮРА ПРИЛОЖЕНИЯ ===== */
+  .app{position:relative;flex:1 1 560px;min-width:420px;height:470px;border-radius:14px;overflow:hidden;background:var(--bg);}
+  .app .cv{position:absolute;inset:0;background:radial-gradient(120% 95% at 50% 42%,var(--cv1) 0%,var(--cv2) 55%,var(--cv3) 100%);}
+  .app.lt .cv{background:radial-gradient(120% 95% at 50% 42%,var(--l2) 0%,var(--bg) 60%,var(--surf2) 100%);}
+  .app svg.g{position:absolute;inset:0;width:100%;height:100%;}
+  .app .flow{stroke:var(--accent);stroke-width:2.2;stroke-dasharray:3 10;stroke-linecap:round;animation:flow 1.2s linear infinite;}
+  @keyframes flow{to{stroke-dashoffset:-13;}}
+  .isl{position:absolute;left:14px;top:14px;display:flex;gap:4px;padding:6px;border-radius:12px;background:var(--surf);box-shadow:0 10px 30px rgba(0,0,0,.35);}
+  .isl i{width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:var(--mut);font-size:16px;}
+  .isl i.on{background:var(--surf2);color:var(--tx);}
+  .pnl{position:absolute;right:14px;top:14px;bottom:14px;width:46%;border-radius:16px;background:var(--l2);padding:16px 18px;box-shadow:0 18px 50px rgba(0,0,0,.45);display:flex;flex-direction:column;gap:10px;font-size:12.5px;}
+  .pnl .hd{display:flex;gap:10px;align-items:center;}
+  .pnl .tile{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;color:#5fb98e;background:color-mix(in srgb,#5fb98e 16%,var(--surf2));}
+  .pnl .ttl{font-size:14.5px;font-weight:650;}
+  .pnl .chips{display:flex;gap:5px;flex-wrap:wrap;}
+  .pnl .chips span{height:22px;padding:0 9px;border-radius:999px;background:var(--surf2);color:var(--mut);display:inline-flex;align-items:center;gap:4px;font-size:11px;}
+  .pnl .row{display:flex;justify-content:space-between;padding:7px 10px;border-radius:9px;background:var(--surf2);color:var(--mut);}
+  .pnl .row b{color:var(--tx);font-weight:500;}
+  .pnl .txt{color:var(--mut);line-height:1.5;flex:1;}
+  .pnl .wide{height:36px;border-radius:10px;border:0;font:inherit;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px;
+    background:linear-gradient(100deg,var(--btn-a),var(--btn-b));color:var(--btn-tx);}
+  .cap{position:absolute;left:14px;bottom:12px;font-size:11px;color:var(--mut2);background:color-mix(in srgb,var(--bg) 70%,transparent);padding:3px 8px;border-radius:6px;}
+
+  /* ===== ОКНО НАСТРОЕК (макет вкладки «Вид») ===== */
+  .set{flex:0 0 480px;border-radius:16px;background:var(--l2);padding:16px 18px 18px;box-shadow:0 18px 50px rgba(0,0,0,.45);font-size:13px;}
+  .set h3{margin:0 0 10px;font-size:15px;font-weight:650;display:flex;align-items:center;gap:8px;}
+  .set .tabs{display:flex;gap:4px;margin-bottom:14px;}
+  .set .tabs span{padding:5px 10px;border-radius:8px;color:var(--mut);font-size:12px;display:flex;gap:5px;align-items:center;}
+  .set .tabs span.on{background:var(--surf2);color:var(--tx);}
+  .lbl{font-size:12px;color:var(--mut);margin:0 0 7px;}
+  .pal{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;}
+  .pal button{display:flex;flex-direction:column;gap:5px;padding:5px;border:0;border-radius:10px;background:var(--surf2);color:var(--tx);font:inherit;font-size:11.5px;cursor:pointer;text-align:left;}
+  .pal button:hover{background:var(--surf3);}
+  .pal button.on{box-shadow:inset 0 0 0 1.5px var(--tx);}
+  .pal .sw{display:block;height:30px;border-radius:7px;position:relative;overflow:hidden;background:linear-gradient(135deg,var(--a) 0 50%,var(--b) 50% 100%);}
+  .pal .sw::after{content:"";position:absolute;left:0;right:0;bottom:0;height:5px;background:linear-gradient(90deg,var(--e1),var(--e2));}
+  .pal .own .sw i{position:absolute;right:4px;top:3px;font-size:13px;color:var(--tx);opacity:.8;}
+  .pal span.n{padding:0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .ed{margin-top:14px;padding-top:14px;border-top:1px solid var(--bd);}
+  .ed[hidden]{display:none;}
+  .ed .hint{font-size:11.5px;color:var(--mut2);margin-top:8px;line-height:1.5;}
+
+  /* ---- вариант А: строки ролей ---- */
+  .rl{display:grid;grid-template-columns:118px 1fr;align-items:center;gap:9px 12px;}
+  .rl .k{color:var(--mut);font-size:12.5px;}
+  .rl .v{display:flex;align-items:center;gap:8px;}
+  .chip{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 10px 0 4px;border:0;border-radius:9px;background:var(--surf2);color:var(--tx);font:inherit;font-size:12px;cursor:pointer;font-variant-numeric:tabular-nums;}
+  .chip:hover{background:var(--surf3);}
+  .chip.act{box-shadow:inset 0 0 0 1.5px var(--tx);}
+  .chip b{width:22px;height:22px;border-radius:6px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);}
+  .gbar{flex:1;height:6px;border-radius:3px;min-width:30px;}
+  .ib{width:30px;height:30px;border:0;border-radius:8px;background:var(--surf2);color:var(--mut);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;}
+  .ib:hover{color:var(--tx);background:var(--surf3);}
+  .ib.on{color:var(--bg);background:var(--tx);}
+  input[type=range]{-webkit-appearance:none;appearance:none;height:6px;border-radius:3px;background:var(--surf3);flex:1;outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--tx);cursor:pointer;}
+  .mini-seg{display:inline-flex;background:var(--surf2);border-radius:8px;padding:2px;}
+  .mini-seg button{border:0;background:transparent;color:var(--mut);font:inherit;font-size:12px;padding:4px 10px;border-radius:6px;cursor:pointer;}
+  .mini-seg button.on{background:var(--tx);color:var(--bg);}
+
+  /* ---- вариант Б: миниатюра в настройках, части кликабельны ---- */
+  .bmini{position:relative;height:250px;border-radius:12px;overflow:hidden;}
+  .bmini .app{position:absolute;inset:0;min-width:0;height:auto;}
+  .bmini .pnl{width:54%;padding:12px 13px;gap:7px;font-size:11px;}
+  .bmini .pnl .ttl{font-size:12.5px;}
+  .bmini .pnl .wide{height:30px;}
+  .bmini .isl i{width:22px;height:22px;font-size:13px;}
+  .app .hit{fill:none;stroke:transparent;stroke-width:16;pointer-events:none;}
+  #bmini .hit{pointer-events:stroke;}
+  #bmini .hot{cursor:pointer;}
+  .hot.hov{outline:1.5px dashed color-mix(in srgb,var(--tx) 70%,transparent);outline-offset:3px;}
+  .pin{position:absolute;z-index:6;width:20px;height:20px;border-radius:50%;background:var(--tx);color:var(--bg);font-size:11px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.5);transition:transform .15s;}
+  .pin:hover,.pin.hov{transform:scale(1.18);}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:9px;font-size:11.5px;color:var(--mut);}
+  .legend span{display:inline-flex;align-items:center;gap:6px;cursor:pointer;}
+  .legend em{font-style:normal;width:16px;height:16px;border-radius:50%;background:var(--tx);color:var(--bg);font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;}
+  .legend b{width:14px;height:14px;border-radius:4px;}
+
+  /* ---- вариант В: круг гармонии ---- */
+  .wh{display:flex;gap:16px;align-items:flex-start;}
+  .wheel{position:relative;width:212px;height:212px;flex:none;touch-action:none;}
+  .wheel canvas{width:212px;height:212px;border-radius:50%;display:block;}
+  .hnd{position:absolute;width:24px;height:24px;margin:-12px 0 0 -12px;border-radius:50%;border:2.5px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.6);
+    cursor:grab;display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.8);}
+  .hnd.sel{width:30px;height:30px;margin:-15px 0 0 -15px;border-width:3px;z-index:2;}
+  .hnd.lock{border-style:dashed;}
+  .wline{position:absolute;inset:0;pointer-events:none;}
+  .wside{flex:1;display:flex;flex-direction:column;gap:9px;min-width:0;}
+  .hl{display:flex;flex-direction:column;gap:4px;}
+  .hl button{display:flex;align-items:center;gap:8px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--mut);font:inherit;font-size:12px;padding:0 8px;cursor:pointer;text-align:left;}
+  .hl button.on{background:var(--surf2);color:var(--tx);}
+  .hl button b{width:16px;height:16px;border-radius:50%;flex:none;}
+  .hl button code{margin-left:auto;color:var(--mut2);}
+  .vrow{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--mut);}
+
+  /* ===== ПОПАПЫ ВЫБОРА ЦВЕТА — свои, не input[type=color] ===== */
+  .cp{position:fixed;z-index:50;width:250px;padding:12px;border-radius:14px;background:var(--l2);box-shadow:0 20px 60px rgba(0,0,0,.6);font-size:12px;color:var(--tx);}
+  .cp-sv{position:relative;height:150px;border-radius:9px;cursor:crosshair;touch-action:none;
+    background:linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,hsl(var(--h),100%,50%));}
+  .cp-k{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.5),0 2px 6px rgba(0,0,0,.5);pointer-events:none;}
+  .cp-tr{position:relative;height:12px;border-radius:6px;margin-top:10px;cursor:pointer;touch-action:none;}
+  .cp-tr .cp-k{top:50%;}
+  .cp-hue{background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);}
+  .cp-row{display:flex;gap:8px;align-items:center;margin-top:10px;}
+  .cp-row .now{width:30px;height:30px;border-radius:8px;flex:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);}
+  .cp-row input{flex:1;min-width:0;height:30px;border:0;border-radius:8px;background:var(--surf2);color:var(--tx);font:inherit;font-family:ui-monospace,Consolas,monospace;font-size:12px;padding:0 9px;outline:none;}
+  .cp-row input:focus{box-shadow:inset 0 0 0 1.5px var(--mut);}
+  .cp-l{color:var(--mut2);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:650;margin:11px 0 6px;}
+  .cp-pal{display:flex;flex-wrap:wrap;gap:5px;}
+  .cp-pal button{width:20px;height:20px;border-radius:6px;border:0;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);}
+  .cp-pal button:hover{transform:scale(1.15);}
+  .cp-tabs{display:flex;gap:6px;margin-bottom:10px;}
+  .cp-tabs button{flex:1;display:flex;align-items:center;gap:6px;height:30px;border:0;border-radius:8px;background:var(--surf2);color:var(--mut);font:inherit;font-size:12px;padding:0 8px;cursor:pointer;}
+  .cp-tabs button.on{color:var(--tx);box-shadow:inset 0 0 0 1.5px var(--tx);}
+  .cp-tabs b{width:16px;height:16px;border-radius:5px;}
+  .cp-sl{margin-top:9px;}
+  .cp-sl .t{display:flex;justify-content:space-between;color:var(--mut);font-size:11.5px;}
+  .cp-sl .cp-tr{margin-top:5px;}
+  .cp h4{margin:0 0 9px;font-size:12.5px;font-weight:650;display:flex;align-items:center;gap:6px;}
+  .cp h4 i{color:var(--mut);}
+</style>
+</head>
+<body>
+<header>
+  <h1>Своя цветовая тема — три способа её собрать</h1>
+  <p class="sub">Тема в Мыслике — это не заливка всего приложения, а <b>тон поверхностей панелей</b> (еле заметный), <b>кромка двумя цветами</b>
+  по контуру панелей и островков, <b>главная кнопка</b> переливом и <b>акцент</b> (течение потока работы, отсвет панели у ноды без цвета).
+  Холст графа в тёмной теме остаётся графитовым при любых цветах — это видно на миниатюре справа. Цвета выбираются <b>своим попапом</b>,
+  не системным окном WebView2. Выбери вариант сверху, нажми «Своя» в окне настроек и покрути.</p>
+</header>
+<div class="bar">
+  Вариант окна:
+  <div class="seg" id="var">
+    <button data-v="a" class="on">А · Роли и квадрат</button>
+    <button data-v="b">Б · Прямо на макете</button>
+    <button data-v="c">В · Круг гармонии</button>
+  </div>
+  <span id="var-hint"></span>
+</div>
+<div class="stage">
+  <div class="set themed edge" id="set">
+    <h3><i class="ti ti-settings"></i>Настройки</h3>
+    <div class="tabs"><span class="on"><i class="ti ti-palette"></i>Вид</span><span><i class="ti ti-affiliate"></i>Граф</span><span><i class="ti ti-database"></i>Данные</span><span><i class="ti ti-sparkles"></i>ИИ</span></div>
+    <div class="lbl">Тема</div>
+    <div class="pal" id="pal"></div>
+
+    <!-- ===== А ===== -->
+    <div class="ed" id="ed-a" hidden>
+      <div class="rl">
+        <span class="k">Яркость</span>
+        <div class="v"><div class="mini-seg" data-dark><button data-v="1">Тёмная</button><button data-v="0">Светлая</button></div></div>
+        <span class="k">Тон панелей</span>
+        <div class="v"><button class="chip" data-role="tone"><b></b><span></span></button><input type="range" min="0" max="16" step="1" data-k title="Сила тона"></div>
+        <span class="k">Кромка</span>
+        <div class="v"><button class="chip" data-role="ea"><b></b><span></span></button><i class="gbar" data-gbar="e"></i><button class="chip" data-role="eb"><b></b><span></span></button>
+          <button class="ib" data-swap title="Поменять местами"><i class="ti ti-arrows-exchange"></i></button></div>
+        <span class="k">Кнопка</span>
+        <div class="v"><button class="ib" data-link title="Как кромка, только светлее"><i class="ti ti-link"></i></button>
+          <button class="chip" data-role="ba"><b></b><span></span></button><i class="gbar" data-gbar="b"></i><button class="chip" data-role="bb"><b></b><span></span></button></div>
+        <span class="k">Акцент</span>
+        <div class="v"><button class="chip" data-role="acc"><b></b><span></span></button></div>
+      </div>
+      <div class="hint">Каждая роль — свой образец; клик открывает попап: квадрат насыщенность×яркость, полоса оттенка, hex и цвета, которые уже есть в приложении (палитра нод и кромки готовых тем). Замок у кнопки держит её за кромкой.</div>
+    </div>
+
+    <!-- ===== Б ===== -->
+    <div class="ed" id="ed-b" hidden>
+      <div class="bmini" id="bmini"></div>
+      <div class="legend" id="legend"></div>
+      <div class="rl" style="margin-top:12px">
+        <span class="k">Яркость</span>
+        <div class="v"><div class="mini-seg" data-dark><button data-v="1">Тёмная</button><button data-v="0">Светлая</button></div></div>
+      </div>
+      <div class="hint">Не надо знать, как называется роль: наводишь на часть миниатюры — она обводится, клик открывает попап прямо у неё. Попап — три понятные полосы (светлота, насыщенность, оттенок) в ровном по восприятию пространстве OKLCH: двигаешь оттенок — яркость не прыгает.</div>
+    </div>
+
+    <!-- ===== В ===== -->
+    <div class="ed" id="ed-c" hidden>
+      <div class="wh">
+        <div class="wheel" id="wheel"><canvas width="424" height="424"></canvas><svg class="wline" viewBox="0 0 212 212"></svg></div>
+        <div class="wside">
+          <div class="mini-seg" id="harm"><button data-v="free">Свободно</button><button data-v="near" class="on">Рядом</button><button data-v="opp">Напротив</button><button data-v="tri">Триада</button></div>
+          <div class="hl" id="hl"></div>
+          <div class="vrow">Яркость <input type="range" min="20" max="100" id="vval"></div>
+          <div class="vrow">Тон панелей <input type="range" min="0" max="16" data-k></div>
+        </div>
+      </div>
+      <div class="rl" style="margin-top:12px">
+        <span class="k">Яркость темы</span>
+        <div class="v"><div class="mini-seg" data-dark><button data-v="1">Тёмная</button><button data-v="0">Светлая</button></div></div>
+      </div>
+      <div class="hint">Вся тема — на одном круге: ручки «Верх» и «Низ» — два цвета кромки, «Ак» — акцент, «Т» — тон панелей. Режим держит их в сочетании: в «Рядом» вторая ручка ходит за первой на 40°, в «Напротив» — на другой стороне круга, в «Триаде» — акцент встаёт третьим углом. Кнопка — те же цвета, светлее.</div>
+    </div>
+  </div>
+
+  <div class="app themed" id="app"></div>
+</div>
+<div class="note">
+  <p><b>Что выбирать.</b> <b>А</b> — точный и предсказуемый: каждая роль подписана, удобно, если знаешь, чего хочешь, и вбиваешь hex. <b>Б</b> — самый наглядный:
+  правишь то, что видишь, без словаря ролей; цена — миниатюра в настройках занимает место. <b>В</b> — про сочетание, а не про отдельные цвета:
+  трудно собрать некрасивую пару, но и точного цвета на круге не набьёшь (hex у него только в списке ручек).</p>
+  <p><b>Общее для всех.</b> «Своя» стартует с копии той темы, что стоит сейчас — щёлкни сперва готовую, потом «Своя». Храниться будет в <code>S.settings.customTheme</code>
+  (яркость, тон и его сила, кромка, кнопка или признак «как кромка», акцент), применяться — переменными на <code>body</code> поверх <code>body.pal-custom</code>.
+  Цвет текста на кнопке подбирается сам по светлоте кнопки: на тёмном перелива — белый, на светлом — графит.</p>
+</div>
+
+<script>
+/* ---------------- цвета ---------------- */
+const h2r=h=>{h=String(h).replace('#','');if(h.length===3)h=[...h].map(c=>c+c).join('');const n=parseInt(h,16);return[(n>>16)&255,(n>>8)&255,n&255]};
+const r2h=(r,g,b)=>'#'+[r,g,b].map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join('');
+function r2hsv(r,g,b){r/=255;g/=255;b/=255;const mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn;let h=0;
+  if(d){if(mx===r)h=((g-b)/d)%6;else if(mx===g)h=(b-r)/d+2;else h=(r-g)/d+4;h*=60;if(h<0)h+=360;}return[h,mx?d/mx:0,mx];}
+function hsv2r(h,s,v){const f=n=>{const k=(n+h/60)%6;return v-v*s*Math.max(0,Math.min(k,4-k,1));};return[f(5)*255,f(3)*255,f(1)*255];}
+const hsv2h=(h,s,v)=>r2h(...hsv2r(h,s,v)), h2hsv=h=>r2hsv(...h2r(h));
+const lin=c=>{c/=255;return c<=.04045?c/12.92:((c+.055)/1.055)**2.4}, gam=c=>(c<=.0031308?12.92*c:1.055*c**(1/2.4)-.055)*255;
+function h2lch(hex){let[r,g,b]=h2r(hex).map(lin);
+  const l=Math.cbrt(.4122214708*r+.5363325363*g+.0514459929*b),m=Math.cbrt(.2119034982*r+.6806995451*g+.1073969566*b),s=Math.cbrt(.0883024619*r+.2817188376*g+.6299787005*b);
+  const L=.2104542553*l+.7936177850*m-.0040720468*s,A=1.9779984951*l-2.4285922050*m+.4505937099*s,B=.0259040371*l+.7827717662*m-.8086757660*s;
+  return[L,Math.hypot(A,B),(Math.atan2(B,A)*180/Math.PI+360)%360];}
+function _lchRaw(L,C,H){const a=C*Math.cos(H*Math.PI/180),b=C*Math.sin(H*Math.PI/180);
+  const l=(L+.3963377774*a+.2158037573*b)**3,m=(L-.1055613458*a-.0638541728*b)**3,s=(L-.0894841775*a-1.2914855480*b)**3;
+  return[4.0767416621*l-3.3077115913*m+.2309699292*s,-1.2684380046*l+2.6097574011*m-.3413193965*s,-.0041960863*l-.7034186147*m+1.7076147010*s];}
+// вне охвата sRGB — ужимаем насыщенность, а не обрезаем каналы: обрезка меняет оттенок
+function lch2h(L,C,H){let c=C;for(let i=0;i<40;i++){const v=_lchRaw(L,c,H);if(v.every(x=>x>=-1e-4&&x<=1+1e-4))return r2h(...v.map(gam));c*=.9;}
+  return r2h(...[L,L,L].map(x=>gam(Math.max(0,Math.min(1,x)))));}
+const lighter=h=>{const[L,C,H]=h2lch(h);return lch2h(Math.min(.93,L+.07),C*.92,H);};
+
+/* ---------------- готовые темы (как в core.js: PALETTES) ---------------- */
+const PRE={
+  graphite:{n:"Графит",dark:1,sw:["#060607","#17171b","#ffffff","#e8a14b"]},
+  midnight:{n:"Полночь",dark:1,sw:["#050609","#15181f","#5cc8ff","#8b6cff"]},
+  moss:{n:"Мох",dark:1,sw:["#050605","#161916","#e3c36a","#7fbf73"]},
+  plum:{n:"Слива",dark:1,sw:["#060508","#18151c","#ff7eb6","#ffb36b"]},
+  espresso:{n:"Эспрессо",dark:1,sw:["#070605","#1a1715","#4fd1c5","#e0894d"]},
+  dusk:{n:"Сумерки",dark:1,sw:["#06060a","#17171e","#ff8f70","#a99bff"]},
+  light:{n:"Светлая",dark:0,sw:["#f3f3f5","#ffffff","#111114","#e8a14b"]},
+  paper:{n:"Бумага",dark:0,sw:["#efece6","#fcfbf8","#c0582f","#3d4f75"]},
+  frost:{n:"Иней",dark:0,sw:["#eef0f3","#ffffff","#4f46e5","#0891b2"]}
+};
+const NODE_PAL=["#ffffff","#e0625a","#e8a14b","#5fb98e","#5b9bd6","#9b7fd6","#d67fb0","#8a8f98"];
+const fromPreset=k=>{const p=PRE[k];return{dark:p.dark,tone:p.sw[2],k:k==="graphite"||k==="light"?0:4,ea:p.sw[2],eb:p.sw[3],link:true,ba:lighter(p.sw[2]),bb:lighter(p.sw[3]),acc:"#e8a14b"};};
+
+let cur="custom", th=fromPreset("midnight"), variant="a";
+
+/* ---------------- токены темы ----------------
+   Тёмная: страница и холст — графит БЕЗ примеси (инвариант CLAUDE.md), тон примешивается только к
+   поверхностям панелей. Светлая: тон чуть ложится и на страницу, как у «Бумаги». */
+function setVars(el,t){
+  const D=t.dark, k=t.k, mix=(base,kk)=>kk?`color-mix(in oklab,${t.tone} ${kk}%,${base})`:base;
+  const v=D?{bg:"#060607",surf:mix("#0e0e11",k),surf2:mix("#17171b",k),surf3:mix("#212126",k),l2:mix("#121216",k),
+             tx:"#f4f4f5",mut:"#9a9aa3",mut2:"#7a7a83",cv1:"#16161b",cv2:"#0c0c0f",cv3:"#050506",ka:t.ea==="#ffffff"?"20%":"46%",kb:"40%"}
+           :{bg:mix("#f3f3f5",k*.6),surf:mix("#fafafa",k*.7),surf2:mix("#f0f0f0",k*.7),surf3:mix("#e7e7e7",k*.7),l2:mix("#ffffff",k*.5),
+             tx:"#111114",mut:"#666",mut2:"#77716a",cv1:"",cv2:"",cv3:"",ka:"44%",kb:"38%"};
+  const ba=t.link?(D?lighter(t.ea):t.ea):t.ba, bb=t.link?(D?lighter(t.eb):t.eb):t.bb;
+  const L=(h2lch(ba)[0]+h2lch(bb)[0])/2;
+  Object.entries({"--bg":v.bg,"--surf":v.surf,"--surf2":v.surf2,"--surf3":v.surf3,"--l2":v.l2,"--tx":v.tx,"--mut":v.mut,"--mut2":v.mut2,
+    "--cv1":v.cv1,"--cv2":v.cv2,"--cv3":v.cv3,"--hue-a":t.ea,"--hue-b":t.eb,"--edge-ka":v.ka,"--edge-kb":v.kb,
+    "--btn-a":ba,"--btn-b":bb,"--btn-tx":L>.66?"#0b0b0d":"#ffffff","--accent":t.acc}).forEach(([n,x])=>el.style.setProperty(n,x));
+  el.classList.toggle("lt",!D);
+}
+
+/* ---------------- миниатюра приложения ---------------- */
+const appHtml=()=>`<div class="cv"></div>
+  <svg class="g" viewBox="0 0 600 470" preserveAspectRatio="xMinYMid slice">
+    <g stroke="rgba(150,150,160,.45)" stroke-width="1.4" fill="none">
+      <line x1="120" y1="230" x2="210" y2="150"/><line x1="120" y1="230" x2="200" y2="320"/><line x1="210" y1="150" x2="290" y2="110"/>
+      <line x1="200" y1="320" x2="140" y2="400"/></g>
+    <path class="hit hot" data-part="acc" d="M120 230 L210 150 L290 110"/>
+    <path class="flow" d="M120 230 L210 150 L290 110"/>
+    <g stroke-width="2"><circle cx="120" cy="230" r="17" fill="#1a1a1f" stroke="#e8e8ea"/>
+      <circle cx="210" cy="150" r="12" fill="#152019" stroke="#5fb98e"/><circle cx="290" cy="110" r="10" fill="#1d1712" stroke="#e8a14b"/>
+      <rect x="188" y="308" width="24" height="24" rx="5" fill="#141a22" stroke="#5b9bd6"/><circle cx="140" cy="400" r="9" fill="#1a1a1f" stroke="#8a8f98"/></g>
+  </svg>
+  <div class="isl edge hot" data-part="edge"><i class="ti ti-menu-2 on"></i><i class="ti ti-search"></i><i class="ti ti-plus"></i><i class="ti ti-adjustments"></i></div>
+  <div class="pnl edge hot" data-part="tone">
+    <div class="hd"><div class="tile"><i class="ti ti-circle-check"></i></div><div><div class="ttl">Собрать свою тему</div></div></div>
+    <div class="chips"><span><i class="ti ti-player-play"></i>В работе</span><span><i class="ti ti-calendar"></i>Сегодня</span><span>#дизайн</span></div>
+    <div class="row">Срок <b>5 ноября</b></div><div class="row">Приоритет <b>Высокий</b></div>
+    <div class="txt">Холст слева остаётся графитом при любой теме — меняются только панели, кромка и кнопка.</div>
+    <button class="wide hot" data-part="btn"><i class="ti ti-player-play"></i>Начать работу</button>
+  </div>
+  <div class="cap">холст графа — нейтральный</div>`;
+
+/* ---------------- окно настроек: сетка тем ---------------- */
+function drawPal(){
+  const own=`<button class="own ${cur==="custom"?"on":""}" data-v="custom"><span class="sw" style="--a:${th.dark?"#060607":"#f3f3f5"};--b:${th.dark?"#17171b":"#ffffff"};--e1:${th.ea};--e2:${th.eb}"><i class="ti ti-pencil"></i></span><span class="n">Своя</span></button>`;
+  document.getElementById("pal").innerHTML=Object.entries(PRE).map(([k,p])=>`<button data-v="${k}" class="${cur===k?"on":""}"><span class="sw" style="--a:${p.sw[0]};--b:${p.sw[1]};--e1:${p.sw[2]};--e2:${p.sw[3]}"></span><span class="n">${p.n}</span></button>`).join("")+own;
+  document.querySelectorAll("#pal button").forEach(b=>b.onclick=()=>{ if(b.dataset.v!=="custom"){ cur=b.dataset.v; th=fromPreset(cur); } else cur="custom"; apply(); });
+}
+function apply(){
+  setVars(document.getElementById("app"),th); setVars(document.getElementById("set"),th);
+  const bm=document.querySelector("#bmini .app"); if(bm) setVars(bm,th);
+  drawPal();
+  ["a","b","c"].forEach(v=>document.getElementById("ed-"+v).hidden=!(cur==="custom"&&variant===v));
+  document.querySelectorAll("[data-dark] button").forEach(b=>b.classList.toggle("on",+b.dataset.v===th.dark));
+  document.querySelectorAll("[data-k]").forEach(r=>r.value=th.k);
+  if(variant==="a") syncA(); if(variant==="b") syncB(); if(variant==="c") syncC();
+  if(pop && pop.sync) pop.sync();
+}
+document.querySelectorAll("[data-dark] button").forEach(b=>b.onclick=()=>{ th.dark=+b.dataset.v; apply(); });
+document.querySelectorAll("[data-k]").forEach(r=>r.oninput=()=>{ th.k=+r.value; apply(); });
+
+/* ---------------- общие жесты ---------------- */
+function drag(el,fn){ el.addEventListener("pointerdown",e=>{ e.preventDefault(); el.setPointerCapture(e.pointerId);
+  const go=ev=>{ const r=el.getBoundingClientRect(); fn(Math.max(0,Math.min(1,(ev.clientX-r.left)/r.width)),Math.max(0,Math.min(1,(ev.clientY-r.top)/r.height)),ev); };
+  go(e); const mv=ev=>go(ev), up=()=>{ el.removeEventListener("pointermove",mv); el.removeEventListener("pointerup",up); };
+  el.addEventListener("pointermove",mv); el.addEventListener("pointerup",up); }); }
+
+/* ---------------- попап: общая оболочка ----------------
+   Закрытие — клик мимо и Escape в фазе ПЕРЕХВАТА, как у календаря срока: иначе тот же Escape
+   закрыл бы и окно настроек под попапом. */
+let pop=null;
+function closePop(){ if(!pop) return; pop.el.remove(); document.removeEventListener("pointerdown",pop.out,true); document.removeEventListener("keydown",pop.key,true);
+  document.querySelectorAll(".chip.act").forEach(c=>c.classList.remove("act")); pop=null; }
+function openPop(anchor,html,wire){
+  closePop(); const el=document.createElement("div"); el.className="cp"; el.innerHTML=html; document.body.appendChild(el);
+  const r=anchor.getBoundingClientRect(), w=el.offsetWidth, h=el.offsetHeight;
+  let x=r.left, y=r.bottom+8; if(x+w>innerWidth-10) x=innerWidth-w-10; if(y+h>innerHeight-10) y=Math.max(10,r.top-h-8);
+  el.style.left=Math.max(10,x)+"px"; el.style.top=y+"px";
+  const out=e=>{ if(!el.contains(e.target) && !anchor.contains(e.target)) closePop(); };
+  const key=e=>{ if(e.key==="Escape"){ e.stopPropagation(); e.preventDefault(); closePop(); } };
+  document.addEventListener("pointerdown",out,true); document.addEventListener("keydown",key,true);
+  pop={el,out,key,anchor}; wire(el); return pop;
+}
+const hexOk=s=>/^#?[0-9a-f]{6}$/i.test(s.trim())||/^#?[0-9a-f]{3}$/i.test(s.trim());
+const normHex=s=>{s=s.trim().replace("#","");if(s.length===3)s=[...s].map(c=>c+c).join("");return"#"+s.toLowerCase();};
+const palHtml=()=>`<div class="cp-l">Цвета нод</div><div class="cp-pal">${NODE_PAL.map(c=>`<button data-c="${c}" style="background:${c}" title="${c}"></button>`).join("")}</div>
+  <div class="cp-l">Из готовых тем</div><div class="cp-pal">${[...new Set(Object.values(PRE).flatMap(p=>[p.sw[2],p.sw[3]]))].map(c=>`<button data-c="${c}" style="background:${c}" title="${c}"></button>`).join("")}</div>`;
+
+/* ===== А: попап квадрат + полоса оттенка ===== */
+const ROLE_N={tone:"Тон панелей",ea:"Кромка сверху",eb:"Кромка снизу",ba:"Кнопка слева",bb:"Кнопка справа",acc:"Акцент"};
+function popSV(anchor,role){
+  let [h,s,v]=h2hsv(th[role]);
+  const p=openPop(anchor,`<h4><i class="ti ti-palette"></i>${ROLE_N[role]}</h4>
+    <div class="cp-sv"><i class="cp-k"></i></div><div class="cp-tr cp-hue"><i class="cp-k"></i></div>
+    <div class="cp-row"><span class="now"></span><input spellcheck="false"></div>${palHtml()}`,el=>{
+    const sv=el.querySelector(".cp-sv"), hu=el.querySelector(".cp-hue"), inp=el.querySelector("input");
+    const set=hex=>{ th[role]=hex; if(role==="ba"||role==="bb") th.link=false; apply(); };
+    const show=(fromInput)=>{ sv.style.setProperty("--h",h); const c=hsv2h(h,s,v);
+      sv.querySelector(".cp-k").style.cssText=`left:${s*100}%;top:${(1-v)*100}%`; hu.querySelector(".cp-k").style.left=(h/360*100)+"%";
+      el.querySelector(".now").style.background=c; if(!fromInput) inp.value=c; };
+    drag(sv,(x,y)=>{ s=x; v=1-y; show(); set(hsv2h(h,s,v)); });
+    drag(hu,x=>{ h=x*360; show(); set(hsv2h(h,s,v)); });
+    inp.oninput=()=>{ if(!hexOk(inp.value)) return; const c=normHex(inp.value); [h,s,v]=h2hsv(c); show(true); set(c); };
+    el.querySelectorAll(".cp-pal button").forEach(b=>b.onclick=()=>{ [h,s,v]=h2hsv(b.dataset.c); show(); set(b.dataset.c); });
+    show();
+  });
+  anchor.classList.add("act"); p.role=role;
+}
+function syncA(){
+  const ba=th.link?(th.dark?lighter(th.ea):th.ea):th.ba, bb=th.link?(th.dark?lighter(th.eb):th.eb):th.bb, val={...th,ba,bb};
+  document.querySelectorAll("#ed-a .chip").forEach(c=>{ const r=c.dataset.role; c.querySelector("b").style.background=val[r]; c.querySelector("span").textContent=val[r];
+    c.style.opacity=(th.link&&(r==="ba"||r==="bb"))?.55:1; });
+  document.querySelector('[data-gbar="e"]').style.background=`linear-gradient(90deg,${th.ea},${th.eb})`;
+  document.querySelector('[data-gbar="b"]').style.background=`linear-gradient(90deg,${ba},${bb})`;
+  document.querySelector("#ed-a [data-link]").classList.toggle("on",th.link);
+}
+document.querySelectorAll("#ed-a .chip").forEach(c=>c.onclick=()=>{ const r=c.dataset.role;
+  if(pop&&pop.anchor===c){ closePop(); return; }
+  if(th.link&&(r==="ba"||r==="bb")){ th.ba=lighter(th.ea); th.bb=lighter(th.eb); }
+  popSV(c,r); });
+document.querySelector("#ed-a [data-swap]").onclick=()=>{ [th.ea,th.eb]=[th.eb,th.ea]; apply(); };
+document.querySelector("#ed-a [data-link]").onclick=()=>{ th.link=!th.link; if(!th.link){ th.ba=th.dark?lighter(th.ea):th.ea; th.bb=th.dark?lighter(th.eb):th.eb; } apply(); };
+
+/* ===== Б: миниатюра в настройках + попап из трёх полос OKLCH ===== */
+const PARTS=[{p:"tone",n:"Тон панелей",r:["tone"]},{p:"edge",n:"Кромка",r:["ea","eb"]},{p:"btn",n:"Кнопка",r:["ba","bb"]},{p:"acc",n:"Акцент",r:["acc"]}];
+function buildB(){
+  const box=document.getElementById("bmini"); box.innerHTML=`<div class="app themed">${appHtml()}</div>`;
+  const a=box.querySelector(".app"); setVars(a,th);
+  // кликабельная полоса вдоль кромки панели: сама кромка в 1 px, попасть в неё мышью — задача на меткость
+  const pins=[["tone",.67,.40],["edge",.445,.06],["btn",.67,.86],["acc",.34,.31]];
+  pins.forEach(([p,x,y],i)=>{ const d=document.createElement("div"); d.className="pin"; d.dataset.part=p; d.textContent=i+1; d.style.left=`calc(${x*100}% - 10px)`; d.style.top=`calc(${y*100}% - 10px)`; box.appendChild(d); });
+  document.getElementById("legend").innerHTML=PARTS.map((q,i)=>`<span data-part="${q.p}"><em>${i+1}</em>${q.n}<b data-sw="${q.p}"></b></span>`).join("");
+  const hov=(p,on)=>{ box.querySelectorAll(`[data-part="${p}"]`).forEach(x=>x.classList.toggle("hov",on)); };
+  box.querySelectorAll("[data-part]").forEach(el=>{
+    el.addEventListener("pointerover",e=>{ const t=e.target.closest("[data-part]"); if(t===el){ hov(el.dataset.part,true); } });
+    el.addEventListener("pointerout",()=>hov(el.dataset.part,false));
+    el.addEventListener("click",e=>{ const t=e.target.closest("[data-part]"); if(t!==el) return; e.stopPropagation(); popLCH(el,el.dataset.part); }); });
+  document.querySelectorAll("#legend span").forEach(s=>s.onclick=()=>popLCH(s,s.dataset.part));
+}
+function syncB(){ if(!document.querySelector("#bmini .app")) buildB();
+  const val={tone:th.tone,edge:`linear-gradient(90deg,${th.ea},${th.eb})`,btn:`linear-gradient(90deg,${th.link?lighter(th.ea):th.ba},${th.link?lighter(th.eb):th.bb})`,acc:th.acc};
+  document.querySelectorAll("#legend [data-sw]").forEach(b=>b.style.background=val[b.dataset.sw]); }
+function popLCH(anchor,part){
+  const q=PARTS.find(x=>x.p===part); let role=q.r[0];
+  if(part==="btn"&&th.link){ th.ba=th.dark?lighter(th.ea):th.ea; th.bb=th.dark?lighter(th.eb):th.eb; }
+  const tabs=q.r.length>1?`<div class="cp-tabs">${q.r.map((r,i)=>`<button data-r="${r}" class="${i?"":"on"}"><b></b>${part==="edge"?(i?"Снизу":"Сверху"):(i?"Справа":"Слева")}</button>`).join("")}</div>`:"";
+  const link=part==="btn"?`<div class="cp-row" style="margin-top:0;margin-bottom:8px"><button class="ib ${th.link?"on":""}" data-link><i class="ti ti-link"></i></button><span style="color:var(--mut)">как кромка, только светлее</span></div>`:"";
+  const p=openPop(anchor,`<h4><i class="ti ti-palette"></i>${q.n}</h4>${link}${tabs}
+    ${[["L","Светлота"],["C","Насыщенность"],["H","Оттенок"]].map(([k,n])=>`<div class="cp-sl"><div class="t"><span>${n}</span><span data-o="${k}"></span></div><div class="cp-tr" data-t="${k}"><i class="cp-k"></i></div></div>`).join("")}
+    <div class="cp-row"><span class="now"></span><input spellcheck="false"></div>${palHtml()}`,el=>{
+    const inp=el.querySelector("input"); let L,C,H;
+    const load=()=>{ [L,C,H]=h2lch(th[role]); if(C<.002) H=H||0; };
+    const set=hex=>{ th[role]=hex; if(part==="btn") th.link=false; apply(); };
+    const grad=(fn)=>"linear-gradient(90deg,"+Array.from({length:13},(_,i)=>fn(i/12)).join(",")+")";
+    const show=(fromInput)=>{ const c=lch2h(L,C,H);
+      el.querySelector('[data-t="L"]').style.background=grad(t=>lch2h(t,C,H));
+      el.querySelector('[data-t="C"]').style.background=grad(t=>lch2h(L,t*.37,H));
+      el.querySelector('[data-t="H"]').style.background=grad(t=>lch2h(L,Math.max(C,.08),t*360));
+      el.querySelector('[data-t="L"] .cp-k').style.left=L*100+"%"; el.querySelector('[data-t="C"] .cp-k').style.left=Math.min(1,C/.37)*100+"%";
+      el.querySelector('[data-t="H"] .cp-k').style.left=H/360*100+"%";
+      el.querySelector('[data-o="L"]').textContent=Math.round(L*100); el.querySelector('[data-o="C"]').textContent=Math.round(C/.37*100); el.querySelector('[data-o="H"]').textContent=Math.round(H)+"°";
+      el.querySelector(".now").style.background=c; if(!fromInput) inp.value=c;
+      el.querySelectorAll(".cp-tabs button").forEach(b=>b.querySelector("b").style.background=th[b.dataset.r]); };
+    drag(el.querySelector('[data-t="L"]'),x=>{ L=x; show(); set(lch2h(L,C,H)); });
+    drag(el.querySelector('[data-t="C"]'),x=>{ C=x*.37; show(); set(lch2h(L,C,H)); });
+    drag(el.querySelector('[data-t="H"]'),x=>{ H=x*360; show(); set(lch2h(L,C,H)); });
+    inp.oninput=()=>{ if(!hexOk(inp.value)) return; const c=normHex(inp.value); set(c); load(); show(true); };
+    el.querySelectorAll(".cp-pal button").forEach(b=>b.onclick=()=>{ set(b.dataset.c); load(); show(); });
+    el.querySelectorAll(".cp-tabs button").forEach(b=>b.onclick=()=>{ role=b.dataset.r; el.querySelectorAll(".cp-tabs button").forEach(x=>x.classList.toggle("on",x===b)); load(); show(); });
+    const lk=el.querySelector("[data-link]"); if(lk) lk.onclick=()=>{ th.link=!th.link; lk.classList.toggle("on",th.link); if(th.link) apply(); };
+    load(); show();
+  });
+}
+
+/* ===== В: круг гармонии ===== */
+const HND=[{r:"ea",n:"Верх",s:"В"},{r:"eb",n:"Низ",s:"Н"},{r:"acc",n:"Акцент",s:"Ак"},{r:"tone",n:"Тон",s:"Т"}];
+let selH="ea", harm="near";
+const OFF={near:40,opp:180,tri:120};
+function wheelPaint(){ const cv=document.querySelector("#wheel canvas"), x=cv.getContext("2d"), N=cv.width, R=N/2, img=x.createImageData(N,N);
+  for(let j=0;j<N;j++) for(let i=0;i<N;i++){ const dx=i-R, dy=j-R, d=Math.hypot(dx,dy)/R; if(d>1) continue;
+    const h=(Math.atan2(dy,dx)*180/Math.PI+450)%360, [r,g,b]=hsv2r(h,d,1), o=(j*N+i)*4; img.data[o]=r;img.data[o+1]=g;img.data[o+2]=b;img.data[o+3]=255; }
+  x.putImageData(img,0,0); }
+// угол на круге: 0° — вверх, по часовой; так «Напротив» читается как верх-низ
+const pos=hex=>{ const [h,s]=h2hsv(hex); const a=(h-90)*Math.PI/180; return [106+Math.cos(a)*s*106, 106+Math.sin(a)*s*106]; };
+function follow(moved){ if(harm==="free") return; const [h0,s0,v0]=h2hsv(th[moved==="eb"?"eb":"ea"]);
+  const put=(r,dh)=>{ const [,s,v]=h2hsv(th[r]); th[r]=hsv2h((h0+dh+360)%360,s||s0,v||v0); };
+  // триада: верх, низ и акцент — через 120°; от какой ручки ни тяни, акцент встаёт на «верх + 240°»
+  if(moved==="ea"||moved==="eb"){ put(moved==="ea"?"eb":"ea",(moved==="ea"?1:-1)*OFF[harm]); if(harm==="tri") put("acc",moved==="ea"?240:120); } }
+function syncC(){ const w=document.getElementById("wheel"); if(!w.dataset.p){ wheelPaint(); w.dataset.p=1; wireWheel(); }
+  w.querySelectorAll(".hnd").forEach(x=>x.remove());
+  const svg=w.querySelector("svg"); const pe=pos(th.ea), pb=pos(th.eb), pa=pos(th.acc);
+  svg.innerHTML=`<line x1="${pe[0]}" y1="${pe[1]}" x2="${pb[0]}" y2="${pb[1]}" stroke="#fff" stroke-width="1.5" stroke-dasharray="3 4" opacity=".8"/>`+
+    (harm==="tri"?`<line x1="${pb[0]}" y1="${pb[1]}" x2="${pa[0]}" y2="${pa[1]}" stroke="#fff" stroke-width="1.2" stroke-dasharray="3 4" opacity=".5"/><line x1="${pa[0]}" y1="${pa[1]}" x2="${pe[0]}" y2="${pe[1]}" stroke="#fff" stroke-width="1.2" stroke-dasharray="3 4" opacity=".5"/>`:"");
+  HND.forEach(q=>{ const [x,y]=pos(th[q.r]); const d=document.createElement("div"); d.className="hnd"+(q.r===selH?" sel":"")+(harm==="tri"&&q.r==="acc"?" lock":"");
+    d.dataset.r=q.r; d.textContent=q.s; d.style.cssText=`left:${x}px;top:${y}px;background:${th[q.r]}`; w.appendChild(d); });
+  document.getElementById("hl").innerHTML=HND.map(q=>`<button data-r="${q.r}" class="${q.r===selH?"on":""}"><b style="background:${th[q.r]}"></b>${q.n}<code>${th[q.r]}</code></button>`).join("");
+  document.querySelectorAll("#hl button").forEach(b=>b.onclick=()=>{ selH=b.dataset.r; syncC(); });
+  document.getElementById("vval").value=Math.round(h2hsv(th[selH])[2]*100);
+  document.querySelectorAll("#harm button").forEach(b=>b.classList.toggle("on",b.dataset.v===harm));
+}
+function wireWheel(){ const w=document.getElementById("wheel");
+  w.addEventListener("pointerdown",e=>{ const hd=e.target.closest(".hnd"); if(hd) selH=hd.dataset.r;
+    w.setPointerCapture(e.pointerId); const go=ev=>{ const r=w.getBoundingClientRect(); let dx=ev.clientX-r.left-106, dy=ev.clientY-r.top-106;
+      let s=Math.min(1,Math.hypot(dx,dy)/106); if(selH==="tone") s=Math.min(s,.75);
+      const h=(Math.atan2(dy,dx)*180/Math.PI+90+360)%360, v=h2hsv(th[selH])[2]||.85; th[selH]=hsv2h(h,s,v); follow(selH); th.link=true; apply(); };
+    go(e); const mv=ev=>go(ev), up=()=>{ w.removeEventListener("pointermove",mv); w.removeEventListener("pointerup",up); };
+    w.addEventListener("pointermove",mv); w.addEventListener("pointerup",up); });
+  document.getElementById("vval").oninput=e=>{ const [h,s]=h2hsv(th[selH]); th[selH]=hsv2h(h,s,e.target.value/100); apply(); };
+  document.querySelectorAll("#harm button").forEach(b=>b.onclick=()=>{ harm=b.dataset.v; follow("ea"); apply(); });
+}
+
+/* ---------------- переключатель вариантов ---------------- */
+const HINT={a:"роль → образец → попап с квадратом",b:"клик по части миниатюры → попап у неё",c:"одно сочетание на круге вместо пяти цветов"};
+document.querySelectorAll("#var button").forEach(b=>b.onclick=()=>{ variant=b.dataset.v; closePop();
+  document.querySelectorAll("#var button").forEach(x=>x.classList.toggle("on",x===b)); document.getElementById("var-hint").textContent=HINT[variant];
+  if(cur!=="custom") cur="custom"; apply(); });
+document.getElementById("app").innerHTML=appHtml();
+document.getElementById("var-hint").textContent=HINT.a;
+apply();
+</script>
+</body>
+</html>

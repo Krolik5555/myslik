@@ -751,5 +751,43 @@ t.push({имя:"удалённый элемент уходит из панели
   asideSelect(null); await ж(80); hardDeleteItem(зад.id);
 }
 
+/* ===== своя тема (palette:"custom", КРОЛИК 04.11.2026) =====
+   Цвета лежат на body ИНЛАЙНОМ — значит при уходе на заготовку их обязаны снять, иначе «Графит»
+   остался бы в чужих цветах. Тон — только в поверхностях: страница и холст тёмной темы графитовые. */
+{
+  const было = {pal:S.settings.palette, th:S.settings.theme, ct:S.settings.customTheme};
+  const вз = n => getComputedStyle(document.body).getPropertyValue(n).trim();
+  S.settings.palette = "custom";
+  S.settings.customTheme = {light:false, tone:"#8b6cff", toneK:10, edgeA:"#5cc8ff", edgeB:"#e8a14b", btnLink:true, accent:"#ff7eb6"};
+  applySettings();
+  t.push({имя:"своя тема: тон лёг на поверхности, страница и холст графитовые",
+          ок: вз("--surf") !== "#0e0e11" && вз("--bg") === "#060607" && вз("--cv2") === "#0c0c0f" && document.body.classList.contains("pal-custom"),
+          факт: "--surf " + вз("--surf") + ", --bg " + вз("--bg") + ", --cv2 " + вз("--cv2")});
+  t.push({имя:"своя тема: кромка и акцент — как заданы", ок: вз("--hue-a") === "#5cc8ff" && вз("--accent") === "#ff7eb6",
+          факт: вз("--hue-a") + " / " + вз("--accent")});
+  S.settings.customTheme = {...S.settings.customTheme, light:true}; S.settings.theme = "dark"; applySettings();
+  t.push({имя:"своя тема несёт яркость сама", ок: S.settings.theme === "light" && document.body.classList.contains("light"), факт: S.settings.theme});
+  S.settings.customTheme = {tone:"бред", toneK:"x", edgeA:42}; applySettings();
+  t.push({имя:"своя тема: битые поля из файла берут умолчания", ок: вз("--hue-a") === CUSTOM_THEME_DEF.edgeA && S.settings.theme === "dark", факт: вз("--hue-a")});
+  S.settings.palette = "graphite"; S.settings.theme = "dark"; applySettings();
+  t.push({имя:"своя тема: уход на заготовку снимает инлайновые цвета",
+          ок: CUSTOM_THEME_VARS.every(n => !document.body.style.getPropertyValue(n)) && !document.body.classList.contains("pal-custom"),
+          факт: document.body.getAttribute("style") || ""});
+  openSettings("view"); await ж(300);
+  const own = document.querySelector('#set-theme [data-v="custom"]');
+  own.click(); await ж(80);
+  const чип = document.querySelector('#set-own [data-role="edgeB"]'); чип.click(); await ж(80);
+  const поп = document.querySelector(".cpk");
+  t.push({имя:"своя тема: плитка открывает строки ролей, образец — свой попап", ок: !document.querySelector("#set-own").hidden && !!поп && !document.querySelector('input[type="color"]'),
+          факт: поп ? "" : "попапа нет"});
+  if(поп){ поп.querySelector('[data-c="#5fb98e"]').click(); await ж(50); }
+  t.push({имя:"своя тема: цвет из попапа ложится в тему на лету", ок: вз("--hue-b") === "#5fb98e" && (S.settings.customTheme||{}).edgeB === "#5fb98e", факт: вз("--hue-b")});
+  // клавиша — с элемента, как от живого человека: на самом document глушение в перехвате соседей по узлу не останавливает
+  (document.activeElement || document.body).dispatchEvent(new KeyboardEvent("keydown", {key:"Escape", bubbles:true})); await ж(50);
+  t.push({имя:"своя тема: Escape закрывает попап, а не окно настроек", ок: !document.querySelector(".cpk") && !!document.querySelector("#set-own"), факт: ""});
+  closeOverlays(); await ж(50);
+  S.settings.palette = было.pal; S.settings.theme = было.th; S.settings.customTheme = было.ct; applySettings();
+}
+
 hardDeleteItem(пол.id); asideId = null; render();
 return t;

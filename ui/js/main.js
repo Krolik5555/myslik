@@ -77,12 +77,19 @@ function openPalette(){
    тёмная/светлая (toggleTheme) сбрасывает её на базовую своей яркости. Класс — на body, потому что
    там же висит .light, и токены темы должны перебивать именно его. */
 function applyTheme(){
+  /* Своя тема (customTheme в core.js) сама несёт яркость: theme под неё подтягивается, а не
+     наоборот — иначе «своя светлая» после перезапуска легла бы на тёмную основу. */
+  const свой = S.settings.palette==="custom", ст = свой ? customTheme() : null;
+  if(свой) S.settings.theme = ст.light ? "light" : "dark";
   const светлая = S.settings.theme==="light";
   let пал = S.settings.palette;
-  if(!PALETTES[пал] || PALETTES[пал].light!==светлая) пал = светлая ? "light" : "graphite";
+  if(!свой && (!PALETTES[пал] || PALETTES[пал].light!==светлая)) пал = светлая ? "light" : "graphite";
   const b=document.body;
   b.classList.toggle("light", светлая);
   Object.keys(PALETTES).forEach(k=>b.classList.toggle("pal-"+k, k===пал));
+  b.classList.toggle("pal-custom", свой);
+  const св = свой ? customThemeVars(ст) : {};
+  CUSTOM_THEME_VARS.forEach(n=>{ if(св[n]) b.style.setProperty(n, св[n]); else b.style.removeProperty(n); });
   // оформление панели — набор свойств (ASIDE_STYLES), каждое своим классом
   const вид = ASIDE_STYLES[S.settings.asideStyle] || ASIDE_STYLES.glow;
   ["glow","glass","cards","pass"].forEach(f=>b.classList.toggle("as-"+f, вид.f.includes(f)));

@@ -386,7 +386,41 @@ function mixColors(list){
   const b=_unlin(-0.0041960863*l-0.7034186147*m+1.7076147010*s);
   return "#"+[r,g,b].map(v=>v.toString(16).padStart(2,"0")).join("");
 }
-const areaColor = id => { const a=areaById(id); return a&&a.color?a.color:null; };
+/* СВОЯ ТЕМА (palette:"custom", выбор КРОЛИКА из demo_своя-тема.html, вариант «Роли и квадрат»).
+   В PALETTES её нет намеренно: у заготовки яркость и цвета зашиты в styles.css, а здесь их задаёт
+   человек, и живут они в S.settings.customTheme. Токены — ровно те же, что у заготовок: тон
+   примешивается ТОЛЬКО к поверхностям панелей (страница и холст тёмной темы остаются графитом —
+   инвариант, см. body.pal-custom в styles.css), кромка и кнопка ставятся как есть. Значения
+   считаются здесь в hex, а не CSS-ом через color-mix: граф читает --surf и --accent через
+   getComputedStyle и рисует ими на canvas, а непосчитанный color-mix туда не годится. */
+const CUSTOM_THEME_DEF={light:false, tone:"#5cc8ff", toneK:4, edgeA:"#5cc8ff", edgeB:"#8b6cff",
+  btnLink:true, btnA:"#7fd6ff", btnB:"#a48bff", accent:"#e8a14b"};
+// всё, что своя тема кладёт на body инлайном: при уходе на заготовку снимается ровно этот список
+const CUSTOM_THEME_VARS=["--bg","--surf","--surf2","--surf3","--l2","--hue-a","--hue-b","--btn-a","--btn-b","--btn-tx","--accent"];
+const hexNorm=h=>{ const rgb=_hex2rgb(h); return rgb ? "#"+rgb.map(v=>v.toString(16).padStart(2,"0")).join("") : null; };
+// данные приходят и из файла — каждое поле проверяется, битое берёт значение по умолчанию
+function customTheme(){
+  const t=S.settings.customTheme||{}, d=CUSTOM_THEME_DEF, o={};
+  ["tone","edgeA","edgeB","btnA","btnB","accent"].forEach(k=>o[k]=hexNorm(t[k])||d[k]);
+  o.light=t.light===true; o.btnLink=t.btnLink!==false;
+  o.toneK=Math.max(0,Math.min(16,Math.round(+t.toneK))); if(isNaN(o.toneK)) o.toneK=d.toneK;
+  return o;
+}
+// кнопка «как кромка»: в тёмной теме чуть светлее кромки (как у заготовок), в светлой — те же цвета
+const customBtn=t=>t.btnLink
+  ? (t.light ? [t.edgeA,t.edgeB] : [t.edgeA,t.edgeB].map(c=>mixColors([{c,w:.8},{c:"#ffffff",w:.2}])))
+  : [t.btnA,t.btnB];
+function customThemeVars(t){
+  const k=t.toneK/100, тон=(база,доля)=>доля>0 ? mixColors([{c:база,w:1-доля},{c:t.tone,w:доля}]) : база;
+  const [ba,bb]=customBtn(t);
+  // текст кнопки — по светлоте её перелива: на светлом графит, на тёмном белый
+  const яр=h=>{ const [r,g,b]=_hex2rgb(h); return 0.2126*_lin(r)+0.7152*_lin(g)+0.0722*_lin(b); };
+  const v={"--hue-a":t.edgeA,"--hue-b":t.edgeB,"--btn-a":ba,"--btn-b":bb,"--btn-tx":(яр(ba)+яр(bb))/2>0.3?"#0b0b0d":"#ffffff","--accent":t.accent};
+  if(t.light) Object.assign(v,{"--bg":тон("#f3f3f5",k*.6),"--surf":тон("#fafafb",k*.7),"--surf2":тон("#ededf0",k*.7),"--surf3":тон("#e3e3e8",k*.7),"--l2":тон("#ffffff",k*.5)});
+  else Object.assign(v,{"--surf":тон("#0e0e11",k),"--surf2":тон("#17171b",k),"--surf3":тон("#212126",k),"--l2":тон("#121216",k)});
+  return v;
+}
+const areaColor =id => { const a=areaById(id); return a&&a.color?a.color:null; };
 const itemColor = it => it.color || (it.area?areaColor(it.area):null) || null;
 // Набор кружков выбора цвета. «Нет цвета» рисуем приглушённым кружком с прочерком (.none),
 // а НЕ белым: белый кружок читался как «белый цвет», хотя означал «наследовать» — и нода
