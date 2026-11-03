@@ -194,7 +194,7 @@ function renderNotes(v){
          верхний угол свободен и симметричен тулбару слева. */""}
     <button class="graph-ai" id="g-ai" title="ИИ: пакеты команд от нейросети и подключение агента"><i class="ti ti-sparkles"></i></button>
     <!-- подсказку можно закрыть: висеть постоянно ей незачем, а вернуть — из меню «…» -->
-    <div class="graph-hint${S.settings.graphHint===false?" off":""}" id="g-hint"><span>Alt+тащи от ноды — связь/заметка · Ctrl+тащи — копия выделенного · Shift+тащи — одну ноду, без куста · ПКМ — меню / создать · ЛКМ-рамка — выделить · двойной клик — открыть (подграф — войти внутрь) · средняя кнопка — двигать · колесо — зум · Delete — удалить</span><button id="g-hint-x" title="Скрыть подсказку"><i class="ti ti-x"></i></button></div>
+    <div class="graph-hint${S.settings.graphHint===false?" off":""}" id="g-hint"><span>Alt+тащи от ноды — связь/заметка · Alt+клик — новая нода · Ctrl+тащи — копия выделенного · Shift+тащи — одну ноду, без куста · ПКМ — меню / создать · ЛКМ-рамка — выделить · двойной клик — открыть (подграф — войти внутрь) · средняя кнопка — двигать · колесо — зум · Delete — удалить</span><button id="g-hint-x" title="Скрыть подсказку"><i class="ti ti-x"></i></button></div>
     <!-- только счётчик: кнопка «Отчёт» уехала в правую панель, где отчёт и собирается -->
     <div class="graph-selbar" id="g-selbar" style="display:none">
       <span class="gsb-n"></span>
@@ -1024,7 +1024,7 @@ class Graph{
     this.tempLine.style.display=""; this.tempLine.setAttribute("x1",n.x); this.tempLine.setAttribute("y1",n.y); this.tempLine.setAttribute("x2",p.x); this.tempLine.setAttribute("y2",p.y); }
   // быстрое создание ноды (kind: note/task/flow) в точке (wx,wy); fromId!=null → сразу связать;
   // note/task → инлайн-ввод названия (поток мысли не рвётся), flow → открываем редактор схемы
-  _quickAdd(kind,wx,wy,fromId){
+  _quickAdd(kind,wx,wy,fromId,title){
     // Область родителя НЕ наследуем: Alt от ноды, которая сама лежит в области, молча приписывал
     // новую мысль туда же — а человек всего лишь тянул связь, про область речи не было.
     // Область — отдельное решение: бросить ноду на её кружок (см. _linkTo).
@@ -1035,7 +1035,7 @@ class Graph{
        вовсе: жест про связь с родителем, про область речи не было. Раньше фильтр действовал и
        здесь — стоило один раз щёлкнуть по области в полосе, и каждая новая мысль молча
        приписывалась к ней, а дети наследовали это дальше по ветке. */
-    const data={kind, title:"", area:(fromId ? null : (areaFilter||null))};
+    const data={kind, title:title||"", area:(fromId ? null : (areaFilter||null))};
     if(kindIsTask(kind)) data.status="todo";
     // шаблон по умолчанию: нода рождается сразу с нужными полями (название человек впишет сам).
     // Шаблоны бывают только задачные и заметочные — полотну и подграфу подставлять нечего.
@@ -1048,9 +1048,54 @@ class Graph{
        родителя, ни унаследованной области — то есть нет владельца, от которого меряется дом. */
     if(S.settings.graphHome && this._homeFromDrag(it)) persist();
     this.build();
+    // название уже ввели (Alt-создание, _askTitleKind) — второе поле ввода поверх было бы лишним;
+    // ИИ-разбор зовём так же, как зовёт его переименование на месте
+    if(title){ if(S.settings.aiGraphSuggest===true && typeof aiRefineCapture==="function") aiRefineCapture(it, title); return it; }
     // полотно тоже сразу переименовывается на месте, а не выдёргивает в фулскрин доски —
     // доска открывается только по явному открытию ноды (двойной клик и т.п.)
     this._inlineRename(it.id);
+    return it;
+  }
+  /* ALT-СОЗДАНИЕ: СПЕРВА ТЕКСТ, ВИД ПОТОМ. Раньше на отпускании Alt-протяжки выскакивало меню
+     видов, и мысль приходилось держать в голове, пока выбираешь кнопку. Теперь поле ввода
+     появляется сразу, а вид — рядом под ним из реестра KINDS: не тронул — заметка. Вид меняют
+     клик по кнопке или Tab/Shift+Tab, не выпуская курсора из поля. Пустое поле ничего не
+     создаёт: Escape, клик мимо и Enter без текста — одинаково отказ. */
+  _askTitleKind(e, wx, wy, fromId){
+    this._closePop();
+    const wrap=$("#graph-wrap"); if(!wrap) return;
+    const old=wrap.querySelector(".g-inline, .g-quick"); if(old) old.remove();
+    const виды=Object.keys(KINDS);
+    let вид="note";
+    const box=el("div","g-quick");
+    box.innerHTML=`<input class="g-inline" placeholder="${fromId?"Новая связанная…":"Новая мысль…"}">
+      <div class="g-quick-kinds">${виды.map(k=>`<button type="button" data-qk="${k}" title="${esc(kindName(k))}"><i class="ti ${kindIcon(k)}"></i>${esc(kindName(k))}</button>`).join("")}</div>`;
+    wrap.appendChild(box);
+    const rc=wrap.getBoundingClientRect();
+    box.style.left=Math.min(Math.max(110, e.clientX-rc.left), rc.width-110)+"px";
+    box.style.top =Math.min(Math.max(30,  e.clientY-rc.top),  rc.height-70)+"px";
+    const inp=$("input",box);
+    const отметить=()=>$$("[data-qk]",box).forEach(b=>b.classList.toggle("on", b.dataset.qk===вид));
+    отметить();
+    let done=false;
+    const finish=(save)=>{ if(done) return; done=true;
+      document.removeEventListener("pointerdown",мимо,true);
+      const v=inp.value.trim(); box.remove();
+      if(save && v) this._quickAdd(вид, wx, wy, fromId, v);
+    };
+    const мимо=ev=>{ if(!box.contains(ev.target)) finish(true); };   // клик мимо = как Enter: текст не теряем
+    $$("[data-qk]",box).forEach(b=>{
+      // фокус из поля не отдаём: иначе blur закрыл бы коробку раньше, чем дойдёт клик
+      b.onpointerdown=ev=>ev.preventDefault();
+      b.onclick=()=>{ вид=b.dataset.qk; отметить(); inp.focus(); };
+    });
+    inp.onkeydown=ev=>{ ev.stopPropagation();
+      if(ev.key==="Enter"){ ev.preventDefault(); finish(true); }
+      else if(ev.key==="Escape"){ ev.preventDefault(); finish(false); }
+      else if(ev.key==="Tab"){ ev.preventDefault();
+        const i=виды.indexOf(вид); вид=виды[(i+(ev.shiftKey?-1:1)+виды.length)%виды.length]; отметить(); }
+    };
+    setTimeout(()=>{ document.addEventListener("pointerdown",мимо,true); inp.focus(); },20);
   }
   // меню «Создать» по ПКМ на пустом месте холста — заметка / задача / схема в точке клика
   _openCreateMenu(e){
@@ -1786,6 +1831,8 @@ class Graph{
       const li=this.canvasMode ? this._hitLink(e)
                                : (e.target.closest(".g-hit") ? +e.target.closest(".g-hit").dataset.li : -1);
       if(li>=0 && !this.linkFrom){ this._openLinkPop(this.links[li], e); return; }
+      // Alt+клик по пустому — новая нода в этой точке: текст сразу, вид под ним (_askTitleKind)
+      if(e.altKey && !this.linkFrom){ e.preventDefault(); const p=this._pt(e); this._askTitleKind(e, p.x, p.y, null); return; }
       // ЛКМ по пустому — рамка выделения (пан теперь средней кнопкой)
       if(!e.shiftKey){ this.selNodes.clear(); this._paintSel(); }
       this._startMarquee(e); svg.setPointerCapture(e.pointerId); this._closePop();
@@ -1883,9 +1930,9 @@ class Graph{
           // нарисованным мимо экрана. Найти её потом можно было только через «Одинокие ноды».
           const rc=svg.getBoundingClientRect();
           const inside = e.clientX>=rc.left && e.clientX<=rc.right && e.clientY>=rc.top && e.clientY<=rc.bottom;
-          // Тип спрашиваем, а не додумываем: раньше всегда рождалась заметка, и задачу или
-          // полотно приходилось переделывать вручную сразу после создания.
-          if(inside){ const p=this._pt(e); this._askKind(e, k=>this._quickAdd(k,p.x,p.y,from)); }
+          // Сперва текст, вид — под ним (см. _askTitleKind): раньше меню видов стояло ПЕРЕД
+          // вводом и рвало мысль на полуслове
+          if(inside){ const p=this._pt(e); this._askTitleKind(e, p.x, p.y, from); }
         }
         return; }
       if(this.marq){ this._finishMarquee(); return; }
@@ -3070,7 +3117,7 @@ class Graph{
     return `M ${ax.toFixed(1)} ${ay.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${bx.toFixed(1)} ${by.toFixed(1)}`;
   }
   startLink(id){ this.linkFrom=id; this.svg.classList.add("linking"); $("#g-hint").innerHTML="Режим связи: кликни по второму узлу. Esc — отмена."; this._closePop(); }
-  cancelLink(){ this.linkFrom=null; this.svg.classList.remove("linking"); this.tempLine.style.display="none"; if($("#g-hint"))$("#g-hint").innerHTML="Alt+тащи от ноды — связь/заметка · Ctrl+тащи — копия выделенного · Shift+тащи — одну ноду, без куста · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · Delete — удалить"; }
+  cancelLink(){ this.linkFrom=null; this.svg.classList.remove("linking"); this.tempLine.style.display="none"; if($("#g-hint"))$("#g-hint").innerHTML="Alt+тащи от ноды — связь/заметка · Alt+клик — новая нода · Ctrl+тащи — копия выделенного · Shift+тащи — одну ноду, без куста · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · Delete — удалить"; }
   // Связать два узла. Связывать можно с чем угодно (заметка/задача/область), но не сам с собой
   // и не область с областью. ОБЛАСТЬ — ОСОБЫЙ СЛУЧАЙ: членство в области это поле it.area, а не
   // связь — линию элемент↔область граф рисует сам (см. build). Поэтому конец в хабе означает

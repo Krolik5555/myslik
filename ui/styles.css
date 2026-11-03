@@ -1629,6 +1629,14 @@ button:disabled:hover,.btn:disabled:hover{background:var(--surf);border-color:va
 /* инлайн-ввод названия новой ноды прямо на холсте графа (поток мысли не рвётся) */
 .g-inline{position:absolute;transform:translate(-50%,-50%);z-index:8;width:152px;background:var(--surf2);border:1px solid var(--acc);border-radius:7px;padding:5px 9px;font-size:13px;color:var(--tx);outline:none;box-shadow:0 4px 18px var(--sh),0 0 14px var(--glow);text-align:center;}
 .g-inline::placeholder{color:var(--mut2);}
+/* Alt-создание: сперва текст, под ним вид ноды (_askTitleKind). Поле — то же .g-inline, но в
+   потоке коробки: свой translate у него сбил бы ряд видов под ним */
+.g-quick{position:absolute;transform:translate(-50%,-22px);z-index:8;display:flex;flex-direction:column;align-items:center;gap:6px;}
+.g-quick .g-inline{position:static;transform:none;width:200px;}
+.g-quick-kinds{display:flex;gap:4px;padding:3px;background:var(--surf2);border:1px solid var(--bd2);border-radius:8px;box-shadow:0 4px 14px var(--sh);}
+.g-quick-kinds button{display:flex;align-items:center;gap:4px;padding:3px 7px;border:0;border-radius:6px;background:none;color:var(--mut);font-size:11.5px;cursor:pointer;}
+.g-quick-kinds button:hover{color:var(--tx);background:var(--surf3);}
+.g-quick-kinds button.on{color:var(--tx);background:var(--surf3);box-shadow:inset 0 0 0 1px var(--acc);}
 /* метка «с опозданием» у выполненной задачи (вместо «просрочено») */
 .due.late{color:var(--mut);font-style:italic;}
 /* стилизованные теги: глиф иконки в ноде графа + менеджер тегов */
