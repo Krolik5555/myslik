@@ -72,12 +72,8 @@ t.push({имя: "тур открывается, и точек в шкале ст
         ок: !!p0 && p0.querySelectorAll(".tour-dots i").length === ТУР.length && ТУР.length > 0,
         факт: p0 ? "шагов " + ТУР.length + ", точек " + p0.querySelectorAll(".tour-dots i").length +
                    ", заголовок «" + p0.querySelector(".tour-head b").textContent + "»" : "выноски нет"});
-{
-  const r = p0.getBoundingClientRect();
-  t.push({имя: "шаг без цели встаёт по центру окна",
-          ок: Math.abs((r.left + r.width / 2) - innerWidth / 2) < 3 && r.left >= 0 && r.right <= innerWidth,
-          факт: "центр выноски " + Math.round(r.left + r.width / 2) + " при центре окна " + Math.round(innerWidth / 2)});
-}
+/* «Шаг без цели — по центру» меряется на первом шаге БЕЗ цели (ниже, у Shift): с 2.2 тур
+   открывается шагом, который показывает на логотип, и мерить центр на нём бессмысленно. */
 /* Все шаги обязаны иметь версию: по ней тур фильтруется под того, кто обновился (turNewSteps).
    Шаг без `v` виден всем и каждый раз — то есть тур перестаёт быть слоёным. */
 t.push({имя: "у каждого шага проставлена версия",
@@ -102,18 +98,37 @@ t.push({имя: "отметка встаёт сразу при показе, н�
 /* ================== ШАГ 0 (продолжение): ЗАПЛАТКА 2.0.6.1, ШАГ 1: ГРАФ НА ВСЁ ОКНО ==================
    Состав тура меняется каждый релиз (глубина — два выпуска, см. docs/СБОРКА-И-РЕЛИЗ.md), и
    проверки идут ПО ПОРЯДКУ шагов, а не по номерам версий: так их правят вместе с самим туром,
-   а не ищут потом, почему сценарий рассыпался. В 2.1.0 шаги 2.0.6 убраны по глубине, первым
-   стал шаг заплатки 2.0.6.1, следом — новинки 2.1.0. */
+   а не ищут потом, почему сценарий рассыпался. В 2.2.0 убран шаг заплатки 2.0.6.1, первыми
+   идут новинки 2.2.0 (своя тема — с целью на логотипе), следом — прежние шаги 2.1.0. */
+{
+  const p = document.querySelector("#tour-pop"), ц = document.querySelector("#cv-tl");
+  t.push({имя: "первый шаг — своя тема, подсвечен логотип",
+          ок: /сво/i.test(p.querySelector(".tour-head b").textContent) && !!ц && ц.classList.contains("tour-lit") && !p.classList.contains("mid"),
+          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», подсвечен: " + (ц ? ц.classList.contains("tour-lit") : "нет #cv-tl") + ", mid: " + p.classList.contains("mid")});
+}
+document.querySelector("#tour-next").click(); await ж(200); доиграть();
 {
   const p = document.querySelector("#tour-pop");
-  t.push({имя: "первый шаг — заплатка 2.0.6.1 про вставку нод",
-          ок: /ctrl\+v|вставк/i.test(p.querySelector(".tour-head b").textContent),
+  t.push({имя: "второй шаг — Shift, без цели (по центру)",
+          ок: /shift/i.test(p.querySelector(".tour-head b").textContent) && p.classList.contains("mid"),
+          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», mid: " + p.classList.contains("mid")});
+  const r = p.getBoundingClientRect();
+  t.push({имя: "шаг без цели встаёт по центру окна",
+          ок: Math.abs((r.left + r.width / 2) - innerWidth / 2) < 3 && r.left >= 0 && r.right <= innerWidth,
+          факт: "центр выноски " + Math.round(r.left + r.width / 2) + " при центре окна " + Math.round(innerWidth / 2)});
+}
+// ================== ШАГИ 3–8: ОСТАЛЬНЫЕ НОВИНКИ 2.2.0 ПО ПОРЯДКУ ==================
+for (const [имя, рег] of [["нода на связи", /связи/i], ["Alt-создание", /alt/i], ["вид в меню", /вид/i],
+                          ["веер и метка срока", /веер/i], ["пересечения связей", /сверху/i], ["мелочи", /мелоч/i]]) {
+  document.querySelector("#tour-next").click(); await ж(200); доиграть();
+  const p = document.querySelector("#tour-pop");
+  t.push({имя: "шаг 2.2: " + имя, ок: рег.test(p.querySelector(".tour-head b").textContent),
           факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "»"});
 }
 document.querySelector("#tour-next").click(); await ж(200); доиграть();
 {
   const p = document.querySelector("#tour-pop");
-  t.push({имя: "второй шаг — граф на всё окно, без цели (по центру)",
+  t.push({имя: "первый шаг 2.1 — граф на всё окно, без цели (по центру)",
           ок: /окно/i.test(p.querySelector(".tour-head b").textContent) && p.classList.contains("mid"),
           факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», mid: " + p.classList.contains("mid")});
 }

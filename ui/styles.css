@@ -2625,6 +2625,9 @@ html.canvas-ui .graph-search{top:auto;bottom:62px;z-index:31;}
 /* ---- ТОСТ НАД ДОКОМ, ПОДСКАЗКА НЕ ПОД ПАНЕЛЬЮ ---- */
 /* в каркасе «холст» внизу по центру стоит док инструментов — тост ложился на него («Отменено») */
 html.canvas-ui #toast{bottom:68px;}
+/* плашки «обновился» и «есть новая версия» в каркасе — над тостом: тост поднят над доком (68 px
+   плюс ~44 его высоты), а плашки стояли на 64 и садились прямо на него */
+html.canvas-ui .tour-banner,html.canvas-ui .upd-banner{bottom:116px;}
 /* у «стекла» панель лежит поверх графа, и подсказка жестов справа сверху уходила под неё */
 html.canvas-ui body.as-glass #split:has(#graph-wrap) .graph-hint{right:calc(var(--asw,440px) + 24px);}
 
