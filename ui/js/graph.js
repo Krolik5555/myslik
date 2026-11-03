@@ -1065,24 +1065,28 @@ class Graph{
   }
   /* ALT-СОЗДАНИЕ: СПЕРВА ТЕКСТ, ВИД ПОТОМ. Раньше на отпускании Alt-протяжки выскакивало меню
      видов, и мысль приходилось держать в голове, пока выбираешь кнопку. Теперь поле ввода
-     появляется сразу, а вид — рядом под ним из реестра KINDS: не тронул — заметка. Вид меняют
-     клик по кнопке или Tab/Shift+Tab, не выпуская курсора из поля. Пустое поле ничего не
-     создаёт: Escape, клик мимо и Enter без текста — одинаково отказ. */
+     появляется сразу, а вид — рядом под ним из реестра KINDS: не тронул — вид по умолчанию
+     (S.settings.altKind, без него заметка). Вид меняют клик по кнопке или Tab/Shift+Tab, не
+     выпуская курсора из поля; ДВОЙНОЙ клик по виду делает его умолчанием — у КРОЛИКА бывает,
+     что подряд идут одни задачи, и щёлкать вид на каждой ноде незачем. То же — в настройках
+     графа. Пустое поле ничего не создаёт: Escape, клик мимо и Enter без текста — отказ. */
   _askTitleKind(e, wx, wy, fromId){
     this._closePop();
     const wrap=$("#graph-wrap"); if(!wrap) return;
     const old=wrap.querySelector(".g-inline, .g-quick"); if(old) old.remove();
     const виды=Object.keys(KINDS);
-    let вид="note";
+    const умолч=()=>KINDS[S.settings.altKind] ? S.settings.altKind : "note";
+    let вид=умолч();
     const box=el("div","g-quick");
     box.innerHTML=`<input class="g-inline" placeholder="${fromId?"Новая связанная…":"Новая мысль…"}">
-      <div class="g-quick-kinds">${виды.map(k=>`<button type="button" data-qk="${k}" title="${esc(kindName(k))}"><i class="ti ${kindIcon(k)}"></i>${esc(kindName(k))}</button>`).join("")}</div>`;
+      <div class="g-quick-kinds">${виды.map(k=>`<button type="button" data-qk="${k}" title="${esc(kindName(k))} · двойной клик — по умолчанию"><i class="ti ${kindIcon(k)}"></i>${esc(kindName(k))}</button>`).join("")}</div>`;
     wrap.appendChild(box);
     const rc=wrap.getBoundingClientRect();
     box.style.left=Math.min(Math.max(110, e.clientX-rc.left), rc.width-110)+"px";
     box.style.top =Math.min(Math.max(30,  e.clientY-rc.top),  rc.height-70)+"px";
     const inp=$("input",box);
-    const отметить=()=>$$("[data-qk]",box).forEach(b=>b.classList.toggle("on", b.dataset.qk===вид));
+    const отметить=()=>$$("[data-qk]",box).forEach(b=>{ b.classList.toggle("on", b.dataset.qk===вид);
+      b.classList.toggle("def", b.dataset.qk===умолч()); });
     отметить();
     let done=false;
     const finish=(save)=>{ if(done) return; done=true;
@@ -1095,6 +1099,8 @@ class Graph{
       // фокус из поля не отдаём: иначе blur закрыл бы коробку раньше, чем дойдёт клик
       b.onpointerdown=ev=>ev.preventDefault();
       b.onclick=()=>{ вид=b.dataset.qk; отметить(); inp.focus(); };
+      b.ondblclick=()=>{ S.settings.altKind=b.dataset.qk; persist(true); вид=b.dataset.qk; отметить(); inp.focus();
+        toast("По Alt теперь создаётся: "+kindRu(вид), {icon:kindIcon(вид)}); };
     });
     inp.onkeydown=ev=>{ ev.stopPropagation();
       if(ev.key==="Enter"){ ev.preventDefault(); finish(true); }

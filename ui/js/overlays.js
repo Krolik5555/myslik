@@ -1188,7 +1188,7 @@ function openShortcuts(){
       ["ЛКМ-тащи по пустому","Рамка выделения нод"],
       ["Средняя кнопка","Двигать холст (пан)"],
       ["Alt + тащи от ноды","Связь · на пустое — новая связанная нода: текст, под ним вид"],
-      ["Alt + клик по пустому","Новая нода: пишешь текст, вид — кнопкой или Tab (по умолчанию заметка)"],
+      ["Alt + клик по пустому","Новая нода: пишешь текст, вид — кнопкой или Tab; двойной клик по виду делает его умолчанием (и в настройках графа)"],
       ["ПКМ по пустому","Меню «Создать» (заметка/задача/полотно/подграф)"],
       ["ПКМ по ноде / связи","Настройки ноды / связи"],
       ["2× клик по ноде","Открыть: заметку — читалкой, полотно — доской, подграф — войти внутрь"],
@@ -1264,6 +1264,11 @@ function openSettings(tab){
         <div class="set-hint">Топография — рельеф открытой работы: изолинии гуще там, где больше незакрытых задач. Пыль и звёзды медленно движутся — видеокарта при них не засыпает.</div></div>
     </div>
     <div class="set-panel" data-panel="graph" hidden>
+      ${/* ВИД НОВОЙ НОДЫ ПО ALT — из реестра KINDS; читает graph._askTitleKind. Тот же выбор
+           ставится двойным кликом по виду прямо в коробке создания. */""}
+      <div class="field"><label>Новая нода по Alt</label>
+        <div class="seg" id="set-altkind">${Object.keys(KINDS).map(k=>`<button data-v="${k}" class="${(KINDS[s.altKind]?s.altKind:"note")===k?"on":""}"><i class="ti ${kindIcon(k)}"></i>${esc(kindName(k))}</button>`).join("")}</div>
+        <div class="set-hint">Каким видом рождается нода, если при Alt-создании вид не выбирать.</div></div>
       <!-- Чем рисуется граф. SVG — прежний путь со всеми возможностями; холст рисует дерево целиком
            и не создаёт элементов вовсе (на 650 узлах это 38 мс кадра из 47). Переключается на лету,
            данные не трогает: не понравилось — вернул обратно. -->
@@ -1393,6 +1398,8 @@ function openSettings(tab){
     // у стекла граф уходит под панель — ширина холста меняется, граф должен пересчитать себя
     if(typeof graph!=="undefined" && graph) requestAnimationFrame(()=>graph._onResize()); });
   $$("#set-glow button",m).forEach(b=>b.onclick=()=>{ s.glow=+b.dataset.v; persist(true); applySettings(); $$("#set-glow button",m).forEach(x=>x.classList.toggle("on",x===b)); });
+  $$("#set-altkind button",m).forEach(b=>b.onclick=()=>{ s.altKind=b.dataset.v; persist(true);
+    $$("#set-altkind button",m).forEach(x=>x.classList.toggle("on",x===b)); });
   $$("#set-bg button",m).forEach(b=>b.onclick=()=>{ s.graphBgKind=b.dataset.v; s.graphBg=true; persist(true);
     $$("#set-bg button",m).forEach(x=>x.classList.toggle("on",x===b)); if(typeof graph!=="undefined" && graph){ graph._topo=null; graph._wake(); } });
   const drift=$("#set-drift",m); drift.oninput=()=>{ s.graphDrift=+drift.value; $("#val-drift",m).textContent=drift.value; persist(true); };   // граф читает S.settings каждый кадр → применяется вживую
