@@ -173,6 +173,7 @@ function renderNotes(v){
       <!-- поток работы по связям (см. _drawMain, «ПОТОК»): русло и течение выключаются по отдельности -->
       <button class="gm-it" id="g-flow"><i class="ti ti-ripple"></i>${S.settings.graphFlow===false?"Показать поток работы":"Скрыть поток работы"}</button>
       <button class="gm-it" id="g-flow-anim"${S.settings.graphFlow===false?' style="display:none"':""}><i class="ti ti-player-${S.settings.graphFlowAnim===false?"play":"pause"}"></i>${S.settings.graphFlowAnim===false?"Включить течение":"Остановить течение"}</button>
+      <button class="gm-it" id="g-bridges"><i class="ti ti-arrows-cross"></i>${S.settings.graphBridges===false?"Показать, где связь под связью":"Скрыть провалы на пересечениях"}</button>
       <button class="gm-it" id="g-hint-on"><i class="ti ti-help-circle"></i>Показать подсказку</button>
       <!-- Тур показывается сам ОДИН раз после обновления. Отсюда его можно открыть снова:
            иначе посмотреть второй раз можно было только правкой файла данных.
@@ -271,6 +272,10 @@ function renderNotes(v){
       а.innerHTML='<i class="ti ti-player-'+(S.settings.graphFlowAnim===false?"play":"pause")+'"></i>'+(S.settings.graphFlowAnim===false?"Включить течение":"Остановить течение"); } };
   if($("#g-flow")) $("#g-flow").onclick=()=>{ closeMore(); S.settings.graphFlow=S.settings.graphFlow===false; persist(); потокПодписи(); graph._wake(); graph._tick(true); };
   if($("#g-flow-anim")) $("#g-flow-anim").onclick=()=>{ closeMore(); S.settings.graphFlowAnim=S.settings.graphFlowAnim===false; persist(); потокПодписи(); graph._wake(); graph._tick(true); };
+  // провал на пересечениях (_crossBuild): счёт сбрасываем, чтобы кадр пересчитал его сразу
+  if($("#g-bridges")) $("#g-bridges").onclick=()=>{ closeMore(); S.settings.graphBridges=S.settings.graphBridges===false; persist();
+    const б=$("#g-bridges"); if(б) б.innerHTML='<i class="ti ti-arrows-cross"></i>'+(S.settings.graphBridges===false?"Показать, где связь под связью":"Скрыть провалы на пересечениях");
+    graph._перес=null; graph._wake(); graph._tick(true); };
   wireNotesToggle();
 }
 // каретка-сворачиватель для узла, у которого есть дочерние (в наборе паутины)
@@ -846,6 +851,74 @@ class Graph{
       else if(реб.waiting && !ст.doing) l._пот={вид:"ждёт", реб};
       else if(ст.open) l._пот={вид:"русло", реб, ст, ш:Math.round((1.2+4.6*Math.sqrt(ст.open/макс))*2)/2};   // шаг 0.5 px — иначе пачек столько же, сколько связей
     }
+  }
+  /* ПЕРЕСЕЧЕНИЯ СВЯЗЕЙ — «ПРОВАЛ» (выбор КРОЛИКА из demo_мостики.html, 04.11.2026). Где две связи
+     скрещиваются, нижняя плавно гаснет к точке пересечения и разгорается за ней — уходит вглубь,
+     под верхнюю. Здесь только СЧЁТ: кто под кем и где (l._пров = [{t, ш}] — доля пути от l.a и
+     ширина верхней); гасит сама отрисовка градиентом прозрачности вдоль той же одной линии —
+     поверх ничего не стирается (инвариант «связь — одна линия»).
+     Считается НЕ В КАДРЕ: на сборке и, пока раскладка едет, раз в ПЕРЕС_МС (на большом графе
+     реже) — см. вызов в _drawMain. Пары ищутся по сетке, а не все со всеми: тысяча связей в лоб —
+     полмиллиона проверок. Дуга (прогиб вокруг ноды) идёт двумя отрезками через свою середину —
+     для «где провал» этой точности хватает с запасом.
+     КТО СВЕРХУ: что толще — русло потока шире тонкой связи, ручная толще рядовой; из равных —
+     та, чей верхний конец ближе к корню: ствол проходит над листьями, а не наоборот. */
+  _crossBuild(){
+    const L=this.links, по=this.byId;
+    this._перес={src:L, at:performance.now()};
+    for(let i=0;i<L.length;i++) L[i]._пров=null;
+    if(S.settings.graphBridges===false || L.length<2) return;
+    const поток=S.settings.graphFlow!==false;
+    const вес=l=>{ const п=поток&&l._пот;
+      if(п) return п.вид==="русло" ? п.ш : п.вид==="ждёт" ? 1.4 : 0.5;
+      return l.faded ? 0.9 : l.hubLink ? 2.6 : l.manual ? 1.8 : 1.2; };
+    const глуб=new Map();
+    const дг=id=>{ let d=глуб.get(id); if(d!=null) return d;
+      let n=по[id]; d=(n && n.type==="hub") ? 0 : 1;
+      for(let k=0; n && n.ref && n.ref.parent && по[n.ref.parent] && k<40; k++){ d++; n=по[n.ref.parent]; }
+      глуб.set(id,d); return d; };
+    const ЯЧ=160, сетка=new Map(), отр=[];
+    for(let i=0;i<L.length;i++){ const l=L[i], a=по[l.a], b=по[l.b]; if(!a||!b) continue;
+      const bd=l._bendC;
+      let кус;
+      if(bd){ const cx=a.x+(b.x-a.x)*bd.t+bd.ox*2, cy=a.y+(b.y-a.y)*bd.t+bd.oy*2;
+        const mx=0.25*a.x+0.5*cx+0.25*b.x, my=0.25*a.y+0.5*cy+0.25*b.y;
+        кус=[[a.x,a.y,mx,my,0,0.5],[mx,my,b.x,b.y,0.5,1]]; }
+      else кус=[[a.x,a.y,b.x,b.y,0,1]];
+      for(const к of кус){ const j=отр.length; отр.push({i, к});
+        const x0=Math.floor(Math.min(к[0],к[2])/ЯЧ), x1=Math.floor(Math.max(к[0],к[2])/ЯЧ);
+        const y0=Math.floor(Math.min(к[1],к[3])/ЯЧ), y1=Math.floor(Math.max(к[1],к[3])/ЯЧ);
+        if((x1-x0+1)*(y1-y0+1)>900) continue;              // связь через полмира — порченые координаты
+        for(let x=x0;x<=x1;x++) for(let y=y0;y<=y1;y++){ const ключ=x+","+y;
+          let с=сетка.get(ключ); if(!с){ с=[]; сетка.set(ключ,с); } с.push(j); } }
+    }
+    const было=new Set(), M=отр.length;
+    сетка.forEach(с=>{
+      for(let p=0;p<с.length;p++) for(let q=p+1;q<с.length;q++){
+        const ja=с[p], jb=с[q], A=отр[ja], B=отр[jb]; if(A.i===B.i) continue;
+        const ключ=ja<jb ? ja*M+jb : jb*M+ja; if(было.has(ключ)) continue; было.add(ключ);
+        const l=L[A.i], m=L[B.i];
+        if(l.a===m.a||l.a===m.b||l.b===m.a||l.b===m.b) continue;   // сходятся в ноде, а не скрещиваются
+        const a=A.к, b=B.к;
+        const d=(a[2]-a[0])*(b[3]-b[1])-(a[3]-a[1])*(b[2]-b[0]); if(Math.abs(d)<1e-9) continue;
+        const s=((b[0]-a[0])*(b[3]-b[1])-(b[1]-a[1])*(b[2]-b[0]))/d;
+        const u=((b[0]-a[0])*(a[3]-a[1])-(b[1]-a[1])*(a[2]-a[0]))/d;
+        if(s<=0||s>=1||u<=0||u>=1) continue;
+        const px=a[0]+(a[2]-a[0])*s, py=a[1]+(a[3]-a[1])*s;
+        // скрещивание под самой нодой не видно — её тело и так закрывает обе линии
+        let подНодой=false;
+        for(const id of [l.a,l.b,m.a,m.b]){ const n=по[id]; if(Math.hypot(n.x-px,n.y-py)<(n.r||8)+6){ подНодой=true; break; } }
+        if(подНодой) continue;
+        const wl=вес(l), wm=вес(m);
+        const lВерх = Math.abs(wl-wm)>0.05 ? wl>wm
+                    : (Math.min(дг(l.a),дг(l.b))!==Math.min(дг(m.a),дг(m.b)) ? Math.min(дг(l.a),дг(l.b))<Math.min(дг(m.a),дг(m.b)) : A.i<B.i);
+        const низ=lВерх?m:l, кус=lВерх?b:a, доля=lВерх?u:s, ш=lВерх?wl:wm;
+        const t=кус[4]+(кус[5]-кус[4])*доля;
+        (низ._пров||(низ._пров=[])).push({t, ш});
+      }
+    });
+    for(let i=0;i<L.length;i++){ const п=L[i]._пров; if(!п) continue;
+      п.sort((x,y)=>x.t-y.t); if(п.length>12) п.length=12; }   // больше дюжины провалов на одной связи — это уже пунктир
   }
   /* ТОПОГРАФИЯ РАБОТЫ — рельеф, где высота = открытая работа. Не сумма гауссиан по каждой
      клетке (на 950 нодах это сотни миллионов операций), а размазка нод в сетку мира с шагом
@@ -5455,6 +5528,36 @@ class Graph{
        осознанная — КРОЛИК просил именно градиент. Экономим на другом: одноцветные связи всё же
        идут пакетом, а разноцветные рисуются только в кадре.
        Потухшая ветка цвета не получает вовсе: она нарочно нейтральная и тусклая. */
+    /* ПРОВАЛ НА ПЕРЕСЕЧЕНИЯХ (см. _crossBuild). Счёт — не в кадре: на сборке и, пока раскладка
+       едет или ноду тащат, по таймеру (на большом графе реже). Нижняя связь рисуется ОДНОЙ линией
+       со своим градиентом прозрачности, поэтому из пакетов она выпадает и идёт поштучно, как
+       разноцветная. Потолок поштучных — ПРОВАЛ_ПОТОЛОК: дальше связи рисуются как раньше, без
+       провала, чтобы густой граф на отдалении не платил сотнями градиентов за то, чего не видно.
+       На сильном отдалении провал и не нужен: линии там в волосок. */
+    { const сейч=performance.now(), п=this._перес, шаг=this.nodes.length>350?900:350;
+      if(!п || п.src!==this.links || ((this.alpha>0 || (this.drag && this.drag._moved)) && сейч-п.at>шаг)) this._crossBuild(); }
+    const ПРОВАЛ=S.settings.graphBridges!==false && z>=0.2, ПРОВАЛ_ПОТОЛОК=400, ПРОВАЛ_ЗОНА=26, ПРОВАЛ_ДНО=0.1;
+    let провалов=0;
+    const сПровалом=l=>{ if(!ПРОВАЛ || !l || !l._пров || провалов>=ПРОВАЛ_ПОТОЛОК) return false; провалов++; return true; };
+    /* Градиент вдоль хорды связи: полный цвет → ДНО к точке пересечения → полный. Зона — в
+       ЭКРАННЫХ пикселях (как в макете), плюс половина ширины верхней: у русла провал шире.
+       обр — путь идёт от l.b к l.a (поток рисует от родителя к ребёнку), доли отражаются.
+       Цвет считаем сами, без _mix: тот кладёт каждую новую строку в кэш _rgb, и кэш рос бы
+       с каждым кадром. */
+    const градПровала=(о, ca, cb, l, обр)=>{
+      const гр=ctx.createLinearGradient(о[0],о[1],о[2],о[3]);
+      const Lэ=Math.hypot(о[2]-о[0],о[3]-о[1])||1, A=this._rgb(ca), B=this._rgb(cb);
+      const цв=(t,a)=>"rgba("+Math.round(A[0]+(B[0]-A[0])*t)+","+Math.round(A[1]+(B[1]-A[1])*t)+","+Math.round(A[2]+(B[2]-A[2])*t)+","+a+")";
+      const п=l._пров, n=п.length; let до=0;
+      гр.addColorStop(0, цв(0,1));
+      for(let k=0;k<n;k++){ const p=п[обр?n-1-k:k], tc=обр?1-p.t:p.t;
+        if(tc<=до || tc>=1) continue;
+        const g=Math.min(0.3, (p.ш*z*0.5+ПРОВАЛ_ЗОНА)/Lэ), t0=Math.max(до, tc-g), t1=Math.min(1, tc+g);
+        гр.addColorStop(t0, цв(t0,1)); гр.addColorStop(tc, цв(tc,ПРОВАЛ_ДНО)); гр.addColorStop(t1, цв(t1,1)); до=t1; }
+      гр.addColorStop(1, цв(1,1));
+      return гр;
+    };
+    const провалы=[];   // нижние связи обычных проходов: {о, ca, cb, ш, оп, l, свеч}, рисуются после ручных
     const яркость=(S.settings.graphLinkBright!=null?S.settings.graphLinkBright:1);
     const тускло=(S.settings.graphFadedBright!=null?S.settings.graphFadedBright:0.5);
     const цветКонца=(n)=>n.archived ? пал.тусклая : (n.color || пал.связь);
@@ -5479,6 +5582,7 @@ class Graph{
       цветные.add(i);                                                 // общий проход эту связь пропустит
       const bd=l._bendC, отр=[ax,ay,bx,by, bd?bd.t:0, bd?bd.ox:0, bd?bd.oy:0];
       const к=свояСвязь(l)?1:0;
+      if(сПровалом(l)){ провалы.push({о:отр, ca, cb, ш:толщ(1.2), оп:Math.min(1,0.45*яркость)*(к?1:тень), l}); continue; }
       if(ca===cb){ let с=одноцветные[к].get(ca); if(!с){ с=[]; одноцветные[к].set(ca,с); } с.push(отр); }
       else радуга[к].push({отр, ca, cb});
     }
@@ -5542,6 +5646,9 @@ class Graph{
         const a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) continue;
         const ax=эx(a), ay=эy(a), bx=эx(b), by=эy(b);
         if((ax<вид.x1&&bx<вид.x1)||(ax>вид.x2&&bx>вид.x2)||(ay<вид.y1&&by<вид.y1)||(ay>вид.y2&&by>вид.y2)) continue;
+        if(сПровалом(l)){ const bd=l._bendC;
+          провалы.push({о:[ax,ay,bx,by, bd?bd.t:0, bd?bd.ox:0, bd?bd.oy:0], ca:круг.цвет, cb:круг.цвет, ш:толщ(круг.ш), оп:круг.оп*(круг.своя?1:тень), l});
+          continue; }
         ctx.moveTo(ax,ay);
         const bd=l._bendC;                                            // прогиб вокруг помехи — та же геометрия, что в _linkPath
         if(bd){ const px=ax+(bx-ax)*bd.t, py=ay+(by-ay)*bd.t;
@@ -5571,9 +5678,11 @@ class Graph{
         const ax=эx(a), ay=эy(a), bx=эx(b), by=эy(b);
         if((ax<вид.x1&&bx<вид.x1)||(ax>вид.x2&&bx>вид.x2)||(ay<вид.y1&&by<вид.y1)||(ay>вид.y2&&by>вид.y2)) continue;
         const цвет=цветКонца(a)!==пал.связь?цветКонца(a):цветКонца(b);
+        const bd=l._bendC;
+        if(сПровалом(l)){ провалы.push({о:[ax,ay,bx,by, bd?bd.t:0, bd?bd.ox:0, bd?bd.oy:0], ca:цвет, cb:цвет,
+          ш:Math.max(1.2, 2.6*z), оп:Math.min(1,0.6*яркость)*(свояСвязь(l)?1:тень), l}); continue; }
         ctx.globalAlpha=Math.min(1,0.6*яркость)*(свояСвязь(l)?1:тень);
         ctx.strokeStyle=цвет;
-        const bd=l._bendC;
         ctx.beginPath(); ctx.moveTo(ax,ay);
         if(bd){ const px=ax+(bx-ax)*bd.t, py=ay+(by-ay)*bd.t; ctx.quadraticCurveTo(px+bd.ox*2*z, py+bd.oy*2*z, bx, by); }
         else ctx.lineTo(bx,by);
@@ -5591,6 +5700,9 @@ class Graph{
         const a=this.byId[l.a], b=this.byId[l.b]; if(!a||!b) continue;
         const ax=эx(a), ay=эy(a), bx=эx(b), by=эy(b);
         if((ax<вид.x1&&bx<вид.x1)||(ax>вид.x2&&bx>вид.x2)||(ay<вид.y1&&by<вид.y1)||(ay>вид.y2&&by>вид.y2)) continue;
+        if(сПровалом(l)){ const bd=l._bendC;
+          провалы.push({о:[ax,ay,bx,by, bd?bd.t:0, bd?bd.ox:0, bd?bd.oy:0], ca:цветКонца(a), cb:цветКонца(b),
+            ш:толщ(1.8), оп:Math.min(1,0.75*яркость)*(свояСвязь(l)?1:тень), l, свеч:true}); continue; }
         if(!ручных){ ctx.save(); ctx.lineWidth=толщ(1.8); ctx.lineCap="round"; }
         ручных++;
         const ca=цветКонца(a), cb=цветКонца(b);
@@ -5608,6 +5720,17 @@ class Graph{
       }
       if(ручных) ctx.restore();
       ctx.globalAlpha=1;
+    }
+    // нижние связи обычных проходов — поштучно, своим градиентом провала (см. градПровала)
+    if(провалы.length){
+      ctx.save(); ctx.lineCap="round";
+      for(const п of провалы){
+        ctx.globalAlpha=п.оп; ctx.lineWidth=п.ш; ctx.strokeStyle=градПровала(п.о, п.ca, п.cb, п.l, false);
+        // ручная светится и под провалом: тень снимается с той же прозрачности, что и линия
+        if(п.свеч){ ctx.shadowColor=пал.сияние; ctx.shadowBlur=4; } else ctx.shadowBlur=0;
+        ctx.beginPath(); путьСвязи(п.о); ctx.stroke();
+      }
+      ctx.restore(); ctx.globalAlpha=1;
     }
     /* СВЯЗИ УЗЛА ПОД КУРСОРОМ — поверх остальных, плотнее и со свечением своего цвета. Свечение
        тут по карману: связей у одного узла единицы, а не тысяча, — то же правило, по которому
@@ -5671,9 +5794,9 @@ class Graph{
            (1-t), иначе контрольная точка дуги уезжала и рядом ложилась вторая линия со своим
            изгибом — «несколько связей друг на друге» (снимок КРОЛИКА, 03.11.2026). */
         const bd=l._bendC, отр=[ax,ay,bx,by, bd?(реб===a?1-bd.t:bd.t):0, bd?bd.ox:0, bd?bd.oy:0];
-        const гас=свояСвязь(l)?1:тень;
-        if(п0.вид==="спит"){ спят.push({отр, цвет:цветКонца(реб), гас}); continue; }
-        if(п0.вид==="ждёт"){ ждут.push({отр, цвет:цветКонца(реб), гас}); continue; }
+        const гас=свояСвязь(l)?1:тень, обр=(реб===a);   // путь развёрнут к l.a — доли провала отражаются
+        if(п0.вид==="спит"){ спят.push({отр, цвет:цветКонца(реб), гас, l, обр}); continue; }
+        if(п0.вид==="ждёт"){ ждут.push({отр, цвет:цветКонца(реб), гас, l, обр}); continue; }
         const ст=п0.ст, ш=п0.ш;
         /* ЦВЕТ РУСЛА — ОТ КОНЦОВ, как у обычной связи: разноцветные ноды дают градиент. Единый
            акцент на всё, что ведёт к работе, перекрашивал ветки в оранжевый и стирал, чья это
@@ -5681,26 +5804,27 @@ class Graph{
         const ca = ст.over&&!ст.doing ? пал.время.просрочка : цветКонца(род);
         const cb = ст.over&&!ст.doing ? пал.время.просрочка : цветКонца(реб);
         const ярко=ст.doing||ст.over;
-        if(ca===cb){
+        // нижнее русло из пачки выпадает: у него свой градиент провала (как у разноцветного)
+        if(ca===cb && !(ПРОВАЛ && l._пров)){
           const ключ=ca+"|"+ш+"|"+(ярко?1:0)+"|"+гас;
           let п=пачки.get(ключ); if(!п){ п={цвет:ca, ш, ярко, гас, отр:[]}; пачки.set(ключ, п); }
           п.отр.push(отр);
-        } else радугаП.push({отр, ca, cb, ш, ярко, гас});
-        if(анимация && ярко) течение.push({отр, ca, cb, ш, гас});
+        } else радугаП.push({отр, ca, cb, ш, ярко, гас, l, обр});
+        if(анимация && ярко) течение.push({отр, ca, cb, ш, гас, l, обр});
       }
       ctx.lineCap="round";
       /* «спит» — ТОНЬШЕ, а не темнее: тёмная линия той же толщины читалась как грязь (КРОЛИК);
          тонкая в своём цвете — как «ветка отложена». */
       if(спят.length){
         ctx.lineWidth=Math.max(0.6, 0.45*z);
-        for(const с of спят){ ctx.globalAlpha=0.55*с.гас; ctx.strokeStyle=с.цвет; ctx.beginPath(); путьСвязи(с.отр); ctx.stroke(); }
+        for(const с of спят){ ctx.globalAlpha=0.55*с.гас; ctx.strokeStyle=сПровалом(с.l)?градПровала(с.отр,с.цвет,с.цвет,с.l,с.обр):с.цвет; ctx.beginPath(); путьСвязи(с.отр); ctx.stroke(); }
         ctx.globalAlpha=1;
       }
       // «ждёт» — пунктир ЦВЕТОМ САМОЙ СВЯЗИ (КРОЛИК): чужой голубой выдёргивал связь из ветки
       if(ждут.length){
         const шл=толщ(1.4); ctx.setLineDash([Math.max(4, шл*2.6), Math.max(3, шл*2)]); ctx.lineCap="butt";
         ctx.lineWidth=шл;
-        for(const ж of ждут){ ctx.globalAlpha=0.9*ж.гас; ctx.strokeStyle=ж.цвет; ctx.beginPath(); путьСвязи(ж.отр); ctx.stroke(); }
+        for(const ж of ждут){ ctx.globalAlpha=0.9*ж.гас; ctx.strokeStyle=сПровалом(ж.l)?градПровала(ж.отр,ж.цвет,ж.цвет,ж.l,ж.обр):ж.цвет; ctx.beginPath(); путьСвязи(ж.отр); ctx.stroke(); }
         ctx.setLineDash([]); ctx.globalAlpha=1; ctx.lineCap="round";
       }
       пачки.forEach(п=>{
@@ -5709,8 +5833,10 @@ class Graph{
         ctx.stroke();
       });
       // разноцветные — градиентом поштучно, как в общем проходе связей
-      for(const р of радугаП){ const о=р.отр, гр=ctx.createLinearGradient(о[0],о[1],о[2],о[3]);
-        гр.addColorStop(0,р.ca); гр.addColorStop(1,р.cb);
+      for(const р of радугаП){ const о=р.отр;
+        let гр;
+        if(сПровалом(р.l)) гр=градПровала(о, р.ca, р.cb, р.l, р.обр);
+        else { гр=ctx.createLinearGradient(о[0],о[1],о[2],о[3]); гр.addColorStop(0,р.ca); гр.addColorStop(1,р.cb); }
         ctx.globalAlpha=(р.ярко?0.85:0.6)*р.гас; ctx.strokeStyle=гр; ctx.lineWidth=толщ(р.ш); ctx.beginPath(); путьСвязи(о); ctx.stroke(); }
       ctx.globalAlpha=1;
       if(течение.length){
@@ -5723,7 +5849,9 @@ class Graph{
         for(const т of течение){ const шт=Math.max(1.4, толщ(т.ш)*0.55);
           ctx.setLineDash([шт*1.4, шт*5]); ctx.lineDashOffset=-сейчас*0.04*ск;
           const о=т.отр; let цв=светлее(т.ca);
-          if(т.ca!==т.cb){ цв=ctx.createLinearGradient(о[0],о[1],о[2],о[3]); цв.addColorStop(0,светлее(т.ca)); цв.addColorStop(1,светлее(т.cb)); }
+          // зёрна ныряют под верхнюю связь вместе со своим руслом
+          if(сПровалом(т.l)) цв=градПровала(о, светлее(т.ca), светлее(т.cb), т.l, т.обр);
+          else if(т.ca!==т.cb){ цв=ctx.createLinearGradient(о[0],о[1],о[2],о[3]); цв.addColorStop(0,светлее(т.ca)); цв.addColorStop(1,светлее(т.cb)); }
           ctx.strokeStyle=цв; ctx.globalAlpha=т.гас; ctx.lineWidth=шт; ctx.beginPath(); путьСвязи(т.отр); ctx.stroke(); }
         ctx.setLineDash([]); ctx.lineDashOffset=0; ctx.globalAlpha=1;
       }
