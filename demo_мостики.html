@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Пересечение связей</title>
+<style>
+:root{--bg:#060607;--cv:#0b0b0d;--s1:#121216;--tx:#f4f4f5;--mut:#9a9aa3;--mut2:#7a7a83;--hair:rgba(255,255,255,.08);}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--tx);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:21px;margin:0 0 4px} .lead{color:var(--mut);max-width:940px;margin:0 0 18px}
+.bar{display:flex;gap:8px;margin:0 0 16px;align-items:center;color:var(--mut)}
+.bar button{background:var(--s1);color:var(--tx);border:1px solid var(--hair);border-radius:8px;padding:5px 10px;cursor:pointer;font:inherit}
+.bar button.on{box-shadow:inset 0 0 0 1px #6f9bd8}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(520px,1fr));gap:18px}
+.card{background:var(--cv);border-radius:14px;box-shadow:0 0 0 1px var(--hair);overflow:hidden}
+.cap{padding:12px 16px;background:var(--s1);border-bottom:1px solid var(--hair)} .cap h3{margin:0;font-size:15px} .cap p{margin:3px 0 0;color:var(--mut);font-size:12.5px}
+.cap .why{color:var(--mut2);font-size:11.5px;margin-top:4px}
+canvas{display:block;width:100%;height:300px}
+</style>
+</head>
+<body>
+<h1>Пересечение связей — пять решений</h1>
+<p class="lead">Общее у всех: на скрещивании видно, какая связь идёт ПОВЕРХ. Сверху — та, что важнее: русло потока выше тонкой связи, а из двух равных — та, чей верхний конец ближе к корню дерева (ствол проходит над листьями). Ничего не стирается: нижняя связь рисуется кусками или с другой толщиной/прозрачностью, верхняя — одной линией. Пересечения считаются раз на сборку графа, не в кадре.</p>
+<div class="bar">Масштаб: <button data-z="1" class="on">обычный</button><button data-z="2">крупно ×2</button><button data-z="0.55">отдаление</button></div>
+<div class="grid" id="g"></div>
+<script>
+const V=[
+ {k:"gap",  n:"А. Разрыв",    d:"Нижняя связь обрывается за несколько пикселей до верхней и продолжается за ней — как линии метро на схеме.",
+   why:"Самый строгий и тихий. На отдалении зазор пропадает сам (он в экранных пикселях — не раздувается)."},
+ {k:"hop",  n:"Б. Горбик",    d:"Верхняя связь перескакивает нижнюю полукруглой дужкой — как провод на электросхеме.",
+   why:"Однозначно читается «через», но дужки добавляют формы на холсте; на густом месте их много."},
+ {k:"fade", n:"В. Провал",    d:"Нижняя связь плавно гаснет к пересечению и разгорается за ним — уходит вглубь, под верхнюю.",
+   why:"Самый мягкий, без резких краёв. Чем гуще граф, тем больше тусклых мест у нижних связей."},
+ {k:"pinch",n:"Г. Перетяжка", d:"Нижняя связь сужается до волоска у пересечения, будто продавлена верхней, и снова набирает толщину.",
+   why:"Видно и у тонких связей, и у русла; глаз читает «придавлено сверху». Цвет не меняется."},
+ {k:"gate", n:"Д. Ворота",    d:"Нижняя связь разорвана, а края разрыва отмечены короткими поперечными засечками — проход под мостом.",
+   why:"Самое явное «одна под другой», но самое шумное: засечки — новые элементы поверх формы."},
+];
+// сцена: ноды и связи (w — ширина, dash — «ждёт», lvl — глубина верхнего конца, меньше = ближе к корню)
+const N={r:{x:90,y:150,c:"#6f9bd8",r:13},a:{x:250,y:60,c:"#5fb98e",r:9},b:{x:270,y:235,c:"#e8a14b",r:10},
+  c:{x:430,y:90,c:"#a68ce0",r:8},d:{x:440,y:215,c:"#d77fa1",r:8},e:{x:175,y:265,c:"#5fb98e",r:7},f:{x:360,y:30,c:"#e8a14b",r:7},
+  g:{x:470,y:150,c:"#6f9bd8",r:7}};
+const L=[ {a:"r",b:"c",w:5,lvl:0},{a:"a",b:"b",w:1.6,lvl:1},{a:"r",b:"d",w:1.6,lvl:0},{a:"e",b:"f",w:1.6,lvl:2,dash:true},
+  {a:"a",b:"g",w:1.6,lvl:1},{a:"b",b:"c",w:2.6,lvl:1} ];
+let Z=1;
+function hexA(h,a){const n=parseInt(h.slice(1),16);return `rgba(${n>>16},${n>>8&255},${n&255},${a})`;}
+function inter(p,q,r,s){ // пересечение отрезков pq и rs → параметры t (по pq), u (по rs)
+  const d=(q.x-p.x)*(s.y-r.y)-(q.y-p.y)*(s.x-r.x); if(Math.abs(d)<1e-9) return null;
+  const t=((r.x-p.x)*(s.y-r.y)-(r.y-p.y)*(s.x-r.x))/d, u=((r.x-p.x)*(q.y-p.y)-(r.y-p.y)*(q.x-p.x))/d;
+  return (t>0.02&&t<0.98&&u>0.02&&u<0.98)?{t,u}:null; }
+function prep(){ // кто сверху и где — раз на «сборку»
+  L.forEach(l=>{l.P=N[l.a];l.Q=N[l.b];l.len=Math.hypot(l.Q.x-l.P.x,l.Q.y-l.P.y);l.under=[];l.over=[];});
+  for(let i=0;i<L.length;i++)for(let j=i+1;j<L.length;j++){const A=L[i],B=L[j];
+    if(A.a===B.a||A.a===B.b||A.b===B.a||A.b===B.b) continue;
+    const x=inter(A.P,A.Q,B.P,B.Q); if(!x) continue;
+    const верхA = A.w!==B.w ? A.w>B.w : A.lvl<=B.lvl, top=верхA?A:B, low=верхA?B:A;
+    const tl=верхA?x.u:x.t, tt=верхA?x.t:x.u;
+    low.under.push({t:tl,w:top.w,dir:{x:(top.Q.x-top.P.x)/top.len,y:(top.Q.y-top.P.y)/top.len}});
+    top.over.push({t:tt,w:low.w});}
+  L.forEach(l=>{l.under.sort((a,b)=>a.t-b.t);l.over.sort((a,b)=>a.t-b.t);});
+}
+function grad(ctx,l,a){const g=ctx.createLinearGradient(l.P.x,l.P.y,l.Q.x,l.Q.y);g.addColorStop(0,hexA(l.P.c,a));g.addColorStop(1,hexA(l.Q.c,a));return g;}
+function at(l,t){return {x:l.P.x+(l.Q.x-l.P.x)*t,y:l.P.y+(l.Q.y-l.P.y)*t};}
+function seg(ctx,l,t0,t1){const p=at(l,t0),q=at(l,t1);ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);ctx.stroke();}
+function style(ctx,l,a){ctx.strokeStyle=grad(ctx,l,a);ctx.lineWidth=l.w;ctx.lineCap="round";ctx.setLineDash(l.dash?[5,5]:[]);}
+const A0=l=>l.w>=4?0.42:0.62;
+function draw(cv,k){
+  const dpr=devicePixelRatio||1, W=cv.clientWidth, H=300; cv.width=W*dpr; cv.height=H*dpr;
+  const ctx=cv.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle="#0b0b0d"; ctx.fillRect(0,0,W,H);
+  ctx.translate(W/2,H/2); ctx.scale(Z,Z); ctx.translate(-270,-150);
+  const px=v=>v/Z;   // зазоры и дужки — в ЭКРАННЫХ пикселях
+  // нижние сначала (у кого есть under), верхние — потом; порядок внутри не важен
+  const order=[...L].sort((a,b)=>(b.under.length?1:0)-(a.under.length?1:0));
+  order.forEach(l=>{
+    const a=A0(l);
+    if(!l.under.length || k==="hop"){ // целиком
+      style(ctx,l,a);
+      if(k==="hop" && l.over.length){ // верхняя с дужками
+        ctx.beginPath(); let p=at(l,0); ctx.moveTo(p.x,p.y);
+        const ux=(l.Q.x-l.P.x)/l.len, uy=(l.Q.y-l.P.y)/l.len;
+        l.over.forEach(o=>{const R=px(o.w/2+5), c=at(l,o.t); ctx.lineTo(c.x-ux*R,c.y-uy*R);
+          const ang=Math.atan2(uy,ux); ctx.arc(c.x,c.y,R,ang+Math.PI,ang,false);});
+        p=at(l,1); ctx.lineTo(p.x,p.y); ctx.stroke();
+      } else seg(ctx,l,0,1);
+      return;
+    }
+    style(ctx,l,a);
+    const cuts=l.under.map(u=>({t:u.t, g:px(u.w/2+ (k==="fade"?26: k==="pinch"?18 : 5))/l.len, u}));
+    if(k==="gap"||k==="gate"){
+      let t=0; cuts.forEach(c=>{seg(ctx,l,t,c.t-c.g); t=c.t+c.g;}); seg(ctx,l,t,1);
+      if(k==="gate"){ ctx.setLineDash([]); ctx.lineWidth=Math.max(1.2,l.w*0.8);
+        cuts.forEach(c=>{const d=c.u.dir, h=px(4.5); [c.t-c.g,c.t+c.g].forEach(tt=>{const p=at(l,tt);
+          ctx.beginPath();ctx.moveTo(p.x-d.x*h,p.y-d.y*h);ctx.lineTo(p.x+d.x*h,p.y+d.y*h);ctx.stroke();});}); }
+    } else if(k==="fade"){
+      let t=0; cuts.forEach(c=>{seg(ctx,l,t,c.t-c.g);
+        [[c.t-c.g,c.t,a,0.08],[c.t,c.t+c.g,0.08,a]].forEach(([t0,t1,a0,a1])=>{const p=at(l,t0),q=at(l,t1);
+          const g=ctx.createLinearGradient(p.x,p.y,q.x,q.y); const cc=at(l,(t0+t1)/2);
+          const col=l.P.c; g.addColorStop(0,hexA(col,a0)); g.addColorStop(1,hexA(col,a1));
+          ctx.strokeStyle=g; ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);ctx.stroke(); style(ctx,l,a);});
+        t=c.t+c.g;}); seg(ctx,l,t,1);
+    } else if(k==="pinch"){
+      let t=0; cuts.forEach(c=>{seg(ctx,l,t,c.t-c.g); const S=10;
+        for(let i=0;i<S*2;i++){const t0=c.t-c.g+(2*c.g)*i/(S*2), t1=c.t-c.g+(2*c.g)*(i+1)/(S*2);
+          const m=Math.abs(((t0+t1)/2-c.t)/c.g); ctx.lineWidth=Math.max(px(0.6), l.w*(0.12+0.88*m*m)); ctx.lineCap="butt"; seg(ctx,l,t0,t1);}
+        ctx.lineCap="round"; ctx.lineWidth=l.w; t=c.t+c.g;}); seg(ctx,l,t,1);
+    }
+  });
+  ctx.setLineDash([]);
+  Object.values(N).forEach(n=>{ctx.beginPath();ctx.arc(n.x,n.y,n.r,0,7);ctx.fillStyle=hexA(n.c,.18);ctx.fill();
+    ctx.lineWidth=1.8;ctx.strokeStyle=n.c;ctx.stroke();});
+}
+prep();
+const g=document.getElementById("g");
+V.forEach(v=>{const c=document.createElement("div");c.className="card";
+  c.innerHTML=`<div class="cap"><h3>${v.n}</h3><p>${v.d}</p><div class="why">${v.why}</div></div><canvas data-k="${v.k}"></canvas>`;g.appendChild(c);});
+const all=()=>document.querySelectorAll("canvas").forEach(cv=>draw(cv,cv.dataset.k));
+document.querySelectorAll("[data-z]").forEach(b=>b.onclick=()=>{Z=+b.dataset.z;
+  document.querySelectorAll("[data-z]").forEach(x=>x.classList.toggle("on",x===b));all();});
+addEventListener("resize",all); all();
+</script>
+</body>
+</html>
