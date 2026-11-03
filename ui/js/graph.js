@@ -808,7 +808,13 @@ class Graph{
     const стат=n=>n._поток||(n._поток={open:0, doing:false, over:false});
     this.nodes.forEach(c=>{
       if(!c.ref || c.type==="hub") return;
-      const открыта=kindIsTask(c.type) && !c.done && c.ref.status!=="done" && !c.archived;
+      /* ОТКРЫТАЯ РАБОТА — у задачи это «не закрыта», а у заметки и полотна «в работе». Раньше
+         считались только задачные виды, и заметка «в работе» (статус ей разрешён, и build уже
+         зажигает ей doing) потока не давала вовсе: русло рисуется лишь при open>0, а ветка из
+         одних заметок — обычное дело у КРОЛИКА, проекты живут заметками. Простую заметку в
+         работу не записываем: это знание, а не дело, иначе тёк бы весь граф и поток перестал бы
+         что-либо значить. */
+      const открыта=!c.archived && (kindIsTask(c.type) ? (!c.done && c.ref.status!=="done") : !!c.doing);
       const идёт=!!c.doing && !c.archived, горит=открыта && c.дней!=null && c.дней<0;
       const добавить=у=>{ if(открыта) у.open++; if(идёт) у.doing=true; if(горит) у.over=true; };
       добавить(стат(c));
@@ -851,7 +857,8 @@ class Graph{
   _topoBuild(){
     // все ноды, кроме служебных: дерево заметок без единой задачи тоже не должно быть дырой
     const ноды=this.nodes.filter(n=>n.ref && n.type!=="hub");
-    const вес=n=>(!kindIsTask(n.type) || n.done||n.archived||n._спит) ? 0.3 : n.doing ? 1.6 : 1;
+    // заметка «в работе» — та же открытая работа, что и в _flowStats: рельеф и поток не спорят
+    const вес=n=>(n.done||n.archived||n._спит || (!kindIsTask(n.type) && !n.doing)) ? 0.3 : n.doing ? 1.6 : 1;
     this._topo={src:this.links, at:performance.now(), пути:[]};
     if(!ноды.length) return;
     const ШАГ=24, ЗАП=320;
