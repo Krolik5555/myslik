@@ -31,9 +31,9 @@ const шагОжид = (z, r, near) => {
 const экр = (wx, wy) => { const rc = graph.svg.getBoundingClientRect();
   return {x: rc.left + (wx * graph.zoom + graph.tx) / graph.W * rc.width, y: rc.top + (wy * graph.zoom + graph.ty) / graph.H * rc.height}; };
 // протяжка: нажать на ноде, два движения (первое — за порог), отпустить; ctrl2 — Ctrl на втором движении
-const тянуть = (n, wx, wy, ctrl2) => {
+const тянуть = (n, wx, wy, ctrl2, shift) => {
   const svg = graph.svg, p = экр(n.x, n.y), q = экр(wx, wy), mid = {x: (p.x + q.x) / 2 + 9, y: (p.y + q.y) / 2 + 9};
-  svg.dispatchEvent(new PointerEvent("pointerdown", {button: 0, clientX: p.x, clientY: p.y, bubbles: true, cancelable: true}));
+  svg.dispatchEvent(new PointerEvent("pointerdown", {button: 0, clientX: p.x, clientY: p.y, shiftKey: !!shift, bubbles: true, cancelable: true}));
   svg.dispatchEvent(new PointerEvent("pointermove", {buttons: 1, clientX: mid.x, clientY: mid.y, bubbles: true, cancelable: true}));
   svg.dispatchEvent(new PointerEvent("pointermove", {buttons: 1, clientX: q.x, clientY: q.y, ctrlKey: !!ctrl2, bubbles: true, cancelable: true}));
   svg.dispatchEvent(new PointerEvent("pointerup", {button: 0, clientX: q.x, clientY: q.y, ctrlKey: !!ctrl2, bubbles: true, cancelable: true}));
@@ -126,6 +126,37 @@ addLink(A.id, B.id); recomputeHierarchy(); persist(); render(); await ж(200);
                 [уA.x, уA.y, уB.x, уB.y].map(v => +v.toFixed(3)).join(",") + " (" + к2 + " кадров), ждём " + [ax, ay, ax + 2 * s, ay].join(",")});
   t.push({имя: "связь осталась строго горизонтальной", ок: Math.abs(уB.y - уA.y) < 1e-9,
           факт: "разница по вертикали " + (уB.y - уA.y).toFixed(4)});
+}
+
+/* С ПРИВЯЗКОЙ SHIFT НАОБОРОТ (КРОЛИК, 04.11.2026): обычная протяжка двигает одну ноду, куст стоит;
+   Shift+протяжка тянет куст за собой; Shift-клик — по-прежнему выделение. B — ребёнок A. */
+{
+  const уснуть = () => { graph.alpha = 1; for (let i = 0; i < 4000 && graph.alpha > 0; i++) graph._tick(true); };
+  S.settings.graphSnapMode = "always";
+  const nA = graph.byId[A.id]; навести(nA, 1);
+  const s = шагОжид(1, nA.r, false);
+  // обычная протяжка: ребёнок остаётся на месте
+  уснуть(); let b0 = {x: graph.byId[B.id].x, y: graph.byId[B.id].y};
+  let a = graph.byId[A.id]; тянуть(a, Math.round(a.x / s) * s + 2 * s, Math.round(a.y / s) * s); уснуть();
+  let b1 = graph.byId[B.id], сдв = Math.hypot(b1.x - b0.x, b1.y - b0.y);
+  t.push({имя: "с привязкой обычная протяжка двигает одну ноду, куст стоит", ок: сдв < 2,
+          факт: "ребёнок сдвинулся на " + сдв.toFixed(2) + " px"});
+  // Shift+протяжка: ребёнок едет следом
+  b0 = {x: b1.x, y: b1.y}; a = graph.byId[A.id];
+  const ax0 = a.x;
+  тянуть(a, Math.round(a.x / s) * s + 2 * s, Math.round(a.y / s) * s, false, true); уснуть();
+  b1 = graph.byId[B.id]; сдв = Math.hypot(b1.x - b0.x, b1.y - b0.y);
+  const шагA = graph.byId[A.id].x - ax0;
+  t.push({имя: "с привязкой Shift+протяжка тянет куст за собой", ок: Math.abs(шагA) > s && сдв > s * 0.8,
+          факт: "нода сдвинулась на " + Math.round(шагA) + ", ребёнок на " + Math.round(сдв) + " px"});
+  // Shift-клик без протяжки — в выделение
+  graph.selNodes.clear(); graph._paintSel();
+  { const svg = graph.svg, p = экр(graph.byId[B.id].x, graph.byId[B.id].y);
+    svg.dispatchEvent(new PointerEvent("pointerdown", {button: 0, clientX: p.x, clientY: p.y, shiftKey: true, bubbles: true, cancelable: true}));
+    svg.dispatchEvent(new PointerEvent("pointerup", {button: 0, clientX: p.x, clientY: p.y, shiftKey: true, bubbles: true, cancelable: true})); }
+  t.push({имя: "с привязкой Shift-клик добавляет ноду в выделение", ок: graph.selNodes.has(B.id),
+          факт: "в выделении: " + [...graph.selNodes].length});
+  graph.selNodes.clear(); graph._paintSel();
 }
 
 // ================== УБОРКА ==================

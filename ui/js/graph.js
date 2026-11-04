@@ -196,7 +196,7 @@ function renderNotes(v){
          верхний угол свободен и симметричен тулбару слева. */""}
     <button class="graph-ai" id="g-ai" title="ИИ: пакеты команд от нейросети и подключение агента"><i class="ti ti-sparkles"></i></button>
     <!-- подсказку можно закрыть: висеть постоянно ей незачем, а вернуть — из меню «…» -->
-    <div class="graph-hint${S.settings.graphHint===false?" off":""}" id="g-hint"><span>Alt+тащи от ноды — связь/заметка · Alt+клик — новая нода · Ctrl+тащи — копия выделенного · Shift+тащи — одну ноду, без куста · ПКМ — меню / создать · ЛКМ-рамка — выделить · двойной клик — открыть (подграф — войти внутрь) · средняя кнопка — двигать · колесо — зум · Delete — удалить</span><button id="g-hint-x" title="Скрыть подсказку"><i class="ti ti-x"></i></button></div>
+    <div class="graph-hint${S.settings.graphHint===false?" off":""}" id="g-hint"><span>Alt+тащи от ноды — связь/заметка · Alt+клик — новая нода · Ctrl+тащи — копия выделенного · Shift+тащи — одну ноду, без куста (с привязкой к сетке — наоборот) · ПКМ — меню / создать · ЛКМ-рамка — выделить · двойной клик — открыть (подграф — войти внутрь) · средняя кнопка — двигать · колесо — зум · Delete — удалить</span><button id="g-hint-x" title="Скрыть подсказку"><i class="ti ti-x"></i></button></div>
     <!-- только счётчик: кнопка «Отчёт» уехала в правую панель, где отчёт и собирается -->
     <div class="graph-selbar" id="g-selbar" style="display:none">
       <span class="gsb-n"></span>
@@ -1869,8 +1869,13 @@ class Graph{
            отпускание), а протяжка двигает ОДНУ эту ноду: физика на время жеста стоит (_tick), дети
            на домах остаются, где были, — на отпускании их дома пересчитываются от нового места
            владельца. Без этого переставить узел, не разворотив его куст, было нечем. */
+        /* С ПРИВЯЗКОЙ К СЕТКЕ — НАОБОРОТ (КРОЛИК, 04.11.2026): ставят по узлам по одной ноде, и куст,
+           уезжающий следом, сбивал бы с узлов уже поставленное. Поэтому при graphSnap обычная
+           протяжка сольная, а Shift тянет куст, как раньше без него. Shift-клик (_shiftClick) —
+           выделение в обоих режимах: переворачивается только то, едет ли куст. */
+        const соло = S.settings.graphSnap ? !e.shiftKey : e.shiftKey;
         if(e.shiftKey){
-          this.drag=n; n._moved=false; n._grabbed=true; this._solo=true; this.dragMates=null;
+          this.drag=n; n._moved=false; n._grabbed=true; this._solo=соло; this._shiftClick=true; this.dragMates=null;
           this._dragFrom={x:e.clientX,y:e.clientY};
           { const p0=this._pt(e); this._grab={dx:n.x-p0.x, dy:n.y-p0.y}; }
           svg.setPointerCapture(e.pointerId);
@@ -1903,7 +1908,7 @@ class Graph{
         // на нажатии оно плодило бы дубликаты поверх оригиналов при простом Ctrl+клике
         this.copyDrag=e.ctrlKey && !e.altKey && !e.shiftKey;
         if(this.copyDrag) svg.style.cursor="copy";
-        this.dragMates=null; n._grabbed=true;
+        this.dragMates=null; n._grabbed=true; this._solo=соло;   // с привязкой обычная протяжка — без куста (см. выше)
         if(this.selNodes.size>1 && this.selNodes.has(n.id)){
           const мест=[];
           this.selNodes.forEach(id=>{ const m=this.byId[id];
@@ -2067,9 +2072,11 @@ class Graph{
             else { const ar=q.hubArea||q.subRoot; if(ar){ ar.hx=q.x; ar.hy=q.y; } } });   // якорь хаба (см. _tick, «ЯКОРЬ hx/hy»)
           /* Сольный хват: дети на домах стоят там, где стояли, — переписываем их дома от нового
              места владельца. Иначе первое же пробуждение физики увезло бы куст следом. */
-          if(this._solo && S.settings.graphHome) this.nodes.forEach(c=>{
-            const it=c.ref; if(!it || c===n || it.hx==null || this._ownerNode(it)!==n) return;
-            it.x=c.x; it.y=c.y; this._homeFromDrag(it); });
+          // в руке может быть группа (с привязкой сольна и групповая протяжка) — стоят кусты ВСЕХ схваченных
+          if(this._solo && S.settings.graphHome){ const вРуке=new Set(группа);
+            this.nodes.forEach(c=>{
+              const it=c.ref; if(!it || вРуке.has(c) || it.hx==null || !вРуке.has(this._ownerNode(it))) return;
+              it.x=c.x; it.y=c.y; this._homeFromDrag(it); }); }
           /* ЖЕСТ — ОДИН ШАГ ИСТОРИИ. Кладём его ПЕРЕД persist: тот откроет окно дебаунса и снимет
              свой, обычный шаг, а раскладка в него не входит (см. _noXY в core.js). Без этой
              строки Ctrl+Z после перетаскивания не возвращал ничего. */
@@ -2077,7 +2084,7 @@ class Graph{
           // с БОЛЬШИМ дебаунсом: серия «тащу — отпускаю — снова тащу» обязана уехать на диск
           // одной записью после того, как рука остановилась (разбор — у ЗАПИСЬ_ЖЕСТ_МС в core.js)
           persist(false, ЗАПИСЬ_ЖЕСТ_МС);
-        } else if(this._solo){
+        } else if(this._shiftClick){
           // Shift-клик без протяжки — прежний смысл: нода в выделение или из него
           if(this.selNodes.has(n.id)) this.selNodes.delete(n.id); else this.selNodes.add(n.id);
           this._paintSel();
@@ -2113,7 +2120,7 @@ class Graph{
         n._grabbed=false;
         if(this.dragMates){ this.dragMates.forEach(м=>{ м.n._grabbed=false; }); this.dragMates=null; }
         this._dragHollowAreas=null; this.copyDrag=false; svg.style.cursor="";
-        this.drag=null; this._solo=false;
+        this.drag=null; this._solo=false; this._shiftClick=false;
       }
       this.panning=null;
     };
@@ -3226,7 +3233,7 @@ class Graph{
     return `M ${ax.toFixed(1)} ${ay.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${bx.toFixed(1)} ${by.toFixed(1)}`;
   }
   startLink(id){ this.linkFrom=id; this.svg.classList.add("linking"); $("#g-hint").innerHTML="Режим связи: кликни по второму узлу. Esc — отмена."; this._closePop(); }
-  cancelLink(){ this.linkFrom=null; this.svg.classList.remove("linking"); this.tempLine.style.display="none"; if($("#g-hint"))$("#g-hint").innerHTML="Alt+тащи от ноды — связь/заметка · Alt+клик — новая нода · Ctrl+тащи — копия выделенного · Shift+тащи — одну ноду, без куста · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · Delete — удалить"; }
+  cancelLink(){ this.linkFrom=null; this.svg.classList.remove("linking"); this.tempLine.style.display="none"; if($("#g-hint"))$("#g-hint").innerHTML="Alt+тащи от ноды — связь/заметка · Alt+клик — новая нода · Ctrl+тащи — копия выделенного · Shift+тащи — одну ноду, без куста (с привязкой к сетке — наоборот) · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · Delete — удалить"; }
   // Связать два узла. Связывать можно с чем угодно (заметка/задача/область), но не сам с собой
   // и не область с областью. ОБЛАСТЬ — ОСОБЫЙ СЛУЧАЙ: членство в области это поле it.area, а не
   // связь — линию элемент↔область граф рисует сам (см. build). Поэтому конец в хабе означает
