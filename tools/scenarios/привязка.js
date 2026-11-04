@@ -34,9 +34,10 @@ const экр = (wx, wy) => { const rc = graph.svg.getBoundingClientRect();
 const тянуть = (n, wx, wy, ctrl2, shift) => {
   const svg = graph.svg, p = экр(n.x, n.y), q = экр(wx, wy), mid = {x: (p.x + q.x) / 2 + 9, y: (p.y + q.y) / 2 + 9};
   svg.dispatchEvent(new PointerEvent("pointerdown", {button: 0, clientX: p.x, clientY: p.y, shiftKey: !!shift, bubbles: true, cancelable: true}));
-  svg.dispatchEvent(new PointerEvent("pointermove", {buttons: 1, clientX: mid.x, clientY: mid.y, bubbles: true, cancelable: true}));
-  svg.dispatchEvent(new PointerEvent("pointermove", {buttons: 1, clientX: q.x, clientY: q.y, ctrlKey: !!ctrl2, bubbles: true, cancelable: true}));
-  svg.dispatchEvent(new PointerEvent("pointerup", {button: 0, clientX: q.x, clientY: q.y, ctrlKey: !!ctrl2, bubbles: true, cancelable: true}));
+  // Shift держится ВСЮ протяжку: режим «одна нода / с кустом» следует за ним на каждом движении (_soloShift)
+  svg.dispatchEvent(new PointerEvent("pointermove", {buttons: 1, clientX: mid.x, clientY: mid.y, shiftKey: !!shift, bubbles: true, cancelable: true}));
+  svg.dispatchEvent(new PointerEvent("pointermove", {buttons: 1, clientX: q.x, clientY: q.y, ctrlKey: !!ctrl2, shiftKey: !!shift, bubbles: true, cancelable: true}));
+  svg.dispatchEvent(new PointerEvent("pointerup", {button: 0, clientX: q.x, clientY: q.y, ctrlKey: !!ctrl2, shiftKey: !!shift, bubbles: true, cancelable: true}));
 };
 /* Перед жестом раскладке дают успокоиться: дом считается от ЖИВОГО владельца (_homeFromDrag), и
    бросок, пока хаб ещё едет к своему месту, честно уводит ноду на снос хаба — так у человека не
@@ -137,14 +138,15 @@ addLink(A.id, B.id); recomputeHierarchy(); persist(); render(); await ж(200);
   const s = шагОжид(1, nA.r, false);
   // обычная протяжка: ребёнок остаётся на месте
   уснуть(); let b0 = {x: graph.byId[B.id].x, y: graph.byId[B.id].y};
-  let a = graph.byId[A.id]; тянуть(a, Math.round(a.x / s) * s + 2 * s, Math.round(a.y / s) * s); уснуть();
+  // вниз, а не вправо: справа через две клетки стоит сам ребёнок, и нода легла бы ровно на него
+  let a = graph.byId[A.id]; тянуть(a, Math.round(a.x / s) * s, Math.round(a.y / s) * s + 2 * s); уснуть();
   let b1 = graph.byId[B.id], сдв = Math.hypot(b1.x - b0.x, b1.y - b0.y);
   t.push({имя: "с привязкой обычная протяжка двигает одну ноду, куст стоит", ок: сдв < 2,
           факт: "ребёнок сдвинулся на " + сдв.toFixed(2) + " px"});
   // Shift+протяжка: ребёнок едет следом
   b0 = {x: b1.x, y: b1.y}; a = graph.byId[A.id];
   const ax0 = a.x;
-  тянуть(a, Math.round(a.x / s) * s + 2 * s, Math.round(a.y / s) * s, false, true); уснуть();
+  тянуть(a, Math.round(a.x / s) * s - 2 * s, Math.round(a.y / s) * s, false, true); уснуть();
   b1 = graph.byId[B.id]; сдв = Math.hypot(b1.x - b0.x, b1.y - b0.y);
   const шагA = graph.byId[A.id].x - ax0;
   t.push({имя: "с привязкой Shift+протяжка тянет куст за собой", ок: Math.abs(шагA) > s && сдв > s * 0.8,
@@ -155,7 +157,8 @@ addLink(A.id, B.id); recomputeHierarchy(); persist(); render(); await ж(200);
     svg.dispatchEvent(new PointerEvent("pointerdown", {button: 0, clientX: p.x, clientY: p.y, shiftKey: true, bubbles: true, cancelable: true}));
     svg.dispatchEvent(new PointerEvent("pointerup", {button: 0, clientX: p.x, clientY: p.y, shiftKey: true, bubbles: true, cancelable: true})); }
   t.push({имя: "с привязкой Shift-клик добавляет ноду в выделение", ок: graph.selNodes.has(B.id),
-          факт: "в выделении: " + [...graph.selNodes].length});
+          факт: "в выделении: " + [...graph.selNodes].map(id => id === B.id ? "B" : id === A.id ? "A" : id).join(",") +
+                "; B в " + Math.round(graph.byId[B.id].x) + "," + Math.round(graph.byId[B.id].y) + ", A в " + Math.round(graph.byId[A.id].x) + "," + Math.round(graph.byId[A.id].y)});
   graph.selNodes.clear(); graph._paintSel();
 
   /* SHIFT ПО ХОДУ ЖЕСТА (КРОЛИК: «взял ноду, нажал Shift — остальные всё равно тянутся» и «отпустил
