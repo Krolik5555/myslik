@@ -23,22 +23,22 @@
     <button data-v="near" class="on">Только рядом (Houdini)</button>
     <button data-v="always">Всегда к ближайшей</button>
   </div>
-  <div class="row">Радиус мелкой ступени, экранные px</div>
-  <div class="seg" id="b-fine">
-    <button data-v="0">выкл</button>
-    <button data-v="4">4</button>
-    <button data-v="6">6</button>
-    <button data-v="8" class="on">8</button>
-    <button data-v="10">10</button>
+  <div class="row">Мелкие крестики на шумном фоне — выбрать один</div>
+  <div class="seg" id="b-fv">
+    <button data-v="window" class="on">Г. Окно сетки</button>
+    <button data-v="near">А. Ближний круг</button>
+    <button data-v="tint">Б. Оттенок</button>
+    <button data-v="reveal">В. Проступают</button>
   </div>
-  <div class="row">Мелкая ступень в режиме «всегда»</div>
-  <div class="seg" id="b-afine">
-    <button data-v="no" class="on">Нет — только крупный шаг</button>
-    <button data-v="yes">Да — тоже с мелкой</button>
+  <div class="seg" id="b-fv2" style="margin-top:4px">
+    <button data-v="old">для сравнения: было</button>
+    <button data-v="halo">сейчас (подложка)</button>
   </div>
+  <p id="fv-desc"></p>
   <div class="row">Фон холста</div>
   <div class="seg" id="b-bg">
-    <button data-v="grid" class="on">Сетка</button>
+    <button data-v="stars" class="on">Звёзды</button>
+    <button data-v="grid">Сетка</button>
     <button data-v="clean">Чистый тон</button>
   </div>
   <div id="rd"></div>
@@ -47,8 +47,30 @@
 /* Сетка — та же формула, что в graph.js (_drawMain, «ФОН СЕТКА»): уровни ×5 от шага 20 мира, яркость
    уровня только от экранного шага (гаснет к 8 px, полная с 36), линии в floor(экран)+0.5. */
 const cv=document.getElementById("cv"), ctx=cv.getContext("2d");
-let W=0,H=0,dpr=1, z=1, tx=0, ty=0;
-const ST={mode:"near", fine:8, afine:"yes", bg:"grid"};
+let W=0,H=0,dpr=1, z=3, tx=0, ty=0;
+const ST={mode:"near", fine:8, afine:"yes", bg:"stars", fv:"window"};
+const FV_DESC={
+  window:"Г. Окно сетки (идея КРОЛИКА), на любом фоне: при захвате окно расходится от ноды, при отпускании сходится в неё. Фон внутри мягко затемнён — звёзды гаснут, — и проступает сама сетка: мелкие клетки тонкими линиями с маленькими крестиками на узлах (на приближении чуть крупнее), крупные — линиями потолще и жирными крестиками.",
+  near:"А. Мелкие видны только в ближнем круге — две мелкие клетки вокруг ноды. Дальше линза из одних крупных: картинка лёгкая, а там, куда кладёшь, мелкие под рукой.",
+  tint:"Б. Мелкие — тем же весом, но цветом акцента темы, а не белым: от звёзд отличаются оттенком, а не размером.",
+  reveal:"В. Мелкие проявляются по мере приближения к ним: видны только ближайшие узлы, и чем ближе нода, тем ярче. На остальной линзе их нет вовсе.",
+  old:"Для сравнения: как было до подложки — белые, 2 px, тише крупных.",
+  halo:"Для сравнения: сейчас в приложении — тёмная подложка и до 9 px (КРОЛИК не принял)."};
+/* ЗВЁЗДЫ — упрощённо по _drawBgGL: та же октава (шаг в экранных px, в мире — степени двойки), разброс
+   в ячейке 0.5, размер почти не зависит от зума (z^0.2 в вилке 0.8…1.25). Без дрейфа и параллакса. */
+const STAR_LAYERS=[{sp:34,sz:1.6,a:0.14},{sp:52,sz:2.0,a:0.20},{sp:76,sz:2.4,a:0.27},{sp:110,sz:2.9,a:0.35},{sp:150,sz:3.4,a:0.45}];
+const h=(x,y)=>{ const s=Math.sin(x*127.1+y*311.7)*43758.5453123; return s-Math.floor(s); };
+function drawStars(){
+  const l2=Math.log2(z), n0=Math.floor(l2), zf=Math.max(0.8,Math.min(1.25,Math.pow(z,0.2)));
+  for(const L of STAR_LAYERS){ const tile=L.sp*Math.pow(2,l2-n0), r=L.sz*1.5*zf/2;
+    const gx0=Math.floor(-tx/tile)-1, gy0=Math.floor(-ty/tile)-1, gx1=gx0+Math.ceil(W/tile)+2, gy1=gy0+Math.ceil(H/tile)+2;
+    ctx.fillStyle="#fff";
+    for(let gx=gx0;gx<=gx1;gx++) for(let gy=gy0;gy<=gy1;gy++){
+      const cx=gx+n0*131, cy=gy+n0*71, jx=(h(cx,cy)-0.5)*tile*0.5, jy=(h(cx+37,cy+17)-0.5)*tile*0.5;
+      const sx=gx*tile+tx%tile+jx, sy=gy*tile+ty%tile+jy;
+      ctx.globalAlpha=L.a*(0.35+0.65*h(cx+91,cy+53))*1.15; ctx.beginPath(); ctx.arc(sx,sy,Math.max(1,r),0,Math.PI*2); ctx.fill(); } }
+  ctx.globalAlpha=1;
+}
 const SNAP_BRIGHT_PX=36, SNAP_NODE_K=1.5, FINE_MIN_PX=8;
 const nodes=[
   {x:0,y:0,r:15,t:"Проект"},{x:140,y:-60,r:10,t:"Задача"},{x:160,y:80,r:10,t:"Заметка"},
@@ -95,11 +117,11 @@ function S2W(e){ return {x:(e.clientX-tx)/z, y:(e.clientY-ty)/z}; }
 function hit(e){ const p=S2W(e); for(let i=nodes.length-1;i>=0;i--){ const n=nodes[i]; if(Math.hypot(n.x-p.x,n.y-p.y)<=n.r+6) return n; } return null; }
 cv.addEventListener("contextmenu",e=>e.preventDefault());
 cv.addEventListener("pointerdown",e=>{ cv.setPointerCapture(e.pointerId);
-  if(e.button===0){ const n=hit(e); if(n){ const p=S2W(e); drag={n,dx:n.x-p.x,dy:n.y-p.y,was:""}; } }
+  if(e.button===0){ const n=hit(e); if(n){ const p=S2W(e); drag={n,dx:n.x-p.x,dy:n.y-p.y,was:"",live:true}; win.n=n; win.target=1; winAnim(); } }
   else pan={x:e.clientX,y:e.clientY}; });
 cv.addEventListener("pointermove",e=>{
   if(pan){ tx+=e.clientX-pan.x; ty+=e.clientY-pan.y; pan={x:e.clientX,y:e.clientY}; draw(); return; }
-  if(!drag) return;
+  if(!drag || !drag.live) return;   // стартовая «нода в руке» — только для показа, мышью её не тащат
   const p=S2W(e), fx=p.x+drag.dx, fy=p.y+drag.dy, n=drag.n;
   target=e.ctrlKey?null:snapTarget(fx,fy,n);
   const bx=n.x+(n.ox||0), by=n.y+(n.oy||0);
@@ -115,35 +137,110 @@ function settle(){ if(settling) return; settling=true;
       if(Math.hypot(n.ox,n.oy)<0.05){ n.ox=0; n.oy=0; } else left=true; }
     draw(); if(left) requestAnimationFrame(step); else settling=false; };
   requestAnimationFrame(step); }
-cv.addEventListener("pointerup",()=>{ if(drag){ const n=drag.n; n.ox=0; n.oy=0; last={x:n.x,y:n.y,lvl:target?target.lvl:"свободно"}; }
+cv.addEventListener("pointerup",()=>{ if(drag){ const n=drag.n; n.ox=0; n.oy=0; last={x:n.x,y:n.y,lvl:target?target.lvl:"свободно"}; win.target=0; winAnim(); }
   drag=null; pan=null; target=null; draw(); });
 cv.addEventListener("wheel",e=>{ e.preventDefault(); const k=Math.exp(-e.deltaY*0.0015), nz=Math.max(0.08,Math.min(6,z*k));
   tx=e.clientX-(e.clientX-tx)*nz/z; ty=e.clientY-(e.clientY-ty)*nz/z; z=nz; draw(); },{passive:false});
 
 /* ЛИНЗА — как в приложении: идёт за нодой всю протяжку; крупные узлы — крестиками, мелкие — тусклее и
    меньше (видно, куда ещё можно положить), прилипший узел — длинными лучами из-под ноды. */
+/* «ОКНО СЕТКИ»: затемнённый круг под линзой + кусок сетки внутри него с затуханием к краю. Линии
+   рисуются в отдельный холст и режутся радиальной маской (destination-in) — так край круга мягкий. */
+const lensCv=document.createElement("canvas"), lctx=lensCv.getContext("2d");
+/* Анимация окна: при захвате расходится от ноды, при отпускании сходится в неё (КРОЛИК). win.k — ход
+   0…1, радиус — по easeOutCubic, чтобы раскрытие было быстрым в начале и мягким в конце. */
+/* Плавность (КРОЛИК: «анимацию плавнее»): ход по ВРЕМЕНИ, а не долей за кадр — раскрытие 320 мс,
+   схлопывание 260 мс, кривая easeInOutCubic (мягкий старт и мягкая остановка). Смена цели посреди хода
+   стартует от текущего k — без скачка. Радиус окна = R·k, поэтому ease здесь — тождество. */
+const win={n:null,k:0,target:0,raf:0,k0:0,t0:0};
+const ease=k=>k;
+const inOut=t=>t<0.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+function winAnim(){
+  win.k0=win.k; win.t0=performance.now(); const dur=win.target>win.k?320:260;
+  if(win.raf) cancelAnimationFrame(win.raf);
+  const step=()=>{ const t=Math.min(1,(performance.now()-win.t0)/dur); win.k=win.k0+(win.target-win.k0)*inOut(t);
+    if(t>=1){ win.k=win.target; win.raf=0; if(!win.k) win.n=null; draw(); return; }
+    draw(); win.raf=requestAnimationFrame(step); };
+  win.raf=requestAnimationFrame(step); }
+function gridWindow(n, S, f, R){
+  const e=ease(win.k), cx=(n.x+(n.ox||0))*z+tx, cy=(n.y+(n.oy||0))*z+ty, RP=Math.max(1,R*S*z*e);   // радиус окна в экранных px
+  // 1) затемнение: тон холста, плотный в середине и тающий к краю — звёзды под ним гаснут
+  const g=ctx.createRadialGradient(cx,cy,0,cx,cy,RP);
+  g.addColorStop(0,"rgba(20,21,23,0.92)"); g.addColorStop(0.6,"rgba(20,21,23,0.8)"); g.addColorStop(1,"rgba(20,21,23,0)");
+  ctx.save(); ctx.globalAlpha=1; ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,RP,0,Math.PI*2); ctx.fill(); ctx.restore();
+  // 2) линии сетки в отдельный холст
+  if(lensCv.width!==cv.width||lensCv.height!==cv.height){ lensCv.width=cv.width; lensCv.height=cv.height; }
+  lctx.setTransform(dpr,0,0,dpr,0,0); lctx.globalCompositeOperation="source-over"; lctx.clearRect(0,0,W,H);
+  lctx.strokeStyle="#fff";
+  const x0=cx-RP, x1=cx+RP, y0=cy-RP, y1=cy+RP;
+  const lines=(s,a,w)=>{ lctx.globalAlpha=a; lctx.lineWidth=w; lctx.beginPath();
+    for(let wx=Math.ceil((x0-tx)/z/s)*s; wx*z+tx<=x1; wx+=s){ const sx=Math.floor(wx*z+tx)+0.5; lctx.moveTo(sx,y0); lctx.lineTo(sx,y1); }
+    for(let wy=Math.ceil((y0-ty)/z/s)*s; wy*z+ty<=y1; wy+=s){ const sy=Math.floor(wy*z+ty)+0.5; lctx.moveTo(x0,sy); lctx.lineTo(x1,sy); }
+    lctx.stroke(); };
+  if(f) lines(f, 0.16, 0.6);   // мелкие клетки — тонко
+  lines(S, 0.34, 1);           // крупные — потолще
+  // 3) радиальная маска: в середине линии видны, к краю тают
+  const m=lctx.createRadialGradient(cx,cy,0,cx,cy,RP);
+  m.addColorStop(0,"rgba(0,0,0,1)"); m.addColorStop(0.55,"rgba(0,0,0,0.85)"); m.addColorStop(1,"rgba(0,0,0,0)");
+  lctx.globalCompositeOperation="destination-in"; lctx.globalAlpha=1; lctx.fillStyle=m; lctx.fillRect(x0,y0,2*RP,2*RP);
+  ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.globalAlpha=1; ctx.drawImage(lensCv,0,0); ctx.restore();
+}
 function lens(n){
   const S=coarseStep(n), f=fineStep(n), R=4, cx=n.x+(n.ox||0), cy=n.y+(n.oy||0);
+  if(ST.fv==="window"){   // окно — на ЛЮБОМ фоне (КРОЛИК: «с чистым фоном и другими нужна такая же система»)
+    gridWindow(n, S, f, R);
+    const e=ease(win.k), RW=R*S*e;   // крестики появляются вместе с раскрытием окна
+    ctx.save(); ctx.strokeStyle="#e6e6e6";
+    const cr=(wx,wy,k,a,w)=>{ const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5; ctx.globalAlpha=a; ctx.lineWidth=w; ctx.beginPath();
+      ctx.moveTo(sx-k,sy); ctx.lineTo(sx+k,sy); ctx.moveTo(sx,sy-k); ctx.lineTo(sx,sy+k); ctx.stroke(); };
+    // мелкие узлы — маленькими крестиками на пересечениях тонких линий; на приближении чуть крупнее
+    if(f && RW>0){ const kf=Math.max(1.5, Math.min(3.5, f*z*0.1)), N=Math.ceil(RW/f), fx0=Math.round(cx/f), fy0=Math.round(cy/f);
+      for(let i=-N;i<=N;i++) for(let j=-N;j<=N;j++){ const wx=(fx0+i)*f, wy=(fy0+j)*f;
+        if(Math.abs(wx/S-Math.round(wx/S))<1e-9 && Math.abs(wy/S-Math.round(wy/S))<1e-9) continue;
+        const d=Math.hypot(wx-cx,wy-cy)/RW; if(d>1) continue; cr(wx,wy,kf,0.5*(1-d)*(1-d),0.8); } }
+    // крупные узлы — жирными крестиками поверх окна
+    const ox=Math.round(cx/S), oy=Math.round(cy/S), k=Math.min(7,S*z*0.28);
+    for(let i=-R;i<=R;i++) for(let j=-R;j<=R;j++){ const wx=(ox+i)*S, wy=(oy+j)*S, d=RW>0?Math.hypot(wx-cx,wy-cy)/RW:2; if(d>1) continue;
+      cr(wx,wy,k,0.85*(1-d)*(1-d),1.6); }
+    if(target){ const sx=Math.floor(target.x*z+tx)+0.5, sy=Math.floor(target.y*z+ty)+0.5, kk=n.r*z+(target.lvl==="fine"?10:16);
+      ctx.globalAlpha=0.95; ctx.lineWidth=target.lvl==="fine"?0.9:1.6; ctx.beginPath();
+      ctx.moveTo(sx-kk,sy); ctx.lineTo(sx+kk,sy); ctx.moveTo(sx,sy-kk); ctx.lineTo(sx,sy+kk); ctx.stroke(); }
+    ctx.restore(); return;
+  }
   ctx.save(); ctx.lineWidth=1; ctx.strokeStyle="#e6e6e6";
   const cross=(wx,wy,k,a,w)=>{ const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5; ctx.globalAlpha=a; ctx.lineWidth=w||1; ctx.beginPath();
     ctx.moveTo(sx-k,sy); ctx.lineTo(sx+k,sy); ctx.moveTo(sx,sy-k); ctx.lineTo(sx,sy+k); ctx.stroke(); };
-  if(f){ const N=Math.ceil(R*S/f), ox=Math.round(cx/f), oy=Math.round(cy/f), kf=Math.min(3, f*z*0.2);
+  /* Мелкие — по варианту; на сетке и чистом тоне всегда «было» (там спорить не с чем, как в приложении).
+     fr — свободное место ноды в руке: «проступают» считается от него, а не от точки, куда прилипло. */
+  const fv=ST.bg==="stars"?ST.fv:"old", fr=drag&&drag.free?drag.free:{x:cx,y:cy};
+  if(f){ const N=Math.ceil(R*S/f), ox=Math.round(cx/f), oy=Math.round(cy/f);
     for(let i=-N;i<=N;i++) for(let j=-N;j<=N;j++){
       const wx=(ox+i)*f, wy=(oy+j)*f; if(Math.abs(wx/S-Math.round(wx/S))<1e-9 && Math.abs(wy/S-Math.round(wy/S))<1e-9) continue;
-      const d=Math.hypot(wx-cx,wy-cy)/(R*S); if(d>1) continue; cross(wx,wy,kf,0.42*(1-d)*(1-d),0.75); } }
-  const ox=Math.round(cx/S), oy=Math.round(cy/S), k=Math.min(5,S*z*0.22);
+      const d=Math.hypot(wx-cx,wy-cy)/(R*S); if(d>1) continue;
+      if(fv==="old"){ cross(wx,wy,Math.min(2,f*z*0.14),0.22*Math.pow(1-d,3),0.6); }
+      else if(fv==="halo"){ const kf=Math.min(4.5,f*z*0.2); ctx.save(); ctx.strokeStyle="#000"; cross(wx,wy,kf,0.75*(1-d),Math.max(3.2,kf*0.9)); ctx.restore();
+        cross(wx,wy,kf,0.3*(1-d)*(1-d),0.8); }
+      else if(fv==="near"){ const dn=Math.hypot(wx-cx,wy-cy)/(2.2*f); if(dn>1) continue;   // только две мелкие клетки вокруг
+        cross(wx,wy,Math.min(2.5,f*z*0.16),0.45*(1-dn),0.75); }
+      else if(fv==="tint"){ ctx.save(); ctx.strokeStyle="#6fb6ff"; cross(wx,wy,Math.min(2.5,f*z*0.16),0.5*(1-d)*(1-d),0.75); ctx.restore(); }
+      else if(fv==="reveal"){ const dr=Math.hypot(wx-fr.x,wy-fr.y)/(1.5*f); if(dr>1) continue;   // ближайшие узлы, ярче по мере подхода
+        const p=(1-dr)*(1-dr); cross(wx,wy,1.5+1.5*p,0.15+0.6*p,0.75); }
+    } }
+  const ox=Math.round(cx/S), oy=Math.round(cy/S), k=Math.min(7,S*z*0.28);
   for(let i=-R;i<=R;i++) for(let j=-R;j<=R;j++){ const wx=(ox+i)*S, wy=(oy+j)*S, d=Math.hypot(wx-cx,wy-cy)/(R*S); if(d>1) continue;
-    cross(wx,wy,k,0.55*(1-d)*(1-d)); }
+    cross(wx,wy,k,0.75*(1-d)*(1-d)); }
   if(target) target.lvl==="fine" ? cross(target.x,target.y,n.r*z+10,0.95,0.75) : cross(target.x,target.y,n.r*z+16,0.9,1);
   ctx.restore(); }
 
 function draw(){
   ctx.setTransform(dpr,0,0,dpr,0,0); ctx.fillStyle="#141517"; ctx.fillRect(0,0,W,H);
-  if(ST.bg==="grid") drawGrid();
+  if(ST.bg==="grid") drawGrid(); else if(ST.bg==="stars") drawStars();
   const vx=n=>(n.x+(n.ox||0))*z+tx, vy=n=>(n.y+(n.oy||0))*z+ty;
-  ctx.strokeStyle="#5b6068"; ctx.lineWidth=1.5;
+  // ПОД связями, как в приложении (_drawMain): окно не должно глушить связи. Окно живёт и после
+  // отпускания — пока сходится в ноду (win.k > 0)
+  if(ST.fv==="window"){ if(win.n && win.k>0) lens(win.n); } else if(drag) lens(drag.n);
+  ctx.strokeStyle="#5b6068"; ctx.lineWidth=1.5; ctx.globalAlpha=1;
   for(const [a,b] of links){ const A=nodes[a],B=nodes[b]; ctx.beginPath(); ctx.moveTo(vx(A),vy(A)); ctx.lineTo(vx(B),vy(B)); ctx.stroke(); }
-  if(drag) lens(drag.n);
   for(const n of nodes){ const sx=vx(n), sy=vy(n);
     ctx.fillStyle="#141517"; ctx.strokeStyle=(drag&&drag.n===n)?"#ffffff":"#9a9ea6"; ctx.lineWidth=2;
     ctx.beginPath(); ctx.arc(sx,sy,n.r*z,0,Math.PI*2); ctx.fill(); ctx.stroke();
@@ -155,9 +252,18 @@ function draw(){
   else if(last) t+=`\nбросок: (${+last.x.toFixed(2)}, ${+last.y.toFixed(2)}) — ${last.lvl==="fine"?"мелкий узел":last.lvl==="coarse"?"крупный узел":"свободно"}`;
   document.getElementById("rd").textContent=t;
 }
-for(const [id,key] of [["b-mode","mode"],["b-fine","fine"],["b-afine","afine"],["b-bg","bg"]]){
+for(const [id,key] of [["b-mode","mode"],["b-bg","bg"]]){
   const box=document.getElementById(id);
-  box.addEventListener("click",e=>{ const b=e.target.closest("button"); if(!b) return; ST[key]=key==="fine"?+b.dataset.v:b.dataset.v;
+  box.addEventListener("click",e=>{ const b=e.target.closest("button"); if(!b) return; ST[key]=b.dataset.v;
     box.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b)); draw(); }); }
-draw();
+// два ряда вариантов — один выбор на оба
+const fvBtns=[...document.querySelectorAll("#b-fv button, #b-fv2 button")];
+const fvSet=v=>{ ST.fv=v; fvBtns.forEach(x=>x.classList.toggle("on",x.dataset.v===v)); document.getElementById("fv-desc").textContent=FV_DESC[v]; draw(); };
+fvBtns.forEach(b=>b.addEventListener("click",()=>fvSet(b.dataset.v)));
+/* Ноду держим «в руке» сразу, чтобы линза была видна без протяжки: стартовый вид — звёзды, зум 3. */
+fvSet("window");
+drag={n:nodes[0],dx:0,dy:0,was:"",free:{x:nodes[0].x+7,y:nodes[0].y+5}}; nodes[0].x+=7; nodes[0].y+=5;
+win.n=nodes[0]; win.k=1; win.target=1; draw();
+// первый же клик снимает показную «ноду в руке», и окно сходится — дальше всё по-настоящему
+cv.addEventListener("pointerdown",()=>{ if(drag && !drag.live){ drag=null; win.target=0; winAnim(); } },{capture:true});
 </script></body></html>

@@ -2788,6 +2788,7 @@ class Graph{
           if(this.copyDrag){ this.copyDrag=false; this._startCopyDrag(); this._layoutBefore=null; }
           // Ctrl, зажатый С НАЧАЛА, — это копия, а не «привязка наоборот»: переворачивает только нажатый посреди жеста
           this._snapCtrl0=!!e.ctrlKey; this._snapGoal=null; this._snapOff=null; this._snapKey="";
+          this._snapLensColor=null; this._snapWinBg=null;   // тон темы перечитываем на каждый жест: тему могли сменить
         }
         // Shift, нажатый или отпущенный посреди протяжки, ловим и здесь: keydown мог уйти мимо окна
         if(!!e.shiftKey!==this._shiftNow) this._soloShift(!!e.shiftKey);
@@ -2869,7 +2870,9 @@ class Graph{
       if(this.drag){
         // недоехавшее прилипание дожимаем: в данные уходит сама точка, а не кадр анимации
         if(this.drag._moved && this._snapGoal) this._dragPlace(this._snapGoal.x, this._snapGoal.y);
-        this._snapGoal=null; this._snapOff=null; this._snapKey=""; this._snapStep=null; this._snapLensColor=null;
+        this._snapGoal=null; this._snapOff=null; this._snapKey=""; this._snapStep=null;
+        // окно сетки начинает схлопываться сейчас — признак поднимаем В МОМЕНТ ЗАПУСКА, иначе покой съел бы первый кадр
+        if(this._snapWin && this._snapWin.k>0){ this._snapWinAnim=true; this._wake(); }
         const n=this.drag;
         if(n._moved){   // позиции пишем ТОЛЬКО после настоящего перетаскивания — клик не должен трогать файл
           // соседи разъезжаются физикой и сохранятся, когда раскладка остынет (см. _tick)
@@ -5724,6 +5727,18 @@ class Graph{
   _tick(force){
     this._прКадр=performance.now();   // от неё _schedule отсчитывает потолок частоты
     this._покойКадр=false;
+    /* ОКНО СЕТКИ (см. «ОКНО СЕТКИ ПРИВЯЗКИ» в _drawMain): раскрывается, пока нода в руке и привязка
+       включена (_snapStep), схлопывается после. Ход по ВРЕМЕНИ, а не долей за кадр (КРОЛИК: «плавнее»):
+       320 мс раскрытие, 260 схлопывание, easeInOutCubic; смена цели посреди хода — от текущего k.
+       Пока идёт ход, _snapWinAnim держит граф бодрствующим (условие покоя ниже). */
+    { const w=this._snapWin||(this._snapWin={n:null,k:0,k0:0,t0:0,target:0,s:0});
+      const надо=(this.drag && this.drag._moved && this._snapStep)?1:0, сейчас=performance.now();
+      if(надо){ w.n=this.drag; w.s=this._snapStep; }
+      if(надо!==w.target){ w.target=надо; w.k0=w.k; w.t0=сейчас; }
+      if(w.k!==w.target){ const t=Math.min(1,(сейчас-w.t0)/(w.target>w.k0?320:260));
+        w.k=w.k0+(w.target-w.k0)*(t<0.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2);
+        if(t>=1){ w.k=w.target; if(!w.k) w.n=null; } }
+      this._snapWinAnim=w.k!==w.target; }
     // возврат куста на исходные места в «одной ноде» (см. _soloShift): физика стоит, ведём сами
     if(this.drag && this._solo && this._soloBack && this._dragStart){ let ещё=false;
       for(const q of this.nodes){ if(q._grabbed || q===this.drag) continue;
@@ -5757,7 +5772,7 @@ class Graph{
     const camKey=this.tx.toFixed(2)+"|"+this.ty.toFixed(2)+"|"+this.zoom.toFixed(4);
     const camMoving=camKey!==this._camKey; this._camKey=camKey;
     // незакончившийся зум — тоже занятость: иначе доезд шёл бы через кадр и снова выглядел ступеньками
-    const busy=this.drag||this.connectDrag||this.panning||this.marq||this.linkFrom||this._zoomTo!=null;
+    const busy=this.drag||this.connectDrag||this.panning||this.marq||this.linkFrom||this._zoomTo!=null||this._snapWinAnim;
     // см. КАМЕРА_ОСТЫВАНИЕ_МС: короткая пауза между рывками пана — ещё не повод падать в покой
     const камОстывает=this._камОстылоДо && performance.now()<this._камОстылоДо;
     /* ТЕЧЕНИЕ ПОТОКА — тоже движение: пока в кадре есть связи к работе и анимация включена, граф
@@ -6877,61 +6892,72 @@ class Graph{
       }
       ctx.restore(); ctx.globalAlpha=1;
     }
-    /* ЛИНЗА ПРИВЯЗКИ — кусок той же решётки вокруг ноды в руке: крестики на узлах шагом привязки,
-       ярче к ноде (выбор КРОЛИКА из demo_привязка.html; кольцо «где притянет» он же забраковал).
-       Идёт за нодой ВСЮ протяжку, пока привязка включена (_snapStep), а не только когда прилипло:
-       «чтобы даже без сетки я видел, куда крепить» (КРОЛИК, 04.11.2026). Яркость считается от
-       ТОЧНОГО места ноды, а не от ближайшего узла — иначе линза перескакивала бы клетками. Узел, к
-       которому нода прилипла (_snapKey), горит ярче и крупнее. На ЛЮБОМ фоне: на чистом тоне и
-       звёздах сетки нет вовсе. Крестики — в тех же floor()+0.5, что линии сетки, иначе разошлись бы
-       с ними на пиксель. Мелкая ступень (_snapFineStep) — тусклее, меньше и в круге поуже: видно,
-       куда ещё можно положить рядом, но крупные узлы остаются главными. */
-    if(this.drag && this.drag._moved && this._snapStep){
-      /* ИЕРАРХИЯ СТУПЕНЕЙ ЧИСЛОМ (КРОЛИК: «чуть сливается»): крупный крестик — луч до 7 px, 1 px,
-         непрозрачность 0.75·(1−d)²; мелкий — луч до 2 px, 0.6 px, 0.22·(1−d)³. Втрое тише и по
-         яркости, и по длине, а к краю линзы гаснет быстрее: крупный — основной, мелкий — запасной. */
-      const s=this._snapStep, R=4, k=Math.min(7, s*z*0.28), d0=this.drag, ф=this._snapFineStep(s);
-      const g=this._snapKey?this._snapGoal:null;
-      if(!this._snapLensColor) this._snapLensColor=NEUTRAL();   // тон темы; кадров с линзой много, getComputedStyle — один раз на жест
-      ctx.save(); ctx.lineWidth=1; ctx.strokeStyle=this._snapLensColor;
-      // толщина — своя у каждой ступени: мелкие перекрестья тоньше крупных (КРОЛИК: «маленькие перекрестья как указатели»)
+    /* ОКНО СЕТКИ ПРИВЯЗКИ (выбор КРОЛИКА из demo_привязка.html, 04.11.2026; заменило линзу крестиков
+       и тёмную подложку, которую он забраковал: «тёмные штампы по всему холсту»). Пока привязка
+       включена и нода в руке, вокруг неё круг, в котором фон МЯГКО ГАСНЕТ — звёзды, пыль, рельеф и
+       прочее тонут, — и проступает сама сетка: мелкие клетки тонкими линиями с маленькими
+       крестиками на узлах, крупные — линиями потолще и жирными крестиками. На ЛЮБОМ фоне, чтобы
+       система была одна. Окно РАСХОДИТСЯ от ноды при захвате и СХОДИТСЯ в неё при отпускании —
+       ход ведёт _tick по времени (_snapWin.k). Линии и крестики — в тех же floor()+0.5, что фон
+       «Сетка», иначе разошлись бы с ним на пиксель.
+       Как рисуется: гашение фона и линии кладутся в маленький холст размером с окно (_snapWinCv) и
+       режутся радиальной маской (destination-in) — край круга мягкий, а прочий кадр не трогается.
+       Рисуется ДО связей и нод: окно глушит фон, а не граф. */
+    const ок=this._snapWin;
+    if(ок && ок.n && ок.k>0 && ок.s){
+      const d0=ок.n, s=ок.s, R=4, ф=this._snapFineStep(s), RW=R*s*ок.k, RP=RW*z;
+      const cx=d0.x*z+tx, cy=d0.y*z+ty;
+      if(!this._snapLensColor) this._snapLensColor=NEUTRAL();   // тон темы; getComputedStyle — один раз на жест
+      if(!this._snapWinBg) this._snapWinBg=getComputedStyle(document.body).getPropertyValue("--bg").trim()||"#141517";
+      if(RP>=2){
+        // 1) маленький холст под окно, с целым началом в пикселях устройства — линии не размываются
+        const ox=Math.floor((cx-RP)*dpr), oy=Math.floor((cy-RP)*dpr), сторона=Math.ceil(2*RP*dpr)+2;
+        const ос=this._snapWinCv||(this._snapWinCv=document.createElement("canvas"));
+        if(ос.width<сторона || ос.height<сторона || ос.width>сторона*2){ ос.width=сторона; ос.height=сторона; }
+        const oc=ос.getContext("2d");
+        oc.setTransform(1,0,0,1,0,0); oc.globalCompositeOperation="source-over"; oc.globalAlpha=1; oc.clearRect(0,0,ос.width,ос.height);
+        oc.setTransform(dpr,0,0,dpr,-ox,-oy);
+        // гашение фона: тон страницы, плотный в середине — звёзды под ним тонут
+        oc.globalAlpha=0.9; oc.fillStyle=this._snapWinBg; oc.fillRect(cx-RP, cy-RP, 2*RP, 2*RP);
+        oc.strokeStyle=this._snapLensColor;
+        const линии=(шаг,а,толщ)=>{ oc.globalAlpha=а; oc.lineWidth=толщ; oc.beginPath();
+          for(let wx=Math.ceil((cx-RP-tx)/z/шаг)*шаг; wx*z+tx<=cx+RP; wx+=шаг){ const sx=Math.floor(wx*z+tx)+0.5; oc.moveTo(sx,cy-RP); oc.lineTo(sx,cy+RP); }
+          for(let wy=Math.ceil((cy-RP-ty)/z/шаг)*шаг; wy*z+ty<=cy+RP; wy+=шаг){ const sy=Math.floor(wy*z+ty)+0.5; oc.moveTo(cx-RP,sy); oc.lineTo(cx+RP,sy); }
+          oc.stroke(); };
+        if(ф) линии(ф, 0.16, 0.6);   // мелкие клетки — тонко
+        линии(s, 0.34, 1);           // крупные — потолще
+        // 2) радиальная маска: середина видна, край тает
+        const маска=oc.createRadialGradient(cx,cy,0,cx,cy,RP);
+        маска.addColorStop(0,"rgba(0,0,0,1)"); маска.addColorStop(0.55,"rgba(0,0,0,0.88)"); маска.addColorStop(1,"rgba(0,0,0,0)");
+        oc.globalCompositeOperation="destination-in"; oc.globalAlpha=1; oc.fillStyle=маска; oc.fillRect(cx-RP, cy-RP, 2*RP, 2*RP);
+        ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.globalAlpha=1; ctx.drawImage(ос, 0, 0, сторона, сторона, ox, oy, сторона, сторона); ctx.restore();
+      }
+      // 3) крестики узлов поверх окна; появляются вместе с раскрытием (радиус RW)
+      ctx.save(); ctx.strokeStyle=this._snapLensColor;
       const крест=(wx,wy,кк,а,толщ)=>{ const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5;
-        ctx.globalAlpha=а; ctx.lineWidth=толщ||1; ctx.beginPath();
+        ctx.globalAlpha=а; ctx.lineWidth=толщ; ctx.beginPath();
         ctx.moveTo(sx-кк,sy); ctx.lineTo(sx+кк,sy); ctx.moveTo(sx,sy-кк); ctx.lineTo(sx,sy+кк); ctx.stroke(); };
       const наКрупном=(wx,wy)=>Math.abs(wx/s-Math.round(wx/s))<1e-9 && Math.abs(wy/s-Math.round(wy/s))<1e-9;
-      // мелкие — в том же круге, что крупные: указатели должны быть видны вокруг ноды так же
-      /* Мелких в круге до полутора тысяч — по stroke на каждый это мс в кадре протяжки. Поэтому
-         раскладываем их по ШЕСТИ корзинам яркости и рисуем корзину одним путём. */
-      /* ШУМНЫЙ ФОН (звёзды, пыль, топография): мелкий крестик размером и яркостью с ту же звезду и в
-         поле точек теряется (КРОЛИК, 04.11.2026). Отличаем ФОРМОЙ: тёмная подложка-плюс того же
-         рисунка вырезает его из фона, лучи чуть длиннее и толще. Непрозрачность 0.3 против 0.75 у
-         крупного — иерархия «крупный основной, мелкий запасной» остаётся. На сетке и чистом тоне
-         подложка не нужна: там спорить не с чем. */
-      const шум=["stars","dust","topo"].indexOf(this._bgKind())>=0;
-      if(ф){ const RF=R*s, N=Math.ceil(RF/ф), fx0=Math.round(d0.x/ф), fy0=Math.round(d0.y/ф), kf=шум?Math.min(4.5, ф*z*0.2):Math.min(2, ф*z*0.14);
-        /* Потолок 4.5 px (крестик 9 px) — не на глаз: самая крупная звезда на приближении (zf=1.25 в
-           _drawBgGL) — 3.4·1.5·1.25 ≈ 6.4 px в поперечнике, и при прежних 3 px крестик был ей ровней
-           («особенно если поближе приблизиться», КРОЛИК). Крупный остаётся длиннее — 7 px. */
+      /* Мелкие узлы — маленькими тонкими крестиками, на приближении чуть крупнее (КРОЛИК). Их в круге
+         до полутора тысяч — по stroke на каждый это мс в кадре, поэтому шесть корзин яркости. */
+      if(ф && RW>0){ const N=Math.ceil(RW/ф), fx0=Math.round(d0.x/ф), fy0=Math.round(d0.y/ф), kf=Math.max(1.5, Math.min(3.5, ф*z*0.1));
         const КОРЗ=6, пути=[]; for(let b=0;b<КОРЗ;b++) пути.push(new Path2D());
         for(let i=-N;i<=N;i++) for(let j=-N;j<=N;j++){
           const wx=(fx0+i)*ф, wy=(fy0+j)*ф; if(наКрупном(wx,wy)) continue;
-          const d=Math.hypot(wx-d0.x, wy-d0.y)/RF; if(d>=1) continue;
+          const d=Math.hypot(wx-d0.x, wy-d0.y)/RW; if(d>=1) continue;
           const п=пути[Math.min(КОРЗ-1, Math.floor((1-d)*КОРЗ))], sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5;
           п.moveTo(sx-kf,sy); п.lineTo(sx+kf,sy); п.moveTo(sx,sy-kf); п.lineTo(sx,sy+kf); }
-        // подложка и сам крестик на шуме гаснут по квадрату, а не по кубу: к краю линзы мелкий иначе тонул первым
-        if(шум){ ctx.save(); ctx.strokeStyle=document.body.classList.contains("light")?"#fff":"#000"; ctx.lineWidth=Math.max(3.2, kf*0.9);
-          for(let b=0;b<КОРЗ;b++){ const м=(b+0.5)/КОРЗ; ctx.globalAlpha=0.75*м; ctx.stroke(пути[b]); }
-          ctx.restore(); }
-        ctx.lineWidth=шум?0.8:0.6;
-        for(let b=0;b<КОРЗ;b++){ const м=(b+0.5)/КОРЗ; ctx.globalAlpha=шум?0.3*м*м:0.22*м*м*м; ctx.stroke(пути[b]); } }
-      const ox=Math.round(d0.x/s), oy=Math.round(d0.y/s);
+        ctx.lineWidth=0.8;
+        for(let b=0;b<КОРЗ;b++){ const м=(b+0.5)/КОРЗ; ctx.globalAlpha=0.5*м*м; ctx.stroke(пути[b]); } }
+      // крупные узлы — жирными крестиками
+      const k=Math.min(7, s*z*0.28), ox2=Math.round(d0.x/s), oy2=Math.round(d0.y/s);
       for(let i=-R;i<=R;i++) for(let j=-R;j<=R;j++){
-        const wx=(ox+i)*s, wy=(oy+j)*s, d=Math.hypot(wx-d0.x, wy-d0.y)/(R*s); if(d>1) continue;
-        крест(wx, wy, k, 0.75*(1-d)*(1-d)); }
-      /* Прилипший узел (крупный или мелкий) лежит ПОД нодой — лучи длиннее её радиуса, иначе нода
-         закрыла бы подсветку целиком; +16: ореол выделения шире радиуса (снимок в деве). */
-      // мелкий узел — своим ТОНКИМ перекрестьем покороче: по нему видно, что нода села на мелкую ступень
-      if(g) this._snapFine ? крест(g.x, g.y, (d0.r||8)*z+10, 0.95, 0.75) : крест(g.x, g.y, (d0.r||8)*z+16, 0.9, 1);
+        const wx=(ox2+i)*s, wy=(oy2+j)*s, d=Math.hypot(wx-d0.x, wy-d0.y)/RW; if(d>1) continue;
+        крест(wx, wy, k, 0.85*(1-d)*(1-d), 1.6); }
+      /* Прилипший узел лежит ПОД нодой — лучи длиннее её радиуса (+16: ореол выделения шире радиуса),
+         у мелкого — тоньше и короче: по нему видно, что нода села на мелкую ступень. */
+      const g=(this.drag && this._snapKey)?this._snapGoal:null;
+      if(g) this._snapFine ? крест(g.x, g.y, (d0.r||8)*z+10, 0.95, 0.9) : крест(g.x, g.y, (d0.r||8)*z+16, 0.95, 1.6);
       ctx.restore(); ctx.globalAlpha=1;
     }
     if(this._bgKind()==="topo"){
