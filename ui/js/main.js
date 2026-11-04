@@ -894,22 +894,28 @@ const ТУР_ID="2.3.0";
    (.tour-mock) ЧЕСТНЫМИ цветами: те же CSS-переменные, которыми рисует сам граф и панель, иначе
    человек не узнает на экране то, что видел в карточке (КРОЛИК: «тур слабый, нужны иллюстрации»). */
 /* ===== иллюстрации 2.3 ===== */
-/* МАГНИТ: решётка крестиков — крупные узлы ярче, мелкие между ними тише; нода прилипла к крупному
-   узлу (лучи из-под неё), пунктиром — откуда её принесли */
+/* МАГНИТ: «окно сетки» вокруг ноды в руке (выбор КРОЛИКА, `200204b`/`eb01969`) — линии и крестики
+   узлов переливом цветов кромки темы (--hue-a → --hue-b), гаснут к краю круга; крупные — толще,
+   мелкие — тонко. Нода прилипла к крупному узлу, пунктиром — откуда её принесли */
 const ТУР_ВИЗ_МАГНИТ=`
   <div class="tour-mock tm-c">
     <svg viewBox="0 0 260 110" class="tm-wide-svg" aria-hidden="true">
-      ${(()=>{ let s=""; for(let x=10;x<=250;x+=20) for(let y=5;y<=105;y+=20){ const big=((x-10)%60===0)&&((y-5)%60===0);
-          const d=Math.hypot(x-130,y-65), o=Math.max(0,1-d/120);
-          if(o<=0) continue; const L=big?5:2, w=big?1.1:.7, op=(big?.75:.25)*o;
-          s+=`<path d="M${x-L} ${y} H${x+L} M${x} ${y-L} V${y+L}" stroke="var(--tx)" stroke-width="${w}" opacity="${op.toFixed(2)}"/>`; }
+      <defs><linearGradient id="tmSnapHue" gradientUnits="userSpaceOnUse" x1="74" y1="9" x2="186" y2="121"><stop offset="0" stop-color="var(--hue-a,var(--accent))"/><stop offset="1" stop-color="var(--hue-b,var(--accent))"/></linearGradient></defs>
+      ${(()=>{ const cx=130, cy=65, R=56; let s="";
+        const тон=d=>Math.max(0, 1-Math.pow(d/R, 1.6));
+        for(let x=10;x<=250;x+=15){ const big=(x-10)%60===0, dx=Math.abs(x-cx); if(dx>=R) continue;
+          const h=Math.sqrt(R*R-dx*dx); s+=`<line x1="${x}" y1="${cy-h}" x2="${x}" y2="${cy+h}" stroke="url(#tmSnapHue)" stroke-width="${big?1:.5}" opacity="${((big?.55:.28)*тон(dx)).toFixed(2)}"/>`; }
+        for(let y=5;y<=125;y+=15){ const big=(y-5)%60===0, dy=Math.abs(y-cy); if(dy>=R) continue;
+          const w=Math.sqrt(R*R-dy*dy); s+=`<line x1="${cx-w}" y1="${y}" x2="${cx+w}" y2="${y}" stroke="url(#tmSnapHue)" stroke-width="${big?1:.5}" opacity="${((big?.55:.28)*тон(dy)).toFixed(2)}"/>`; }
+        for(let x=10;x<=250;x+=15) for(let y=5;y<=125;y+=15){ const d=Math.hypot(x-cx,y-cy); if(d>=R) continue;
+          const big=(x-10)%60===0&&(y-5)%60===0, L=big?4.5:2;
+          s+=`<path d="M${x-L} ${y} H${x+L} M${x} ${y-L} V${y+L}" stroke="url(#tmSnapHue)" stroke-width="${big?1.5:.8}" opacity="${((big?1:.6)*тон(d)).toFixed(2)}"/>`; }
         return s; })()}
-      <path d="M130 65 H110 M130 65 H150 M130 65 V45 M130 65 V85" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" opacity=".9"/>
-      <rect x="66" y="22" width="16" height="16" fill="none" stroke="var(--mut2)" stroke-width="1.2" stroke-dasharray="3 2" opacity=".7"/>
-      <path d="M84 36 Q105 48 119 57" fill="none" stroke="var(--mut)" stroke-width="1.1" stroke-dasharray="2 3"/>
+      <rect x="58" y="16" width="16" height="16" fill="none" stroke="var(--mut2)" stroke-width="1.2" stroke-dasharray="3 2" opacity=".7"/>
+      <path d="M76 30 Q100 46 119 57" fill="none" stroke="var(--mut)" stroke-width="1.1" stroke-dasharray="2 3"/>
       <rect x="121" y="56" width="18" height="18" fill="color-mix(in srgb,var(--accent) 26%,var(--bg))" stroke="#fff" stroke-width="2"/>
     </svg>
-    <div class="tm-legend"><span>крупный узел — тянет издалека</span><span>мелкий — только вплотную</span></div>
+    <div class="tm-legend"><span>окно сетки вокруг ноды</span><span>крупный узел тянет издалека, мелкий — вплотную</span></div>
   </div>`;
 /* РЕЖИМЫ СВЯЗЕЙ: одна и та же тройка детей у родителя — пятью способами */
 const ТУР_ВИЗ_СВЯЗИ=`
@@ -1088,7 +1094,7 @@ const ТУР_ВИЗ_ПРОВАЛ=`
    «попап»/«глиф» и подобное — убраны, это слова для комментариев к коду, не для человека. */
 const ТУР=[
   {v:"2.3.0", значок:"ti-magnet", ttl:"Привязка к сетке", виз:ТУР_ВИЗ_МАГНИТ, цель:"#g-snap",
-   txt:"Кнопка с магнитом в нижней панели (или Ctrl+') включает привязку: брошенная нода встаёт ровно на узел сетки — тот же, что нарисован на фоне. Пока держишь ноду, вокруг видны крестики узлов: крупные притягивают издалека, мелкие между ними — только вплотную. Ctrl, зажатый во время протяжки, делает наоборот: при включённой привязке кладёт ноду свободно, при выключенной — на узел. С привязкой Shift работает наоборот: нода едет одна, а с Shift — вместе с детьми.",
+   txt:"Кнопка с магнитом в нижней панели (или Ctrl+') включает привязку: брошенная нода встаёт ровно на узел сетки — тот же, что нарисован на фоне. Пока держишь ноду, вокруг неё проступает окно сетки — линии и узлы цветами твоей темы: крупные узлы притягивают издалека, мелкие между ними — только вплотную. Ctrl, зажатый во время протяжки, делает наоборот: при включённой привязке кладёт ноду свободно, при выключенной — на узел. С привязкой Shift работает наоборот: нода едет одна, а с Shift — вместе с детьми.",
    before(){ view="notes"; notesMode="graph"; render(); }},
   {v:"2.3.0", значок:"ti-route-2", ttl:"Связи пятью способами", виз:ТУР_ВИЗ_СВЯЗИ, цель:"#g-links",
    txt:"Кнопка связей в нижней панели переключает их вид: мягкая (как раньше), прямые углы, шина, метро под 45° и пучки. Связи сами ищут путь без пересечений, обходят чужие ноды и не прилипают друг к другу. Где обойти не вышло, связь под нодой мягко гаснет. От посторонних действий маршруты не перекладываются.",
