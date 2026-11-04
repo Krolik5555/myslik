@@ -5746,14 +5746,16 @@ class Graph{
     this._покойКадр=false;
     /* ОКНО СЕТКИ (см. «ОКНО СЕТКИ ПРИВЯЗКИ» в _drawMain): раскрывается, пока нода в руке и привязка
        включена (_snapStep), схлопывается после. Ход по ВРЕМЕНИ, а не долей за кадр (КРОЛИК: «плавнее»):
-       320 мс раскрытие, 260 схлопывание, easeInOutCubic; смена цели посреди хода — от текущего k.
+       200 мс раскрытие, 240 схлопывание, easeOutCubic — старт СРАЗУ, торможение к концу. Прежний
+       easeInOut за первую четверть времени раскрывал окно на 6 %, и это читалось как задержка перед
+       появлением сетки (КРОЛИК). Смена цели посреди хода — от текущего k.
        Пока идёт ход, _snapWinAnim держит граф бодрствующим (условие покоя ниже). */
     { const w=this._snapWin||(this._snapWin={n:null,k:0,k0:0,t0:0,target:0,s:0});
       const надо=(this.drag && this.drag._moved && this._snapStep)?1:0, сейчас=performance.now();
       if(надо){ w.n=this.drag; w.s=this._snapStep; }
       if(надо!==w.target){ w.target=надо; w.k0=w.k; w.t0=сейчас; }
-      if(w.k!==w.target){ const t=Math.min(1,(сейчас-w.t0)/(w.target>w.k0?320:260));
-        w.k=w.k0+(w.target-w.k0)*(t<0.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2);
+      if(w.k!==w.target){ const t=Math.min(1,(сейчас-w.t0)/(w.target>w.k0?200:240));
+        w.k=w.k0+(w.target-w.k0)*(1-Math.pow(1-t,3));
         if(t>=1){ w.k=w.target; if(!w.k) w.n=null; } }
       this._snapWinAnim=w.k!==w.target; }
     // возврат куста на исходные места в «одной ноде» (см. _soloShift): физика стоит, ведём сами
@@ -6922,8 +6924,8 @@ class Graph{
        Рисуется ДО связей и нод: окно глушит фон, а не граф. */
     const ок=this._snapWin;
     if(ок && ок.n && ок.k>0 && ок.s){
-      /* РАДИУС 2 крупные клетки (было 4 → 2.6 → 2: «радиус ещё меньше», КРОЛИК). */
-      const d0=ок.n, s=ок.s, ОКНО=2, R=Math.ceil(ОКНО), ф=this._snapFineStep(s), RW=ОКНО*s*ок.k, RP=RW*z;
+      /* РАДИУС 1.5 крупной клетки (было 4 → 2.6 → 2 → 1.5: «радиус ещё меньше», КРОЛИК). */
+      const d0=ок.n, s=ок.s, ОКНО=1.5, R=Math.ceil(ОКНО), ф=this._snapFineStep(s), RW=ОКНО*s*ок.k, RP=RW*z;
       const cx=d0.x*z+tx, cy=d0.y*z+ty;
       /* НЕОН ДВУМЯ ЦВЕТАМИ КРОМКИ ТЕМЫ (выбор КРОЛИКА в demo_привязка.html): у ноды цвет --hue-a, к краю
          окна он перетекает в --hue-b и тает в ноль. Фон под окном НЕ гасим: тон страницы темнее
@@ -6939,8 +6941,9 @@ class Graph{
       const цв=this._snapWinRgb;
       if(RP>=2){
         const г=ctx.createRadialGradient(cx,cy,0,cx,cy,RP);
-        г.addColorStop(0,"rgba("+цв.a+",1)"); г.addColorStop(0.35,"rgba("+цв.a+",0.8)");
-        г.addColorStop(0.7,"rgba("+цв.b+",0.35)"); г.addColorStop(1,"rgba("+цв.b+",0)");
+        // спад резче («затухание к краю сильнее», КРОЛИК): к середине радиуса — треть, к 3/4 — почти ноль
+        г.addColorStop(0,"rgba("+цв.a+",1)"); г.addColorStop(0.22,"rgba("+цв.a+",0.72)");
+        г.addColorStop(0.5,"rgba("+цв.b+",0.3)"); г.addColorStop(0.75,"rgba("+цв.b+",0.07)"); г.addColorStop(1,"rgba("+цв.b+",0)");
         const путьЛиний=(шаг)=>{ const п=new Path2D();
           for(let wx=Math.ceil((cx-RP-tx)/z/шаг)*шаг; wx*z+tx<=cx+RP; wx+=шаг){ const sx=Math.floor(wx*z+tx)+0.5; п.moveTo(sx,cy-RP); п.lineTo(sx,cy+RP); }
           for(let wy=Math.ceil((cy-RP-ty)/z/шаг)*шаг; wy*z+ty<=cy+RP; wy+=шаг){ const sy=Math.floor(wy*z+ty)+0.5; п.moveTo(cx-RP,sy); п.lineTo(cx+RP,sy); }
