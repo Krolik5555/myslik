@@ -619,11 +619,15 @@ if (свой) свой.length = 3;
             ок: !!после1 && Math.hypot(после1.x - Wt[0], после1.y - Wt[1]) < 0.5 && после2 === 0 && !я,
             факт: "после первого " + (после1 ? (после1.x - X).toFixed(0) + "," + (после1.y - Y).toFixed(0) : "точки нет") + " (было " + (д1.x - X).toFixed(0) + "," + (д1.y - Y).toFixed(0) + "), после второго точек " + после2 + ", у связи " + JSON.stringify(я || null)});
     redoStep(); await ж(300); graph.alpha = 0; graph._маршр = null; graph._routesFresh(); }
-  // меню точки: клик без сдвига; «Отцепить» одну, «Убрать точку» — все
+  // клик без сдвига — выделить точку (меню не открывается); меню — по ПКМ: «Отцепить» одну, «Убрать точку» — все
   { const ид2 = точкиС()[0], д = ид2 && graphCurrent().dots[ид2];
-    if (д) { graph.zoom = 1; graph.tx = graph.W / 2 - д.x; graph.ty = graph.H / 2 - д.y; graph.nodes.forEach(n => { n._ix = 0; n._iy = 0; }); сбт("pointerdown", д.x, д.y); сбт("pointerup", д.x, д.y); }
+    let выд = false, менюПоКлику = false;
+    if (д) { graph.zoom = 1; graph.tx = graph.W / 2 - д.x; graph.ty = graph.H / 2 - д.y; graph.nodes.forEach(n => { n._ix = 0; n._iy = 0; }); сбт("pointerdown", д.x, д.y); сбт("pointerup", д.x, д.y);
+      выд = graph.selPts.has("d:" + ид2) && graph.selPts.size === 1; менюПоКлику = !!document.querySelector("#node-pop");
+      const пк = экрт(д.x, д.y); svgт().dispatchEvent(new MouseEvent("contextmenu", {button: 2, clientX: пк.clientX, clientY: пк.clientY, bubbles: true, cancelable: true})); }
+    t.push({имя: "точка связей: клик по точке выделяет её, меню не открывает", ок: выд && !менюПоКлику, факт: "выделено " + JSON.stringify([...graph.selPts]) + ", меню по клику " + (менюПоКлику ? "открылось" : "нет")});
     const кн = [...document.querySelectorAll('#node-pop [data-dp]')];
-    t.push({имя: "точка связей: клик по точке — меню «Убрать точку» и «Отцепить» по каждой связи", ок: кн.length === 3 && кн[0].dataset.dp === "del",
+    t.push({имя: "точка связей: ПКМ по точке — меню «Убрать точку» и «Отцепить» по каждой связи", ок: кн.length === 3 && кн[0].dataset.dp === "del",
             факт: "кнопок " + кн.length + (кн.length ? ": " + кн.map(b => b.textContent.trim()).join(" | ") : "")});
     const от = кн.find(b => b.dataset.dp === "0"); if (от) от.click(); graph._routesFresh();
     const сп = graph._dotLinks(ид2);
@@ -644,6 +648,81 @@ if (свой) свой.length = 3;
     const нов = рез && рез.newIds ? S.links.find(x => рез.newIds.includes(x[0]) && рез.newIds.includes(x[1])) : null, нд = нов && нов[4] && нов[4][0] && нов[4][0].d;
     t.push({имя: "точка связей: копия ветки получает свою точку с новым id", ок: !!нд && нд !== "dot_live" && !!graphCurrent().dots[нд],
             факт: "у копии " + JSON.stringify(нов ? нов[4] : null) + ", точек " + JSON.stringify(точкиС())}); graph.selNodes = new Set(); }
+  /* ВЫДЕЛЕНИЕ ТОЧЕК (КРОЛИК, 04.11.2026: «несколько якорей выделять и удалять»): клик и Shift-клик по точкам
+     связей и точкам маршрута, рамка, групповая протяжка, Delete одним шагом отката, вместе с нодой, Escape */
+  { await ж(400); graph._closePop(); graph.clearSelection();
+    const Xм = X + 3000, Yм = Y;
+    const нм = (title, x, y) => { const it = addItem({kind: "note", title}); it.x = Xм + x; it.y = Yм + y; мои.push(it.id); return it; };
+    const P1 = нм("связи-мP1", 0, 0), Q1 = нм("связи-мQ1", 400, 200), P2 = нм("связи-мP2", 0, 400), Q2 = нм("связи-мQ2", 400, 440), P3 = нм("связи-мP3", 0, 600), Q3 = нм("связи-мQ3", 400, 640);
+    addLink(P1.id, Q1.id); addLink(P2.id, Q2.id); addLink(P3.id, Q3.id); recomputeHierarchy();
+    const s1 = хр(P1, Q1), s2 = хр(P2, Q2), s3 = хр(P3, Q3);
+    s1[2] = 1; s1[3] = null; s1[4] = [{dx: -100, dy: -60}, {dx: 100, dy: 60}];
+    s2[2] = 1; s2[3] = null; s2[4] = [{d: "dot_m1"}]; s3[2] = 1; s3[3] = null; s3[4] = [{d: "dot_m2"}];
+    const g = graphCurrent(); g.dots = Object.assign({}, g.dots || {}, {dot_m1: {x: Xм + 200, y: Yм + 330}, dot_m2: {x: Xм + 200, y: Yм + 700}});
+    persist(); graph.build(); graph.alpha = 0; graph._маршр = null; graph._routesFresh(); await ж(450);
+    graph.nodes.forEach(n => { n._ix = 0; n._iy = 0; }); graph._routesFresh();
+    graph.zoom = 0.8; graph.tx = graph.W / 2 - (Xм + 200) * 0.8; graph.ty = graph.H / 2 - (Yм + 350) * 0.8;
+    const кл1 = s1[0] + "|" + s1[1], В0 = "v:" + кл1 + "#0", В1 = "v:" + кл1 + "#1";
+    const где = k => graph._ptAll().find(q => q.k === k);
+    const клик = (k, доп) => { const q = где(k); if (!q) return; graph._lcLink = null; сбт("pointerdown", q.x, q.y, доп); сбт("pointerup", q.x, q.y, доп); };
+    const выд = () => [...graph.selPts].sort().join(" ");
+    клик("d:dot_m1"); const раз = выд();
+    клик("d:dot_m2", {shiftKey: true}); клик(В0, {shiftKey: true}); const три = выд();
+    клик("d:dot_m2", {shiftKey: true}); const снята = !graph.selPts.has("d:dot_m2"); клик("d:dot_m2", {shiftKey: true});
+    t.push({имя: "выделение точек: клик — одна, Shift-клик добавляет и снимает (точки связей и точка маршрута)",
+            ок: раз === "d:dot_m1" && graph.selPts.size === 3 && три === выд() && снята && graph.selPts.has(В0) && !graph.selPts.has(В1),
+            факт: "клик: " + раз + "; Shift: " + три + "; снятие " + (снята ? "да" : "нет")});
+    let ош = ""; try { graph._drawMain(); } catch (e) { ош = String(e); }
+    t.push({имя: "выделение точек: кадр с выделенными точками рисуется", ок: !ош, факт: ош || "без ошибок"});
+    // ПКМ по выделенной — «Убрать выделенные точки (3)»
+    { const q = где("d:dot_m1"), пк = экрт(q.x, q.y); svgт().dispatchEvent(new MouseEvent("contextmenu", {button: 2, clientX: пк.clientX, clientY: пк.clientY, bubbles: true, cancelable: true}));
+      const кн = document.querySelector('#node-pop [data-dp="sel"]');
+      t.push({имя: "выделение точек: в меню точки — «Убрать выделенные точки (N)»", ок: !!кн && /\(3\)/.test(кн.textContent), факт: кн ? кн.textContent.trim() : "кнопки нет"}); graph._closePop(); }
+    // групповая протяжка: тянем одну — все три на ту же дельту; откат — одним шагом
+    { const до = ["d:dot_m1", "d:dot_m2", В0, В1].map(k => { const q = где(k); return q && [q.x, q.y]; });
+      const q = где("d:dot_m1"); graph._lcLink = null;
+      сбт("pointerdown", q.x, q.y); сбт("pointermove", q.x + 20, q.y + 15); сбт("pointermove", q.x + 40, q.y + 30); сбт("pointerup", q.x + 40, q.y + 30);
+      graph._routesFresh(); graph.nodes.forEach(n => { n._ix = 0; n._iy = 0; }); graph._маршр = null; graph._routesFresh();
+      const после = ["d:dot_m1", "d:dot_m2", В0, В1].map(k => { const q = где(k); return q && [q.x, q.y]; });
+      const сдв = i => до[i] && после[i] ? [после[i][0] - до[i][0], после[i][1] - до[i][1]] : null, ровно = d => !!d && Math.abs(d[0] - 40) < 0.6 && Math.abs(d[1] - 30) < 0.6;
+      const чер = доТочки(жл(P2, Q2), после[0][0], после[0][1]);
+      t.push({имя: "выделение точек: протяжка одной выделенной двигает все выделенные на ту же дельту",
+              ок: ровно(сдв(0)) && ровно(сдв(1)) && ровно(сдв(2)) && !!сдв(3) && Math.hypot(сдв(3)[0], сдв(3)[1]) < 0.6 && чер < 5,
+              факт: "сдвиги " + [0, 1, 2, 3].map(i => JSON.stringify((сдв(i) || []).map(v => +v.toFixed(1)))).join(" ") + ", связь через точку " + чер.toFixed(1) + " px"});
+      await ж(400); undoStep(); await ж(300); graph.build(); graph.alpha = 0; graph._маршр = null; graph._routesFresh(); graph.nodes.forEach(n => { n._ix = 0; n._iy = 0; }); graph._routesFresh();
+      const отк = ["d:dot_m1", "d:dot_m2", В0].map(k => { const q = где(k); return q && [q.x, q.y]; });
+      t.push({имя: "выделение точек: Ctrl+Z возвращает групповую протяжку одним шагом",
+              ок: отк.every((v, i) => v && Math.hypot(v[0] - до[i][0], v[1] - до[i][1]) < 0.6), факт: "после отката " + JSON.stringify(отк.map(v => v && v.map(x => Math.round(x))))}); }
+    // Escape снимает выделение
+    { graph.selPts = new Set(["d:dot_m1"]); graph.selNodes = new Set([P1.id]);
+      document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", code: "Escape", bubbles: true, cancelable: true}));
+      t.push({имя: "выделение точек: Escape снимает выделение точек и нод", ок: !graph.selPts.size && !graph.selNodes.size, факт: "точек " + graph.selPts.size + ", нод " + graph.selNodes.size}); }
+    // рамка по пустому: в неё попали одни точки — выделены одни точки; рамка шире — и ноды
+    const рамка = (x0, y0, x1, y1, доп) => { сбт("pointerdown", x0, y0, доп); сбт("pointermove", (x0 + x1) / 2, (y0 + y1) / 2, доп); сбт("pointermove", x1, y1, доп); сбт("pointerup", x1, y1, доп); };
+    рамка(Xм + 60, Yм - 30, Xм + 340, Yм + 740);
+    const рамТочки = выд(), рамНоды = graph.selNodes.size;
+    t.push({имя: "выделение точек: рамка без нод выделяет только точки", ок: graph.selPts.size === 4 && рамНоды === 0, факт: "точки " + рамТочки + ", нод " + рамНоды});
+    // Delete: три точки (одна маршрута осталась) — связи к оставшимся точкам или автомаршруту; откат одним шагом
+    { graph.selPts = new Set(["d:dot_m1", "d:dot_m2", В0]);
+      document.dispatchEvent(new KeyboardEvent("keydown", {key: "Delete", code: "Delete", bubbles: true, cancelable: true})); await ж(50);
+      const g1 = graphCurrent(), ост = хр(P1, Q1)[4];
+      const ок1 = !(g1.dots || {}).dot_m1 && !(g1.dots || {}).dot_m2 && !хр(P2, Q2)[4] && !хр(P3, Q3)[4] && Array.isArray(ост) && ост.length === 1 && ост[0].dx === 100 && !graph.selPts.size;
+      t.push({имя: "выделение точек: Delete убирает выделенные, связи — к оставшимся точкам или автомаршруту", ок: ок1,
+              факт: "точки " + JSON.stringify(Object.keys(g1.dots || {}).filter(k => /dot_m/.test(k))) + ", P1→Q1 " + JSON.stringify(ост || null) + ", P2→Q2 " + JSON.stringify(хр(P2, Q2)[4] || null)});
+      await ж(400); undoStep(); await ж(300);
+      const g2 = graphCurrent(), ст = хр(P1, Q1)[4];
+      t.push({имя: "выделение точек: Ctrl+Z возвращает удаление точек одним шагом", ок: !!(g2.dots || {}).dot_m1 && !!(g2.dots || {}).dot_m2 && Array.isArray(ст) && ст.length === 2 && !!хр(P2, Q2)[4],
+              факт: "точки " + JSON.stringify(Object.keys(g2.dots || {}).filter(k => /dot_m/.test(k))) + ", P1→Q1 " + JSON.stringify(ст || null)}); }
+    // Delete вместе с нодой: и нода, и точка; откат — одним шагом
+    { graph.build(); graph.alpha = 0; graph._маршр = null; graph._routesFresh();
+      graph.selPts = new Set(["d:dot_m2"]); graph.selNodes = new Set([Q1.id]);
+      document.dispatchEvent(new KeyboardEvent("keydown", {key: "Delete", code: "Delete", bubbles: true, cancelable: true})); await ж(50);
+      const нетНоды = !S.items.some(it => it.id === Q1.id), нетТочки = !(graphCurrent().dots || {}).dot_m2;
+      await ж(400); undoStep(); await ж(300);
+      const нода = S.items.some(it => it.id === Q1.id), точка = !!(graphCurrent().dots || {}).dot_m2;
+      t.push({имя: "выделение точек: Delete с нодой в выделении убирает и ноду, и точку; Ctrl+Z — обе одним шагом",
+              ок: нетНоды && нетТочки && нода && точка, факт: "удалено: нода " + нетНоды + ", точка " + нетТочки + "; после отката: нода " + нода + ", точка " + точка}); }
+    graph.clearSelection(); graph.build(); graph.alpha = 0; graph._маршр = null; graph._routesFresh(); }
   /* ALT — ЖИВОЙ ПЕРЕКЛЮЧАТЕЛЬ (КРОЛИК: «Alt отпускаю, а оно всё равно следующие связи цепляет»): три
      связи друг под другом; Alt зажат — первая в пучке, отпущен — вторая НЕ цепляется (а пучок едет за
      курсором), нажат снова при той же ЛКМ — третья цепляется в тот же пучок */

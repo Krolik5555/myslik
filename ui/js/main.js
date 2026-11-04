@@ -570,6 +570,8 @@ function wireGlobal(){
          это навигация, а не отмена, и перебивать ею отмену нельзя. */
       const бокс=$("#g-search-box"), ае=document.activeElement;
       const впол = ае && (/INPUT|TEXTAREA|SELECT/.test(ае.tagName) || ае.isContentEditable);
+      // выделение (ноды и точки) снимается раньше выхода из подграфа: отмена главнее навигации
+      if(!впол && view==="notes" && graph && (!бокс || бокс.style.display==="none") && graph.clearSelection && graph.clearSelection()) return;
       if(!впол && view==="notes" && (!бокс || бокс.style.display==="none")
          && typeof inSubGraph==="function" && inSubGraph() && subLeave()){ render(); return; }
       closeOverlays(); return;
@@ -599,7 +601,8 @@ function wireGlobal(){
             {icon: back?"ti-arrow-back-up":"ti-arrow-forward-up"});
       return;
     }
-    if((e.key==="Delete"||e.key==="Backspace") && view==="notes" && graph && graph.selNodes && graph.selNodes.size){ e.preventDefault(); graph.deleteSelected(); return; }
+    // и выделенные точки связей / маршрута (graph.selPts) — тем же нажатием, одним шагом отката с нодами
+    if((e.key==="Delete"||e.key==="Backspace") && view==="notes" && graph && ((graph.selNodes && graph.selNodes.size) || (graph.selPts && graph.selPts.size))){ e.preventDefault(); graph.deleteSelected(); return; }
     if((e.ctrlKey||e.metaKey) && view==="notes" && graph){
       if(e.code==="KeyC" && graph.selNodes.size){ e.preventDefault(); graph.copySelection(); return; }
       if(e.code==="KeyV"){ e.preventDefault(); graph.pasteClip(); return; }

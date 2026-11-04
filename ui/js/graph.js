@@ -202,7 +202,7 @@ function renderNotes(v){
          верхний угол свободен и симметричен тулбару слева. */""}
     <button class="graph-ai" id="g-ai" title="ИИ: пакеты команд от нейросети и подключение агента"><i class="ti ti-sparkles"></i></button>
     <!-- подсказку можно закрыть: висеть постоянно ей незачем, а вернуть — из меню «…» -->
-    <div class="graph-hint${S.settings.graphHint===false?" off":""}" id="g-hint"><span>Alt+тащи от ноды — связь/заметка · Alt+веди по связям — собрать в точку · Ctrl+тащи — копия выделенного · Shift+тащи — одну ноду, без куста (с привязкой к сетке — наоборот) · ПКМ — меню / создать · ЛКМ-рамка — выделить · двойной клик — открыть (подграф — войти внутрь) · средняя кнопка — двигать · колесо — зум · Delete — удалить</span><button id="g-hint-x" title="Скрыть подсказку"><i class="ti ti-x"></i></button></div>
+    <div class="graph-hint${S.settings.graphHint===false?" off":""}" id="g-hint"><span>Alt+тащи от ноды — связь/заметка · Alt+веди по связям — собрать в точку · клик по точке — выделить (Shift — ещё), Delete — убрать · Ctrl+тащи — копия выделенного · Shift+тащи — одну ноду, без куста (с привязкой к сетке — наоборот) · ПКМ — меню / создать · ЛКМ-рамка — выделить · двойной клик — открыть (подграф — войти внутрь) · средняя кнопка — двигать · колесо — зум · Delete — удалить</span><button id="g-hint-x" title="Скрыть подсказку"><i class="ti ti-x"></i></button></div>
     <!-- только счётчик: кнопка «Отчёт» уехала в правую панель, где отчёт и собирается -->
     <div class="graph-selbar" id="g-selbar" style="display:none">
       <span class="gsb-n"></span>
@@ -769,6 +769,7 @@ class Graph{
     this.bgPanX=graphBgPan.x; this.bgPanY=graphBgPan.y;
     this.raf=null;
     this.selNodes=new Set(); this.marq=null;   // выделение нод (клик/shift-клик/рамка) + удаление по Delete
+    this.selPts=new Set();   // выделение точек связей и точек маршрута (_ptAll, _ptClick) — своё, точка не узел
     this._watchResize();
   }
   /* РАЗМЕР ОКНА. W/H и viewBox раньше ставились ТОЛЬКО в build(), а окно меняет размер и без него
@@ -957,6 +958,11 @@ class Graph{
     if(tidy){ tidy.style.display=ids.length>2?"":"none";
       tidy.querySelectorAll("[data-tidy-mode]").forEach(b=>b.onclick=()=>{ tidyModeSet(b.dataset.tidyMode); this._tidySelection(b.dataset.tidyMode); }); }
   }
+  // Escape: снять выделение нод и точек; true — было что снимать (тогда клавиша дальше не идёт)
+  clearSelection(){ const было=this.selNodes.size || this.selPts.size; if(!было) return false;
+    if(this.selNodes.size){ this.selNodes.clear(); this._paintSel(); this._syncAside(); }
+    if(this.selPts.size) this._ptSel(new Set());
+    return true; }
   // ноды выделения — для кнопки «Отчёт» в правой панели
   selectedItems(){ return [...this.selNodes].map(id=>this.byId[id]&&this.byId[id].ref).filter(Boolean); }
   _startMarquee(e){ const wrap=this.svg.parentNode; let el=wrap.querySelector(".graph-marquee");
@@ -964,7 +970,8 @@ class Graph{
     this._marqEl=el; const rc=wrap.getBoundingClientRect();
     // Shift запоминаем на СТАРТЕ жеста: клавишу отпускают посреди протяжки, и решать по
     // текущему состоянию значило бы менять правило прямо во время рамки.
-    this.marq={x0:e.clientX,y0:e.clientY,rc,base:new Set(this.selNodes),shift:!!e.shiftKey};
+    // точки — тоже в рамку (места снимаем на старте: во время рамки они не едут); попали одни точки — выделены одни точки
+    this.marq={x0:e.clientX,y0:e.clientY,rc,base:new Set(this.selNodes),shift:!!e.shiftKey, basePts:new Set(this.selPts), pts:this._ptAll()};
     el.style.display=""; el.style.left=(e.clientX-rc.left)+"px"; el.style.top=(e.clientY-rc.top)+"px"; el.style.width="0px"; el.style.height="0px";
   }
   _updateMarquee(e){ const m=this.marq, rc=m.rc;
@@ -982,6 +989,8 @@ class Graph{
     const итог=new Set(m.base);
     hit.forEach(id=>итог.add(id));
     this.selNodes=итог; this._paintSel();
+    const тч=new Set(m.basePts); for(const q of m.pts) if(q.x>=w1.x && q.x<=w2.x && q.y>=w1.y && q.y<=w2.y) тч.add(q.k);
+    if(тч.size!==this.selPts.size || [...тч].some(k=>!this.selPts.has(k))) this._ptSel(тч);
   }
   _finishMarquee(){ this.marq=null; if(this._marqEl) this._marqEl.style.display="none"; this._syncAside(); }
   /* ---- поиск ноды по названию + перелёт камеры ---- */
@@ -2628,6 +2637,10 @@ class Graph{
     return true;
   }
   async deleteSelected(){
+    /* выделенные точки — первыми и СИНХРОННО: их записи и снос нод ниже (deletePack) попадают в одно окно persist,
+       и Ctrl+Z возвращает всё одним шагом. Ноды — по прежним правилам, с тостом «Вернуть» */
+    if(this.selPts.size){ const n=this._ptDeleteSel();
+      if(n && !this.selNodes.size) toast(n>1 ? "Точек убрано: "+n : "Точка убрана", {icon:"ti-circle-off"}); }
     const выбор=[...this.selNodes];
     const ids=выбор.filter(id=>this.byId[id] && this.byId[id].ref);      // заметки/задачи/схемы
     /* ХАБЫ — ОТДЕЛЬНО, тем же путём, что кнопка «Удалить область» в поп-апе (с тем же
@@ -3251,7 +3264,7 @@ class Graph{
           svg.setPointerCapture(e.pointerId);
           return;
         }
-        if(!this.selNodes.has(n.id)){ this.selNodes.clear(); this.selNodes.add(n.id); this._paintSel(); }   // обычный клик по ноде — выделить
+        if(!this.selNodes.has(n.id)){ this.selNodes.clear(); this.selNodes.add(n.id); this._paintSel(); if(this.selPts.size) this._ptSel(new Set()); }   // обычный клик по ноде — выделить (точки снимаются)
         /* ПРАВУЮ ПАНЕЛЬ ОБНОВЛЯЕТ ОТПУСКАНИЕ, А НЕ НАЖАТИЕ (см. pointerup). Раньше asideSelect
            стоял здесь, и на нём висели обе жалобы КРОЛИКА — «ноду хватаю, микрофризы» и
            «иногда мышка слетает, когда тяну ноду». ЗАМЕР обеих:
@@ -3308,7 +3321,7 @@ class Graph{
          «Вставить ноду» в меню связи, строка захвата */
       if(e.altKey && !this.linkFrom){ e.preventDefault(); this._dotGatherStart(e, -1); svg.setPointerCapture(e.pointerId); return; }
       // ЛКМ по пустому — рамка выделения (пан теперь средней кнопкой)
-      if(!e.shiftKey){ this.selNodes.clear(); this._paintSel(); }
+      if(!e.shiftKey){ this.selNodes.clear(); this._paintSel(); if(this.selPts.size) this._ptSel(new Set()); }
       this._startMarquee(e); svg.setPointerCapture(e.pointerId); this._closePop();
     };
     /* КАЖДЫЙ ЖЕСТ, МЕНЯЮЩИЙ КАРТИНКУ, ОБЯЗАН БУДИТЬ ЦИКЛ. «Спящий» граф — это не остановленный
@@ -4644,7 +4657,7 @@ class Graph{
     return `M ${ax.toFixed(1)} ${ay.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${bx.toFixed(1)} ${by.toFixed(1)}`;
   }
   startLink(id){ this.linkFrom=id; this.svg.classList.add("linking"); $("#g-hint").innerHTML="Режим связи: кликни по второму узлу. Esc — отмена."; this._closePop(); }
-  cancelLink(){ this.linkFrom=null; this.svg.classList.remove("linking"); this.tempLine.style.display="none"; if($("#g-hint"))$("#g-hint").innerHTML="Alt+тащи от ноды — связь/заметка · Alt+веди по связям — собрать в точку · Ctrl+тащи — копия выделенного · Shift+тащи — одну ноду, без куста (с привязкой к сетке — наоборот) · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · Delete — удалить"; }
+  cancelLink(){ this.linkFrom=null; this.svg.classList.remove("linking"); this.tempLine.style.display="none"; if($("#g-hint"))$("#g-hint").innerHTML="Alt+тащи от ноды — связь/заметка · Alt+веди по связям — собрать в точку · клик по точке — выделить (Shift — ещё), Delete — убрать · Ctrl+тащи — копия выделенного · Shift+тащи — одну ноду, без куста (с привязкой к сетке — наоборот) · ПКМ — меню / создать · ЛКМ-рамка — выделить · средняя кнопка — двигать · Delete — удалить"; }
   // Связать два узла. Связывать можно с чем угодно (заметка/задача/область), но не сам с собой
   // и не область с областью. ОБЛАСТЬ — ОСОБЫЙ СЛУЧАЙ: членство в области это поле it.area, а не
   // связь — линию элемент↔область граф рисует сам (см. build). Поэтому конец в хабе означает
@@ -4858,6 +4871,11 @@ class Graph{
     // ЦЕПОЧКОЙ: новая точка встаёт в прежний список точек связи туда, где её задел след (_dotGatherAdd)
     const сб=this._сбор; if(сб && сб.точка && сб.связи.has(l.a+"|"+l.b)){ const в=сб.вставка.get(l.a+"|"+l.b);
       const сп=в.было.slice(); сп.splice(в.i, 0, {d:сб.точка.id}); return сп; }
+    // протяжка ВЫДЕЛЕННЫХ точек (_ptGroup): точки маршрута этой связи — уже на новом месте
+    const тт=this._точкаТяг; if(тт && тт.moved && тт.списки){ const сп=тт.списки.get(l.a+"|"+l.b); if(сп) return сп; }
+    return this._linkAnchorRaw(l); }
+  // точки связи из данных, без жестов
+  _linkAnchorRaw(l){
     const v=l.manual ? (l.src && l.src[4]) : (this.byId[l.a] && this.byId[l.a].ref && this.byId[l.a].ref.areaanchor);
     return v ? (Array.isArray(v) ? v : [v]) : null; }
   // точки маршрута в мире, как их рисует кадр: без сетки едут за серединой концов вместе с дыханием
@@ -4906,6 +4924,9 @@ class Graph{
        тогда двигается ближайшая: шестая точка не добавляется (LINK_ANCHORS_MAX) */
     const т=this._якТяг, p=this._pt(e), было=(this._linkAnchor(l)||[]).slice();
     let i=this._viaPointAt(l, p);
+    // взяли одну из ВЫДЕЛЕННЫХ точек — едут все выделенные (групповая протяжка живёт в _точкаТяг, см. _dotDragStart)
+    if(i>=0){ const n=this._viaOrd(l, i), k=n>=0 ? "v:"+l.a+"|"+l.b+"#"+n : null, гр=k ? this._ptGroup(k) : null;
+      if(гр){ this._якТяг=null; this._dotDragStart(null, e, гр.find(q=>q.k===k)); return; } }
     if(i<0 && было.length>=LINK_ANCHORS_MAX){ const тч=this._viaPoints(l); let лд=Infinity;
       тч.forEach((q,j)=>{ const d=Math.hypot(q.x-p.x, q.y-p.y); if(d<лд){ лд=d; i=j; } }); }
     if(i<0){ i=this._viaInsertAt(l, p); было.splice(i, 0, null); }
@@ -4954,8 +4975,12 @@ class Graph{
       const сп=this._linkAnchor(l), i=сп ? this._viaPointAt(l, this._pt(e)) : -1;
       if(i>=0){ this._setLinkAnchor(l, сп.filter((q,j)=>j!==i)); toast(сп.length>1 ? "Точка маршрута убрана" : "Маршрут — снова автоподбором",{icon:"ti-route-off"}); }
       else this._resetRoute(l);
+      this._ptSel(new Set());   // номера точек связи сдвинулись — прежнее выделение больше не про те точки
       return; }
-    this._lcLink=ключ; this._lcLinkT=сейч; }
+    this._lcLink=ключ; this._lcLinkT=сейч;
+    // клик по точке маршрута — выделить её (Shift — в выделение или из него); по самой линии без Shift — снять выделение точек
+    { const i=this._linkAnchorRaw(l) ? this._viaPointAt(l, this._pt(e)) : -1, n=i>=0 ? this._viaOrd(l, i) : -1;
+      if(n>=0) this._ptClick("v:"+ключ+"#"+n, e); else if(!e.shiftKey && this.selPts.size) this._ptSel(new Set()); } }
   /* ТОЧКА СВЯЗЕЙ — как точка (dot) в Houdini (КРОЛИК, 04.11.2026, макет demo_точка-связей.html). Служебная
      точка графа со своими x/y (S.dots, по id "dot_…"), через которую идут несколько связей; у каждой
      связи она — элемент списка точек маршрута ({d:id}), поэтому путь, подбор сторон обхода, провал,
@@ -4969,6 +4994,7 @@ class Graph{
   _dotPos(id){
     const сб=this._сбор; if(сб && сб.точка && сб.точка.id===id) return сб.точка;
     const т=this._точкаТяг; if(т && т.id===id && т.moved) return т.точка;
+    if(т && т.moved && т.группа){ const q=т.группа.find(x=>x.d===id); if(q) return {x:q.x+т.дельта.x, y:q.y+т.дельта.y}; }
     return this._dots()[id] || null; }
   _dotLinks(id){ return this.links.filter(l=>{ const я=this._linkAnchor(l); return !!(я && я.some(q=>q.d===id)); }); }
   // у двух связей общая точка связей — сходятся в ней, а не скрещиваются (провал, подбор)
@@ -5030,20 +5056,91 @@ class Graph{
       const сп=в.было.slice(); сп.splice(в.i, 0, {d:сб.точка.id}); this._setLinkAnchor(l, сп); }
     toast(сб.связи.size>1 ? "Связей через точку: "+сб.связи.size : "Связь идёт через точку", {icon:"ti-circle-dot"});
     this._wake(); }
-  // протяжка точки: все её связи едут за ней; клик без сдвига — меню точки
-  _dotDragStart(id, e){ this._closePop(); const т=this._dots()[id]; if(!т) return;
-    this._точкаТяг={id, x0:e.clientX, y0:e.clientY, moved:false, точка:{x:т.x, y:т.y}, шаг:null}; }
+  /* протяжка точки: все её связи едут за ней; клик без сдвига — выделить её (меню точки — по ПКМ, как у связи).
+     Взяли одну из ВЫДЕЛЕННЫХ — едут все выделенные на ту же дельту (группа, _ptGroup): ведущая садится на узел
+     сетки, остальные идут за ней тем же сдвигом. Ведущей может быть и точка маршрута (_anchorStart): тогда id нет */
+  _dotDragStart(id, e, вед){ this._closePop();
+    const k=вед ? вед.k : "d:"+id, т=вед || this._dots()[id]; if(!т) return;
+    this._точкаТяг={id:вед ? null : id, k, x0:e.clientX, y0:e.clientY, moved:false, точка:{x:т.x, y:т.y}, шаг:null,
+      начало:{x:т.x, y:т.y}, p0:this._pt(e), группа:this._ptGroup(k), дельта:{x:0, y:0}, списки:null}; }
   _dotDragMove(e){ const т=this._точкаТяг;
     if(!т.moved){ if(Math.hypot(e.clientX-т.x0, e.clientY-т.y0)<4) return; т.moved=true; this.svg.style.cursor="grabbing";
       this._snapWinRgb=this._snapRgbPair(); }
-    const p=this._pt(e), м=this._dotSnap(p.x, p.y, e); т.точка={x:м.x, y:м.y}; т.шаг=м.шаг;
+    const p=this._pt(e);
+    if(т.группа){ const м=this._dotSnap(т.начало.x+p.x-т.p0.x, т.начало.y+p.y-т.p0.y, e);
+      т.точка={x:м.x, y:м.y}; т.шаг=м.шаг; т.дельта={x:м.x-т.начало.x, y:м.y-т.начало.y}; т.списки=this._ptGroupLists(т); }
+    else { const м=this._dotSnap(p.x, p.y, e); т.точка={x:м.x, y:м.y}; т.шаг=м.шаг; }
     if(this._маршр) this._маршр.грязно=true; this._wake(); }
   _dotDragEnd(e){ const т=this._точкаТяг; this._точкаТяг=null; this.svg.style.cursor="";
     if(this._snapWin && this._snapWin.k>0){ this._snapWinAnim=true; this._wake(); }
-    if(!т.moved){ this._openDotPop(т.id, e); return; }
-    const g=graphCurrent(); if(!g || !g.dots || !g.dots[т.id]) return;
-    g.dots=Object.assign({}, g.dots, {[т.id]:{x:Math.round(т.точка.x*10)/10, y:Math.round(т.точка.y*10)/10}});
+    if(!т.moved){ this._ptClick(т.k, e); return; }
+    const g=graphCurrent(); if(!g) return;
+    const кр=v=>Math.round(v*10)/10;
+    if(т.группа){
+      // всё одной записью подряд — один шаг отката
+      const д=Object.assign({}, g.dots||{}); for(const q of т.группа) if(q.d && д[q.d]) д[q.d]={x:кр(q.x+т.дельта.x), y:кр(q.y+т.дельта.y)};
+      if(Object.keys(д).length) g.dots=д;
+      const сп=т.списки || this._ptGroupLists(т); for(const l of this.links){ const я=сп.get(l.a+"|"+l.b); if(я) this._setLinkAnchor(l, я); }
+      if(this._маршр) this._маршр.грязно=true; persist(); this._якКадр=true; this._wake(); return; }
+    if(!g.dots || !g.dots[т.id]) return;
+    g.dots=Object.assign({}, g.dots, {[т.id]:{x:кр(т.точка.x), y:кр(т.точка.y)}});
     if(this._маршр) this._маршр.грязно=true; persist(); this._wake(); }
+  /* ВЫДЕЛЕНИЕ ТОЧЕК (КРОЛИК, 04.11.2026: «несколько якорей выделять и удалять») — и точки связей (S.dots), и
+     ручные точки маршрута одной связи. Своё множество selPts рядом с selNodes, а не внутри: точки нет ни в
+     nodes, ни в byId, и всё, что перебирает selNodes (копирование, статусы, раскладка, отчёт), споткнулось бы
+     о чужой id. Ключ точки связей — "d:"+id; точки маршрута — "v:a|b#n", где n — номер СРЕДИ СОБСТВЕННЫХ точек
+     связи: точки связей в её списке не в счёт, иначе Alt-жест, вставивший точку в цепочку, сдвигал бы индекс. */
+  _ptAll(){ const o=[];
+    for(const id of (this._точкиЖивые||[])){ const т=this._dotPos(id); if(т) o.push({k:"d:"+id, x:т.x, y:т.y, d:id}); }
+    for(const l of (this._якорные||[])){ if(!l._рт || !l._рт.via) continue; let n=0;
+      for(const q of this._viaPoints(l)){ if(q.d) continue; o.push({k:"v:"+l.a+"|"+l.b+"#"+n, x:q.x, y:q.y, l, n}); n++; } }
+    return o; }
+  // номер собственной точки маршрута по индексу в общем списке точек связи (−1 — это точка связей)
+  _viaOrd(l, i){ const тч=this._viaPoints(l); if(!тч[i] || тч[i].d) return -1; let n=0; for(let j=0;j<i;j++) if(!тч[j].d) n++; return n; }
+  // смена выделения точек — один полный кадр (кольца рисует _drawMain, а покойный кадр большого графа — только фон)
+  _ptSel(s){ this.selPts=s; this._якКадр=true; this._wake(); }
+  // клик по точке: без Shift — только она (и ноды снимаются, как при клике по ноде), с Shift — в выделение или из него
+  _ptClick(k, e){
+    if(e && e.shiftKey){ const s=new Set(this.selPts); if(s.has(k)) s.delete(k); else s.add(k); this._ptSel(s); return; }
+    if(this.selNodes.size){ this.selNodes.clear(); this._paintSel(); this._syncAside(); }
+    this._ptSel(new Set([k])); }
+  /* что едет при протяжке выделенной точки: все выделенные, если взяли одну из них и их больше одной. Места —
+     ИЗ ДАННЫХ (середина концов + смещение, с узлом сетки), а не с кадра: запись на отпускании считается от них же */
+  _ptGroup(k){
+    if(!this.selPts.has(k) || this.selPts.size<2) return null;
+    const o=[], g=this._dots();
+    for(const кл of this.selPts){
+      if(кл.startsWith("d:")){ const т=g[кл.slice(2)]; if(т) o.push({k:кл, d:кл.slice(2), x:т.x, y:т.y}); continue; }
+      const [лк, nс]=кл.slice(2).split("#"), l=this.links.find(x=>x.a+"|"+x.b===лк), я=l && this._linkAnchor(l); if(!я) continue;
+      const a=this.byId[l.a], b=this.byId[l.b]; if(!a || !b) continue;
+      let n=0; for(const q of я){ if(q.d) continue; if(n===+nс){ let x=(a.x+b.x)/2+q.dx, y=(a.y+b.y)/2+q.dy;
+        if(q.g){ x=Math.round(x/q.g)*q.g; y=Math.round(y/q.g)*q.g; } o.push({k:кл, l, n, x, y}); break; } n++; } }
+    return o.length>1 ? o : null; }
+  // списки точек связей с группой, сдвинутой на дельту (для _linkAnchor в протяжке и для записи на отпускании)
+  _ptGroupLists(т){
+    const по=new Map(); for(const q of т.группа) if(q.l){ const к=q.l.a+"|"+q.l.b; if(!по.has(к)) по.set(к, {l:q.l, n:new Map()}); по.get(к).n.set(q.n, q); }
+    const o=new Map();
+    по.forEach(({l, n:мои}, к)=>{ const я=(this._linkAnchorRaw(l)||[]), a=this.byId[l.a], b=this.byId[l.b]; if(!a || !b) return;
+      let n=0; o.set(к, я.map(q=>{ if(q.d) return q; const м=мои.get(n++); if(!м) return q;
+        const р={dx:м.x+т.дельта.x-(a.x+b.x)/2, dy:м.y+т.дельта.y-(a.y+b.y)/2}; if(т.шаг) р.g=т.шаг; return р; })); });
+    return o; }
+  /* убрать выделенные точки: связи — к оставшимся точкам цепочки или к автомаршруту. Все записи — подряд в одном
+     окне persist, поэтому шаг отката один (и вместе с нодами, если Delete снёс и их: deleteSelected) */
+  _ptDeleteSel(){
+    const сп=[...(this.selPts||[])]; if(!сп.length) return 0;
+    const точки=new Set(сп.filter(k=>k.startsWith("d:")).map(k=>k.slice(2))), свои=new Map();
+    for(const k of сп) if(k.startsWith("v:")){ const [лк, n]=k.slice(2).split("#"); if(!свои.has(лк)) свои.set(лк, new Set()); свои.get(лк).add(+n); }
+    let n=0;
+    for(const l of this.links){ const я=this._linkAnchor(l); if(!я) continue; const мои=свои.get(l.a+"|"+l.b);
+      if(!мои && !я.some(q=>q.d && точки.has(q.d))) continue;
+      let k=0; const ост=я.filter(q=>{ if(q.d) return !точки.has(q.d); const прочь=!!(мои && мои.has(k)); k++; if(прочь) n++; return !прочь; });
+      if(ост.length!==я.length) this._setLinkAnchor(l, ост.length ? ост : null); }
+    const g=graphCurrent();
+    if(g && g.dots){ const д=Object.assign({}, g.dots); for(const id of точки) if(д[id]){ delete д[id]; n++; }
+      if(Object.keys(д).length) g.dots=д; else delete g.dots; }
+    if(this._маршр) this._маршр.грязно=true;
+    persist(); this._ptSel(new Set());
+    return n; }
   // снять точку с одной связи (null — со всех); пустая точка уходит вместе с последней
   _dotDetach(id, l){
     for(const м of (l ? [l] : this._dotLinks(id))){ const я=this._linkAnchor(м)||[]; this._setLinkAnchor(м, я.filter(q=>q.d!==id)); }
@@ -5056,6 +5153,7 @@ class Graph{
     const pop=el("div"); pop.id="node-pop";
     pop.innerHTML=`<div class="np-ttl"><i class="ti ti-circle-dot"></i> Точка связей · ${свои.length}</div>
       <div class="np-row"><button class="btn" data-dp="del" title="Связи вернутся к автомаршруту"><i class="ti ti-circle-off"></i>Убрать точку</button></div>
+      ${this.selPts.size>1?`<div class="np-row"><button class="btn" data-dp="sel" title="Убрать все выделенные точки связей и точки маршрута (Delete)"><i class="ti ti-circle-off"></i>Убрать выделенные точки (${this.selPts.size})</button></div>`:""}
       ${свои.map((l,i)=>`<div class="np-row"><button class="btn ghost" data-dp="${i}" title="Эта связь пойдёт мимо точки"><i class="ti ti-unlink"></i>Отцепить: ${esc(this._nodeLabel(l.a))} → ${esc(this._nodeLabel(l.b))}</button></div>`).join("")}`;
     const wrap=$("#graph-wrap"); wrap.appendChild(pop);
     const rc=this.svg.getBoundingClientRect(), pw=pop.offsetWidth||240, ph=pop.offsetHeight||140;
@@ -5063,6 +5161,7 @@ class Graph{
     pop.style.left=Math.max(8, Math.min(cx+12, rc.width-pw-8))+"px"; pop.style.top=Math.max(8, Math.min(cy+12, rc.height-ph-8))+"px";
     pop.querySelectorAll("[data-dp]").forEach(b=>b.onclick=()=>{ const v=b.dataset.dp; this._closePop();
       if(v==="del"){ this._dotDetach(id, null); toast("Точка убрана — связи снова автомаршрутом",{icon:"ti-circle-off"}); }
+      else if(v==="sel"){ const n=this._ptDeleteSel(); if(n) toast("Точек убрано: "+n, {icon:"ti-circle-off"}); }
       else this._dotDetach(id, свои[+v]); }); }
   /* Вид — кольцо с ореолом (выбор КРОЛИКА из макета): тихое кольцо в покое, ярче и с мягким ореолом под
      курсором и в руке. Не похоже ни на одну форму ноды. След Alt-сбора — тающий хвост цветами кромки темы. */
@@ -5081,7 +5180,8 @@ class Graph{
     const цв=this._точкиЦвет || new Map();
     ctx.save(); ctx.setLineDash([]); ctx.globalAlpha=1;
     for(const id of ids){ const т=this._dotPos(id); if(!т) continue;
-      const x=т.x*z+tx, y=т.y*z+ty, ярко=id===this._точкаНав || (сб && сб.точка && сб.точка.id===id) || (this._точкаТяг && this._точкаТяг.id===id);
+      // выделенная (selPts) — тот же вид, что под курсором, только постоянный
+      const x=т.x*z+tx, y=т.y*z+ty, ярко=id===this._точкаНав || (сб && сб.точка && сб.точка.id===id) || (this._точкаТяг && this._точкаТяг.id===id) || this.selPts.has("d:"+id);
       const r=this._dotRadius(z, ярко); if(!r) continue;
       // ореол — тем же цветом точки, приглушённым; у цвета, который не hex, — общий свет темы
       if(ярко){ const ц=цв.get(id), h=/^#[0-9a-f]{6}$/i.test(ц||"") ? ц : null, г=ctx.createRadialGradient(x,y,2,x,y,18);
@@ -8278,6 +8378,14 @@ class Graph{
           else ctx.arc(x, y, 3.5, 0, Math.PI*2);
           ctx.stroke(); ctx.fill(); }
         ctx.restore(); } }
+    /* ВЫДЕЛЕННЫЕ ТОЧКИ МАРШРУТА (selPts) — постоянно, тем же кольцом с ореолом, что точка связей под курсором:
+       без метки выделенную точку на линии не видно вовсе (своя метка у неё только при наведении) */
+    if(this.selPts.size){ const все=this._ptAll(); ctx.save(); ctx.globalAlpha=1; ctx.setLineDash([]);
+      for(const q of все){ if(!q.l || !this.selPts.has(q.k)) continue;
+        const x=q.x*z+tx, y=q.y*z+ty, c=цветКонца(this.byId[q.l.b] || this.byId[q.l.a]), г=ctx.createRadialGradient(x,y,2,x,y,18);
+        г.addColorStop(0, пал.сияние); г.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle=г; ctx.beginPath(); ctx.arc(x,y,18,0,Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x, y, 5.5, 0, Math.PI*2); ctx.fillStyle=пал.фон; ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle=c; ctx.stroke(); }
+      ctx.restore(); }
     /* УЗЛЫ. Вид повторяет правила styles.css — иначе переключение рендера меняло бы не скорость,
        а картинку. Группируем по ВИДУ (форма, заливка, обводка, толщина, пунктир, прозрачность):
        смена стиля рвёт пакет отрисовки, и тысяча узлов превратилась бы в тысячу вызовов.
@@ -9147,6 +9255,7 @@ class Graph{
       <div class="np-row np-lm">${[{id:"",icon:"ti-arrow-back-up",label:"Как у графа или ветки — снять свой режим"}].concat(LINK_MODES).map(x=>
         `<button class="${кнЛМ(x.id)}" data-lm="${x.id}" title="${esc(x.label)}"><i class="ti ${x.icon}"></i></button>`).join("")}</div>`:""}
       ${(this._linkAnchor(l) || this._linkBusAnchor(l))?`<div class="np-row"><button class="btn" data-lp="unanc" title="Вернуть маршрут автоподбору (или двойной клик по связи)"><i class="ti ti-route-off"></i>Сбросить маршрут</button></div>`:""}
+      ${this.selPts.size>1?`<div class="np-row"><button class="btn" data-lp="unsel" title="Убрать все выделенные точки связей и точки маршрута (Delete)"><i class="ti ti-circle-off"></i>Убрать выделенные точки (${this.selPts.size})</button></div>`:""}
       <div class="np-row"><button class="btn" data-lp="ins" title="Новая нода в точке клика, между концами связи"><i class="ti ti-git-commit"></i>Вставить ноду</button><button class="btn" data-lp="del"><i class="ti ti-unlink"></i>${auto?"Открепить":"Убрать связь"}</button></div>`;
     const wrap=$("#graph-wrap"); wrap.appendChild(pop);
     const rc=this.svg.getBoundingClientRect();
@@ -9204,6 +9313,8 @@ class Graph{
     };
     { const кн=pop.querySelector('[data-lp="unanc"]');
       if(кн) кн.onclick=()=>{ this._closePop(); this._resetRoute(l); }; }
+    { const кн=pop.querySelector('[data-lp="unsel"]');
+      if(кн) кн.onclick=()=>{ this._closePop(); const n=this._ptDeleteSel(); if(n) toast("Точек убрано: "+n, {icon:"ti-circle-off"}); }; }
     // точку снимаем сейчас: к нажатию кнопки курсор уже стоит на меню, а не на связи
     const wp=this._pt(e);
     // создание — той же коробкой, что Alt (КРОЛИК): сперва текст, вид под ним, умолчание из настроек
