@@ -2896,7 +2896,7 @@ class Graph{
              Хабу области дом не нужен вовсе: его x/y И ЕСТЬ дом, а дома детей — смещения от
              него, и за хабом они едут сами, без единой дополнительной строки. */
           if(S.settings.graphHome) группа.forEach(q=>{ if(q.ref) this._homeFromDrag(q.ref);
-            else { const ar=q.hubArea||q.subRoot; if(ar){ ar.hx=q.x; ar.hy=q.y; } } });   // якорь хаба (см. _tick, «ЯКОРЬ hx/hy»)
+            else { const ar=q.hubArea||q.subRoot; if(ar){ ar.hx=Math.round(q.x); ar.hy=Math.round(q.y); } } });   // якорь хаба (см. _tick, «ЯКОРЬ hx/hy»); целый — см. toggleHome
           /* Сольный хват: дети на домах стоят там, где стояли, — переписываем их дома от нового
              места владельца. Иначе первое же пробуждение физики увезло бы куст следом. */
           // в руке может быть группа (с привязкой сольна и групповая протяжка) — стоят кусты ВСЕХ схваченных
@@ -5607,7 +5607,10 @@ class Graph{
     } else {
       /* ВЫКЛЮЧЕНИЕ запоминает якорь хабам, у которых его нет: сейчас хаб ещё стоит в своём доме,
          а через секунду свободная физика его сдвинет, и место перестанет быть домом. */
-      this.nodes.forEach(n=>{ const ar=n.hubArea||n.subRoot; if(ar && ar.hx==null){ ar.hx=n.x; ar.hy=n.y; } });
+      /* ЯКОРЬ ЦЕЛЫЙ. Живой хаб к этой секунде доезжает до дома с остатком в тысячные доли, а дома
+         детей — целые смещения от него (_homeFromDrag): дробный якорь уводил весь куст с узлов сетки
+         на те же тысячные (полный прогон: 2199.9994 вместо 2200 после «дом.js», выключавшего дома). */
+      this.nodes.forEach(n=>{ const ar=n.hubArea||n.subRoot; if(ar && ar.hx==null){ ar.hx=Math.round(n.x); ar.hy=Math.round(n.y); } });
       toast("Раскладка свободна",{icon:"ti-home-off"});
     }
     persist();
@@ -6905,7 +6908,9 @@ class Graph{
        Рисуется ДО связей и нод: окно глушит фон, а не граф. */
     const ок=this._snapWin;
     if(ок && ок.n && ок.k>0 && ок.s){
-      const d0=ок.n, s=ок.s, R=4, ф=this._snapFineStep(s), RW=R*s*ок.k, RP=RW*z;
+      // радиус окна 2.6 крупной клетки, гашение 0.6 и долгий спад маски — «слишком сильно затеняется,
+      // область меньше и края мягче» (КРОЛИК, снимок на звёздах); было 4 клетки, 0.9 и плато до 0.55
+      const d0=ок.n, s=ок.s, R=4, ОКНО=2.6, ф=this._snapFineStep(s), RW=ОКНО*s*ок.k, RP=RW*z;
       const cx=d0.x*z+tx, cy=d0.y*z+ty;
       if(!this._snapLensColor) this._snapLensColor=NEUTRAL();   // тон темы; getComputedStyle — один раз на жест
       if(!this._snapWinBg) this._snapWinBg=getComputedStyle(document.body).getPropertyValue("--bg").trim()||"#141517";
@@ -6918,7 +6923,7 @@ class Graph{
         oc.setTransform(1,0,0,1,0,0); oc.globalCompositeOperation="source-over"; oc.globalAlpha=1; oc.clearRect(0,0,ос.width,ос.height);
         oc.setTransform(dpr,0,0,dpr,-ox,-oy);
         // гашение фона: тон страницы, плотный в середине — звёзды под ним тонут
-        oc.globalAlpha=0.9; oc.fillStyle=this._snapWinBg; oc.fillRect(cx-RP, cy-RP, 2*RP, 2*RP);
+        oc.globalAlpha=0.6; oc.fillStyle=this._snapWinBg; oc.fillRect(cx-RP, cy-RP, 2*RP, 2*RP);
         oc.strokeStyle=this._snapLensColor;
         const линии=(шаг,а,толщ)=>{ oc.globalAlpha=а; oc.lineWidth=толщ; oc.beginPath();
           for(let wx=Math.ceil((cx-RP-tx)/z/шаг)*шаг; wx*z+tx<=cx+RP; wx+=шаг){ const sx=Math.floor(wx*z+tx)+0.5; oc.moveTo(sx,cy-RP); oc.lineTo(sx,cy+RP); }
@@ -6928,7 +6933,8 @@ class Graph{
         линии(s, 0.34, 1);           // крупные — потолще
         // 2) радиальная маска: середина видна, край тает
         const маска=oc.createRadialGradient(cx,cy,0,cx,cy,RP);
-        маска.addColorStop(0,"rgba(0,0,0,1)"); маска.addColorStop(0.55,"rgba(0,0,0,0.88)"); маска.addColorStop(1,"rgba(0,0,0,0)");
+        маска.addColorStop(0,"rgba(0,0,0,1)"); маска.addColorStop(0.3,"rgba(0,0,0,0.8)");
+        маска.addColorStop(0.65,"rgba(0,0,0,0.32)"); маска.addColorStop(1,"rgba(0,0,0,0)");
         oc.globalCompositeOperation="destination-in"; oc.globalAlpha=1; oc.fillStyle=маска; oc.fillRect(cx-RP, cy-RP, 2*RP, 2*RP);
         ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.globalAlpha=1; ctx.drawImage(ос, 0, 0, сторона, сторона, ox, oy, сторона, сторона); ctx.restore();
       }

@@ -163,10 +163,10 @@ function winAnim(){
     draw(); win.raf=requestAnimationFrame(step); };
   win.raf=requestAnimationFrame(step); }
 function gridWindow(n, S, f, R){
-  const e=ease(win.k), cx=(n.x+(n.ox||0))*z+tx, cy=(n.y+(n.oy||0))*z+ty, RP=Math.max(1,R*S*z*e);   // радиус окна в экранных px
+  const e=ease(win.k), cx=(n.x+(n.ox||0))*z+tx, cy=(n.y+(n.oy||0))*z+ty, RP=Math.max(1,2.6*S*z*e);   // радиус окна — 2.6 крупной клетки, как в приложении
   // 1) затемнение: тон холста, плотный в середине и тающий к краю — звёзды под ним гаснут
   const g=ctx.createRadialGradient(cx,cy,0,cx,cy,RP);
-  g.addColorStop(0,"rgba(20,21,23,0.92)"); g.addColorStop(0.6,"rgba(20,21,23,0.8)"); g.addColorStop(1,"rgba(20,21,23,0)");
+  g.addColorStop(0,"rgba(20,21,23,0.6)"); g.addColorStop(0.3,"rgba(20,21,23,0.48)"); g.addColorStop(0.65,"rgba(20,21,23,0.19)"); g.addColorStop(1,"rgba(20,21,23,0)");
   ctx.save(); ctx.globalAlpha=1; ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,RP,0,Math.PI*2); ctx.fill(); ctx.restore();
   // 2) линии сетки в отдельный холст
   if(lensCv.width!==cv.width||lensCv.height!==cv.height){ lensCv.width=cv.width; lensCv.height=cv.height; }
@@ -181,7 +181,7 @@ function gridWindow(n, S, f, R){
   lines(S, 0.34, 1);           // крупные — потолще
   // 3) радиальная маска: в середине линии видны, к краю тают
   const m=lctx.createRadialGradient(cx,cy,0,cx,cy,RP);
-  m.addColorStop(0,"rgba(0,0,0,1)"); m.addColorStop(0.55,"rgba(0,0,0,0.85)"); m.addColorStop(1,"rgba(0,0,0,0)");
+  m.addColorStop(0,"rgba(0,0,0,1)"); m.addColorStop(0.3,"rgba(0,0,0,0.8)"); m.addColorStop(0.65,"rgba(0,0,0,0.32)"); m.addColorStop(1,"rgba(0,0,0,0)");
   lctx.globalCompositeOperation="destination-in"; lctx.globalAlpha=1; lctx.fillStyle=m; lctx.fillRect(x0,y0,2*RP,2*RP);
   ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.globalAlpha=1; ctx.drawImage(lensCv,0,0); ctx.restore();
 }
@@ -189,7 +189,7 @@ function lens(n){
   const S=coarseStep(n), f=fineStep(n), R=4, cx=n.x+(n.ox||0), cy=n.y+(n.oy||0);
   if(ST.fv==="window"){   // окно — на ЛЮБОМ фоне (КРОЛИК: «с чистым фоном и другими нужна такая же система»)
     gridWindow(n, S, f, R);
-    const e=ease(win.k), RW=R*S*e;   // крестики появляются вместе с раскрытием окна
+    const e=ease(win.k), RW=2.6*S*e;   // крестики появляются вместе с раскрытием окна
     ctx.save(); ctx.strokeStyle="#e6e6e6";
     const cr=(wx,wy,k,a,w)=>{ const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5; ctx.globalAlpha=a; ctx.lineWidth=w; ctx.beginPath();
       ctx.moveTo(sx-k,sy); ctx.lineTo(sx+k,sy); ctx.moveTo(sx,sy-k); ctx.lineTo(sx,sy+k); ctx.stroke(); };

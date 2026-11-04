@@ -143,12 +143,22 @@ addLink(A.id, B.id); recomputeHierarchy(); persist(); render(); await ж(200);
 {
   const уснуть = () => { graph.alpha = 1; let i = 0; for (; i < 4000 && graph.alpha > 0; i++) graph._tick(true); return i; };
   S.settings.graphSnapMode = "always";
+  /* Как в полном прогоне после «дом.js»: якорь хабу пишет ВЫКЛЮЧЕНИЕ дома, пока хаб стоит с
+     дробным остатком. Якорь обязан выйти целым — иначе весь куст встаёт на тысячные мимо узлов
+     (было: 2199.9994 вместо 2200). */
+  { const ар = areaById(обл), хаб = graph.byId["hub_" + обл];
+    delete ар.hx; delete ар.hy; if (хаб) { хаб.x += 0.37; хаб.y -= 0.41; }
+    graph.toggleHome(); const цел = Number.isInteger(ар.hx) && Number.isInteger(ар.hy);
+    graph.toggleHome(); уснуть();
+    t.push({имя: "якорь хаба при выключении дома — целый", ок: цел, факт: "якорь " + ар.hx + "," + ар.hy}); }
   const nA = graph.byId[A.id]; навести(nA, 1);
   const s = шагОжид(1, nA.r, false), ax = Math.round(nA.x / s) * s, ay = Math.round(nA.y / s) * s;
   тянуть(graph.byId[A.id], ax + 3, ay - 2);
   тянуть(graph.byId[B.id], ax + 2 * s - 2, ay + 3);
   уснуть();
   const до = [A.x, A.y, B.x, B.y].join(",");
+  t.push({имя: "после броска и сна физики ноды ровно на узлах", ок: A.x === ax && A.y === ay && B.x === ax + 2 * s && B.y === ay,
+          факт: до + ", ждём " + [ax, ay, ax + 2 * s, ay].join(",")});
   graph.toggleHome(); const к1 = уснуть();
   const нA = graph.byId[A.id], сдвиг = Math.round(Math.hypot(нA.x - ax, нA.y - ay));
   graph.toggleHome(); const к2 = уснуть();
