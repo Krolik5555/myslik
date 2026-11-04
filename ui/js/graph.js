@@ -6902,15 +6902,24 @@ class Graph{
       // мелкие — в том же круге, что крупные: указатели должны быть видны вокруг ноды так же
       /* Мелких в круге до полутора тысяч — по stroke на каждый это мс в кадре протяжки. Поэтому
          раскладываем их по ШЕСТИ корзинам яркости и рисуем корзину одним путём. */
-      if(ф){ const RF=R*s, N=Math.ceil(RF/ф), fx0=Math.round(d0.x/ф), fy0=Math.round(d0.y/ф), kf=Math.min(2, ф*z*0.14);
+      /* ШУМНЫЙ ФОН (звёзды, пыль, топография): мелкий крестик размером и яркостью с ту же звезду и в
+         поле точек теряется (КРОЛИК, 04.11.2026). Отличаем ФОРМОЙ: тёмная подложка-плюс того же
+         рисунка вырезает его из фона, лучи чуть длиннее и толще. Непрозрачность 0.3 против 0.75 у
+         крупного — иерархия «крупный основной, мелкий запасной» остаётся. На сетке и чистом тоне
+         подложка не нужна: там спорить не с чем. */
+      const шум=["stars","dust","topo"].indexOf(this._bgKind())>=0;
+      if(ф){ const RF=R*s, N=Math.ceil(RF/ф), fx0=Math.round(d0.x/ф), fy0=Math.round(d0.y/ф), kf=шум?Math.min(3, ф*z*0.2):Math.min(2, ф*z*0.14);
         const КОРЗ=6, пути=[]; for(let b=0;b<КОРЗ;b++) пути.push(new Path2D());
         for(let i=-N;i<=N;i++) for(let j=-N;j<=N;j++){
           const wx=(fx0+i)*ф, wy=(fy0+j)*ф; if(наКрупном(wx,wy)) continue;
           const d=Math.hypot(wx-d0.x, wy-d0.y)/RF; if(d>=1) continue;
           const п=пути[Math.min(КОРЗ-1, Math.floor((1-d)*КОРЗ))], sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5;
           п.moveTo(sx-kf,sy); п.lineTo(sx+kf,sy); п.moveTo(sx,sy-kf); п.lineTo(sx,sy+kf); }
-        ctx.lineWidth=0.6;
-        for(let b=0;b<КОРЗ;b++){ const м=(b+0.5)/КОРЗ; ctx.globalAlpha=0.22*м*м*м; ctx.stroke(пути[b]); } }
+        if(шум){ ctx.save(); ctx.strokeStyle=document.body.classList.contains("light")?"#fff":"#000"; ctx.lineWidth=3.2;
+          for(let b=0;b<КОРЗ;b++){ const м=(b+0.5)/КОРЗ; ctx.globalAlpha=0.7*м*м; ctx.stroke(пути[b]); }
+          ctx.restore(); }
+        ctx.lineWidth=шум?0.8:0.6;
+        for(let b=0;b<КОРЗ;b++){ const м=(b+0.5)/КОРЗ; ctx.globalAlpha=(шум?0.3:0.22)*м*м*м; ctx.stroke(пути[b]); } }
       const ox=Math.round(d0.x/s), oy=Math.round(d0.y/s);
       for(let i=-R;i<=R;i++) for(let j=-R;j<=R;j++){
         const wx=(ox+i)*s, wy=(oy+j)*s, d=Math.hypot(wx-d0.x, wy-d0.y)/(R*s); if(d>1) continue;
