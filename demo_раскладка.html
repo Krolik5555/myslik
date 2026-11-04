@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Режимы раскладки</title>
+<style>
+:root{--bg:#060607;--cv:#0b0b0d;--s1:#121216;--tx:#f4f4f5;--mut:#9a9aa3;--mut2:#7a7a83;--hair:rgba(255,255,255,.08);--ok:#5fb98e;--warn:#e8a14b;}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--tx);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:21px;margin:0 0 4px} .lead{color:var(--mut);max-width:1040px;margin:0 0 14px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px;align-items:center;color:var(--mut)}
+.bar button{background:var(--s1);color:var(--tx);border:1px solid var(--hair);border-radius:8px;padding:5px 10px;cursor:pointer;font:inherit}
+.bar button.on{box-shadow:inset 0 0 0 1px #6f9bd8}
+.bar .num{color:var(--mut2);font-size:12px;margin-left:6px}
+.heads,.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.heads{margin-bottom:8px}
+.hd{padding:10px 14px;background:var(--s1);border-radius:12px;box-shadow:0 0 0 1px var(--hair)}
+.hd h3{margin:0;font-size:15px} .hd p{margin:3px 0 0;color:var(--mut);font-size:12.5px}
+.hd .why{color:var(--mut2);font-size:11.5px;margin-top:4px}
+.row-t{grid-column:1/-1;margin:14px 0 -4px;color:var(--mut);font-size:13px} .row-t b{color:var(--tx)}
+.card{background:var(--cv);border-radius:14px;box-shadow:0 0 0 1px var(--hair);overflow:hidden}
+.card.big{grid-column:1/-1}
+canvas{display:block;width:100%;height:330px;cursor:zoom-in}
+.card.big canvas{height:640px;cursor:zoom-out}
+.met{padding:7px 14px;color:var(--mut2);font-size:11.5px;border-top:1px solid var(--hair);line-height:1.6}
+.met b{color:var(--mut);font-weight:600} .met .ok{color:var(--ok)} .met .warn{color:var(--warn)}
+.foot{color:var(--mut2);max-width:1040px;margin-top:18px;font-size:12px}
+.foot b{color:var(--mut)}
+@media (max-width:900px){.heads,.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<h1>Упорядочить — кусты и ярусы</h1>
+<p class="lead">Три дерева, три раскладки. Кусты — нынешняя «Упорядочить» по замыслу (здесь упрощённая копия для сравнения на глаз, её настоящие числа даст линейка <code>раскладка.js</code>). Ярусы — новый режим, два варианта на выбор. Третья строка — упорядочивание ВСЕГО графа: два дерева и три одиночные ноды; деревья встают рядом, полкой, а не друг на друге. Клик по карточке — крупно. Подписи и зазоры в настоящих размерах холста (подпись 11 px под нодой, до 22 знаков).</p>
+<div class="bar">Плотность:
+  <button data-d="tight">Плотно</button><button data-d="norm" class="on">Норма</button><button data-d="loose">Просторно</button>
+  <span class="num" id="dnum"></span>
+</div>
+<div class="heads">
+  <div class="hd"><h3>Кусты</h3><p>Ветки вокруг корня, у каждой — свой куст листьев наружу. Соседние ветки чередуются ближе/дальше.</p>
+    <div class="why">Компактно и «живо», но структура читается хуже: где чей уровень, видно только по связям.</div></div>
+  <div class="hd"><h3>Ярусы А · сверху вниз</h3><p>Уровень — ряд. Родитель над серединой своих детей. Длинный ряд листьев идёт «шахматкой» в два подряда, цепочка — змейкой вниз столбцами по четыре.</p>
+    <div class="why">Читается как орг-схема. Широкое дерево выходит широким: подпись под нодой задаёт шаг по горизонтали.</div></div>
+  <div class="hd"><h3>Ярусы Б · в две стороны</h3><p>Корень в середине, ветки уходят вправо и влево. Уровень — столбец, дети стопкой, родитель напротив их середины. Цепочка — змейкой наружу.</p>
+    <div class="why">Подпись под нодой стоит дёшево по вертикали — поэтому дерево выходит близким к экрану по пропорциям.</div></div>
+</div>
+<div class="grid" id="grid"></div>
+<div class="foot">
+  <b>Линейка под карточкой</b> — то, за что раскладку браковали: <b>габарит</b> (с подписями) и <b>площадь на ноду</b> — мера «компактно / громоздко»: у ручного эталона кустов КРОЛИКА (101 нода, дальняя в ~480 px) выходит ≈ 9 тыс. px² по габариту; зелёное — 6–13 тыс. На маленьком дереве эта мера выходит выше сама собой (поля вокруг делятся на меньшее число нод), сравнивать режимы надо в одной строке. <b>Подписи внахлёст</b> — пары подписей, налезающих друг на друга или на чужую ноду («каша»). <b>Ноды на связях</b> — чужая нода ближе 6 px к связи. <b>Пересечения</b> связей дерева. <b>Связь</b> родитель → ребёнок: медиана и самая длинная. <b>Пропорции</b> — ширина к высоте, у экрана ≈ 1.8.
+</div>
+<script>
+const MEAS=document.createElement("canvas").getContext("2d"); MEAS.font='11px "Segoe UI",system-ui,sans-serif';
+const cut=s=>s.length>22?s.slice(0,21)+"…":s;
+const _lw={}; const LW=s=>_lw[s]||(_lw[s]=Math.ceil(MEAS.measureText(cut(s)).width)+8);
+const PAL=["#6f9bd8","#5fb98e","#e8a14b","#a68ce0","#d77fa1","#5cc0c7","#c9b458","#e07a5f","#8fb36b","#b48ead"];
+const LAB=12;   // подпись: от r+3 до r+3+LAB под центром ноды
+
+// ПЛОТНОСТЬ — всё числом: sib — шаг стопки, gap — между кустами/блоками, lvl — между ярусами, col — между столбцами,
+// nodeGap — соседи в шахматке, lab — просвет подписей, stag — сдвиг подряда шахматки, tree — между деревьями
+const DENS={
+  tight:{sib:38,gap:18,lvl:80, col:128,nodeGap:34,lab:6, stag:28,tree:80, bushR:140,bushAlt:50,leafR:74, leafAlt:38},
+  norm: {sib:44,gap:26,lvl:96, col:150,nodeGap:40,lab:10,stag:30,tree:120,bushR:170,bushAlt:60,leafR:90, leafAlt:46},
+  loose:{sib:52,gap:36,lvl:116,col:180,nodeGap:48,lab:16,stag:32,tree:160,bushR:200,bushAlt:70,leafR:108,leafAlt:54}};
+let DK="norm";
+
+// ---------- ДЕРЕВЬЯ ----------
+const ch=a=>a.length===1?a[0]:[a[0],[ch(a.slice(1))]];
+function forest(specs){
+  const N={}, roots=[]; let seq=0;
+  const add=(s,p)=>{ const [label,kids]=typeof s==="string"?[s,[]]:s, id="n"+(seq++);
+    N[id]={id,p,label,kids:[]}; if(p) N[p].kids.push(id); else roots.push(id); (kids||[]).forEach(k=>add(k,id)); return id; };
+  specs.forEach(s=>add(s,null));
+  const desc={}, chain={}, col={};
+  const post=id=>{ const n=N[id]; n.kids.forEach(post);
+    desc[id]=n.kids.reduce((s,c)=>s+1+desc[c],0);
+    chain[id]=!n.kids.length?0:(n.kids.length===1&&chain[n.kids[0]]>=0?1+chain[n.kids[0]]:-1);
+    n.r=!n.p?13:(n.kids.length?10:7); };
+  roots.forEach(post);
+  roots.forEach((r,ri)=>{ const paint=(id,c)=>{ col[id]=c; N[id].kids.forEach(k=>paint(k,c)); };
+    col[r]="#6f9bd8"; N[r].kids.forEach((k,i)=>paint(k,PAL[(i+1)%PAL.length])); if(!N[r].kids.length) col[r]="#7a7a83"; });
+  return {N,roots,desc,chain,col};
+}
+const TREES=[
+ {t:"Широкое дерево", d:"59 нод: девять веток по 3–7 листьев, у двух — внуки", F:forest([["Презентация команды",[
+   ["Сценарий",["Вступление",["Цифры квартала",["Выручка","Отток"]],"Главная мысль","Финал","Шутка в начале"]],
+   ["Слайды",["Титульный","Графики","Схема продукта","Команда","Контакты"]],
+   ["Демо",["Стенд","Тестовый аккаунт","Запасное видео","Сценарий клика"]],
+   ["Видео",[["Монтаж",["Черновой","Чистовой"]],"Музыка","Субтитры","Обложка","Экспорт 4K","Загрузка"]],
+   ["Репетиция",["Прогон 1","Прогон 2","Тайминг"]],
+   ["Раздатка",["Буклет","QR-код","Печать","Папки","Бейджи"]],
+   ["Вопросы зала",["Частые вопросы","Ответы по цене","Модератор","Микрофон","Таймер","Запись вопросов","Итоги"]],
+   ["Логистика",["Зал","Проектор","Кофе-брейк","Такси"]],
+   ["После показа",["Рассылка","Опрос","Разбор полётов","Благодарности","Отчёт руководству"]]]]])},
+ {t:"Длинная цепочка", d:"33 ноды: цепочка из 14 звеньев, цепочка с развилкой на конце, два куста", F:forest([["Ремонт квартиры",[
+   ["Этапы",[ch(["Демонтаж","Вывоз мусора","Электрика","Сантехника","Штукатурка","Стяжка","Шпаклёвка","Грунт","Плитка","Покраска","Полы","Двери","Свет","Уборка"])]],
+   ["Закупки",[ch(["Смета","Сравнить цены","Заказ","Доставка",["Приёмка",["Возврат брака","Акт"]]])]],
+   ["Документы",["Договор","Акт скрытых работ","Гарантия","Чеки"]],
+   ["Бюджет",["Резерв 15 %","Платёж 1"]]]]])},
+ {t:"Весь граф — смесь", d:"42 ноды: дерево с вложенным хабом и цепочкой, второе дерево, три одиночки — глобальное упорядочивание", F:forest([
+   ["Работа",[["Клиенты",[["Альфа",["Счёт","Созвон","Макеты"]],["Бета",["Бриф","Смета","Договор"]],["Гамма",["Правки","Сдача","Оплата"]]]],
+     ["Найм",[ch(["Вакансия","Отбор","Тестовое","Интервью","Оффер","Онбординг","Испытательный срок"])]],
+     ["Отчётность",["Неделя","Месяц","Квартал","Налоги"]]]],
+   ["Дом",[["Здоровье",["Врач","Спорт","Сон"]],["Покупки",["Продукты","Подарок маме"]],["Отдых",["Билеты","Отель","Маршрут"]]]],
+   "Идея для блога","Позвонить Пете","Книга про привычки"])},
+];
+
+// ---------- ОБЩЕЕ ----------
+const merge=(P,Q,dx,dy)=>{ for(const k in Q) P[k]=[Q[k][0]+dx,Q[k][1]+dy]; };
+const chainIds=(F,id)=>{ const o=[]; let c=id; while(F.N[c].kids.length===1){ c=F.N[c].kids[0]; o.push(c); } return o; };
+function bbox(F,P,ids){ let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  ids.forEach(id=>{ const n=F.N[id], p=P[id], h=LW(n.label)/2;
+    x0=Math.min(x0,p[0]-Math.max(h,n.r)); x1=Math.max(x1,p[0]+Math.max(h,n.r)); y0=Math.min(y0,p[1]-n.r); y1=Math.max(y1,p[1]+n.r+3+LAB); });
+  return {x0,y0,x1,y1}; }
+const subIds=(F,id)=>{ const o=[id]; F.N[id].kids.forEach(k=>o.push(...subIds(F,k))); return o; };
+
+// ---------- ЯРУСЫ А: сверху вниз ----------
+function tdBlock(F,D,id){
+  const n=F.N[id], P={[id]:[0,0]}, half=Math.max(LW(n.label)/2,n.r);
+  if(!n.kids.length) return {P,minX:-half,maxX:half};
+  const zz=chainIds(F,id);
+  if(zz.length>=3){   // змейка вниз: столбец из четырёх, следующий — вверх, связи короткие
+    const cs=Math.max(...zz.map(z=>LW(F.N[z].label)))+D.lab+6, rs=D.sib+4;
+    zz.forEach((z,i)=>{ const c=Math.floor(i/4), k=i%4, row=c%2===0?k+1:4-k; P[z]=[c*cs,row*rs]; });
+    const last=zz[zz.length-1], lp=P[last];
+    if(F.N[last].kids.length){ const fb=tdBlock(F,D,last); merge(P,fb.P,lp[0]+cs/2-fb.minX,lp[1]); P[last]=lp; }   // развилка в конце — правее змейки
+    const b=bbox(F,P,subIds(F,id)); return {P,minX:b.x0,maxX:b.x1};
+  }
+  const kids=n.kids, B=kids.map(k=>tdBlock(F,D,k)), leaf=k=>!F.N[k].kids.length;
+  const sub=kids.map(()=>-1);   // -1 обычный блок, 0/1 — подряд шахматки
+  for(let i=0;i<kids.length;){ let j=i; while(j<kids.length&&leaf(kids[j])) j++;
+    if(j-i>=3) for(let q=i;q<j;q++) sub[q]=(q-i)%2; i=Math.max(j,i+1); }
+  const xs=[]; let all=-1e9; const rr=[-1e9,-1e9];
+  kids.forEach((k,i)=>{ const b=B[i]; let x;
+    if(sub[i]>=0){ x=rr[sub[i]]-b.minX+D.lab; if(i>0) x=Math.max(x,xs[i-1]+D.nodeGap); if(sub[i-1]<0||i===0) x=Math.max(x,all-b.minX+D.gap);
+      rr[sub[i]]=x+b.maxX; all=Math.max(all,x+b.maxX); }
+    else { x=all-b.minX+D.gap; if(i===0) x=0; all=x+b.maxX; rr[0]=rr[1]=all; }
+    xs.push(x); });
+  const sh=-(xs[0]+xs[xs.length-1])/2; let minX=-half, maxX=half;
+  kids.forEach((k,i)=>{ const y=D.lvl+(sub[i]===1?D.stag:0); merge(P,B[i].P,xs[i]+sh,y);
+    minX=Math.min(minX,xs[i]+sh+B[i].minX); maxX=Math.max(maxX,xs[i]+sh+B[i].maxX); });
+  return {P,minX,maxX};
+}
+const layTD=(F,D,r)=>tdBlock(F,D,r).P;
+
+// ---------- ЯРУСЫ Б: в две стороны ----------
+function hzBlock(F,D,id,s){
+  const n=F.N[id], P={[id]:[0,0]};
+  if(!n.kids.length) return {P,top:-n.r-2,bot:n.r+3+LAB};
+  const zz=chainIds(F,id);
+  if(zz.length>=3){   // змейка наружу: столбцы по четыре, вниз-вверх, первый — на уровне родителя
+    const cs=Math.max(...zz.map(z=>LW(F.N[z].label)))+D.lab+6, rs=D.sib;
+    zz.forEach((z,i)=>{ const c=Math.floor(i/4), k=i%4, row=c%2===0?k:3-k; P[z]=[s*(c+1)*Math.max(cs,90),row*rs]; });
+    const last=zz[zz.length-1];
+    if(F.N[last].kids.length){ const lp=P[last], fb=hzBlock(F,D,last,s); merge(P,fb.P,lp[0],lp[1]); }   // развилка — наружу от последнего звена
+    const b=bbox(F,P,subIds(F,id)); return {P,top:b.y0,bot:b.y1};
+  }
+  const kids=n.kids, B=kids.map(k=>hzBlock(F,D,k,s)), leaf=k=>!F.N[k].kids.length;
+  const col=Math.max(D.col,(LW(n.label)+Math.max(...kids.map(k=>LW(F.N[k].label))))/2+D.lab);
+  const ys=[]; let edge=0;
+  kids.forEach((k,i)=>{ const b=B[i], g=(i>0&&leaf(k)&&leaf(kids[i-1]))?D.sib-(b.bot-b.top):D.gap;
+    const y=i===0?0:edge-b.top+Math.max(g,4); ys.push(y); edge=y+b.bot; });
+  const sh=-(ys[0]+ys[ys.length-1])/2; let top=-n.r-2, bot=n.r+3+LAB;
+  kids.forEach((k,i)=>{ merge(P,B[i].P,s*col,ys[i]+sh); top=Math.min(top,ys[i]+sh+B[i].top); bot=Math.max(bot,ys[i]+sh+B[i].bot); });
+  return {P,top,bot};
+}
+function layHZ(F,D,r){
+  const n=F.N[r], P={[r]:[0,0]}, kids=n.kids; if(!kids.length) return P;
+  const w=kids.map(k=>1+F.desc[k]), tot=w.reduce((a,b)=>a+b,0); let acc=0;
+  const R=[], L=[]; kids.forEach((k,i)=>{ (acc+w[i]/2<=tot/2?R:L).push(k); acc+=w[i]; });
+  [[R,1],[L.reverse(),-1]].forEach(([side,s])=>{ if(!side.length) return;
+    const B=side.map(k=>hzBlock(F,D,k,s)), col=Math.max(D.col,(LW(n.label)+Math.max(...side.map(k=>LW(F.N[k].label))))/2+D.lab);
+    const ys=[]; let edge=0; side.forEach((k,i)=>{ const y=i===0?0:edge-B[i].top+D.gap; ys.push(y); edge=y+B[i].bot; });
+    const sh=-(ys[0]+ys[ys.length-1])/2; side.forEach((k,i)=>merge(P,B[i].P,s*col,ys[i]+sh)); });
+  return P;
+}
+
+// ---------- КУСТЫ (упрощённая копия замысла нынешней раскладки) ----------
+function layBush(F,D,r){
+  const P={[r]:[0,0]}, N=F.N;
+  const kids=N[r].kids, w=k=>1+Math.pow(F.desc[k],0.85), W=kids.reduce((s,k)=>s+w(k),0);
+  let a=-Math.PI/2;
+  kids.forEach((k,i)=>{ const sec=2*Math.PI*w(k)/W, ang=a+sec/2; a+=sec;
+    const need=46*Math.sqrt(F.desc[k]+1)/Math.max(sec,0.2);
+    const R=Math.max(D.bushR,need)+(i%2?D.bushAlt:0);
+    place(k,[Math.cos(ang)*R,Math.sin(ang)*R],ang,sec); });
+  function place(id,pos,ang,sec){ P[id]=pos; const n=N[id]; if(!n.kids.length) return;
+    const cs=Math.cos(ang), sn=Math.sin(ang), at=(x,y)=>[pos[0]+x*cs-y*sn,pos[1]+x*sn+y*cs];
+    const zz=chainIds(F,id);
+    if(zz.length>=3){ zz.forEach((z,i)=>{ const rr=Math.floor(i/4), k=i%4, kk=rr%2===0?k:3-k; P[z]=at(70*(rr+1),(kk-1.5)*60); });
+      const last=zz[zz.length-1]; if(N[last].kids.length) place(last,P[last],ang,sec); return; }
+    const hub=n.kids.filter(c=>F.desc[c]>=2).length>=2, m=n.kids.length;
+    if(hub){ const span=Math.min(sec,2.2), ww=n.kids.map(c=>1+F.desc[c]), WW=ww.reduce((s,x)=>s+x,0); let b=ang-span/2;
+      n.kids.forEach((c,j)=>{ const ss=span*ww[j]/WW, an=b+ss/2; b+=ss; const R=D.bushR*0.85+(j%2?D.bushAlt*0.6:0);
+        place(c,[pos[0]+Math.cos(an)*R,pos[1]+Math.sin(an)*R],an,ss); }); return; }
+    const cone=Math.min(2.6,Math.max(0.9,m*0.42));
+    n.kids.forEach((c,j)=>{ const th=ang-cone/2+cone*(j+0.5)/m, rho=D.leafR+(m>4&&j%2?D.leafAlt:0)+(N[c].kids.length?20:0);
+      place(c,[pos[0]+Math.cos(th)*rho,pos[1]+Math.sin(th)*rho],th,cone/m); });
+  }
+  return P;
+}
+
+// ---------- ВЕСЬ ГРАФ: деревья полкой ----------
+function layForest(F,D,fn){
+  const P={}, blocks=[], loose=[];
+  F.roots.forEach(r=>{ if(!F.N[r].kids.length){ loose.push(r); return; }
+    const Q=fn(F,D,r), ids=subIds(F,r), b=bbox(F,Q,ids); blocks.push({Q,b,w:b.x1-b.x0,h:b.y1-b.y0}); });
+  if(loose.length){   // одиночки — аккуратной стопкой, как лоток, а не россыпью по холсту
+    const Q={}; loose.forEach((id,i)=>Q[id]=[0,i*D.sib]); const b=bbox(F,Q,loose); blocks.push({Q,b,w:b.x1-b.x0,h:b.y1-b.y0}); }
+  const area=blocks.reduce((s,b)=>s+(b.w+D.tree)*(b.h+D.tree),0), maxW=Math.max(Math.sqrt(area*1.8),...blocks.map(b=>b.w));
+  let x=0,y=0,rowH=0;
+  blocks.forEach(b=>{ if(x>0&&x+b.w>maxW){ x=0; y+=rowH+D.tree; rowH=0; }
+    merge(P,b.Q,x-b.b.x0,y-b.b.y0); x+=b.w+D.tree; rowH=Math.max(rowH,b.h); });
+  return P;
+}
+
+// ---------- ЛИНЕЙКА ----------
+function measure(F,P){
+  const ids=Object.keys(F.N), links=ids.filter(id=>F.N[id].p).map(id=>[F.N[id].p,id]);
+  const box=id=>{ const n=F.N[id], p=P[id], h=LW(n.label)/2; return [p[0]-h,p[1]+n.r+3,p[0]+h,p[1]+n.r+3+LAB]; };
+  const ov=(a,b)=>a[0]<b[2]&&b[0]<a[2]&&a[1]<b[3]&&b[1]<a[3];
+  let lab=0, minD=1e9;
+  for(let i=0;i<ids.length;i++){ const a=ids[i], A=box(a), pa=P[a];
+    for(let j=i+1;j<ids.length;j++){ const b=ids[j], B=box(b), pb=P[b];
+      minD=Math.min(minD,Math.hypot(pa[0]-pb[0],pa[1]-pb[1]));
+      const cb=[pb[0]-F.N[b].r,pb[1]-F.N[b].r,pb[0]+F.N[b].r,pb[1]+F.N[b].r], ca=[pa[0]-F.N[a].r,pa[1]-F.N[a].r,pa[0]+F.N[a].r,pa[1]+F.N[a].r];
+      if(ov(A,B)||ov(A,cb)||ov(B,ca)) lab++; } }
+  const seg=(p,a,b)=>{ const dx=b[0]-a[0],dy=b[1]-a[1],L=dx*dx+dy*dy||1, t=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/L));
+    return Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dy); };
+  const on=new Set();
+  links.forEach(([a,b])=>ids.forEach(id=>{ if(id===a||id===b) return; if(seg(P[id],P[a],P[b])<F.N[id].r+6) on.add(id); }));
+  const crs=(p1,p2,p3,p4)=>{ const d=(a,b,c)=>(c[0]-a[0])*(b[1]-a[1])-(c[1]-a[1])*(b[0]-a[0]);
+    const d1=d(p3,p4,p1),d2=d(p3,p4,p2),d3=d(p1,p2,p3),d4=d(p1,p2,p4); return ((d1>0)!==(d2>0))&&((d3>0)!==(d4>0)); };
+  let cross=0;
+  for(let i=0;i<links.length;i++) for(let j=i+1;j<links.length;j++){ const [a,b]=links[i],[c,e]=links[j];
+    if(a===c||a===e||b===c||b===e) continue; if(crs(P[a],P[b],P[c],P[e])) cross++; }
+  const len=links.map(([a,b])=>Math.hypot(P[a][0]-P[b][0],P[a][1]-P[b][1])).sort((x,y)=>x-y);
+  const bb=bbox(F,P,ids), W=bb.x1-bb.x0, H=bb.y1-bb.y0;
+  return {n:ids.length,W,H,area:W*H/ids.length/1000,lab,on:on.size,cross,med:len[len.length>>1]||0,max:len[len.length-1]||0,minD,asp:W/H};
+}
+
+// ---------- ОТРИСОВКА ----------
+const MODES=[["bush",layBush],["td",layTD],["hz",layHZ]];
+const CACHE={};
+function compute(){ TREES.forEach((T,ti)=>MODES.forEach(([m,fn])=>{ const P=layForest(T.F,DENS[DK],fn); CACHE[ti+m]={P,M:measure(T.F,P)}; })); }
+function hexA(h,a){ const n=parseInt(h.slice(1),16); return `rgba(${n>>16},${n>>8&255},${n&255},${a})`; }
+function draw(cv,ti,m){
+  const T=TREES[ti], F=T.F, {P,M}=CACHE[ti+m], W=cv.clientWidth, H=cv.clientHeight, dpr=devicePixelRatio||1;
+  const b=bbox(F,P,Object.keys(F.N)), k=Math.min((W-24)/(b.x1-b.x0),(H-24)/(b.y1-b.y0),1.6);
+  const ox=W/2-(b.x0+b.x1)/2*k, oy=H/2-(b.y0+b.y1)/2*k;
+  cv.width=W*dpr; cv.height=H*dpr; const ctx=cv.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.fillStyle="#0b0b0d"; ctx.fillRect(0,0,W,H);
+  ctx.setTransform(dpr*k,0,0,dpr*k,dpr*ox,dpr*oy);
+  ctx.lineCap="round";
+  for(const id in F.N){ const n=F.N[id]; if(!n.p) continue; const a=P[n.p], c=P[id];
+    ctx.strokeStyle=hexA(F.col[id],0.5); ctx.lineWidth=1.4/k>3?3:Math.max(1.2,1.4/k); ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(c[0],c[1]); ctx.stroke(); }
+  for(const id in F.N){ const n=F.N[id], p=P[id];
+    ctx.beginPath(); ctx.arc(p[0],p[1],n.r,0,7); ctx.fillStyle="#0b0b0d"; ctx.fill(); ctx.fillStyle=hexA(F.col[id],0.22); ctx.fill();
+    ctx.lineWidth=1.8; ctx.strokeStyle=F.col[id]; ctx.stroke(); }
+  ctx.font=(n=>n)('11px "Segoe UI",system-ui,sans-serif'); ctx.textAlign="center"; ctx.textBaseline="top"; ctx.lineJoin="round";
+  for(const id in F.N){ const n=F.N[id], p=P[id], s=cut(n.label);
+    ctx.lineWidth=4; ctx.strokeStyle="#0b0b0d"; ctx.strokeText(s,p[0],p[1]+n.r+3);
+    ctx.fillStyle=n.kids.length?"#e4e4e7":"#9a9aa3"; ctx.font=(n.kids.length?"600 ":"")+'11px "Segoe UI",system-ui,sans-serif'; ctx.fillText(s,p[0],p[1]+n.r+3); }
+  const z=v=>v?`<span class="warn">${v}</span>`:`<span class="ok">0</span>`;
+  const ar=M.area<6?`<span class="warn">${M.area.toFixed(1)} · теснее эталона</span>`:M.area>13?`<span class="warn">${M.area.toFixed(1)} · просторнее эталона</span>`:`<span class="ok">${M.area.toFixed(1)}</span>`;
+  cv.parentNode.querySelector(".met").innerHTML=
+    `габарит <b>${Math.round(M.W)}×${Math.round(M.H)}</b> · на ноду <b>${ar}</b> тыс. px² · пропорции <b>${M.asp.toFixed(2)}</b><br>`+
+    `подписи внахлёст <b>${z(M.lab)}</b> · ноды на связях <b>${z(M.on)}</b> · пересечения <b>${z(M.cross)}</b> · связь <b>${Math.round(M.med)}</b> / макс <b>${Math.round(M.max)}</b> px`;
+}
+function build(){
+  const g=document.getElementById("grid"); g.innerHTML="";
+  TREES.forEach((T,ti)=>{ const h=document.createElement("div"); h.className="row-t"; h.innerHTML=`<b>${T.t}</b> — ${T.d}`; g.appendChild(h);
+    MODES.forEach(([m])=>{ const c=document.createElement("div"); c.className="card"; c.innerHTML=`<canvas></canvas><div class="met"></div>`;
+      g.appendChild(c); const cv=c.firstChild; cv.dataset.k=ti+"|"+m;
+      cv.onclick=()=>{ c.classList.toggle("big"); redraw(); }; }); });
+}
+function redraw(){ document.querySelectorAll("canvas[data-k]").forEach(cv=>{ const [ti,m]=cv.dataset.k.split("|"); draw(cv,+ti,m); }); }
+function setD(d){ DK=d; document.querySelectorAll("[data-d]").forEach(b=>b.classList.toggle("on",b.dataset.d===d));
+  const D=DENS[d]; document.getElementById("dnum").textContent=`стопка ${D.sib} · между кустами ${D.gap} · ярус ${D.lvl} · столбец ${D.col} · ветка от корня ${D.bushR}+${D.bushAlt} · лист от ветки ${D.leafR}+${D.leafAlt} · между деревьями ${D.tree} px`;
+  compute(); redraw(); }
+document.querySelectorAll("[data-d]").forEach(b=>b.onclick=()=>setD(b.dataset.d));
+build(); setD("norm"); addEventListener("resize",redraw);
+</script>
+</body>
+</html>
