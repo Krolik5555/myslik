@@ -27,12 +27,12 @@ const шагОжид = (z, r, near) => {
   while ((s * z - 8) / 28 < 1 - 1e-9 || (near && s < r * 3 - 1e-9)) s *= 5;
   return s;
 };
-const svg = graph.svg;
-const экр = (wx, wy) => { const rc = svg.getBoundingClientRect();
+// холст берём у ТЕКУЩЕГО графа: render() пересоздаёт экземпляр, и старый svg событий уже не слушает
+const экр = (wx, wy) => { const rc = graph.svg.getBoundingClientRect();
   return {x: rc.left + (wx * graph.zoom + graph.tx) / graph.W * rc.width, y: rc.top + (wy * graph.zoom + graph.ty) / graph.H * rc.height}; };
 // протяжка: нажать на ноде, два движения (первое — за порог), отпустить; ctrl2 — Ctrl на втором движении
 const тянуть = (n, wx, wy, ctrl2) => {
-  const p = экр(n.x, n.y), q = экр(wx, wy), mid = {x: (p.x + q.x) / 2 + 9, y: (p.y + q.y) / 2 + 9};
+  const svg = graph.svg, p = экр(n.x, n.y), q = экр(wx, wy), mid = {x: (p.x + q.x) / 2 + 9, y: (p.y + q.y) / 2 + 9};
   svg.dispatchEvent(new PointerEvent("pointerdown", {button: 0, clientX: p.x, clientY: p.y, bubbles: true, cancelable: true}));
   svg.dispatchEvent(new PointerEvent("pointermove", {buttons: 1, clientX: mid.x, clientY: mid.y, bubbles: true, cancelable: true}));
   svg.dispatchEvent(new PointerEvent("pointermove", {buttons: 1, clientX: q.x, clientY: q.y, ctrlKey: !!ctrl2, bubbles: true, cancelable: true}));
@@ -53,9 +53,9 @@ for (const mode of ["always", "near"]) {
     const gx = (Math.round(n.x / s) + 2) * s, gy = (Math.round(n.y / s) + 1) * s;
     тянуть(n, gx + 4 / z, gy - 3 / z);
     const на = Math.abs(A.x - gx) < 1e-6 && Math.abs(A.y - gy) < 1e-6;
-    // мимо нарисованной линии: линию _drawMain кладёт в round(экран)+0.5
+    // мимо нарисованной линии: линию _drawMain кладёт в floor(экран)+0.5 — центр пикселя, где лежит узел
     const sx = A.x * z + graph.tx, sy = A.y * z + graph.ty;
-    const мимо = Math.max(Math.abs(Math.round(sx) + 0.5 - sx), Math.abs(Math.round(sy) + 0.5 - sy));
+    const мимо = Math.max(Math.abs(Math.floor(sx) + 0.5 - sx), Math.abs(Math.floor(sy) + 0.5 - sy));
     t.push({имя: mode + ", зум " + z + ": нода на узле яркого уровня сетки", ок: на && мимо <= 0.5,
             факт: "шаг " + s + " мира (" + Math.round(s * z) + " px), нода " + A.x + "," + A.y + " при узле " + gx + "," + gy + ", мимо линии " + мимо.toFixed(2) + " px"});
   }
@@ -99,10 +99,39 @@ for (const mode of ["always", "near"]) {
           факт: "после отката " + A.x + "," + A.y});
 }
 
+/* ВЫКЛ/ВКЛ «Держать раскладку» возвращает привязанные ноды ТОЧНО на узлы (КРОЛИК, 04.11.2026:
+   «включил и выключил режим дом, и они не вернулись на своё точное место»). Причин было две:
+   свободная физика уносила хаб области, а включение принимало его новое место за дом (теперь у
+   хаба свой якорь hx/hy), и пружина дома засыпала с недоездом ~1 px (теперь _homeSettle).
+   Ребёнок — вторая нода, его дом считается от первой: так видна и цепочка, а не один хаб. */
+const B = addItem({kind: "note", title: "привязка-ребёнок"});
+B.x = A.x + 160; B.y = A.y + 40;   // без координат нода родится в лотке, и на холсте её не будет
+addLink(A.id, B.id); recomputeHierarchy(); persist(); render(); await ж(200);
+{
+  const уснуть = () => { graph.alpha = 1; let i = 0; for (; i < 4000 && graph.alpha > 0; i++) graph._tick(true); return i; };
+  S.settings.graphSnapMode = "always";
+  const nA = graph.byId[A.id]; навести(nA, 1);
+  const s = шагОжид(1, nA.r, false), ax = Math.round(nA.x / s) * s, ay = Math.round(nA.y / s) * s;
+  тянуть(graph.byId[A.id], ax + 3, ay - 2);
+  тянуть(graph.byId[B.id], ax + 2 * s - 2, ay + 3);
+  уснуть();
+  const до = [A.x, A.y, B.x, B.y].join(",");
+  graph.toggleHome(); const к1 = уснуть();
+  const нA = graph.byId[A.id], сдвиг = Math.round(Math.hypot(нA.x - ax, нA.y - ay));
+  graph.toggleHome(); const к2 = уснуть();
+  const уA = graph.byId[A.id], уB = graph.byId[B.id];
+  const ок = уA.x === ax && уA.y === ay && уB.x === ax + 2 * s && уB.y === ay;
+  t.push({имя: "выкл/вкл дома: привязанные ноды встают ровно на свои узлы", ок,
+          факт: "до " + до + "; без дома уехала на " + сдвиг + " px (" + к1 + " кадров); после " +
+                [уA.x, уA.y, уB.x, уB.y].map(v => +v.toFixed(3)).join(",") + " (" + к2 + " кадров), ждём " + [ax, ay, ax + 2 * s, ay].join(",")});
+  t.push({имя: "связь осталась строго горизонтальной", ок: Math.abs(уB.y - уA.y) < 1e-9,
+          факт: "разница по вертикали " + (уB.y - уA.y).toFixed(4)});
+}
+
 // ================== УБОРКА ==================
-deletePack([A.id]);
+deletePack([A.id, B.id]);
 S.settings.graphSnap = был.snap; S.settings.graphSnapMode = был.mode; S.settings.graphHome = был.home; S.settings.graphRender = был.rend;
 render(); await ж(200);
-t.push({имя: "за собой убрано", ок: !S.items.some(i => i.title === "привязка-нода"),
+t.push({имя: "за собой убрано", ок: !S.items.some(i => /^привязка-/.test(i.title || "")),
         факт: "осталось проверочных нод: " + S.items.filter(i => i.title === "привязка-нода").length});
 return t;

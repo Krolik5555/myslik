@@ -248,6 +248,8 @@ function renderNotes(v){
         {title:"Раскидать заново?", okLabel:"Раскидать", danger:true});
       if(!да) return;
       S.items.forEach(it=>{ delete it.hx; delete it.hy; });
+      S.areas.forEach(a=>{ delete a.hx; delete a.hy; });   // и якоря хабов, иначе хаб встал бы на прежнее место
+      { const g=graphCurrent(); if(g && isSubGraph(g)){ delete g.hx; delete g.hy; } }
       S.settings.graphHome=false; persist();
       if($("#g-home")) $("#g-home").classList.remove("on");
     }
@@ -2060,7 +2062,8 @@ class Graph{
              на свои места сами: их дома не тронуты.
              Хабу области дом не нужен вовсе: его x/y И ЕСТЬ дом, а дома детей — смещения от
              него, и за хабом они едут сами, без единой дополнительной строки. */
-          if(S.settings.graphHome) группа.forEach(q=>{ if(q.ref) this._homeFromDrag(q.ref); });
+          if(S.settings.graphHome) группа.forEach(q=>{ if(q.ref) this._homeFromDrag(q.ref);
+            else { const ar=q.hubArea||q.subRoot; if(ar){ ar.hx=q.x; ar.hy=q.y; } } });   // якорь хаба (см. _tick, «ЯКОРЬ hx/hy»)
           /* Сольный хват: дети на домах стоят там, где стояли, — переписываем их дома от нового
              места владельца. Иначе первое же пробуждение физики увезло бы куст следом. */
           if(this._solo && S.settings.graphHome) this.nodes.forEach(c=>{
@@ -4387,8 +4390,15 @@ class Graph{
       let назначено=0;
       this.nodes.forEach(n=>{ const it=n.ref; if(!it || (it.hx!=null && it.hy!=null)) return;
         if(this._homeFromDrag(it)) назначено++; });
+      // хабу якорь — тоже только если его ещё нет: заданный уже держит форму, к нему хаб и вернётся
+      this.nodes.forEach(n=>{ const ar=n.hubArea||n.subRoot; if(ar && ar.hx==null){ ar.hx=Math.round(n.x); ar.hy=Math.round(n.y); } });
       toast("Раскладка держится"+(назначено?" · домов: "+назначено:""),{icon:"ti-home"});
-    } else toast("Раскладка свободна",{icon:"ti-home-off"});
+    } else {
+      /* ВЫКЛЮЧЕНИЕ запоминает якорь хабам, у которых его нет: сейчас хаб ещё стоит в своём доме,
+         а через секунду свободная физика его сдвинет, и место перестанет быть домом. */
+      this.nodes.forEach(n=>{ const ar=n.hubArea||n.subRoot; if(ar && ar.hx==null){ ar.hx=n.x; ar.hy=n.y; } });
+      toast("Раскладка свободна",{icon:"ti-home-off"});
+    }
     persist();
     const b=$("#g-home"); if(b) b.classList.toggle("on",вкл);
     this.alpha=Math.max(this.alpha,0.3); this._wake();
@@ -4428,6 +4438,28 @@ class Graph{
     const px=Math.round(x/шаг)*шаг, py=Math.round(y/шаг)*шаг;
     if(near){ const R=Math.min(40, Math.max(14, шаг*z*0.12)); if(Math.hypot(px-x,py-y)*z>R) return null; }
     return {x:px, y:py, step:шаг};
+  }
+  /* ДОВОДКА ДО ДОМА НА ЗАСЫПАНИИ. Домашняя пружина умножена на alpha (разбор — у неё в _tick), и
+     граф засыпает, когда нода ещё не доехала до дома на доли пикселя — замер: 0.7 и 1.1 px у ноды,
+     вернувшейся после выключения дома. Глазу это не видно, пока нода не стоит на узле сетки:
+     там связь, бывшая строго горизонтальной, идёт наискось (КРОЛИК, 04.11.2026). Один раз, в
+     момент засыпания, ставим ноды ровно в дом. Проходов несколько: дом ребёнка — смещение от
+     ЖИВОГО владельца, и поправка владельца должна дойти до детей. Дальше ДОВОДКА не тянем: это
+     уже не недоезд, а нода, которую держит что-то другое, и прыжок был бы виден. */
+  _homeSettle(){
+    if(!S.settings.graphHome) return;
+    const ДОВОДКА=3;
+    for(let проход=0; проход<16; проход++){ let сдвиг=false;
+      for(const a of this.nodes){
+        if(!a._дом || a===this.drag || a._grabbed || a.fixed) continue;
+        const it=a.ref, о=a._домО;
+        const цx=(о&&it)?о.x+it.hx:a._дом.x, цy=(о&&it)?о.y+it.hy:a._дом.y;
+        const dx=цx-a.x, dy=цy-a.y;
+        if((!dx&&!dy) || Math.abs(dx)>ДОВОДКА || Math.abs(dy)>ДОВОДКА) continue;
+        a.x=цx; a.y=цy; a.vx=0; a.vy=0; сдвиг=true;
+      }
+      if(!сдвиг) break;
+    }
   }
   // ведущая и пассажиры — на одну дельту: группа держит форму, привязывается только ведущая
   _dragPlace(x,y){
@@ -4518,7 +4550,7 @@ class Graph{
     this._drawBg();   // фон зависит от камеры и часов анимаций; камера внутри кадра не меняется
     const N=this.nodes, cx=this.W/2, cy=this.H/2;
     // даём симуляции полностью остыть, чтобы граф замирал и не дёргался; перетаскивание снова поднимает alpha
-    this.alpha*=0.985; if(this.alpha<0.004)this.alpha=0;
+    if(this.alpha>0){ this.alpha*=0.985; if(this.alpha<0.004){ this.alpha=0; this._homeSettle(); } }
     if(this.alpha>0.06) this._moved=true;   // была заметная активность → после остывания сохраним раскладку
     const DBG=this._dbg, запиши=DBG?DBG.сила:null;   // null, пока диагностика выключена → в силах ровно одна проверка на ветку
     /* НОДЫ ПЕРЕСМАТРИВАЮТ, К ЧЕМУ КРЕПИТЬСЯ, А НЕ ПРОСТО ТЯНУТСЯ ЗА ЦЕЛЬЮ. Раньше выбор точки
@@ -4563,8 +4595,14 @@ class Graph{
          до дома, промахиваясь на 46 px, ровно на снос хаба). Область без координат (никогда не
          стояла на холсте) дома не получает: держать её нечем и незачем. */
       // корень подграфа живёт по тому же правилу: его x/y и есть дом (лежат во внутреннем графе)
+      /* ЯКОРЬ hx/hy ВАЖНЕЕ x/y. x/y хаба — его МЕСТО, и при выключенном доме физика его двигает, а
+         остывание пишет в данные (flushLayout). Повторное включение принимало сдвинутое место за
+         дом, и всё дерево вставало со сносом — ноды, положенные привязкой на узлы сетки, уезжали
+         с узлов (КРОЛИК, 04.11.2026). У хаба владельца нет, поэтому якорь — абсолютная точка мира;
+         пишут его жест (onpointerup) и выключение режима (toggleHome). Нет якоря — как раньше. */
       if(!it){ const ar=a.hubArea||a.subRoot;
-        if(ar && ar.x!=null && ar.y!=null) a._дом={x:ar.x, y:ar.y};
+        if(ar && ar.hx!=null && ar.hy!=null) a._дом={x:ar.hx, y:ar.hy};
+        else if(ar && ar.x!=null && ar.y!=null) a._дом={x:ar.x, y:ar.y};
         continue; }
       if(it.hx==null || it.hy==null) continue;
       // внутри подграфа владелец ноды верхнего уровня — КОРЕНЬ подграфа (тот же расчёт, что homeOwner)
@@ -5558,7 +5596,10 @@ class Graph{
        Уровни идут через ×5 от шага 20 мира; яркость уровня зависит ТОЛЬКО от его экранного шага
        (гаснет к 8 px, полная с 36), поэтому смена зума плавная, без скачков. Линия старшего уровня
        лежит поверх младшей — крупные клетки ярче сами собой. Пиксельная привязка (+0.5) держит
-       линию в один пиксель на любом зуме. Стоит четыре stroke на кадр. */
+       линию в один пиксель на любом зуме. Стоит четыре stroke на кадр.
+       Привязка — floor, а не round: линия ложится в ТОТ пиксель, где лежит точная мировая точка, и
+       нода, привязанная к узлу (_snapPoint), сидит на линии не дальше полупикселя. С round линия
+       уходила в соседний пиксель, и узел расходился с нодой на целый пиксель (замер привязка.js). */
     if(this._bgKind()==="grid"){
       // тише точек: сетка — подложка, а не рисунок, и не должна тянуть на себя взгляд (КРОЛИК)
       const светлая=document.body.classList.contains("light"), A=светлая?0.04:0.028;
@@ -5569,8 +5610,8 @@ class Graph{
         const T=шаг*z, сила=Math.min(1, Math.max(0, (T-8)/28));
         if(сила>0){
           ctx.globalAlpha=A*сила*(3-2*сила); ctx.beginPath();
-          for(let x=Math.ceil(wx0/шаг)*шаг; x<=wx1; x+=шаг){ const sx=Math.round(x*z+tx)+0.5; ctx.moveTo(sx,0); ctx.lineTo(sx,ch); }
-          for(let y=Math.ceil(wy0/шаг)*шаг; y<=wy1; y+=шаг){ const sy=Math.round(y*z+ty)+0.5; ctx.moveTo(0,sy); ctx.lineTo(cw,sy); }
+          for(let x=Math.ceil(wx0/шаг)*шаг; x<=wx1; x+=шаг){ const sx=Math.floor(x*z+tx)+0.5; ctx.moveTo(sx,0); ctx.lineTo(sx,ch); }
+          for(let y=Math.ceil(wy0/шаг)*шаг; y<=wy1; y+=шаг){ const sy=Math.floor(y*z+ty)+0.5; ctx.moveTo(0,sy); ctx.lineTo(cw,sy); }
           ctx.stroke();
         }
       }
@@ -6920,7 +6961,7 @@ class Graph{
     const out=[];
     this.nodes.forEach(n=>{
       if(n.ref) out.push([n.id, n.x, n.y, n.ref.hx, n.ref.hy]);
-      else if(n.hubArea || n.subRoot) out.push([n.id, n.x, n.y]);
+      else if(n.hubArea || n.subRoot){ const ar=n.hubArea||n.subRoot; out.push([n.id, n.x, n.y, ar.hx, ar.hy]); }   // якорь хаба — тоже часть формы
     });
     return out;
   }

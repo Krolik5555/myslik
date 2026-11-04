@@ -802,6 +802,7 @@ function subPack(id){
   if(!графы.length) return null;
   return графы.map(g=>({ id:g.id, name:g.name, icon:g.icon, color:g.color,
     x:g.x, y:g.y, pin:g.pin===true,          // место корня подграфа на холсте
+    hx:g.hx, hy:g.hy,                        // и якорь его дома
     links:JSON.parse(JSON.stringify(g.links||[])),
     items:(g.items||[]).map(it=>{
       const к=JSON.parse(JSON.stringify(it));
@@ -825,6 +826,7 @@ function subUnpack(newOwnerId, pack){
     const нг={id:subKey(хозяин), name:g.name, icon:g.icon, color:g.color,
               x:(g.x==null?null:+g.x), y:(g.y==null?null:+g.y), pin:g.pin===true,
               items:[], areas:[], links:[]};
+    if(g.hx!=null && g.hy!=null){ нг.hx=+g.hx; нг.hy=+g.hy; }
     (g.items||[]).forEach(it=>{
       if(!it || !map[it.id]) return;
       const к=Object.assign({}, it), пак=к._pack, доска=к._board;
@@ -1025,6 +1027,8 @@ function sanitizeState(s){
                // x/y/pin — место КОРНЯ подграфа на холсте (см. ROOT_PREFIX); у графа верхнего
                // уровня корня нет, и держать эти поля незачем
                x:вн?чс(g.x):null, y:вн?чс(g.y):null, pin:вн?(g.pin===true):false,
+               // якорь дома корня (graph.js: _tick, «ЯКОРЬ hx/hy») — только парой и только у подграфа
+               ...((вн && чс(g.hx)!=null && чс(g.hy)!=null) ? {hx:чс(g.hx), hy:чс(g.hy)} : {}),
                // областей внутри подграфа не бывает — это правило вида, а не настройка интерфейса
                items:Array.isArray(g.items)?g.items:[], areas:(вн||!Array.isArray(g.areas))?[]:g.areas,
                links:Array.isArray(g.links)?g.links:[] };
@@ -1118,7 +1122,9 @@ function _sanitizeGraph(s, seen, seenF, okColor){
      насовсем — иначе они висели бы в файле невидимками, недоступные ни через один вид.
      Их доски и картинки уйдут следом сами: осиротевшее подметается общей уборкой. */
   s.items=s.items.filter(it=>it.deleted!==true);
-  s.areas.forEach(a=>{ if(!ICONS.includes(a.icon)) a.icon="ti-folder"; a.color=okColor(a.color); a.name=String(a.name==null?"":a.name); });
+  s.areas.forEach(a=>{ if(!ICONS.includes(a.icon)) a.icon="ti-folder"; a.color=okColor(a.color); a.name=String(a.name==null?"":a.name);
+    // якорь дома хаба (graph.js: _tick) — только парой конечных чисел, иначе физика тянула бы хаб в NaN
+    if(!(Number.isFinite(a.hx) && Number.isFinite(a.hy))){ delete a.hx; delete a.hy; } });
   s.items.forEach(it=>{
     if(typeof it.id!=="string" || !it.id || seen.has(it.id)){
       /* Смена id (битый json, склейка экспортов) обязана тянуть за собой доску: она лежит
@@ -1518,8 +1524,8 @@ function _layoutNow(снимок){
   const жив=(typeof graph!=="undefined" && graph) ? graph.byId : null;
   return снимок.map(([id])=>{
     const у=жив?жив[id]:null;
-    if(id.indexOf("hub_")===0){ const a=areaById(id.slice(4)); return [id, у?у.x:(a?a.x:null), у?у.y:(a?a.y:null)]; }
-    if(isRootId(id)){ const g=graphCurrent(); return [id, у?у.x:(g?g.x:null), у?у.y:(g?g.y:null)]; }
+    if(id.indexOf("hub_")===0){ const a=areaById(id.slice(4)); return [id, у?у.x:(a?a.x:null), у?у.y:(a?a.y:null), a&&a.hx, a&&a.hy]; }
+    if(isRootId(id)){ const g=graphCurrent(); return [id, у?у.x:(g?g.x:null), у?у.y:(g?g.y:null), g&&g.hx, g&&g.hy]; }
     const it=S.items.find(i=>i.id===id);
     if(!it) return [id, null, null];
     return [id, у?у.x:it.x, у?у.y:it.y, it.hx, it.hy];
@@ -1529,8 +1535,10 @@ function _layoutApply(снимок){
   const жив=(typeof graph!=="undefined" && graph) ? graph.byId : null;
   снимок.forEach(([id,x,y,hx,hy])=>{
     if(x==null||y==null) return;
-    if(id.indexOf("hub_")===0){ const a=areaById(id.slice(4)); if(a){ a.x=x; a.y=y; } }
-    else if(isRootId(id)){ const g=graphCurrent(); if(g && isSubGraph(g)){ g.x=x; g.y=y; } }
+    // у хаба hx/hy — абсолютный якорь дома (graph.js: _tick, «ЯКОРЬ hx/hy»), откат возвращает и его
+    const якорь=o=>{ if(hx==null||hy==null){ delete o.hx; delete o.hy; } else { o.hx=hx; o.hy=hy; } };
+    if(id.indexOf("hub_")===0){ const a=areaById(id.slice(4)); if(a){ a.x=x; a.y=y; якорь(a); } }
+    else if(isRootId(id)){ const g=graphCurrent(); if(g && isSubGraph(g)){ g.x=x; g.y=y; якорь(g); } }
     else { const it=S.items.find(i=>i.id===id); if(!it) return;
       it.x=x; it.y=y;
       if(hx==null||hy==null){ delete it.hx; delete it.hy; } else { it.hx=hx; it.hy=hy; } }
