@@ -157,6 +157,37 @@ addLink(A.id, B.id); recomputeHierarchy(); persist(); render(); await ж(200);
   t.push({имя: "с привязкой Shift-клик добавляет ноду в выделение", ок: graph.selNodes.has(B.id),
           факт: "в выделении: " + [...graph.selNodes].length});
   graph.selNodes.clear(); graph._paintSel();
+
+  /* SHIFT ПО ХОДУ ЖЕСТА (КРОЛИК: «взял ноду, нажал Shift — остальные всё равно тянутся»).
+     Без привязки: взял без Shift (куст едет), посреди жеста нажал Shift — дальше едет одна нода, и
+     куст после отпускания стоит там, куда успел доехать, без прыжка. Отпустил Shift — снова куст. */
+  S.settings.graphSnap = false;
+  уснуть();
+  { const svg = graph.svg; a = graph.byId[A.id];
+    const p = экр(a.x, a.y), ход = (dx, shift) => svg.dispatchEvent(new PointerEvent("pointermove",
+      {buttons: 1, clientX: p.x + dx, clientY: p.y, shiftKey: shift, bubbles: true, cancelable: true}));
+    svg.dispatchEvent(new PointerEvent("pointerdown", {button: 0, clientX: p.x, clientY: p.y, bubbles: true, cancelable: true}));
+    ход(40, false); for (let i = 0; i < 120; i++) graph._tick(true);       // куст едет следом
+    const соло0 = graph._solo;
+    window.dispatchEvent(new KeyboardEvent("keydown", {key: "Shift", shiftKey: true}));
+    const соло1 = graph._solo, bМиг = {x: graph.byId[B.id].x, y: graph.byId[B.id].y};
+    ход(160, true); for (let i = 0; i < 120; i++) graph._tick(true);       // дальше — одна нода
+    const bПосле = graph.byId[B.id], стоит = Math.hypot(bПосле.x - bМиг.x, bПосле.y - bМиг.y);
+    window.dispatchEvent(new KeyboardEvent("keyup", {key: "Shift"}));
+    const соло2 = graph._solo;
+    window.dispatchEvent(new KeyboardEvent("keydown", {key: "Shift", shiftKey: true}));
+    svg.dispatchEvent(new PointerEvent("pointerup", {button: 0, clientX: p.x + 160, clientY: p.y, shiftKey: true, bubbles: true, cancelable: true}));
+    window.dispatchEvent(new KeyboardEvent("keyup", {key: "Shift"}));
+    const bОтп = {x: graph.byId[B.id].x, y: graph.byId[B.id].y};
+    уснуть();
+    const прыг = Math.hypot(graph.byId[B.id].x - bОтп.x, graph.byId[B.id].y - bОтп.y);
+    t.push({имя: "Shift посреди протяжки переключает «одна нода / с кустом» в обе стороны",
+            ок: соло0 === false && соло1 === true && соло2 === false,
+            факт: "до Shift " + соло0 + ", с Shift " + соло1 + ", отпустил " + соло2});
+    t.push({имя: "в «одной ноде» куст стоит, после отпускания не прыгает", ок: стоит < 1 && прыг < 2,
+            факт: "пока одна нода: ребёнок сдвинулся на " + стоит.toFixed(2) + " px; после отпускания — на " + прыг.toFixed(2)});
+  }
+  S.settings.graphSnap = true;
 }
 
 // ================== УБОРКА ==================

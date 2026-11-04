@@ -498,6 +498,9 @@ class Graph{
     if(typeof ResizeObserver==="function"){ this._ro=new ResizeObserver(()=>this._onResize()); this._ro.observe(this.svg); }
     this._onWinResize=()=>this._onResize();   // подстраховка: ResizeObserver не доставляется, пока окно скрыто
     window.addEventListener("resize", this._onWinResize);
+    // Shift посреди протяжки переключает «одна нода / с кустом» — и без движения мыши (см. _soloShift)
+    this._onSoloKey=(e)=>{ if(this.drag && e.key==="Shift") this._soloShift(e.type==="keydown"); };
+    window.addEventListener("keydown", this._onSoloKey); window.addEventListener("keyup", this._onSoloKey);
   }
   /* ЕДИНСТВЕННАЯ точка планирования кадра. Раньше requestAnimationFrame звался из четырёх мест,
      и в _onResize (в отличие от build/resume) забыли проверить, что кадр уже запланирован:
@@ -1874,6 +1877,7 @@ class Graph{
            протяжка сольная, а Shift тянет куст, как раньше без него. Shift-клик (_shiftClick) —
            выделение в обоих режимах: переворачивается только то, едет ли куст. */
         const соло = S.settings.graphSnap ? !e.shiftKey : e.shiftKey;
+        this._shiftNow=!!e.shiftKey;   // дальше по ходу жеста режим переключает _soloShift
         if(e.shiftKey){
           this.drag=n; n._moved=false; n._grabbed=true; this._solo=соло; this._shiftClick=true; this.dragMates=null;
           this._dragFrom={x:e.clientX,y:e.clientY};
@@ -1971,6 +1975,8 @@ class Graph{
           // Ctrl, зажатый С НАЧАЛА, — это копия, а не «привязка наоборот»: переворачивает только нажатый посреди жеста
           this._snapCtrl0=!!e.ctrlKey; this._snapGoal=null; this._snapOff=null; this._snapKey="";
         }
+        // Shift, нажатый или отпущенный посреди протяжки, ловим и здесь: keydown мог уйти мимо окна
+        if(!!e.shiftKey!==this._shiftNow) this._soloShift(!!e.shiftKey);
         // тянем за ТУ ЖЕ точку, за которую взялись (см. _grab) — нода не прыгает центром под курсор
         const p=this._pt(e), g=this._grab||{dx:0,dy:0};
         let цx=p.x+g.dx, цy=p.y+g.dy;
@@ -4460,7 +4466,8 @@ class Graph{
      ЖИВОГО владельца, и поправка владельца должна дойти до детей. Дальше ДОВОДКА не тянем: это
      уже не недоезд, а нода, которую держит что-то другое, и прыжок был бы виден. */
   _homeSettle(){
-    if(!S.settings.graphHome) return;
+    // в сольном хвате дома детей ещё старые (их перепишет отпускание) — доводка дёрнула бы куст к ноде в руке
+    if(!S.settings.graphHome || this._solo) return;
     const ДОВОДКА=3;
     for(let проход=0; проход<16; проход++){ let сдвиг=false;
       for(const a of this.nodes){
@@ -4473,6 +4480,21 @@ class Graph{
       }
       if(!сдвиг) break;
     }
+  }
+  /* SHIFT ПО ХОДУ ЖЕСТА. Режим «одна нода / с кустом» решался один раз на нажатии, и Shift,
+     нажатый уже в руке, не действовал (КРОЛИК, 04.11.2026: «взял ноду, нажал Shift — остальные всё
+     равно тянутся»). Теперь переключается в обе стороны, пока нода в руке; отпустил — вернулось.
+     Прыжков нет ни в одну сторону: ушли в «одну ноду» — физика встаёт (_tick), куст замирает там,
+     куда успел доехать, и на отпускании дома детей пишутся от ЭТИХ мест (onpointerup). Вернулись к
+     кусту — дома детей не трогали, физика проснулась, и куст плавно догоняет ноду по своим домам.
+     Shift-клик (_shiftClick) решается по нажатию и сюда не относится. */
+  _soloShift(shift){
+    this._shiftNow=shift;
+    const соло = S.settings.graphSnap ? !shift : shift;
+    if(соло===!!this._solo) return;
+    this._solo=соло;
+    if(!соло) this.alpha=Math.max(this.alpha,.4);
+    this._wake();
   }
   // ведущая и пассажиры — на одну дельту: группа держит форму, привязывается только ведущая
   _dragPlace(x,y){
@@ -7018,6 +7040,7 @@ class Graph{
     // граф пересоздаётся на каждый render — без этого наблюдатели и слушатели копились бы
     if(this._ro){ this._ro.disconnect(); this._ro=null; }
     if(this._onWinResize){ window.removeEventListener("resize", this._onWinResize); this._onWinResize=null; }
+    if(this._onSoloKey){ window.removeEventListener("keydown", this._onSoloKey); window.removeEventListener("keyup", this._onSoloKey); this._onSoloKey=null; }
     // WebGL-контекст держит видеопамять, а браузер разрешает лишь ~16 штук: граф пересоздаётся
     // на каждый render, поэтому контекст надо отпускать явно, не дожидаясь сборщика мусора.
     if(this.bgGL && this.bgGL.gl){
