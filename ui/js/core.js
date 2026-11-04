@@ -322,6 +322,18 @@ const ICONS=["ti-home","ti-briefcase","ti-puzzle","ti-video","ti-bulb","ti-shopp
 // цвет области. Теперь это два разных кружка: прочерк (наследовать) и белый (свой).
 const PALETTE=[null,"#ffffff","#e0625a","#e8a14b","#5fb98e","#5b9bd6","#9b7fd6","#d67fb0","#8a8f98"];
 const NEUTRAL=()=>getComputedStyle(document.body).getPropertyValue("--acc").trim()||"#ffffff";
+/* РЕЖИМЫ СВЯЗЕЙ НА ХОЛСТЕ (выбор КРОЛИКА из demo_связи.html, 04.11.2026). Один реестр на всё:
+   меню тулбара, настройки графа, меню связи и санитайзер. Режим графа — S.settings.graphLinkMode,
+   свой у ручной связи — ЧЕТВЁРТЫМ элементом в S.links ([a,b,длина,режим]); у нити к области своего
+   нет, она строится из it.area на каждой сборке. «soft» — нынешняя мягкая связь, умолчание. */
+const LINK_MODES=[
+  {id:"soft",   icon:"ti-line",              label:"Мягкая",       hint:"прямая, прогибается вокруг чужой ноды"},
+  {id:"ortho",  icon:"ti-route-square",      label:"Прямые углы",  hint:"горизонтали и вертикали, колени скруглены"},
+  {id:"bus",    icon:"ti-sitemap",           label:"Шина",         hint:"общий ствол у родителя, дети под прямым углом"},
+  {id:"metro",  icon:"ti-train",           label:"Метро 45°",    hint:"прямые и диагонали, параллельные — с зазором"},
+  {id:"bundle", icon:"ti-arrows-split-2",    label:"Пучки",        hint:"к детям одного сектора — общим жгутом"},
+];
+const linkModeOk=m=>LINK_MODES.some(x=>x.id===m);
 /* ЦВЕТОВЫЕ ТЕМЫ (КРОЛИК, 03.11.2026: «не просто фул цвет приложения менять, а комбинация —
    фон одного цвета, обводка другого»). Тема = тон поверхностей + ДВА цвета кромки, которыми
    светится контур панелей и островков; токены — в styles.css (body.pal-<id>). Цвета нод (теги,
@@ -843,7 +855,7 @@ function subUnpack(newOwnerId, pack){
        копии повисли бы в никуда (санитайзер их и снёс бы при первой загрузке). */
     const старКор=subRootId(String(g.id).slice(SUB_PREFIX.length)), новКор=subRootId(хозяин);
     const пер=x=> (x===старКор) ? новКор : map[x];
-    (g.links||[]).forEach(l=>{ const a=пер(l[0]), b=пер(l[1]); if(a&&b) нг.links.push([a,b,+l[2]||1]); });
+    (g.links||[]).forEach(l=>{ const a=пер(l[0]), b=пер(l[1]); if(a&&b) нг.links.push(l[3]?[a,b,+l[2]||1,l[3]]:[a,b,+l[2]||1]); });
     S.graphs.push(нг);
   });
   return true;
@@ -1182,6 +1194,9 @@ function _sanitizeGraph(s, seen, seenF, okColor){
        поэтому множитель держит сама нода. Пределы те же, что у связей. */
     if(it.arealen!=null){ const al=+it.arealen;
       if(al>=0.3 && al<=3 && Math.abs(al-1)>0.001) it.arealen=al; else delete it.arealen; }
+    /* режим нити «нода → область» (LINK_MODES) — в НОДЕ по той же причине, что и длина: самой связи
+       в S.links нет. Нет ключа = как у графа; явное «soft» законно (мягкая при другом режиме графа) */
+    if(it.areamode!=null && !linkModeOk(it.areamode)) delete it.areamode;
     if(it.doneAt!=null && typeof it.doneAt!=="number") delete it.doneAt;       // дата выполнения (для метки опоздания)
     // срок: только «YYYY-MM-DD», и только существующая дата — иначе parseYmd отдаст сдвинутый
     // день (2026-02-31 → 3 марта) и он тихо разъедется по календарю, спискам и повторам
@@ -1241,7 +1256,11 @@ function _sanitizeGraph(s, seen, seenF, okColor){
   s.items.forEach(it=>{ if(it.parent && !seen.has(it.parent)) it.parent=null; });   // снять висячие parent
   s.links=s.links.filter(l=>Array.isArray(l)&&l.length>=2 &&
     (seen.has(l[0])||isHubId(l[0])) && (seen.has(l[1])||isHubId(l[1])))   // выкинуть связи в никуда (служебные узлы — не ноды, их в seen нет)
-    .map(l=>{ const len=+l[2]; return (len>=0.3&&len<=3)?[l[0],l[1],len]:[l[0],l[1]]; });   // per-link длина (3-й элемент, множитель)
+    .map(l=>{ const len=+l[2], ok=len>=0.3&&len<=3;               // per-link длина (3-й элемент, множитель)
+      /* свой режим связи (4-й элемент, LINK_MODES): с ним длина обязана стоять, хотя бы единицей.
+         «soft» тоже храним — это осознанный выбор «эта связь мягкая», когда у графа режим другой */
+      if(linkModeOk(l[3])) return [l[0],l[1],ok?len:1,l[3]];
+      return ok?[l[0],l[1],len]:[l[0],l[1]]; });
   // МИГРАЦИЯ: членство в области — это поле it.area, связь элемент↔область граф рисует из него сам.
   // Раньше бросок на область писал вместо этого обычную связь в s.links: линия была, а области у
   // элемента не было (в списках он не числился). Если же область всё-таки стояла — хранимая связь

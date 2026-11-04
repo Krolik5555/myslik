@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Режимы связей</title>
+<style>
+:root{--bg:#060607;--cv:#0b0b0d;--s1:#121216;--tx:#f4f4f5;--mut:#9a9aa3;--mut2:#7a7a83;--hair:rgba(255,255,255,.08);}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--tx);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:21px;margin:0 0 4px} .lead{color:var(--mut);max-width:980px;margin:0 0 18px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px;align-items:center;color:var(--mut)}
+.bar .sep{width:14px}
+.bar button{background:var(--s1);color:var(--tx);border:1px solid var(--hair);border-radius:8px;padding:5px 10px;cursor:pointer;font:inherit}
+.bar button.on{box-shadow:inset 0 0 0 1px #6f9bd8}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(520px,1fr));gap:18px}
+.card{background:var(--cv);border-radius:14px;box-shadow:0 0 0 1px var(--hair);overflow:hidden}
+.card.ref{box-shadow:0 0 0 1px rgba(111,155,216,.35)}
+.cap{padding:12px 16px;background:var(--s1);border-bottom:1px solid var(--hair)} .cap h3{margin:0;font-size:15px} .cap p{margin:3px 0 0;color:var(--mut);font-size:12.5px}
+.cap .why{color:var(--mut2);font-size:11.5px;margin-top:4px}
+canvas{display:block;width:100%;height:340px;cursor:crosshair}
+.met{padding:7px 16px;color:var(--mut2);font-size:11.5px;border-top:1px solid var(--hair);min-height:30px}
+.met b{color:var(--mut);font-weight:600}
+</style>
+</head>
+<body>
+<h1>Связи на холсте — шесть режимов</h1>
+<p class="lead">Одно и то же дерево, семь способов провести связь (первая карточка — нынешняя, она остаётся умолчанием). Кнопками сверху меняются раскладка (кусты, как после «Упорядочить», или ярусы сверху вниз), масштаб, течение и провал на пересечениях. Наведи курсор на связь: подсветится та, в которую попадёт клик. Попадание считается по тому же пути, по которому линия рисуется, так что в колено тоже попадаешь. Внизу карточки — линейка: число пересечений и то, во сколько раз связи длиннее прямых. Толстые связи — ручные, между ветками.</p>
+<div class="bar">
+ Раскладка: <button data-lay="bush" class="on">кусты</button><button data-lay="tier">ярусы</button><span class="sep"></span>
+ Масштаб: <button data-z="1" class="on">обычный</button><button data-z="1.8">крупно</button><button data-z="0.6">отдаление</button><span class="sep"></span>
+ <button id="flow">течение</button><button id="bridge" class="on">провал</button>
+</div>
+<div class="grid" id="g"></div>
+<script>
+const MODES=[
+ {k:"soft",  n:"Сейчас — мягкая", ref:true,
+   d:"Прямая, пока на линии не лежит чужая нода. Легла — связь прогибается вокруг неё.",
+   why:"Кратчайший путь. Остаётся умолчанием, остальные включаются переключателем."},
+ {k:"ortho", n:"А. Прямые углы",
+   d:"Только горизонтали и вертикали, колени скруглены. У детей одного родителя свои выходы и свои полосы колен: параллельные отрезки не слипаются, выходы не перекрещиваются.",
+   why:"Читается как схема. Лучше всего ложится на ярусы; на кустах (раскладка там круговая) колен больше."},
+ {k:"bus",   n:"Б. Шина",
+   d:"Родитель выпускает один ствол-шину, дети отходят от неё под прямым углом, как в оргструктуре.",
+   why:"Самый тихий на широких ветках: вместо веера одна шина. Связи детей идут по стволу вместе, поэтому на общем стволе провал не нужен — линия там одна на всех."},
+ {k:"metro", n:"В. Метро 45°",
+   d:"Прямые и диагонали под 45°, как на схеме метро. Связи от одного родителя идут параллельно, с зазором.",
+   why:"Строже мягкой и не такая угловатая, как прямые углы. Ложится и на кусты, и на ярусы."},
+ {k:"orbit", n:"Г. Орбита",
+   d:"Связь выходит из родителя лучом, идёт по общей дуге вокруг него и уходит к ребёнку радиально. Дети одного сектора делят одну дугу.",
+   why:"Сделана под раскладку кустами: подчёркивает «вокруг родителя». Ручные связи между ветками остаются прямыми — общего центра у них нет."},
+ {k:"bundle",n:"Д. Пучки",
+   d:"Связи к детям одного сектора выходят из родителя одним жгутом и расходятся только у целей.",
+   why:"У родителя меньше линий, ветка читается одним целым. Плата: у самого родителя отдельные связи не различить."},
+ {k:"branch",n:"Е. Ветви",
+   d:"Плавная кривая продолжает направление ветки: выходит из ноды туда, куда растёт дерево, и загибается к ребёнку. Похоже на ветки растения или провода в нодах Blender.",
+   why:"Изогнута всегда, даже без помех: живее, но длиннее прямой."},
+];
+// ДЕРЕВО: корень, четыре ветки, листья; цвет и уровень от ветки
+const NODES={R:{p:null,c:"#6f9bd8",r:14}, A:{p:"R",c:"#5fb98e",r:10}, B:{p:"R",c:"#e8a14b",r:10},
+  C:{p:"R",c:"#a68ce0",r:10}, D:{p:"R",c:"#d77fa1",r:10}};
+const LEAVES={A:["a1","a2","a3"],B:["b3","b1","b2"],C:["c4","c1","c2","c3"],D:["d3","d2","d1"]};
+for(const br in LEAVES) LEAVES[br].forEach(id=>NODES[id]={p:br,c:NODES[br].c,r:7});
+const MANUAL=[["A","C"],["b2","c4"],["a3","d1"]];
+const LINKS=[]; for(const id in NODES) if(NODES[id].p) LINKS.push({a:NODES[id].p,b:id,m:false});
+MANUAL.forEach(([a,b])=>LINKS.push({a,b,m:true}));
+const BUSH={R:[380,220],A:[230,115],B:[555,120],C:[575,315],D:[215,330],
+  a1:[115,80],a2:[190,35],a3:[105,150], b1:[665,70],b2:[690,150],b3:[580,35],
+  c1:[705,295],c2:[690,385],c3:[575,415],c4:[660,225], d1:[95,300],d2:[120,395],d3:[245,425]};
+const TIER={R:[380,45]};
+{ const ord=[].concat(LEAVES.A,LEAVES.B,LEAVES.C,LEAVES.D); ord.forEach((id,i)=>TIER[id]=[50+i*55,330]);
+  for(const br in LEAVES){ const xs=LEAVES[br].map(id=>TIER[id][0]); TIER[br]=[xs.reduce((s,x)=>s+x,0)/xs.length,175]; } }
+let LAY="bush", Z=1, FLOW=false, BRIDGE=true;
+const PORT=6, LANE=10, SECTOR=1.4;   // зазор выходов, шаг полос колен, ширина сектора (рад, ≈80°)
+
+// --- геометрия: КАЖДЫЙ режим отдаёт ломаную. По ней рисуют, ищут пересечения, ведут течение и ловят курсор
+const U=(x,y)=>{const d=Math.hypot(x,y)||1;return [x/d,y/d];};
+function dedup(P){const o=[P[0]];for(let i=1;i<P.length;i++){const q=o[o.length-1];if(Math.hypot(P[i][0]-q[0],P[i][1]-q[1])>0.01)o.push(P[i]);}return o;}
+function quad(a,c,b,n=16){const o=[];for(let k=0;k<=n;k++){const t=k/n,u=1-t;o.push([u*u*a[0]+2*u*t*c[0]+t*t*b[0],u*u*a[1]+2*u*t*c[1]+t*t*b[1]]);}return o;}
+function cubic(a,c1,c2,b,n=24){const o=[];for(let k=0;k<=n;k++){const t=k/n,u=1-t,A=u*u*u,B=3*u*u*t,C=3*u*t*t,D=t*t*t;
+  o.push([A*a[0]+B*c1[0]+C*c2[0]+D*b[0],A*a[1]+B*c1[1]+C*c2[1]+D*b[1]]);}return o;}
+// скругление колен: радиус не больше половины соседних отрезков, чтобы дуги соседних колен не наехали
+function rounded(P,r){ P=dedup(P); if(P.length<3) return P;
+  const out=[P[0]];
+  for(let i=1;i<P.length-1;i++){ const p=P[i-1],c=P[i],n=P[i+1];
+    const l1=Math.hypot(c[0]-p[0],c[1]-p[1]), l2=Math.hypot(n[0]-c[0],n[1]-c[1]), rr=Math.min(r,l1/2,l2/2);
+    if(rr<0.5){ out.push(c); continue; }
+    const s=[c[0]+(p[0]-c[0])/l1*rr,c[1]+(p[1]-c[1])/l1*rr], e=[c[0]+(n[0]-c[0])/l2*rr,c[1]+(n[1]-c[1])/l2*rr];
+    out.push(...quad(s,c,e,6)); }
+  out.push(P[P.length-1]); return out; }
+function side(P,l){const a=P[l.a],b=P[l.b],dx=b[0]-a[0],dy=b[1]-a[1],h=Math.abs(dx)>=Math.abs(dy);
+  return {a,b,dx,dy,h,s:h?(Math.sign(dx)||1):(Math.sign(dy)||1)};}
+/* Разводка для прямых углов: дети одного родителя, ушедшие в одну сторону. Выходы — по поперечной
+   координате ребёнка (верхний выходит выше), полосы колен — дальний по поперечной ближе к родителю.
+   При таком порядке колена одной группы не пересекаются вовсе. */
+function orthoGroups(P){ const G=new Map(), info=new Map();
+  LINKS.forEach(l=>{ if(l.m) return; const i=side(P,l), key=l.a+(i.h?"h":"v")+i.s; if(!G.has(key)) G.set(key,[]); G.get(key).push(l); });
+  G.forEach(arr=>{ const n=arr.length, perp=l=>{const i=side(P,l);return i.h?i.dy:i.dx;}, along=l=>{const i=side(P,l);return Math.abs(i.h?i.dx:i.dy);};
+    const minA=Math.min(...arr.map(along)), byPerp=[...arr].sort((x,y)=>perp(x)-perp(y)), byFar=[...arr].sort((x,y)=>Math.abs(perp(y))-Math.abs(perp(x)));
+    arr.forEach(l=>info.set(l,{n,minA,port:(byPerp.indexOf(l)-(n-1)/2)*PORT,lane:byFar.indexOf(l)})); });
+  return info; }
+function rOrtho(P,l,g,bus){ const {a,b,dx,dy,h,s}=side(P,l), ra=NODES[l.a].r;
+  if(!g){ // ручная: колено посередине; концы почти на одной линии — обход скобой, а не сквозь ряд
+    if(h&&Math.abs(dy)<26){const y=Math.max(a[1],b[1])+34;return rounded([a,[a[0],y],[b[0],y],b],12);}
+    if(!h&&Math.abs(dx)<26){const x=Math.max(a[0],b[0])+34;return rounded([a,[x,a[1]],[x,b[1]],b],12);}
+    const m=h?a[0]+dx/2:a[1]+dy/2; return rounded(h?[a,[m,a[1]],[m,b[1]],b]:[a,[a[0],m],[b[0],m],b],12); }
+  const along=Math.abs(h?dx:dy);
+  let off=bus?Math.max(ra+14,Math.min(g.minA*0.4,70)):g.minA*0.5+(g.lane-(g.n-1)/2)*LANE;
+  off=Math.max(ra+8,Math.min(off,along-14));
+  const port=bus?0:g.port;
+  if(h){const y0=a[1]+port,m=a[0]+s*off;return rounded([a,[a[0],y0],[m,y0],[m,b[1]],b],bus?7:12);}
+  const x0=a[0]+port,m=a[1]+s*off; return rounded([a,[x0,a[1]],[x0,m],[b[0],m],b],bus?7:12); }
+function rMetro(P,l,g){ const {a,b,h}=side(P,l), port=g?g.port:0, st=h?[a[0],a[1]+port]:[a[0]+port,a[1]];
+  const ddx=b[0]-st[0], ddy=b[1]-st[1];
+  if(h){const leg=Math.max(0,(Math.abs(ddx)-Math.abs(ddy))/2),sx=Math.sign(ddx)||1;
+    return rounded([a,st,[st[0]+sx*leg,st[1]],[b[0]-sx*leg,b[1]],b],14);}
+  const leg=Math.max(0,(Math.abs(ddy)-Math.abs(ddx))/2),sy=Math.sign(ddy)||1;
+  return rounded([a,st,[st[0],st[1]+sy*leg],[b[0],b[1]-sy*leg],b],14); }
+/* Сектора для орбиты и пучков: дети родителя по углу, разрез круга — в самом широком промежутке
+   (иначе сектор через ±180° разрезался бы надвое), новый сектор — когда шире SECTOR. */
+function angClusters(P){ const by=new Map(), info=new Map();
+  LINKS.forEach(l=>{ if(l.m) return; if(!by.has(l.a)) by.set(l.a,[]); by.get(l.a).push(l); });
+  by.forEach((arr,pid)=>{ const a=P[pid];
+    const it=arr.map(l=>{const b=P[l.b];return {l,th:Math.atan2(b[1]-a[1],b[0]-a[0]),d:Math.hypot(b[0]-a[0],b[1]-a[1])};}).sort((x,y)=>x.th-y.th);
+    let cut=0,best=-1; for(let i=0;i<it.length;i++){ let gap=it[(i+1)%it.length].th-it[i].th; if(i===it.length-1) gap+=2*Math.PI; if(gap>best){best=gap;cut=(i+1)%it.length;} }
+    const seq=it.slice(cut).concat(it.slice(0,cut)); let cl=[]; const cls=[cl];
+    seq.forEach(x=>{ if(cl.length){ let dd=x.th-cl[0].th; while(dd<0) dd+=2*Math.PI; if(dd>SECTOR){cl=[];cls.push(cl);} } cl.push(x); });
+    cls.forEach(c=>{ let vx=0,vy=0; c.forEach(x=>{vx+=Math.cos(x.th);vy+=Math.sin(x.th);});
+      const th=Math.atan2(vy,vx), R0=Math.max(NODES[pid].r+14,Math.min(...c.map(x=>x.d))*0.5);
+      c.forEach(x=>info.set(x.l,{th,R0,n:c.length,thb:x.th})); }); });
+  return info; }
+function rOrbit(P,l,g){ const a=P[l.a], b=P[l.b]; if(!g) return [a,b];
+  let dth=g.thb-g.th; while(dth>Math.PI) dth-=2*Math.PI; while(dth<-Math.PI) dth+=2*Math.PI;
+  const R=g.R0, f=Math.min(10,R*0.3), dl=f/R, sg=Math.sign(dth), pol=(r,t)=>[a[0]+Math.cos(t)*r,a[1]+Math.sin(t)*r];
+  if(Math.abs(dth)<2.2*dl) return [a,b];
+  const o=[a]; o.push(...quad(pol(R-f,g.th),pol(R,g.th),pol(R,g.th+sg*dl),8));
+  const t0=g.th+sg*dl, t1=g.thb-sg*dl, n=Math.max(2,Math.ceil(Math.abs(t1-t0)/0.06));
+  for(let k=1;k<n;k++) o.push(pol(R,t0+(t1-t0)*k/n));
+  o.push(...quad(pol(R,t1),pol(R,g.thb),pol(R+f,g.thb),8)); o.push(b); return o; }
+function rBundle(P,l,g){ const a=P[l.a], b=P[l.b]; if(!g||g.n<2) return [a,b];
+  const J=[a[0]+Math.cos(g.th)*g.R0*1.2, a[1]+Math.sin(g.th)*g.R0*1.2];
+  return cubic(a,J,[J[0]+(b[0]-J[0])*0.35,J[1]+(b[1]-J[1])*0.35],b,26); }
+function rBranch(P,l){ const a=P[l.a], b=P[l.b], L=Math.hypot(b[0]-a[0],b[1]-a[1]), ab=U(b[0]-a[0],b[1]-a[1]);
+  if(l.m){ const n=[-ab[1],ab[0]];   // ручная: лёгкая S поперёк хорды — «растущего» направления у неё нет
+    return cubic(a,[a[0]+ab[0]*L*0.3+n[0]*L*0.15,a[1]+ab[1]*L*0.3+n[1]*L*0.15],[b[0]-ab[0]*L*0.3-n[0]*L*0.15,b[1]-ab[1]*L*0.3-n[1]*L*0.15],b,26); }
+  const pp=NODES[l.a].p; let out=pp?U(a[0]-P[pp][0],a[1]-P[pp][1]):ab;
+  if(out[0]*ab[0]+out[1]*ab[1]<0.25) out=U(out[0]+ab[0]*1.6,out[1]+ab[1]*1.6);   // ребёнок «за спиной» — без петли
+  const ob=U(out[0]+ab[0],out[1]+ab[1]);
+  return cubic(a,[a[0]+out[0]*L*0.5,a[1]+out[1]*L*0.5],[b[0]-ob[0]*L*0.3,b[1]-ob[1]*L*0.3],b,26); }
+function rSoft(P,l){ const a=P[l.a], b=P[l.b], ex=b[0]-a[0], ey=b[1]-a[1], L2=ex*ex+ey*ey; let w=null;
+  for(const id in NODES){ if(id===l.a||id===l.b) continue; const p=P[id], t=((p[0]-a[0])*ex+(p[1]-a[1])*ey)/L2; if(t<0.08||t>0.92) continue;
+    const qx=a[0]+ex*t, qy=a[1]+ey*t, d=Math.hypot(p[0]-qx,p[1]-qy), need=NODES[id].r+12;
+    if(d<need&&(!w||need-d>w.k)) w={k:need-d,qx,qy,p,d}; }
+  if(!w) return [a,b];
+  const u=w.d<0.01?U(-ey,ex):U(w.qx-w.p[0],w.qy-w.p[1]), h=w.k+4;
+  return quad(a,[w.qx+u[0]*h*2,w.qy+u[1]*h*2],b,24); }
+
+// --- сборка режима: пути, длины, пересечения. Раз на смену раскладки — не в кадре
+const CACHE={};
+function depth(id){let d=0,x=id;while(NODES[x].p){d++;x=NODES[x].p;}return d;}
+function buildMode(k){ const P=LAY==="bush"?BUSH:TIER;
+  const og=(k==="ortho"||k==="bus"||k==="metro")?orthoGroups(P):null, ac=(k==="orbit"||k==="bundle")?angClusters(P):null;
+  const R=LINKS.map(l=>{ let p;
+    switch(k){ case "soft":p=rSoft(P,l);break; case "ortho":p=rOrtho(P,l,og.get(l),false);break; case "bus":p=rOrtho(P,l,og.get(l),true);break;
+      case "metro":p=rMetro(P,l,og.get(l));break; case "orbit":p=rOrbit(P,l,ac.get(l));break; case "bundle":p=rBundle(P,l,ac.get(l));break; default:p=rBranch(P,l); }
+    p=dedup(p); const cum=[0]; for(let i=1;i<p.length;i++) cum.push(cum[i-1]+Math.hypot(p[i][0]-p[i-1][0],p[i][1]-p[i-1][1]));
+    const bb=[Math.min(...p.map(q=>q[0])),Math.min(...p.map(q=>q[1])),Math.max(...p.map(q=>q[0])),Math.max(...p.map(q=>q[1]))];
+    return {l,p,cum,len:cum[cum.length-1],bb,prov:[]}; });
+  let cross=0;
+  const w=r=>r.l.m?1.8:1.3, top=(A,B)=>w(A)!==w(B)?w(A)>w(B):Math.min(depth(A.l.a),depth(A.l.b))<=Math.min(depth(B.l.a),depth(B.l.b));
+  for(let i=0;i<R.length;i++) for(let j=i+1;j<R.length;j++){ const A=R[i],B=R[j], la=A.l, lb=B.l;
+    if(la.a===lb.a||la.a===lb.b||la.b===lb.a||la.b===lb.b) continue;   // сходятся в ноде, а не скрещиваются
+    if(A.bb[2]<B.bb[0]||B.bb[2]<A.bb[0]||A.bb[3]<B.bb[1]||B.bb[3]<A.bb[1]) continue;
+    for(let s=0;s<A.p.length-1;s++) for(let t=0;t<B.p.length-1;t++){ const a0=A.p[s],a1=A.p[s+1],b0=B.p[t],b1=B.p[t+1];
+      const d=(a1[0]-a0[0])*(b1[1]-b0[1])-(a1[1]-a0[1])*(b1[0]-b0[0]); if(Math.abs(d)<1e-9) continue;
+      const u=((b0[0]-a0[0])*(b1[1]-b0[1])-(b0[1]-a0[1])*(b1[0]-b0[0]))/d, v=((b0[0]-a0[0])*(a1[1]-a0[1])-(b0[1]-a0[1])*(a1[0]-a0[0]))/d;
+      if(u<0||u>=1||v<0||v>=1) continue;                                 // полуоткрыто: стык отрезков не считаем дважды
+      const px=a0[0]+(a1[0]-a0[0])*u, py=a0[1]+(a1[1]-a0[1])*u;
+      if([la.a,la.b,lb.a,lb.b].some(id=>Math.hypot(P[id][0]-px,P[id][1]-py)<NODES[id].r+6)) continue;   // под нодой не видно
+      cross++;
+      const Atop=top(A,B), low=Atop?B:A, sl=Atop?B.cum[t]+(B.cum[t+1]-B.cum[t])*v:A.cum[s]+(A.cum[s+1]-A.cum[s])*u;
+      low.prov.push(sl); } }
+  let sum=0,str=0; R.forEach(r=>{sum+=r.len; const a=P[r.l.a],b=P[r.l.b]; str+=Math.hypot(b[0]-a[0],b[1]-a[1]);});
+  CACHE[k]={R,P,cross,ratio:sum/str,hov:-1};
+}
+function at(r,s){ const c=r.cum; let i=1; while(i<c.length-1&&c[i]<s) i++;
+  const f=(s-c[i-1])/((c[i]-c[i-1])||1), a=r.p[i-1], b=r.p[i]; return [a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f]; }
+const rgb=h=>{const n=parseInt(h.slice(1),16);return [n>>16,n>>8&255,n&255];};
+const mix=(A,B,t,a)=>`rgba(${Math.round(A[0]+(B[0]-A[0])*t)},${Math.round(A[1]+(B[1]-A[1])*t)},${Math.round(A[2]+(B[2]-A[2])*t)},${a})`;
+function view(cv,P){ const W=cv.clientWidth,H=340, xs=Object.values(P).map(p=>p[0]), ys=Object.values(P).map(p=>p[1]);
+  const x0=Math.min(...xs)-40,x1=Math.max(...xs)+40,y0=Math.min(...ys)-40,y1=Math.max(...ys)+50;
+  const k=Math.min(W/(x1-x0),H/(y1-y0))*Z; return {W,H,k,ox:W/2-(x0+x1)/2*k,oy:H/2-(y0+y1)/2*k}; }
+function draw(cv,k,time){ const M=CACHE[k], V=view(cv,M.P), dpr=devicePixelRatio||1;
+  cv.width=V.W*dpr; cv.height=V.H*dpr; const ctx=cv.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.fillStyle="#0b0b0d"; ctx.fillRect(0,0,V.W,V.H);
+  ctx.setTransform(dpr*V.k,0,0,dpr*V.k,dpr*V.ox,dpr*V.oy);
+  const px=v=>v/V.k;   // толщины, зона провала, точки течения — в ЭКРАННЫХ пикселях
+  const order=M.R.map((r,i)=>i).sort((i,j)=>(M.R[j].prov.length?1:0)-(M.R[i].prov.length?1:0));   // нижние первыми
+  ctx.lineJoin="round";
+  for(const i of order){ const r=M.R[i], hov=i===M.hov, A=rgb(NODES[r.l.a].c), B=rgb(NODES[r.l.b].c);
+    const al=(r.l.m?0.8:0.55)*(hov?1/0.55:1), lw=px((r.l.m?2.2:1.4)+(hov?1.6:0));
+    ctx.lineWidth=lw;
+    if(BRIDGE&&r.prov.length){ // провал: тем же путём, по кусочкам — прозрачность по расстоянию до скрещивания
+      const step=px(3), Zn=px(22); ctx.lineCap="butt";
+      for(let s=0;s<r.len;s+=step){ const e=Math.min(r.len,s+step), m=(s+e)/2;
+        let f=1; for(const c of r.prov){ const x=Math.abs(m-c)/Zn; if(x<1) f=Math.min(f,0.1+0.9*x*x); }
+        const p=at(r,s),q=at(r,e); ctx.strokeStyle=mix(A,B,m/r.len,Math.min(1,al)*f);
+        ctx.beginPath(); ctx.moveTo(p[0],p[1]); ctx.lineTo(q[0],q[1]); ctx.stroke(); }
+    } else {
+      const a=r.p[0], b=r.p[r.p.length-1], g=ctx.createLinearGradient(a[0],a[1],b[0],b[1]);
+      g.addColorStop(0,mix(A,A,0,Math.min(1,al))); g.addColorStop(1,mix(B,B,0,Math.min(1,al)));
+      ctx.strokeStyle=g; ctx.lineCap="round"; ctx.beginPath(); ctx.moveTo(r.p[0][0],r.p[0][1]);
+      for(let j=1;j<r.p.length;j++) ctx.lineTo(r.p[j][0],r.p[j][1]); ctx.stroke(); }
+    if(FLOW&&!r.l.m){ ctx.fillStyle=mix(B,B,0,0.9); // зёрна по длине пути: колено проходят так же, как прямую
+      for(let s=((time||0)*0.045+i*23)%34; s<r.len; s+=34){ const p=at(r,s); ctx.beginPath(); ctx.arc(p[0],p[1],px(1.7),0,7); ctx.fill(); } }
+  }
+  for(const id in NODES){ const n=NODES[id], p=M.P[id], c=rgb(n.c);
+    ctx.beginPath(); ctx.arc(p[0],p[1],n.r,0,7); ctx.fillStyle="#0b0b0d"; ctx.fill(); ctx.fillStyle=mix(c,c,0,0.2); ctx.fill();
+    ctx.lineWidth=px(1.8); ctx.strokeStyle=n.c; ctx.stroke(); }
+  const h=M.hov>=0?M.R[M.hov].l:null;
+  cv.parentNode.querySelector(".met").innerHTML=`пересечений <b>${M.cross}</b> · длина связей <b>×${M.ratio.toFixed(2)}</b> к прямым`+
+    (h?` · под курсором: <b>${h.a} → ${h.b}</b>${h.m?" (ручная)":""}`:"");
+}
+// попадание: ближайшая ломаная в 7 экранных px — тот же путь, что нарисован
+function hit(cv,k,e){ const M=CACHE[k], V=view(cv,M.P), rc=cv.getBoundingClientRect();
+  const x=(e.clientX-rc.left-V.ox)/V.k, y=(e.clientY-rc.top-V.oy)/V.k, lim=7/V.k; let best=-1, bd=lim*lim;
+  M.R.forEach((r,i)=>{ for(let j=0;j<r.p.length-1;j++){ const a=r.p[j],b=r.p[j+1], ex=b[0]-a[0], ey=b[1]-a[1], e2=ex*ex+ey*ey||1;
+    let t=((x-a[0])*ex+(y-a[1])*ey)/e2; t=t<0?0:t>1?1:t; const dx=x-a[0]-ex*t, dy=y-a[1]-ey*t, d=dx*dx+dy*dy; if(d<bd){bd=d;best=i;} } });
+  if(best!==M.hov){ M.hov=best; draw(cv,k); } }
+const grid=document.getElementById("g");
+MODES.forEach(m=>{ const c=document.createElement("div"); c.className="card"+(m.ref?" ref":"");
+  c.innerHTML=`<div class="cap"><h3>${m.n}</h3><p>${m.d}</p><div class="why">${m.why}</div></div><canvas data-k="${m.k}"></canvas><div class="met"></div>`;
+  grid.appendChild(c); const cv=c.querySelector("canvas");
+  cv.onmousemove=e=>hit(cv,m.k,e); cv.onmouseleave=()=>{ CACHE[m.k].hov=-1; draw(cv,m.k); }; });
+const cvs=()=>document.querySelectorAll("canvas");
+const rebuild=()=>{ MODES.forEach(m=>buildMode(m.k)); all(); };
+const all=t=>cvs().forEach(cv=>draw(cv,cv.dataset.k,t));
+const pick=(sel,b)=>document.querySelectorAll(sel).forEach(x=>x.classList.toggle("on",x===b));
+document.querySelectorAll("[data-lay]").forEach(b=>b.onclick=()=>{LAY=b.dataset.lay;pick("[data-lay]",b);rebuild();});
+document.querySelectorAll("[data-z]").forEach(b=>b.onclick=()=>{Z=+b.dataset.z;pick("[data-z]",b);all();});
+document.getElementById("bridge").onclick=e=>{BRIDGE=!BRIDGE;e.target.classList.toggle("on",BRIDGE);all();};
+document.getElementById("flow").onclick=e=>{FLOW=!FLOW;e.target.classList.toggle("on",FLOW);if(FLOW) requestAnimationFrame(tick); else all();};
+function tick(t){ if(!FLOW) return; all(t); requestAnimationFrame(tick); }
+addEventListener("resize",()=>all()); rebuild();
+</script>
+</body>
+</html>

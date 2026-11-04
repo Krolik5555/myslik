@@ -1396,6 +1396,11 @@ function openSettings(tab){
       <div class="field"><label>Привязка к сетке</label>
         <div class="seg" id="set-snapmode">${[["near","Только рядом с точкой"],["always","Всегда к ближайшей"]].map(([v,l])=>`<button data-v="${v}" class="${(s.graphSnapMode==="always"?"always":"near")===v?"on":""}">${l}</button>`).join("")}</div>
         <div class="set-hint">Включается магнитом над графом или Ctrl+'. «Только рядом» — как в Houdini: притягивает у самой точки, а при сильном приближении берёт клетки не мельче ноды. Мелкие клетки между яркими линиями тянут только вплотную — чтобы поставить ноду на одну линию с соседом, не уводя далеко. Ctrl, зажатый во время протяжки, — наоборот.</div></div>
+      <!-- Режим связей графа (LINK_MODES в core.js). Тот же выбор — кнопкой в тулбаре графа; у ручной
+           связи может быть свой, из её меню (клик по связи). -->
+      <div class="field"><label>Связи</label>
+        <div class="seg" id="set-linkmode">${LINK_MODES.map(x=>`<button data-v="${x.id}" title="${x.hint}" class="${(s.graphLinkMode||"soft")===x.id?"on":""}"><i class="ti ${x.icon}"></i> ${x.label}</button>`).join("")}</div>
+        <div class="set-hint">Как проводить связи между нодами. Мягкая — прямая, прогибается вокруг чужой ноды. Отдельной связи режим задаётся в её меню: клик по связи.</div></div>
       <!-- Чем рисуется граф. SVG — прежний путь со всеми возможностями; холст рисует дерево целиком
            и не создаёт элементов вовсе (на 650 узлах это 38 мс кадра из 47). Переключается на лету,
            данные не трогает: не понравилось — вернул обратно. -->
@@ -1550,6 +1555,10 @@ function openSettings(tab){
   /* Переключение рендера пересобирает вид целиком: Graph решает, создавать ли SVG-элементы,
      в build(), и на лету это не меняется. render() снимает старый граф и строит новый — данные
      при этом не трогаются вовсе. */
+  // режим связей: маршруты пересчитает первый же кадр (_routesFresh видит смену режима)
+  $$("#set-linkmode button",m).forEach(b=>b.onclick=()=>{
+    $$("#set-linkmode button",m).forEach(x=>x.classList.toggle("on",x===b));
+    if(typeof graphSetLinkMode==="function") graphSetLinkMode(b.dataset.v); });
   $$("#set-render button",m).forEach(b=>b.onclick=()=>{ s.graphRender=b.dataset.v; persist(true);
     $$("#set-render button",m).forEach(x=>x.classList.toggle("on",x===b));
     if(view==="notes") render(); });
