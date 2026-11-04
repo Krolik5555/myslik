@@ -103,6 +103,46 @@ for (const реж of ["td", "hz"]) {
   graph.selNodes.clear(); graph._paintSel();
 }
 
+/* С ПРИВЯЗКОЙ К СЕТКЕ (КРОЛИК, 04.11.2026: «при раскладке учитывать сетку»): каждая цель — на узле
+   шага _tidyGridStep, ни один узел не занят дважды, и сетка не добавляет ни пересечений, ни подписей
+   внахлёст, ни нод на связях против той же раскладки без сетки. */
+{
+  const шаг = graph._tidyGridStep();
+  t.push({имя:"сетка: шаг раскладки — ступень лестницы привязки, не мельче ноды", ок: шаг >= 14 && шаг <= 40, факт: шаг + " px"});
+  for (const реж of ["td", "hz", "bush"]) {
+    const прогон = async сетка => {
+      S.settings.graphSnap = сетка;
+      свои.splice(0, свои.length, ...свои.map(n => поId(n.id)));
+      graph.selNodes = new Set(свои.map(n => n.id)); graph._paintSel();
+      const ок = graph._tidySelection(реж); await ж(120);
+      свои.splice(0, свои.length, ...свои.map(n => поId(n.id)));
+      const цел = цели(свои), м = промер(цел);
+      undoStep(); await ж(120); graph.selNodes.clear(); graph._paintSel();
+      return {ок, цел, м};
+    };
+    const без = await прогон(false), с = await прогон(true);
+    S.settings.graphSnap = false;
+    const мимо = свои.filter(n => { const p = с.цел.get(n.id); return !p || Math.abs(p.x / шаг - Math.round(p.x / шаг)) > 1e-6 || Math.abs(p.y / шаг - Math.round(p.y / шаг)) > 1e-6; });
+    const узлы = new Map(); let дубли = 0;
+    свои.forEach(n => { const p = с.цел.get(n.id); if (!p) return; const к = Math.round(p.x) + "," + Math.round(p.y); if (узлы.has(к)) дубли++; узлы.set(к, n.id); });
+    const п = "сетка, " + tidyModeInfo(реж).label.toLowerCase() + ": ";
+    t.push({имя:п+"все цели на узлах сетки", ок: с.ок === true && мимо.length === 0, факт: "мимо узлов " + мимо.length + " из " + свои.length + (мимо.length ? " — " + мимо.slice(0, 3).map(n => n.title + " " + JSON.stringify(с.цел.get(n.id))).join(", ") : "")});
+    t.push({имя:п+"две ноды в один узел не сели", ок: дубли === 0, факт: дубли + " · ближайшие ноды " + Math.round(с.м.мин) + " px (без сетки " + Math.round(без.м.мин) + ")"});
+    t.push({имя:п+"сетка не добавила пересечений, нод на связях и подписей внахлёст", ок: с.м.пер <= без.м.пер && с.м.наЛинии <= без.м.наЛинии && с.м.подписи <= без.м.подписи,
+            факт: "пересечения " + без.м.пер + " → " + с.м.пер + ", на связях " + без.м.наЛинии + " → " + с.м.наЛинии + ", подписи " + без.м.подписи + " → " + с.м.подписи +
+                  ", габарит " + Math.round(без.м.W) + "×" + Math.round(без.м.H) + " → " + Math.round(с.м.W) + "×" + Math.round(с.м.H)});
+  }
+  // весь граф ярусами с сеткой: корни, якоря хабов и все ноды — на узлах
+  S.settings.graphSnap = true;
+  const ок = graph._tidyAll("td"); await ж(150);
+  const все = S.items.filter(i => graph.byId[i.id]), цел = цели(все);
+  const мимо = [...цел.values()].filter(p => Math.abs(p.x / шаг - Math.round(p.x / шаг)) > 1e-6 || Math.abs(p.y / шаг - Math.round(p.y / шаг)) > 1e-6).length;
+  const якоря = S.areas.filter(a => a.hx != null && (a.hx % шаг || a.hy % шаг)).length;
+  t.push({имя:"сетка, весь граф ярусами: ноды и якоря областей на узлах", ок: ок === true && мимо === 0 && якоря === 0, факт: "нод мимо " + мимо + " из " + цел.size + ", якорей мимо " + якоря});
+  undoStep(); await ж(150);
+  S.settings.graphSnap = false;
+}
+
 // РЕЖИМ ЗАПОМИНАЕТСЯ; «кустами» — умолчание и в файл не пишется
 tidyModeSet("hz");
 const запомнил = S.settings.graphTidyMode === "hz";
