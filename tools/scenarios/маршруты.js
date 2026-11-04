@@ -417,8 +417,11 @@ const зазоры = набор => { const L = graph.links.filter(l => набо�
 {
   const X7 = 20000, Y7 = -20000, эт = [];
   const н = (title, x, y, своя) => { const it = addItem(своя ? {kind: "note", title, area: обл} : {kind: "note", title}); it.x = X7 + x; it.y = Y7 + y; мои.push(it.id); эт.push(it.id); return it; };
-  const к = (title, x, y, род) => { const it = н("маршруты-48" + title, x, y); addLink(род.id, it.id); return it; };
-  const SQ = н("маршруты-48SQ02", 0, 0, true);
+  /* подписи КОРОТКИЕ, как в живом графе («Рендер», «SH050»): с длинными «маршруты-48Рн50» рамка подписи
+     по оценке выходила ~150 px, и подбор обходил несуществующие наезды (разбор зазора у SH070).
+     Убираются по списку id (мои), а не по названию; имя() для справок — по этим же коротким. */
+  const к = (title, x, y, род) => { const it = н(title.replace(/^Рн\d+$/, "Рендер").replace(/^Сб\d+$/, "Сборка"), x, y); it._эт48 = title; addLink(род.id, it.id); return it; };
+  const SQ = н("SQ02", 0, 0, true);
   const s50 = к("SH050", 370, 0, SQ), s40 = к("SH040", 370, -186, SQ), s30 = к("SH030", 278, -366, SQ), s20 = к("SH020", 93, -370, SQ), s10 = к("SH010", -92, -278, SQ);
   const s80 = к("SH080", -92, 185, SQ), s70 = к("SH070", 93, 185, SQ), s60 = к("SH060", 278, 185, SQ);
   к("Рн50", 278, 92, s50); к("Сб50", 463, 92, s50); к("Рн40", 500, -186, s40); к("Сб40", 500, -74, s40);
@@ -459,6 +462,52 @@ const зазоры = набор => { const L = graph.links.filter(l => набо�
     for (let i = 0; i < c.length - 2; i += 2) for (const id of эт) { if (id === l.a || id === l.b) continue; const m = graph.byId[id];
       if (routeClipT(c[i], c[i + 1], c[i + 2], c[i + 3], routeNodeBox(m), 4)) { сквозь.push(имя(l.a + "|" + l.b) + " у " + m.ref.title.replace("маршруты-48", "")); break; } } }
   t.push({имя: "эталон 48: связи не идут впритык к чужим нодам (у SH050, SH070)", ок: сквозь.length === 0, факт: сквозь.length ? [...new Set(сквозь)].slice(0, 6).join(", ") : "нет"});
+  /* РАЗБОР зазора у SH070 (снимок 46): ломаные SQ02 → SH060 и SH070 → «Сборка», их подписи и точка
+     сближения — какая из двух легла не туда */
+  { const л60 = связь(SQ, s60), с70 = graph.links.find(l => (l.a === s70.id || l.b === s70.id) && (graph.byId[l.a === s70.id ? l.b : l.a].ref || {})._эт48 === "Сб70");
+    let мин = null;
+    if (л60 && с70 && л60._рт && с70._рт) for (const p of отрз(л60._рт.c)) for (const q of отрз(с70._рт.c)) {
+      for (const [px, py, s] of [[p[0], p[1], q], [p[2], p[3], q], [q[0], q[1], p], [q[2], q[3], p]]) {
+        const ex = s[2] - s[0], ey = s[3] - s[1], L2 = (ex * ex + ey * ey) || 1; let tt = ((px - s[0]) * ex + (py - s[1]) * ey) / L2; tt = tt < 0 ? 0 : tt > 1 ? 1 : tt;
+        const d = Math.hypot(px - s[0] - ex * tt, py - s[1] - ey * tt); if (!мин || d < мин.d) мин = {d, x: Math.round(px - X7), y: Math.round(py - Y7)}; } }
+    t.push({имя: "эталон 48: разбор зазора у SH070 (справка)", ок: true,
+            факт: "к SH060 " + путь(л60) + "; SH070 → Сб70 " + путь(с70) + (мин ? "; ближе всего " + мин.d.toFixed(1) + " px у " + мин.x + "," + мин.y : "")}); }
+}
+
+// ===== ЭТАЛОН со снимка КРОЛИКА 52: метро 45° =====
+/* Хаб «ТТ Тюрьма», колонки шотов слева и справа, у каждого «Рендер» и «Сборка», «правки» под SH03 и
+   длинная связь сверху вниз вдоль левой колонки. Было: диагональ к «правки» шла сквозь SH03 вплотную к
+   связи хаб → SH03, длинная вертикаль цепляла ромбы колонки. Меряем метро без подбора и с ним:
+   пересечения, проходы сквозь чужие ноды (рамка с подписью), пары впритык. */
+{
+  const X9 = 25000, Y9 = 25000, эт = [];
+  const н = (title, x, y, своя) => { const it = addItem(своя ? {kind: "note", title, area: обл} : {kind: "note", title}); it.x = X9 + x; it.y = Y9 + y; мои.push(it.id); эт.push(it.id); return it; };
+  const к = (title, x, y, род) => { const it = н(title, x, y); addLink(род.id, it.id); return it; };
+  const хаб = н("ТТ Тюрьма", 0, 0, true);
+  const лев = [["SH07", -270], ["SH08", -160], ["SH09", -50], ["SH10", 60], ["SH05", 170], ["SH04", 280]];
+  const прав = [["SH00", -250], ["SH01", -140], ["SH02", -30], ["SH06", 80], ["SH03", 190]];
+  let sh03 = null;
+  for (const [т, y] of лев) { const s = к(т, -145, y, хаб); к("Рендер", -290, y - 15, s); к("Сборка", -290, y + 15, s); }
+  for (const [т, y] of прав) { const s = к(т, 145, y, хаб); к("Рендер", 290, y - 15, s); к("Сборка", 290, y + 15, s); if (т === "SH03") sh03 = s; }
+  к("правки", 145, 280, sh03);
+  const верх = н("Верх", -125, -520, true); к("Boombot", -125, 470, верх);
+  recomputeHierarchy(); persist();
+  const набор = new Set(эт);
+  const сквозь = () => { let n = 0;
+    for (const l of graph.links.filter(l => набор.has(l.a) && набор.has(l.b) && l._рт)) { const c = l._рт.c;
+      for (const id of эт) { if (id === l.a || id === l.b) continue; const m = graph.byId[id];
+        for (let i = 0; i < c.length - 2; i += 2) if (routeClipT(c[i], c[i + 1], c[i + 2], c[i + 3], routeNodeBox(m), 0)) { n++; break; } } }
+    return n; };
+  const снять = сПодбором => { graphSetLinkMode("metro"); graph.build(); graph.alpha = 0; const родной = graph._routeOptimize;
+    if (!сПодбором) graph._routeOptimize = () => 0;
+    graph._routeMem(true); graph._маршр = null; graph._routesFresh(); if (сПодбором) довести(); graph._routeOptimize = родной;
+    const с = счёт(набор), з = зазоры(набор); return {пер: с.пер, сквозь: сквозь(), впритык: з.впритык, пов: с.поворотов}; };
+  const до = снять(false), после = снять(true);
+  const стр = r => "пересечений " + r.пер + ", сквозь чужие ноды " + r.сквозь + ", впритык " + r.впритык + ", поворотов " + r.пов;
+  t.push({имя: "эталон 52 (метро): без подбора и с ним (справка)", ок: true, факт: "без подбора: " + стр(до) + " | с подбором: " + стр(после)});
+  t.push({имя: "эталон 52 (метро): подбор не хуже по пересечениям и проходам сквозь ноды", ок: после.пер <= до.пер && после.сквозь <= до.сквозь,
+          факт: "пересечений " + до.пер + " → " + после.пер + ", сквозь ноды " + до.сквозь + " → " + после.сквозь});
+  graphSetLinkMode("ortho");
 }
 
 // ===== ЭТАЛОН со снимка КРОЛИКА 49: связь проходит МИМО ноды — не гаснет =====
