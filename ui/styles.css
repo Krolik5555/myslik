@@ -2691,3 +2691,20 @@ html.canvas-ui body.as-glass #split:has(#graph-wrap) .graph-hint{right:calc(var(
 .cpk-pal{display:flex;flex-wrap:wrap;gap:5px;}
 .cpk-pal button{width:20px;height:20px;border-radius:6px;border:0;padding:0;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(127,127,127,.3);}
 .cpk-pal button:hover{transform:scale(1.15);}
+/* РЕЖИМЫ «УПОРЯДОЧИТЬ» (TIDY_MODES в graph.js): три значка рядом с командой, нынешний подсвечен,
+   клик по значку — упорядочить этим режимом. Полоса выделения, меню «…», ПКМ-меню, сводка в панели. */
+.gsb-tidy{display:flex;gap:2px;}
+.gsb-tidy .gsb-tm{width:26px;height:26px;padding:0;border:0;border-radius:999px;background:transparent;color:var(--mut);
+  display:flex;align-items:center;justify-content:center;font-size:15px;cursor:pointer;}
+.gsb-tidy .gsb-tm:hover{background:var(--surf3);color:var(--tx);}
+.gsb-tidy .gsb-tm.on{background:var(--acc);color:var(--bg);}
+.gm-tidy{display:flex;align-items:center;gap:3px;padding:3px 5px 3px 11px;font-size:13px;color:var(--tx);white-space:nowrap;}
+.gm-tidy-l{display:flex;align-items:center;gap:9px;margin-right:auto;padding-right:10px;}
+.gm-tidy-l i{font-size:16px;color:var(--mut);}
+.gm-tm{width:28px;height:28px;padding:0;border:0;border-radius:7px;background:transparent;color:var(--mut);
+  display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;}
+.gm-tm:hover{background:var(--surf3);color:var(--tx);}
+.gm-tm.on{color:var(--tx);box-shadow:inset 0 0 0 1px var(--bd3);}
+#node-pop .np-tidy{display:flex;gap:3px;margin-left:auto;align-items:center;}
+#node-pop .np-tidy .np-sz-btn.on{box-shadow:inset 0 0 0 1px var(--bd3);}
+.as-tidy{margin-left:6px;}

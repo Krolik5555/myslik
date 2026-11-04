@@ -306,7 +306,7 @@ function renderAside(){
         ${строкаГр("Приоритет", "ti-flag", `<span class="as-chips">${["—","низкий","средний","высокий"].map((n,p)=>`<button type="button" class="as-q pri-${p}" data-allpri="${p}">${n}</button>`).join("")}</span>`)}
       </div>
       ${(ноды.length>2 || сДомом) ? `<div class="as-sec">Раскладка</div><div class="as-acts-row">
-        ${ноды.length>2 ? `<button class="as-btn" data-tidy="1" title="Разложить выделенное деревом, без наложений и пересечений связей"><i class="ti ti-layout-grid"></i>Упорядочить</button>` : ""}
+        ${ноды.length>2 ? `<button class="as-btn" data-tidy="1" title="Разложить выделенное деревом, без наложений и пересечений связей"><i class="ti ${tidyModeInfo().icon}"></i>Упорядочить</button><span class="as-chips as-tidy">${tidyModesHtml("as-q")}</span>` : ""}
         ${сДомом ? `<button class="as-btn" data-home-off="1" title="Ноды перестанут держаться за своё место и встанут по родителю"><i class="ti ti-home-off"></i>Сбросить дом · ${сДомом}</button>` : ""}
       </div>` : ""}
       <div class="as-sec">Ноды<span class="as-cnt as-sec-r">${ноды.length}</span></div>
@@ -331,9 +331,11 @@ function renderAside(){
        графа обязано совпадать со сводкой — панель рисуется от него же; на всякий случай
        подставляем ноды сводки, если граф пересоздан и выделение опустело. */
     const кнТиди = a.querySelector("[data-tidy]");
-    if(кнТиди) кнТиди.onclick = ()=>{ if(!graph) return;
+    const тиди = реж=>{ if(!graph) return;
       if(graph.selNodes.size<3) graph.selNodes = new Set(ноды.map(n=>n.id));
-      graph._tidySelection(); };
+      graph._tidySelection(реж); };
+    if(кнТиди) кнТиди.onclick = ()=>тиди(tidyModeInfo().id);
+    a.querySelectorAll("[data-tidy-mode]").forEach(кн=>кн.onclick=()=>{ tidyModeSet(кн.dataset.tidyMode); тиди(кн.dataset.tidyMode); });
     const кнДом = a.querySelector("[data-home-off]");
     if(кнДом) кнДом.onclick = ()=>{ if(!graph) return;
       if(graph.selNodes.size<2) graph.selNodes = new Set(ноды.map(n=>n.id));

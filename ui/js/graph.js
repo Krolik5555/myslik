@@ -169,6 +169,8 @@ function renderNotes(v){
       <button class="btn ghost" id="g-more" title="Ещё: перераскладка, теги"><i class="ti ti-dots"></i></button>
     </div>
     <div class="graph-more" id="g-more-menu" style="display:none">
+      <!-- весь граф — теми же режимами, что и выделение; «Перераскладка» осталась: это физика заново, не порядок -->
+      <div class="gm-tidy"><span class="gm-tidy-l"><i class="ti ti-layout-grid"></i>Упорядочить весь граф</span>${tidyModesHtml("gm-tm")}</div>
       <button class="gm-it" id="g-refit"><i class="ti ti-arrows-shuffle"></i>Перераскладка</button>
       <button class="gm-it" id="g-tags"><i class="ti ti-tags"></i>Теги со стилем</button>
       <!-- поток работы по связям (см. _drawMain, «ПОТОК»): русло и течение выключаются по отдельности -->
@@ -201,7 +203,8 @@ function renderNotes(v){
     <div class="graph-selbar" id="g-selbar" style="display:none">
       <span class="gsb-n"></span>
       <!-- разложить выделенное дерево домами: ноды доедут сами, форму потом доводят руками -->
-      <button class="gsb-btn" id="g-tidy" title="Упорядочить выделенное: разложить деревом, без наложений и пересечений"><i class="ti ti-layout-grid"></i></button>
+      <!-- три режима вместо одной кнопки: клик по режиму и есть «упорядочить» (см. TIDY_MODES) -->
+      <span class="gsb-tidy" id="g-tidy">${tidyModesHtml("gsb-tm")}</span>
     </div>
     <div class="graph-tray" id="g-tray" style="display:none">
       <button class="gt-tab" id="gt-tab" title="Неразобранные мысли"><i class="ti ti-inbox"></i><span class="gt-n"></span></button>
@@ -234,6 +237,7 @@ function renderNotes(v){
      выключаем тумблер: раскладку дальше ведёт физика, как до появления домов. Понравилось —
      человек жмёт домик снова, и дома назначаются по новым местам. Ctrl+Z возвращает прежнюю
      форму: hx/hy лежат в самих нодах, а снимок отката сериализует items целиком. */
+  $$("#g-more-menu [data-tidy-mode]").forEach(b=>b.onclick=()=>{ closeMore(); tidyModeSet(b.dataset.tidyMode); if(graph) graph._tidyAll(b.dataset.tidyMode); });
   $("#g-refit").onclick=async ()=>{ closeMore();
     /* Точка «до» — ДО вопроса и до сноса домов: диалог обещает, что прежняя форма вернётся по
        Ctrl+Z, и с тех пор как раскладка перестала попадать в обычный шаг истории (см. _noXY),
@@ -660,7 +664,8 @@ class Graph{
     bar.style.display="";
     const nEl=bar.querySelector(".gsb-n"); if(nEl) nEl.textContent="Выделено: "+ids.length;
     const tidy=bar.querySelector("#g-tidy");
-    if(tidy){ tidy.style.display=ids.length>2?"":"none"; tidy.onclick=()=>this._tidySelection(); }
+    if(tidy){ tidy.style.display=ids.length>2?"":"none";
+      tidy.querySelectorAll("[data-tidy-mode]").forEach(b=>b.onclick=()=>{ tidyModeSet(b.dataset.tidyMode); this._tidySelection(b.dataset.tidyMode); }); }
   }
   // ноды выделения — для кнопки «Отчёт» в правой панели
   selectedItems(){ return [...this.selNodes].map(id=>this.byId[id]&&this.byId[id].ref).filter(Boolean); }
@@ -3686,8 +3691,15 @@ class Graph{
 
      Поперечные связи (не вошедшие в остовное дерево) пересекаться могут — в общем графе это
      неизбежно, и обещать обратное было бы неправдой. */
-  _tidySelection(){
-    const ids=[...this.selNodes].filter(id=>!isHubId(id) && this.byId[id] && this.byId[id].ref);
+  /* mode — режим из TIDY_MODES (без него — кустами: так зовут старые проверки). opts.tree — готовое
+     дерево от _tidyAll ({ids, корни, дети}): там в раскладку входят и хабы областей, корнями, и
+     строить остов по связям незачем — иерархия уже известна владельцами. opts.было — снимок формы
+     ДО того, как _tidyAll развёл деревья, иначе откат вернул бы уже разведённое. */
+  _tidySelection(mode, opts){
+    mode=tidyModeInfo(mode||"bush").id;
+    const дано=opts && opts.tree;
+    if(mode!=="bush" && !дано) return this._tidyTiers(mode);
+    const ids=дано ? дано.ids : [...this.selNodes].filter(id=>!isHubId(id) && this.byId[id] && this.byId[id].ref);
     if(ids.length<3){ toast("Выдели хотя бы три ноды — раскладывать нечего",{icon:"ti-layout-grid"}); return false; }
     const набор=new Set(ids);
     // связи ВНУТРИ выделения: по ним и строим дерево
@@ -3697,13 +3709,16 @@ class Graph{
 
     /* Корни — те, чей владелец ВНЕ выделения: с них дерево и начинается. Не нашлось ни одного
        (выделили кольцо или кусок середины) — берём самую связную ноду: она центр этого куска. */
-    let корни=ids.filter(id=>{ const it=this.byId[id].ref; return !(it.parent && набор.has(it.parent)); });
+    let корни=дано ? дано.корни.slice() : ids.filter(id=>{ const it=this.byId[id].ref; return !(it.parent && набор.has(it.parent)); });
     if(!корни.length) корни=[ids.slice().sort((a,b)=>смеж[b].length-смеж[a].length)[0]];
 
     // остовное дерево обходом в ширину: поперечные рёбра в раскладке не участвуют
     const дети={}, порядок=[], виден=new Set();
     ids.forEach(id=>{ дети[id]=[]; });
-    корни.forEach(к=>{
+    if(дано){ корни.forEach(к=>{ const очередь=[к]; виден.add(к);   // готовое дерево: только порядок обхода
+      while(очередь.length){ const c=очередь.shift(); порядок.push(c);
+        (дано.дети[c]||[]).forEach(сос=>{ if(виден.has(сос)) return; виден.add(сос); дети[c].push(сос); очередь.push(сос); }); } }); }
+    else корни.forEach(к=>{
       if(виден.has(к)) return;
       виден.add(к); порядок.push(к);
       const очередь=[к];
@@ -4295,7 +4310,7 @@ class Graph{
     for(let i=0;i<хабы.length;i++) разложитьХаб(хабы[i]);
     /* Пишем ДОМАМИ. Смещение считается от ЦЕЛЕВОГО места владельца, если он тоже в выделении:
        иначе дом ребёнка мерился бы от точки, откуда владелец через секунду уедет. */
-    const было=this.layoutSnap();
+    const было=(opts && opts.было) || this.layoutSnap();
     let n=0;
     ids.forEach(id=>{
       const it=this.byId[id].ref, ц=цель[id]; if(!it || !ц || it.pin) return;
@@ -4323,6 +4338,226 @@ class Graph{
     toast("Упорядочено · нод: "+n+(включили?" · «Держать раскладку» включено":""),
       {icon:"ti-layout-grid", label:"Вернуть", onAction:()=>{ undoStep(); }});
     return true;
+  }
+  /* ---------- УПОРЯДОЧИТЬ ЯРУСАМИ (выбор КРОЛИКА из demo_раскладка.html, 04.11.2026) ----------
+     Два вида: "td" — сверху вниз, уровень = ряд, родитель над серединой детей; "hz" — в две
+     стороны, корень в середине, уровень = столбец, дети стопкой напротив родителя. В отличие от
+     кустов здесь нет перебора мест: блок поддерева считается снизу вверх и ставится рядом с
+     соседним по его габариту, поэтому связи дерева не пересекаются по построению, а подписи не
+     налезают (линейка макета: 0 и 0 на всех трёх деревьях).
+     ПОДПИСЬ ЗАДАЁТ ШАГ. Подпись стоит ПОД нодой и тянется вбок до сотни с лишним пикселей, поэтому
+     ширину считаем по настоящему тексту (тот же шрифт и та же обрезка до 22 знаков, что в _drawMain),
+     а не константой: «каша» у прошлых раскладок была именно из подписей.
+       • ряд листьев длиннее двух идёт ШАХМАТКОЙ в два подряда: соседние подписи стоят на разной
+         высоте и могут заходить друг под друга — ряд выходит почти вдвое уже;
+       • участок «по одному ребёнку» от трёх звеньев — ЗМЕЙКОЙ (вниз-вверх столбцами по четыре
+         у "td", наружу у "hz"), как у кустов: прямой такая цепочка уходила на полтора экрана;
+         развилка в конце участка раскладывается от последнего звена.
+     Числа — «Норма» макета: при них дерево из 59 нод занимает 14–16 тыс. px² на ноду (у кустов
+     и ручного эталона ≈ 9): ярусы честно просторнее, зато читаются как схема.
+     Порядок детей — как они стоят сейчас: что было левее (у "hz" — выше), остаётся левее.
+     КОРЕНЬ НЕ ДВИГАЕТСЯ, как и у кустов; несколько корней в выделении (и весь граф) укладываются
+     полкой _tidyPack, на месте остаётся корень самого большого дерева. Пишем ДОМАМИ, как кусты:
+     до места ноды доезжают сами, откат — одним шагом раскладки. С включённой привязкой к сетке
+     итог ложится на узлы мелкой сетки (20 px) от корня: шаги ярусов на неё и рассчитаны, а
+     крупный шаг привязки (100 px на обычном зуме) сломал бы зазоры. */
+  _tidyTiers(mode, opts){
+    const дано=opts && opts.tree;
+    const ids=дано ? дано.ids : [...this.selNodes].filter(id=>!isHubId(id) && this.byId[id] && this.byId[id].ref);
+    if(!дано && ids.length<3){ toast("Выдели хотя бы три ноды — раскладывать нечего",{icon:"ti-layout-grid"}); return false; }
+    const было=(opts && opts.было) || this.layoutSnap();
+    const набор=new Set(ids), дети={}, корни=[], жив=id=>this.byId[id];
+    if(дано){ ids.forEach(id=>{ дети[id]=(дано.дети[id]||[]).slice(); }); корни.push(...дано.корни); }
+    else {
+      ids.forEach(id=>{ дети[id]=[]; });
+      // иерархия — по ВЛАДЕЛЬЦУ, той же формулой, от которой потом считается дом
+      ids.forEach(id=>{ const о=this._ownerNode(жив(id).ref); if(о && набор.has(о.id)) дети[о.id].push(id); else корни.push(id); });
+    }
+    ids.forEach(id=>дети[id].sort(mode==="td" ? (a,b)=>жив(a).x-жив(b).x : (a,b)=>жив(a).y-жив(b).y));
+    const СТОПКА=44, БЛОК=26, ЯРУС=96, СТОЛБЕЦ=150, СОСЕД=40, ПРОСВЕТ=10, ПОДРЯД=30, ДЕРЕВЬЯ=120, ПОДПИСЬ=15;
+    const мер=this._tidyMeasure || (this._tidyMeasure=document.createElement("canvas").getContext("2d"));
+    const шир={}, р=id=>жив(id).r||8;
+    const ш=id=>{ if(шир[id]!=null) return шир[id];
+      const n=жив(id); let т=(n.label||"").trim()||"(без названия)"; if(т.length>22) т=т.slice(0,21)+"…";
+      мер.font=(isHubId(id)?"600 13.5px ":дети[id].length?"600 12px ":"10.5px ")+"system-ui, -apple-system, Segoe UI, sans-serif";
+      return шир[id]=Math.ceil(мер.measureText(т).width)+8; };
+    const цепь=id=>{ const o=[]; let c=id; while(дети[c].length===1){ c=дети[c][0]; o.push(c); } return o; };
+    const под=id=>{ const o=[id]; for(let i=0;i<o.length;i++) o.push(...дети[o[i]]); return o; };
+    const рамка=(P,спис)=>{ let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+      спис.forEach(id=>{ const p=P[id], h=Math.max(ш(id)/2,р(id));
+        x0=Math.min(x0,p[0]-h); x1=Math.max(x1,p[0]+h); y0=Math.min(y0,p[1]-р(id)); y1=Math.max(y1,p[1]+р(id)+3+ПОДПИСЬ); });
+      return {x0,y0,x1,y1}; };
+    const влить=(P,Q,dx,dy)=>{ for(const k in Q) P[k]=[Q[k][0]+dx,Q[k][1]+dy]; };
+    const лист=id=>!дети[id].length;
+    // СВЕРХУ ВНИЗ: блок поддерева в координатах своего узла, по горизонтали — его края с подписями
+    const вниз=id=>{
+      const P={[id]:[0,0]}, пол=Math.max(ш(id)/2,р(id));
+      if(лист(id)) return {P, x0:-пол, x1:пол};
+      const зв=цепь(id);
+      if(зв.length>=3){
+        const cs=Math.max(...зв.map(ш))+ПРОСВЕТ+6, rs=СТОПКА+4;
+        зв.forEach((z,i)=>{ const c=Math.floor(i/4), k=i%4; P[z]=[c*cs, (c%2===0?k+1:4-k)*rs]; });
+        const пос=зв[зв.length-1], пп=P[пос];
+        if(!лист(пос)){ const б=вниз(пос); влить(P,б.P,пп[0]+cs/2-б.x0,пп[1]); P[пос]=пп; }   // развилка — правее змейки
+        const b=рамка(P,под(id)); return {P, x0:b.x0, x1:b.x1};
+      }
+      const дд=дети[id], Б=дд.map(вниз), подр=дд.map(()=>-1);   // -1 обычный блок, 0/1 — подряд шахматки
+      for(let i=0;i<дд.length;){ let j=i; while(j<дд.length && лист(дд[j])) j++;
+        if(j-i>=3) for(let q=i;q<j;q++) подр[q]=(q-i)%2;
+        i=Math.max(j,i+1); }
+      const xs=[], край=[-1e9,-1e9]; let всё=-1e9;
+      дд.forEach((c,i)=>{ const б=Б[i]; let x;
+        if(подр[i]>=0){
+          x=край[подр[i]]-б.x0+ПРОСВЕТ;
+          if(i>0) x=Math.max(x, xs[i-1]+СОСЕД);
+          if(i===0 || подр[i-1]<0) x=Math.max(x, всё-б.x0+БЛОК);
+          край[подр[i]]=x+б.x1; всё=Math.max(всё,x+б.x1);
+        } else { x=i===0 ? 0 : всё-б.x0+БЛОК; всё=x+б.x1; край[0]=край[1]=всё; }
+        xs.push(x); });
+      const сд=-(xs[0]+xs[xs.length-1])/2; let x0=-пол, x1=пол;
+      дд.forEach((c,i)=>{ влить(P,Б[i].P,xs[i]+сд,ЯРУС+(подр[i]===1?ПОДРЯД:0));
+        x0=Math.min(x0,xs[i]+сд+Б[i].x0); x1=Math.max(x1,xs[i]+сд+Б[i].x1); });
+      return {P,x0,x1};
+    };
+    // В ДВЕ СТОРОНЫ: блок поддерева, растущего в сторону s (+1 вправо, -1 влево), по вертикали — его края
+    const столбец=(id,дд)=>Math.max(СТОЛБЕЦ,(ш(id)+Math.max(...дд.map(ш)))/2+ПРОСВЕТ);
+    const вбок=(id,s)=>{
+      const P={[id]:[0,0]};
+      if(лист(id)) return {P, y0:-р(id)-2, y1:р(id)+3+ПОДПИСЬ};
+      const зв=цепь(id);
+      if(зв.length>=3){
+        const cs=Math.max(90, Math.max(...зв.map(ш))+ПРОСВЕТ+6);
+        зв.forEach((z,i)=>{ const c=Math.floor(i/4), k=i%4; P[z]=[s*(c+1)*cs, (c%2===0?k:3-k)*СТОПКА]; });
+        const пос=зв[зв.length-1];
+        if(!лист(пос)){ const пп=P[пос], б=вбок(пос,s); влить(P,б.P,пп[0],пп[1]); }   // развилка — наружу от последнего звена
+        const b=рамка(P,под(id)); return {P, y0:b.y0, y1:b.y1};
+      }
+      const дд=дети[id], Б=дд.map(c=>вбок(c,s)), кол=столбец(id,дд), ys=[]; let край=0;
+      дд.forEach((c,i)=>{ const б=Б[i], g=(i>0 && лист(c) && лист(дд[i-1])) ? СТОПКА-(б.y1-б.y0) : БЛОК;
+        const y=i===0 ? 0 : край-б.y0+Math.max(g,4); ys.push(y); край=y+б.y1; });
+      const сд=-(ys[0]+ys[ys.length-1])/2; let y0=-р(id)-2, y1=р(id)+3+ПОДПИСЬ;
+      дд.forEach((c,i)=>{ влить(P,Б[i].P,s*кол,ys[i]+сд); y0=Math.min(y0,ys[i]+сд+Б[i].y0); y1=Math.max(y1,ys[i]+сд+Б[i].y1); });
+      return {P,y0,y1};
+    };
+    const вСтороны=к=>{
+      const P={[к]:[0,0]}, дд=дети[к];
+      /* Сторону ветке даёт то, где она стоит сейчас. Все с одной стороны (свежая куча от ИИ) —
+         делим по весу пополам: иначе дерево вышло бы в одну сторону и вдвое выше. */
+      let пр=дд.filter(c=>жив(c).x>=жив(к).x), лв=дд.filter(c=>жив(c).x<жив(к).x);
+      if(дд.length>1 && (!пр.length || !лв.length)){
+        const в=дд.map(c=>под(c).length), всего=в.reduce((a,b)=>a+b,0); let нак=0; пр=[]; лв=[];
+        дд.forEach((c,i)=>{ (нак+в[i]/2<=всего/2 ? пр : лв).push(c); нак+=в[i]; });
+      }
+      [[пр,1],[лв,-1]].forEach(([сторона,s])=>{ if(!сторона.length) return;
+        const Б=сторона.map(c=>вбок(c,s)), кол=столбец(к,сторона), ys=[]; let край=0;
+        сторона.forEach((c,i)=>{ const y=i===0 ? 0 : край-Б[i].y0+БЛОК; ys.push(y); край=y+Б[i].y1; });
+        const сд=-(ys[0]+ys[ys.length-1])/2; сторона.forEach((c,i)=>влить(P,Б[i].P,s*кол,ys[i]+сд)); });
+      return P;
+    };
+    // блоки деревьев; одиночки (корни без детей) — одной стопкой, как лоток, а не россыпью
+    const блоки=[], одни=корни.filter(лист);
+    корни.forEach(к=>{ if(лист(к)) return; const P=mode==="td" ? вниз(к).P : вСтороны(к), сп=под(к);
+      блоки.push({P, b:рамка(P,сп), n:сп.length, pivot:к}); });
+    if(одни.length){ одни.sort((a,b)=>жив(a).y-жив(b).y);
+      const P={}, В_СТОЛБЦЕ=12, шаг=Math.max(...одни.map(ш))+БЛОК;
+      одни.forEach((id,i)=>{ P[id]=[Math.floor(i/В_СТОЛБЦЕ)*шаг, (i%В_СТОЛБЦЕ)*СТОПКА]; });
+      блоки.push({P, b:рамка(P,одни), n:одни.length, pivot:одни[0]}); }
+    this._tidyPack(блоки, ДЕРЕВЬЯ);
+    const цель={};
+    блоки.forEach(б=>{ for(const id in б.P) цель[id]={x:б.P[id][0]+б.dx, y:б.P[id][1]+б.dy}; });
+    if(S.settings.graphSnap){ const я=цель[блоки[0].pivot], ШАГ=20;
+      for(const id in цель){ const ц=цель[id]; ц.x=я.x+Math.round((ц.x-я.x)/ШАГ)*ШАГ; ц.y=я.y+Math.round((ц.y-я.y)/ШАГ)*ШАГ; } }
+    return this._tidyWrite(цель, было, mode);
+  }
+  /* УКЛАДКА ДЕРЕВЬЕВ ПОЛКОЙ. Блок — {P: места в своих координатах, b: габарит в них же, n, pivot:
+     id узла, по которому блок привязан к холсту}. Ряды шириной под пропорции экрана (≈1.8),
+     крупные деревья первыми; на месте остаётся опора САМОГО БОЛЬШОГО — «дерево остаётся там же»
+     хотя бы для главного. Пишет в блок dx/dy: мировое место = P + d. Без этой укладки «весь граф»
+     и выделение с несколькими корнями раскладывались каждое дерево вокруг своего корня, там,
+     где его оставила физика, — деревья лежали друг на друге. */
+  _tidyPack(блоки, зазор){
+    if(!блоки.length) return;
+    блоки.sort((a,b)=>b.n-a.n);
+    const ширБ=б=>б.b.x1-б.b.x0, высБ=б=>б.b.y1-б.b.y0;
+    const пл=блоки.reduce((s,б)=>s+(ширБ(б)+зазор)*(высБ(б)+зазор),0);
+    const предел=Math.max(Math.sqrt(пл*1.8), ...блоки.map(ширБ));
+    let x=0, y=0, h=0;
+    блоки.forEach(б=>{ if(x>0 && x+ширБ(б)>предел){ x=0; y+=h+зазор; h=0; }
+      б.dx=x-б.b.x0; б.dy=y-б.b.y0; x+=ширБ(б)+зазор; h=Math.max(h,высБ(б)); });
+    const я=блоки[0], оп=this.byId[я.pivot], сx=оп.x-(я.P[я.pivot][0]+я.dx), сy=оп.y-(я.P[я.pivot][1]+я.dy);
+    блоки.forEach(б=>{ б.dx+=сx; б.dy+=сy; });
+  }
+  /* ЗАПИСЬ ЦЕЛЕЙ ДОМАМИ — для ярусов и для разведения деревьев «всего графа». Нода — домом от
+     ЦЕЛИ своего владельца (как у кустов); хаб области и корень подграфа — якорем hx/hy, его
+     держит та же физика; нода без владельца дома не имеет — её ставим на место сразу, иначе
+     держать её там было бы нечему. Закреплённые (pin) не трогаем: «не шевелись» сильнее порядка. */
+  _tidyWrite(цель, было, mode){
+    let n=0;
+    for(const id in цель){ const у=this.byId[id], ц=цель[id]; if(!у) continue;
+      const ar=у.hubArea||у.subRoot;
+      if(ar){ if(ar.pin) continue; ar.hx=ar.x=Math.round(ц.x); ar.hy=ar.y=Math.round(ц.y); n++; continue; }
+      const it=у.ref; if(!it || it.pin) continue;
+      const вл=this._ownerNode(it);
+      if(!вл){ it.x=Math.round(ц.x); it.y=Math.round(ц.y); у.x=ц.x; у.y=ц.y; у.vx=у.vy=0; n++; continue; }
+      const оп=цель[вл.id] || {x:вл.x, y:вл.y};
+      it.hx=Math.round(ц.x-оп.x); it.hy=Math.round(ц.y-оп.y); n++;
+    }
+    if(!n){ toast("Раскладывать нечего: всё выделенное закреплено",{icon:"ti-layout-grid"}); return false; }
+    undoPushLayout(было);
+    // без «Держать раскладку» дома не действуют — включаем сами и говорим об этом (как у кустов)
+    let включили=false;
+    if(!S.settings.graphHome){ S.settings.graphHome=true; включили=true; const b=$("#g-home"); if(b) b.classList.add("on"); }
+    persist();
+    this.build();                                     // разогрев — строго после build(), см. _tidySelection
+    this.alpha=Math.max(this.alpha,0.5); this._wake();
+    toast("Упорядочено "+tidyModeInfo(mode).label.toLowerCase()+" · нод: "+n+(включили?" · «Держать раскладку» включено":""),
+      {icon:"ti-layout-grid", label:"Вернуть", onAction:()=>{ undoStep(); }});
+    return true;
+  }
+  /* УПОРЯДОЧИТЬ ВЕСЬ ГРАФ (меню «…»). Дерево — по владельцам: корни — хабы областей, корень
+     подграфа и ноды без владельца; так в раскладку входит и уровень «область → её верхние ноды»,
+     которого выделение не видит (хабы в него не попадают). Ярусы раскладывают это дерево сами.
+     Кусты сперва разводят деревья полкой по оценке размера куста (радиус ≈ 60·√n + 60: дерево
+     линейки из 101 ноды даёт дальнюю ноду 560–700), переносят хабы и сами деревья туда, а дальше
+     работает обычная раскладка кустами от новых мест корней. Живые места после неё возвращаются
+     назад — до новых домов ноды доедут физикой, а не прыжком; прыгают только ноды без владельца. */
+  _tidyAll(mode){
+    mode=tidyModeInfo(mode).id;
+    const было=this.layoutSnap();
+    const ids=[], дети={}, корни=[];
+    this.nodes.forEach(n=>{ if(n.x==null || n.y==null) return; if(n.ref || n.hubArea || n.subRoot){ ids.push(n.id); дети[n.id]=[]; } });
+    const есть=new Set(ids);
+    ids.forEach(id=>{ const n=this.byId[id]; if(!n.ref){ корни.push(id); return; }
+      const о=this._ownerNode(n.ref); if(о && о.id!==id && есть.has(о.id)) дети[о.id].push(id); else корни.push(id); });
+    if(ids.length<2){ toast("Раскладывать нечего",{icon:"ti-layout-grid"}); return false; }
+    const tree={ids, корни, дети};
+    if(mode!=="bush") return this._tidyTiers(mode, {tree, было});
+    const под=id=>{ const o=[id]; for(let i=0;i<o.length;i++) o.push(...дети[o[i]]); return o; };
+    const блоки=[], одни=корни.filter(к=>!дети[к].length);
+    корни.forEach(к=>{ if(!дети[к].length) return; const R=60*Math.sqrt(под(к).length)+60;
+      блоки.push({P:{[к]:[0,0]}, b:{x0:-R,y0:-R,x1:R,y1:R}, n:под(к).length, pivot:к}); });
+    if(одни.length){ const P={}; одни.forEach((id,i)=>{ P[id]=[Math.floor(i/12)*160, (i%12)*44]; });
+      блоки.push({P, b:{x0:-80,y0:-20,x1:Math.floor((одни.length-1)/12)*160+80,y1:Math.min(одни.length,12)*44}, n:одни.length, pivot:одни[0]}); }
+    this._tidyPack(блоки, 120);
+    // деревья — целиком, вместе с живыми местами: кусты берут направления веток от того, где те стоят
+    const прежде={}, сдвиг=(id,x,y)=>{ const у=this.byId[id]; if(!(id in прежде)) прежде[id]={x:у.x, y:у.y}; у.x=x; у.y=y; };
+    блоки.forEach(б=>{
+      if(дети[б.pivot].length){   // дерево — целиком на один сдвиг
+        const к=this.byId[б.pivot], dx=б.dx-к.x, dy=б.dy-к.y;
+        под(б.pivot).forEach(id=>{ const у=this.byId[id]; сдвиг(id, у.x+dx, у.y+dy); });
+      } else for(const id in б.P) сдвиг(id, б.P[id][0]+б.dx, б.P[id][1]+б.dy);   // стопка одиночек
+    });
+    // корням — якоря (хабу) или место сразу (нода без владельца): держать их на новом месте больше нечему
+    корни.forEach(id=>{ const у=this.byId[id], ar=у.hubArea||у.subRoot;
+      if(ar){ if(!ar.pin){ ar.hx=ar.x=Math.round(у.x); ar.hy=ar.y=Math.round(у.y); } }
+      else if(у.ref && !у.ref.pin && !this._ownerNode(у.ref)){ у.ref.x=Math.round(у.x); у.ref.y=Math.round(у.y); у.vx=у.vy=0; } });
+    const ок=this._tidySelection("bush", {tree, было});
+    // назад — живые места тех, кого держит дом или якорь; ноды без владельца остаются на новых
+    for(const id in прежде){ const у=this.byId[id]; if(!у) continue;
+      const сво=у.ref && !this._ownerNode(у.ref); if(сво) continue;
+      у.x=прежде[id].x; у.y=прежде[id].y; }
+    if(!ок){ undoPushLayout(было); persist(); }
+    return ок;
   }
   /* Владелец ноды как УЗЕЛ на холсте — та же формула, что у _homeFromDrag и физики в _tick.
      Держим её одной функцией: разъедься эти три места, дома поехали бы вразнобой. */
@@ -6833,7 +7068,8 @@ class Graph{
       ${/* УПОРЯДОЧИТЬ — только когда выделено дерево, а не одна нода: раскладывать нечего,
            и кнопка без дела занимала бы строку в окне из шести пунктов. */""}
       ${(this.selNodes.has(n.id) && this.selNodes.size>2) ? `<div class="np-row np-act">
-        <button class="btn" data-pop="tidy" title="Разложить выделенное деревом: без наложений и пересечений связей. Ноды доедут по домам, форму потом доводишь руками."><i class="ti ti-layout-grid"></i>Упорядочить · ${this.selNodes.size}</button>
+        <button class="btn" data-pop="tidy" title="Разложить выделенное деревом: без наложений и пересечений связей. Ноды доедут по домам, форму потом доводишь руками."><i class="ti ${tidyModeInfo().icon}"></i>Упорядочить · ${this.selNodes.size}</button>
+        <span class="np-tidy">${tidyModesHtml("np-sz-btn")}</span>
       </div>` : ""}
       ${(()=>{
         if(!S.settings.graphHome) return "";
@@ -6853,7 +7089,8 @@ class Graph{
     $("#graph-wrap").appendChild(pop);
     this._posPop(pop,n);
     $$(".np-sw .swatch",pop).forEach(b=>b.onclick=()=>this._paintColor(n, PALETTE[+b.dataset.ci]||null));
-    if(pop.querySelector('[data-pop="tidy"]')) pop.querySelector('[data-pop="tidy"]').onclick=()=>{ this._closePop(); this._tidySelection(); };
+    if(pop.querySelector('[data-pop="tidy"]')) pop.querySelector('[data-pop="tidy"]').onclick=()=>{ this._closePop(); this._tidySelection(tidyModeInfo().id); };
+    $$("[data-tidy-mode]",pop).forEach(b=>b.onclick=()=>{ this._closePop(); tidyModeSet(b.dataset.tidyMode); this._tidySelection(b.dataset.tidyMode); });
     // «Открыть» у подграфа = вход внутрь, тем же путём, что и двойной клик (см. _openNode)
     if(pop.querySelector('[data-pop="open"]')) pop.querySelector('[data-pop="open"]').onclick=()=>{
       if(it.kind==="sub"){ this._openNode(n); return; }
@@ -7064,3 +7301,23 @@ class Graph{
     }
   }
 }
+/* РЕЖИМ «УПОРЯДОЧИТЬ» (макет demo_раскладка.html, выбор КРОЛИКА 04.11.2026: «оба яруса берём»).
+   Один режим на выделение и на весь граф: S.settings.graphTidyMode, умолчание «кустами» в файл не
+   пишется — как у режима связей. Кусты — _tidySelection как была, ярусы — _tidyTiers. Выбор стоит
+   рядом с каждой командой (полоса выделения, ПКМ-меню, сводка в панели, меню «…»): клик по режиму
+   и запоминает его, и сразу упорядочивает — второй жест «выбрал, теперь нажми» был бы лишним. */
+const TIDY_MODES=[
+  {id:"bush", label:"Кустами",               icon:"ti-chart-bubble",    hint:"ветки вокруг корня, у каждой — свой куст листьев наружу"},
+  {id:"td",   label:"Ярусами сверху вниз",   icon:"ti-sitemap",         hint:"уровень — ряд, родитель над серединой своих детей"},
+  {id:"hz",   label:"Ярусами в две стороны", icon:"ti-arrows-horizontal", hint:"корень в середине, уровни — столбцы вправо и влево"}];
+function tidyModeInfo(m){ const id=m||S.settings.graphTidyMode; return TIDY_MODES.find(x=>x.id===id)||TIDY_MODES[0]; }
+function tidyModeSet(m){
+  if(!TIDY_MODES.some(x=>x.id===m)) return;
+  if(m==="bush") delete S.settings.graphTidyMode; else S.settings.graphTidyMode=m;
+  persist();
+  // подсветку нынешнего режима обновляем везде, где он виден, — иначе две кнопки спорили бы
+  document.querySelectorAll("[data-tidy-mode]").forEach(b=>b.classList.toggle("on", b.dataset.tidyMode===m));
+}
+// кнопки режимов: cls — класс места (полоса, меню, панель), значок — сам режим, подпись — в подсказке
+function tidyModesHtml(cls){ const cur=tidyModeInfo().id;
+  return TIDY_MODES.map(x=>`<button type="button" class="${cls} tidy-m${x.id===cur?" on":""}" data-tidy-mode="${x.id}" title="Упорядочить ${esc(x.label.toLowerCase())}: ${esc(x.hint)}"><i class="ti ${x.icon}"></i></button>`).join(""); }
