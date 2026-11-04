@@ -882,8 +882,10 @@ async function autoCheckUpdate(delayed){
    Шаг без цели — обычная карточка по центру: так рассказываются вещи, у которых нет своей
    кнопки (запись на диск, скорость графа). Цели может не оказаться на экране вовсе — тогда
    шаг молча становится центральным, а не ломает тур. */
-const ТУР_ID="2.3.0";
-/* В 2.3 убраны шаги 2.1 вместе с иллюстрациями (ХОЛСТ, ПОТОК, СТАТУС, ПАНЕЛЬ, ТЕМЫ, ТАБЛИЦА): глубина —
+const ТУР_ID="2.3.1";
+/* 2.3.1 — заплатка, но с новыми жестами связей; шаги 2.2 убраны вместе с иллюстрациями (СВОЯ, ШИФТ,
+   ВСТАВКА, АЛЬТ, ВИД, ВЕЕР, ПРОВАЛ) по решению КРОЛИКА — в туре 2.3.0 и 2.3.1.
+   В 2.3 убраны шаги 2.1 вместе с иллюстрациями (ХОЛСТ, ПОТОК, СТАТУС, ПАНЕЛЬ, ТЕМЫ, ТАБЛИЦА): глубина —
    два релиза, 2.2 и 2.3. Шаги 2.3 — тем же приёмом: картинка честными цветами плюс цель на своей кнопке.
    Шаг 2.0.6.1 убран (глубина тура — два релиза: 2.1 и 2.2). Шаги 2.2 — тем же приёмом, что 2.1:
    статичная иллюстрация честными цветами плюс цель там, где у новинки есть своя кнопка; жесты
@@ -893,6 +895,47 @@ const ТУР_ID="2.3.0";
    docs/СБОРКА-И-РЕЛИЗ.md), поэтому ТУР_ДЕМО не нужен. Шаги 2.1 — со статичными иллюстрациями
    (.tour-mock) ЧЕСТНЫМИ цветами: те же CSS-переменные, которыми рисует сам граф и панель, иначе
    человек не узнает на экране то, что видел в карточке (КРОЛИК: «тур слабый, нужны иллюстрации»). */
+/* ===== иллюстрации 2.3.1 ===== */
+/* ТОЧКА СВЯЗЕЙ: три связи от источника слева собраны тающим хвостом в точку (кольцо с ореолом цветом
+   смеси связей) и из неё расходятся к своим целям */
+const ТУР_ВИЗ_ТОЧКА=`
+  <div class="tour-mock tm-c">
+    <svg viewBox="0 0 260 110" class="tm-wide-svg" aria-hidden="true">
+      <defs><radialGradient id="tmDotGlow"><stop offset="0" stop-color="color-mix(in srgb,#c58ad8 45%,transparent)"/><stop offset="1" stop-color="transparent"/></radialGradient></defs>
+      <g fill="none" stroke-width="1.5" stroke-linejoin="round">
+        <path d="M28 18 H118 Q124 18 124 24 V49 Q124 55 130 55 H150" stroke="#e0625a"/>
+        <path d="M28 55 H150" stroke="#5f8fc8"/>
+        <path d="M28 92 H118 Q124 92 124 86 V61 Q124 55 130 55 H150" stroke="#5fb98e"/>
+      </g>
+      <g fill="none" stroke-width="1.5" stroke-linejoin="round">
+        <path d="M150 55 H170 V24 Q170 18 176 18 H228" stroke="#e0625a"/>
+        <path d="M150 55 H228" stroke="#5f8fc8"/>
+        <path d="M150 55 H170 V86 Q170 92 176 92 H228" stroke="#5fb98e"/>
+      </g>
+      ${(()=>{ let s=""; const п=[[100,104],[112,100],[124,94],[134,84],[142,72],[147,62],[150,56]];
+        for(let i=1;i<п.length;i++){ const k=i/п.length; s+=`<line x1="${п[i-1][0]}" y1="${п[i-1][1]}" x2="${п[i][0]}" y2="${п[i][1]}" stroke="rgba(111,155,216,${(0.1+0.8*k).toFixed(2)})" stroke-width="${(0.6+2*k).toFixed(1)}" stroke-linecap="round"/>`; }
+        return s; })()}
+      <circle cx="150" cy="55" r="16" fill="url(#tmDotGlow)"/>
+      <circle cx="150" cy="55" r="5.5" fill="var(--bg)" stroke="#c58ad8" stroke-width="2"/>
+      ${[18,55,92].map(y=>`<circle cx="20" cy="${y}" r="6.5" fill="color-mix(in srgb,var(--accent) 30%,var(--bg))" stroke="var(--accent)" stroke-width="1.4"/>`).join("")}
+      ${[[18,"#e0625a"],[55,"#5f8fc8"],[92,"#5fb98e"]].map(([y,c])=>`<rect x="228" y="${y-6}" width="12" height="12" fill="var(--bg)" stroke="${c}" stroke-width="1.4"/>`).join("")}
+    </svg>
+    <div class="tm-legend"><span>Alt + веди по связям</span><span>отпустил мышь — точка</span><span>дальше каждая к своей цели</span></div>
+  </div>`;
+/* ПРОТЯЖКА СВЯЗИ: была прямая ступенька (пунктиром), стала через ручную точку, которую тянут курсором */
+const ТУР_ВИЗ_ПРОТЯЖКА=`
+  <div class="tour-mock tm-c">
+    <svg viewBox="0 0 260 100" class="tm-wide-svg" aria-hidden="true">
+      <path d="M40 30 H130 V76 H220" fill="none" stroke="var(--mut2)" stroke-width="1.2" stroke-dasharray="3 3" opacity=".7"/>
+      <path d="M40 30 H86 Q92 30 92 36 V70 Q92 76 98 76 H220" fill="none" stroke="var(--accent)" stroke-width="1.8"/>
+      <circle cx="92" cy="54" r="4.5" fill="var(--bg)" stroke="var(--accent)" stroke-width="1.6"/>
+      <path d="M126 54 H102 M106 50 L101 54 L106 58" fill="none" stroke="var(--mut)" stroke-width="1.1"/>
+      <path d="M96 60 l5 13 l3 -5 l5 3 z" fill="var(--tx)" opacity=".85"/>
+      <circle cx="34" cy="30" r="7" fill="color-mix(in srgb,var(--accent) 30%,var(--bg))" stroke="var(--accent)" stroke-width="1.5"/>
+      <rect x="220" y="70" width="12" height="12" fill="var(--bg)" stroke="var(--mut)" stroke-width="1.3"/>
+    </svg>
+    <div class="tm-legend"><span>тяни связь мышью</span><span>меню связи — правой кнопкой</span></div>
+  </div>`;
 /* ===== иллюстрации 2.3 ===== */
 /* МАГНИТ: «окно сетки» вокруг ноды в руке (выбор КРОЛИКА, `200204b`/`eb01969`) — линии и крестики
    узлов переливом цветов кромки темы (--hue-a → --hue-b), гаснут к краю круга; крупные — толще,
@@ -977,122 +1020,20 @@ const ТУР_ВИЗ_УПОР=`
       <g font-size="9" fill="var(--mut)" text-anchor="middle"><text x="52" y="102">кустами</text><text x="195" y="90">ярусами</text></g>
     </svg>
   </div>`;
-/* ===== иллюстрации 2.2 ===== */
-/* СВОЯ ТЕМА: плитка «Своя» среди готовых, под ней — что настраивается: кромка двумя цветами,
-   тон панели, главная кнопка, и сам попап выбора цвета (квадрат + полоса оттенка) */
-const ТУР_ВИЗ_СВОЯ=`
-  <div class="tour-mock tm-c">
-    <svg viewBox="0 0 260 120" class="tm-wide-svg" aria-hidden="true">
-      <defs><linearGradient id="tmCuE" x1="0" x2="1"><stop offset="0" stop-color="#e0625a"/><stop offset="1" stop-color="#6f9bd8"/></linearGradient>
-        <linearGradient id="tmCuS" x1="0" x2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#e0625a"/></linearGradient>
-        <linearGradient id="tmCuV" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000"/></linearGradient>
-        <linearGradient id="tmCuH" x1="0" x2="1"><stop offset="0" stop-color="#f00"/><stop offset=".17" stop-color="#ff0"/><stop offset=".33" stop-color="#0f0"/><stop offset=".5" stop-color="#0ff"/><stop offset=".67" stop-color="#00f"/><stop offset=".83" stop-color="#f0f"/><stop offset="1" stop-color="#f00"/></linearGradient></defs>
-      ${["#4b9a7a","#c58a3e","#7a6fd0","#5f8fc8"].map((c,i)=>`<rect x="${8+i*30}" y="10" width="24" height="24" rx="6" fill="color-mix(in srgb,${c} 30%,var(--l2))" stroke="${c}" stroke-width="1"/>`).join("")}
-      <rect x="128" y="8" width="28" height="28" rx="7" fill="var(--l2)" stroke="url(#tmCuE)" stroke-width="2.2"/>
-      <text x="142" y="26" font-size="9" fill="var(--tx)" text-anchor="middle">Своя</text>
-      <rect x="8" y="48" width="148" height="64" rx="8" fill="color-mix(in srgb,#6f9bd8 10%,var(--l2))" stroke="url(#tmCuE)" stroke-width="1.6"/>
-      <rect x="18" y="58" width="60" height="5" rx="2.5" fill="var(--tx)" opacity=".8"/><rect x="18" y="69" width="90" height="3" rx="1.5" fill="var(--l4)"/>
-      <rect x="18" y="77" width="74" height="3" rx="1.5" fill="var(--l4)"/>
-      <rect x="18" y="92" width="80" height="12" rx="4" fill="url(#tmCuE)" opacity=".9"/>
-      <rect x="172" y="14" width="80" height="98" rx="8" fill="var(--l2)" stroke="var(--bd2)" stroke-width=".8"/>
-      <rect x="180" y="22" width="64" height="52" rx="3" fill="url(#tmCuS)"/><rect x="180" y="22" width="64" height="52" rx="3" fill="url(#tmCuV)"/>
-      <circle cx="226" cy="34" r="4" fill="none" stroke="#fff" stroke-width="1.5"/>
-      <rect x="180" y="80" width="64" height="7" rx="3.5" fill="url(#tmCuH)"/>
-      <rect x="180" y="94" width="64" height="11" rx="3" fill="var(--l3)"/><text x="186" y="102.5" font-size="7.5" fill="var(--mut)">#e0625a</text>
-    </svg>
-    <div class="tm-legend"><span>плитка «Своя»</span><span>кромка, тон, кнопка</span><span>свой выбор цвета</span></div>
-  </div>`;
-/* SHIFT: родитель с кустом; нода уехала вправо (сплошная), её прежнее место — пунктир, куст и
-   родитель стоят где стояли — связи тянутся к новому месту */
-const ТУР_ВИЗ_ШИФТ=`
-  <div class="tour-mock tm-c">
-    <svg viewBox="0 0 260 100" class="tm-wide-svg" aria-hidden="true">
-      <g stroke="var(--bd3)" stroke-width="1.1"><line x1="40" y1="50" x2="190" y2="44"/><line x1="190" y1="44" x2="100" y2="20"/><line x1="190" y1="44" x2="104" y2="80"/></g>
-      <rect x="32" y="42" width="16" height="16" fill="color-mix(in srgb,var(--accent) 30%,var(--bg))" stroke="var(--accent)" stroke-width="1.8"/>
-      <rect x="88" y="42" width="16" height="16" fill="none" stroke="var(--mut2)" stroke-width="1.2" stroke-dasharray="3 2" opacity=".7"/>
-      <path d="M108 50 H172" stroke="var(--mut)" stroke-width="1.2" stroke-dasharray="2 3"/><path d="M168 46 L174 50 L168 54" fill="none" stroke="var(--mut)" stroke-width="1.2"/>
-      <rect x="182" y="36" width="16" height="16" fill="color-mix(in srgb,var(--accent) 22%,var(--bg))" stroke="#fff" stroke-width="2"/>
-      <g fill="none" stroke="var(--mut)" stroke-width="1.3"><circle cx="100" cy="20" r="5"/><circle cx="104" cy="80" r="5"/></g>
-      <rect x="208" y="70" width="40" height="18" rx="5" fill="var(--l3)" stroke="var(--bd3)" stroke-width=".8"/><text x="228" y="82.5" font-size="9.5" fill="var(--tx)" text-anchor="middle">Shift</text>
-    </svg>
-    <div class="tm-legend"><span>тащишь одну ноду</span><span>её дети и соседи стоят</span></div>
-  </div>`;
-/* НОДА НА СВЯЗИ: было A — B, стало A — новая — B */
-const ТУР_ВИЗ_ВСТАВКА=`
-  <div class="tour-mock tm-c">
-    <svg viewBox="0 0 260 90" class="tm-wide-svg" aria-hidden="true">
-      <line x1="20" y1="24" x2="110" y2="24" stroke="var(--bd3)" stroke-width="1.3"/>
-      <rect x="12" y="16" width="16" height="16" fill="color-mix(in srgb,var(--accent) 30%,var(--bg))" stroke="var(--accent)" stroke-width="1.6"/>
-      <circle cx="110" cy="24" r="7" fill="none" stroke="var(--mut)" stroke-width="1.4"/>
-      <circle cx="64" cy="24" r="3" fill="var(--tx)"/><text x="64" y="12" font-size="8.5" fill="var(--mut)" text-anchor="middle">клик</text>
-      <path d="M126 24 H140" stroke="var(--mut)" stroke-width="1.2"/><path d="M136 20 L141 24 L136 28" fill="none" stroke="var(--mut)" stroke-width="1.2"/>
-      <g stroke="var(--bd3)" stroke-width="1.3"><line x1="160" y1="24" x2="204" y2="24"/><line x1="204" y1="24" x2="248" y2="24"/></g>
-      <rect x="152" y="16" width="16" height="16" fill="color-mix(in srgb,var(--accent) 30%,var(--bg))" stroke="var(--accent)" stroke-width="1.6"/>
-      <rect x="197" y="17" width="14" height="14" fill="color-mix(in srgb,var(--accent) 14%,var(--bg))" stroke="#fff" stroke-width="1.8"/>
-      <circle cx="248" cy="24" r="7" fill="none" stroke="var(--mut)" stroke-width="1.4"/>
-      <rect x="60" y="48" width="140" height="32" rx="7" fill="var(--l2)" stroke="var(--bd2)" stroke-width=".8"/>
-      <rect x="70" y="56" width="16" height="16" rx="4" fill="var(--l3)"/><text x="78" y="68" font-size="11" fill="var(--tx)" text-anchor="middle">+</text>
-      <text x="94" y="68" font-size="10" fill="var(--tx)">Вставить ноду</text>
-    </svg>
-    <div class="tm-legend"><span>клик по связи</span><span>«Вставить ноду»</span><span>A — новая — B</span></div>
-  </div>`;
-/* ALT: коробка ввода — сперва строка текста с курсором, под ней виды, заметка выбрана */
-const ТУР_ВИЗ_АЛЬТ=`
-  <div class="tour-mock tm-c">
-    <svg viewBox="0 0 260 84" class="tm-wide-svg" aria-hidden="true">
-      <rect x="30" y="6" width="200" height="72" rx="9" fill="var(--l2)" stroke="var(--edge-b)" stroke-width="1"/>
-      <rect x="40" y="16" width="180" height="22" rx="5" fill="var(--l3)"/>
-      <text x="48" y="31" font-size="10.5" fill="var(--tx)">Позвонить подрядчику</text><rect x="160" y="21" width="1.4" height="12" fill="var(--tx)"><animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/></rect>
-      ${[["заметка",1],["задача",0],["полотно",0],["подграф",0]].map(([т,on],i)=>`<rect x="${40+i*46}" y="48" width="42" height="20" rx="5" fill="${on?"color-mix(in srgb,var(--accent) 26%,var(--l3))":"var(--l3)"}" stroke="${on?"var(--accent)":"none"}" stroke-width="1"/><text x="${61+i*46}" y="61.5" font-size="8.5" fill="${on?"var(--tx)":"var(--mut)"}" text-anchor="middle">${т}</text>`).join("")}
-    </svg>
-    <div class="tm-legend"><span>Alt-протяжка от ноды</span><span>пиши сразу</span><span>вид — кнопкой или Tab</span></div>
-  </div>`;
-/* ВИД В МЕНЮ ПКМ: ряд «Вид» из четырёх плиток, задача выбрана */
-const ТУР_ВИЗ_ВИД=`
-  <div class="tour-mock tm-c">
-    <svg viewBox="0 0 260 74" class="tm-wide-svg" aria-hidden="true">
-      <rect x="40" y="4" width="180" height="66" rx="9" fill="var(--l2)" stroke="var(--bd2)" stroke-width=".8"/>
-      <text x="52" y="22" font-size="9" fill="var(--mut)">Вид</text>
-      ${["заметка","задача","полотно","подграф"].map((т,i)=>{ const x=52+i*41, on=i===1;
-        const зн = i===0?`<circle cx="${x+17}" cy="40" r="6" fill="none" stroke="currentColor" stroke-width="1.4"/>`
-                : i===1?`<rect x="${x+11}" y="34" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M${x+14} 40 l2.4 2.4 l4.2 -4.8" fill="none" stroke="currentColor" stroke-width="1.4"/>`
-                : i===2?`<rect x="${x+10}" y="34" width="14" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M${x+13} 42 l3 -3 l3 2 l2 -2" fill="none" stroke="currentColor" stroke-width="1.2"/>`
-                : `<circle cx="${x+13}" cy="37" r="3" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="${x+22}" cy="44" r="3" fill="none" stroke="currentColor" stroke-width="1.3"/><line x1="${x+15}" y1="39" x2="${x+20}" y2="42" stroke="currentColor" stroke-width="1.2"/>`;
-        return `<g style="color:${on?"var(--accent)":"var(--mut)"}"><rect x="${x}" y="28" width="35" height="36" rx="6" fill="${on?"color-mix(in srgb,var(--accent) 22%,var(--l3))":"var(--l3)"}"/>${зн}<text x="${x+17.5}" y="59" font-size="7" fill="currentColor" text-anchor="middle">${т}</text></g>`; }).join("")}
-    </svg>
-  </div>`;
-/* ВЕЕР И МЕТКИ: три уровня приоритета веером слоёв; над последней — метка срока */
-const ТУР_ВИЗ_ВЕЕР=`
-  <div class="tour-mock tm-c">
-    <svg viewBox="0 0 260 90" class="tm-wide-svg" aria-hidden="true">
-      ${[["var(--pri1)",1,50],["var(--pri2)",2,130],["var(--pri3)",3,210]].map(([c,l,x])=>{ let s="";
-        for(let i=l;i>=1;i--) s+=`<rect x="${x-15}" y="43" width="30" height="30" rx="2" transform="rotate(${i*14} ${x} 58)" fill="color-mix(in srgb,${c} ${12+i*6}%,var(--bg))" stroke="${c}" stroke-width="1.3" opacity="${(1-i*.16).toFixed(2)}"/>`;
-        return s+`<rect x="${x-14}" y="44" width="28" height="28" rx="2" fill="color-mix(in srgb,var(--accent) 16%,var(--bg))" stroke="var(--accent)" stroke-width="1.8"/>`; }).join("")}
-      <rect x="186" y="14" width="48" height="16" rx="8" fill="color-mix(in srgb,var(--pri3) 30%,var(--bg))" stroke="var(--pri3)" stroke-width="1"/>
-      <text x="210" y="25.5" font-size="8.5" fill="var(--tx)" text-anchor="middle">завтра</text>
-      <g font-size="9" fill="var(--mut)" text-anchor="middle"><text x="50" y="88">низкий</text><text x="130" y="88">средний</text><text x="210" y="88">высокий</text></g>
-    </svg>
-  </div>`;
-/* ПРОВАЛ: две связи крест-накрест — нижняя гаснет под верхней, а не режет её */
-const ТУР_ВИЗ_ПРОВАЛ=`
-  <div class="tour-mock tm-c">
-    <svg viewBox="0 0 260 90" class="tm-wide-svg" aria-hidden="true">
-      ${/* нижняя связь — отрезками с убывающей яркостью к пересечению (130,45): градиент по
-           stroke тут ненадёжен, а ступеньки по 6 px на этом размере читаются как плавный провал */""}
-      ${Array.from({length:24},(_,i)=>{ const t0=i/24, t1=(i+1)/24, tm=(t0+t1)/2, d=Math.abs(tm-.5);
-        const o = d>.32 ? 1 : Math.max(.04, Math.pow(d/.32, 1.6));   // шире толщины верхней — иначе провал прячется под ней
-        return `<line x1="${60+140*t0}" y1="${80-70*t0}" x2="${60+140*t1}" y2="${80-70*t1}" stroke="var(--mut)" stroke-width="1.6" opacity="${o.toFixed(2)}"/>`; }).join("")}
-      <line x1="60" y1="10" x2="200" y2="80" stroke="var(--accent)" stroke-width="3"/>
-      <g fill="none" stroke="var(--mut)" stroke-width="1.3"><circle cx="60" cy="80" r="5"/><circle cx="200" cy="10" r="5"/></g>
-      <g fill="color-mix(in srgb,var(--accent) 30%,var(--bg))" stroke="var(--accent)" stroke-width="1.6"><rect x="52" y="2" width="16" height="16"/><rect x="192" y="72" width="16" height="16"/></g>
-    </svg>
-    <div class="tm-legend"><span>сверху — толще или ближе к корню</span><span>нижняя гаснет под ней</span></div>
-  </div>`;
 /* Тексты — простым языком, без жаргона (КРОЛИК: «понятным, корректным для рядового
    пользователя»). «Нода» оставлена: это уже родное слово интерфейса — так же подписана
    кнопка поиска («Найти ноду»), не наш профессиональный сленг из комментариев. А вот
    «попап»/«глиф» и подобное — убраны, это слова для комментариев к коду, не для человека. */
 const ТУР=[
+  {v:"2.3.1", значок:"ti-point", ttl:"Точка связей, как в Houdini", виз:ТУР_ВИЗ_ТОЧКА,
+   txt:"Зажми Alt и веди мышью по связям: задетые собираются в пучок и едут за курсором. Отпусти Alt — новые больше не цепляются, нажми снова — сбор продолжится. Отпустил мышь — там остаётся точка, все собранные связи идут через неё и дальше расходятся каждая к своей цели. Точку можно тащить, а клик по ней открывает меню: убрать точку или отцепить одну связь. Точка окрашена в цвет своих связей.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.3.1", значок:"ti-hand-grab", ttl:"Связь тянется мышью", виз:ТУР_ВИЗ_ПРОТЯЖКА,
+   txt:"Возьми связь левой кнопкой и тяни: маршрут пойдёт через точку под курсором, соседние связи останутся на месте. Потянешь в другом месте — добавится ещё одна точка. С магнитом точки встают на сетку. Двойной клик по точке убирает её, по линии — весь ручной маршрут. В шине тянется общий ствол, а с Shift — только одна связь. Меню связи теперь открывается правой кнопкой.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.3.1", значок:"ti-tool", ttl:"Маршруты ровнее",
+   txt:"Связи к одной ноде сливаются в общий ствол, а не идут рядом параллельно; связь входит в ноду по её оси; развилка шины — острая, без двойных дуг; путь через точку не разворачивается и обходит чужие ноды. Alt+клик по пустому месту больше не создаёт ноду — для этого правая кнопка по холсту → «Создать» или Alt-протяжка от ноды.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
   {v:"2.3.0", значок:"ti-magnet", ttl:"Привязка к сетке", виз:ТУР_ВИЗ_МАГНИТ, цель:"#g-snap",
    txt:"Кнопка с магнитом в нижней панели (или Ctrl+') включает привязку: брошенная нода встаёт ровно на узел сетки — тот же, что нарисован на фоне. Пока держишь ноду, вокруг неё проступает окно сетки — линии и узлы цветами твоей темы: крупные узлы притягивают издалека, мелкие между ними — только вплотную. Ctrl, зажатый во время протяжки, делает наоборот: при включённой привязке кладёт ноду свободно, при выключенной — на узел. С привязкой Shift работает наоборот: нода едет одна, а с Shift — вместе с детьми.",
    before(){ view="notes"; notesMode="graph"; render(); }},
@@ -1107,30 +1048,6 @@ const ТУР=[
    before(){ view="notes"; notesMode="graph"; render(); }},
   {v:"2.3.0", значок:"ti-tool", ttl:"И ещё по мелочи",
    txt:"Shift можно нажать и отпустить прямо во время протяжки: дети тут же поедут за нодой или вернутся на свои места. Привязанные ноды больше не съезжают с узлов после включения и выключения «Держать раскладку».",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.2.0", значок:"ti-color-picker", ttl:"Своя цветовая тема", виз:ТУР_ВИЗ_СВОЯ, цель:"#cv-tl",
-   txt:"В меню логотипа, на вкладке «Вид», после готовых тем появилась плитка «Своя». Она стартует с темы, которая стоит сейчас, а дальше настраивается всё: тёмная или светлая, тон панелей и его сила, кромка двумя цветами, главная кнопка и акцент. Цвет выбирается прямо в приложении, и тема перекрашивается на ходу. Холст графа при этом остаётся графитовым.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.2.0", значок:"ti-hand-move", ttl:"Shift — передвинуть одну ноду", виз:ТУР_ВИЗ_ШИФТ,
-   txt:"Когда включено «Держать раскладку», нода тянет за собой своих детей, и поставить её точно бывало трудно. Зажми Shift и тащи — двигается только она, остальные стоят на месте. Shift-клик, как и раньше, добавляет ноду в выделение. С включённой привязкой к сетке — наоборот: одна нода едет обычной протяжкой, а с Shift тянет за собой куст.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.2.0", значок:"ti-git-commit", ttl:"Нода прямо на связи", виз:ТУР_ВИЗ_ВСТАВКА,
-   txt:"Кликни по связи и нажми «Вставить ноду»: новая нода встанет в точке клика, между двумя нодами, которые эта связь соединяла. Было A — B, стало A — новая — B. Ctrl+Z отменяет всё сразу.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.2.0", значок:"ti-forms", ttl:"Новая нода по Alt: сначала текст", виз:ТУР_ВИЗ_АЛЬТ,
-   txt:"Alt-протяжка от ноды на пустое место (или правая кнопка по холсту → «Создать») сразу открывает строку для текста, а под ней — выбор вида: заметка, задача, полотно, подграф. Вид меняется кнопкой или клавишей Tab. Если ничего не выбрать, получится заметка. Двойной клик по виду делает его видом по умолчанию — то же есть в «Настройки → Граф».",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.2.0", значок:"ti-replace", ttl:"Вид ноды меняется в меню", виз:ТУР_ВИЗ_ВИД,
-   txt:"В меню правой кнопки по ноде появился ряд «Вид»: заметку можно сделать задачей, задачу — полотном или подграфом, и наоборот. Смена действует на всё выделение. Если внутри подграфа уже есть ноды, приложение переспросит, а при обратной смене всё содержимое вернётся.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.2.0", значок:"ti-stack-2", ttl:"Приоритет — веером, срок — меткой", виз:ТУР_ВИЗ_ВЕЕР,
-   txt:"Важная нода — это веер листов той же формы под ней: один, два или три, цветом уровня. Он не спорит с выделением и виден на любой форме. Срок теперь — метка над нодой: «сегодня», «завтра», «3 дн.» или «−2 дн.», просроченное светится. В режиме «Что горит» метка ещё несёт пламя и номер.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.2.0", значок:"ti-arrows-cross", ttl:"Видно, какая связь сверху", виз:ТУР_ВИЗ_ПРОВАЛ, цель:"#g-more",
-   txt:"Где две связи пересекаются, нижняя мягко гаснет под верхней — сразу видно, что каждая идёт своей дорогой. Сверху лежит более толстая связь, а из равных — та, что ближе к корню. Выключается в меню «…» на холсте.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.2.0", значок:"ti-tool", ttl:"И ещё по мелочи",
-   txt:"«Сбросить дом» у ноды с детьми больше не уносит их куда попало. Пауза теперь видна только у самой ноды на паузе, её дети выглядят как обычно. Поток работы течёт и к заметкам «в работе». Статусы в панели и в таблице показаны той же фактурой, что на графе. Поиск открывается над доком, меню ноды и выбор цвета переделаны, разделитель правой панели и стекло стали аккуратнее.",
    before(){ view="notes"; notesMode="graph"; render(); }},
 ];
 /* СЛОЁНЫЙ ТУР: человек видит только то, чего ещё не видел. Каждый шаг помечен версией, в которой
