@@ -128,6 +128,8 @@ const RouteLab=(()=>{
     if(режим==="soft") delete S.settings.graphLinkMode; else S.settings.graphLinkMode=режим;
     graph.build(); graph.alpha=0; graph.nodes.forEach(n=>{ n._ix=0; n._iy=0; });
     graph._routeMem(true); graph._маршр=null; graph._routesFresh(); довести();
+    // прогиб мягкой связи доезжает до цели за кадры (_bendT → _bendC): меряем конечный вид, а не первый кадр
+    for(const l of graph.links) l._bendC=l._bendT ? Object.assign({}, l._bendT) : null;
   }
   function довести(){ graph._оптБюджет=5000;
     for(let k=0;k<30;k++){ const n=graph._routeOptimize(); if(!n && !graph._оптНедо) break; if(n) graph._routeBuild(); }
