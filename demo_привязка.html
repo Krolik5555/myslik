@@ -124,16 +124,16 @@ cv.addEventListener("wheel",e=>{ e.preventDefault(); const k=Math.exp(-e.deltaY*
 function lens(n){
   const S=coarseStep(n), f=fineStep(n), R=4, cx=n.x+(n.ox||0), cy=n.y+(n.oy||0);
   ctx.save(); ctx.lineWidth=1; ctx.strokeStyle="#e6e6e6";
-  const cross=(wx,wy,k,a)=>{ const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5; ctx.globalAlpha=a; ctx.beginPath();
+  const cross=(wx,wy,k,a,w)=>{ const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5; ctx.globalAlpha=a; ctx.lineWidth=w||1; ctx.beginPath();
     ctx.moveTo(sx-k,sy); ctx.lineTo(sx+k,sy); ctx.moveTo(sx,sy-k); ctx.lineTo(sx,sy+k); ctx.stroke(); };
-  if(f){ const RF=R*S/f*0.6, ox=Math.round(cx/f), oy=Math.round(cy/f), kf=Math.min(2.5, f*z*0.18);
-    for(let i=-Math.ceil(RF);i<=Math.ceil(RF);i++) for(let j=-Math.ceil(RF);j<=Math.ceil(RF);j++){
+  if(f){ const N=Math.ceil(R*S/f), ox=Math.round(cx/f), oy=Math.round(cy/f), kf=Math.min(3, f*z*0.2);
+    for(let i=-N;i<=N;i++) for(let j=-N;j<=N;j++){
       const wx=(ox+i)*f, wy=(oy+j)*f; if(Math.abs(wx/S-Math.round(wx/S))<1e-9 && Math.abs(wy/S-Math.round(wy/S))<1e-9) continue;
-      const d=Math.hypot(wx-cx,wy-cy)/(R*S*0.6); if(d>1) continue; cross(wx,wy,kf,0.28*(1-d)*(1-d)); } }
+      const d=Math.hypot(wx-cx,wy-cy)/(R*S); if(d>1) continue; cross(wx,wy,kf,0.42*(1-d)*(1-d),0.75); } }
   const ox=Math.round(cx/S), oy=Math.round(cy/S), k=Math.min(5,S*z*0.22);
   for(let i=-R;i<=R;i++) for(let j=-R;j<=R;j++){ const wx=(ox+i)*S, wy=(oy+j)*S, d=Math.hypot(wx-cx,wy-cy)/(R*S); if(d>1) continue;
     cross(wx,wy,k,0.55*(1-d)*(1-d)); }
-  if(target) cross(target.x,target.y,n.r*z+16,target.lvl==="fine"?0.7:0.9);
+  if(target) target.lvl==="fine" ? cross(target.x,target.y,n.r*z+10,0.95,0.75) : cross(target.x,target.y,n.r*z+16,0.9,1);
   ctx.restore(); }
 
 function draw(){
