@@ -143,6 +143,32 @@ for (const реж of ["td", "hz"]) {
   S.settings.graphSnap = false;
 }
 
+/* «ВЕСЬ ГРАФ» — ТОЛЬКО С ПОДТВЕРЖДЕНИЕМ (КРОЛИК, 04.11.2026). Без «да» раскладка не идёт: ни дома, ни
+   якоря областей не меняются. Escape отменяет и дальше окна не уходит; Enter подтверждает. */
+{
+  const форма = () => JSON.stringify(S.items.map(i => [i.id, i.hx, i.hy, i.x, i.y]).concat(S.areas.map(a => [a.id, a.hx, a.hy, a.x, a.y])));
+  const окно = () => document.querySelector("#overlay-root .confirm-modal");
+  const до = форма();
+  let п = graph._tidyAllAsk("td"); await ж(80);
+  const м = окно(), текст = м ? м.textContent : "";
+  t.push({имя:"весь граф: перед раскладкой окно подтверждения в стиле приложения", ок: !!м && /Переставится нод: \d+/.test(текст) && /Ctrl\+Z/.test(текст) && !!(м.querySelector("#cf-yes") && /Упорядочить/.test(м.querySelector("#cf-yes").textContent)),
+          факт: текст.replace(/\s+/g, " ").trim().slice(0, 140)});
+  if (м) м.querySelector("#cf-no").click();
+  let итог = await п; await ж(80);
+  t.push({имя:"весь граф: «Отмена» — ничего не переставлено", ок: итог === false && форма() === до && !окно(), факт: "вернула " + итог + ", форма " + (форма() === до ? "та же" : "ИЗМЕНИЛАСЬ")});
+  let дошло = 0; const сторож = e => { if (e.key === "Escape") дошло++; };
+  window.addEventListener("keydown", сторож);
+  п = graph._tidyAllAsk("td"); await ж(80);
+  if (окно()) окно().dispatchEvent(new KeyboardEvent("keydown", {key:"Escape", bubbles:true, cancelable:true}));
+  итог = await п; await ж(80); window.removeEventListener("keydown", сторож);
+  t.push({имя:"весь граф: Escape отменяет и больше ничего не закрывает", ок: итог === false && форма() === до && дошло === 0 && !!graph && !окно(), факт: "вернула " + итог + ", Escape дошёл до окна приложения " + дошло + " раз"});
+  п = graph._tidyAllAsk("td"); await ж(80);
+  if (окно()) окно().dispatchEvent(new KeyboardEvent("keydown", {key:"Enter", bubbles:true, cancelable:true}));
+  итог = await п; await ж(150);
+  t.push({имя:"весь граф: Enter подтверждает — раскладка прошла", ок: итог === true && форма() !== до, факт: "вернула " + итог});
+  if (итог === true) { undoStep(); await ж(150); }
+}
+
 // РЕЖИМ ЗАПОМИНАЕТСЯ; «кустами» — умолчание и в файл не пишется
 tidyModeSet("hz");
 const запомнил = S.settings.graphTidyMode === "hz";

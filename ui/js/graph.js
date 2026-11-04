@@ -241,7 +241,7 @@ function renderNotes(v){
      выключаем тумблер: раскладку дальше ведёт физика, как до появления домов. Понравилось —
      человек жмёт домик снова, и дома назначаются по новым местам. Ctrl+Z возвращает прежнюю
      форму: hx/hy лежат в самих нодах, а снимок отката сериализует items целиком. */
-  $$("#g-more-menu [data-tidy-mode]").forEach(b=>b.onclick=()=>{ closeMore(); tidyModeSet(b.dataset.tidyMode); if(graph) graph._tidyAll(b.dataset.tidyMode); });
+  $$("#g-more-menu [data-tidy-mode]").forEach(b=>b.onclick=()=>{ closeMore(); tidyModeSet(b.dataset.tidyMode); if(graph) graph._tidyAllAsk(b.dataset.tidyMode); });
   $("#g-refit").onclick=async ()=>{ closeMore();
     /* Точка «до» — ДО вопроса и до сноса домов: диалог обещает, что прежняя форма вернётся по
        Ctrl+Z, и с тех пор как раскладка перестала попадать в обычный шаг истории (см. _noXY),
@@ -5410,6 +5410,21 @@ class Graph{
     while(s/5>=МИН) s=Math.round(s/5*1e6)/1e6;
     while(s<МИН) s*=5;
     return s;
+  }
+  /* «ВЕСЬ ГРАФ» — ТОЛЬКО С ВОПРОСОМ (КРОЛИК, 04.11.2026: «нужно спрашивать разрешение»). Выделение
+     переставляет то, что человек сам обвёл, а весь граф — каждую ноду разом, и случайный клик в
+     меню стоил бы ему расставленной руками формы. Окно — общее uiConfirm, как у удаления: Enter —
+     да, Escape гасится в самом окне и больше ничего не закрывает. Считаем те же ноды, что возьмёт
+     _tidyAll, без закреплённых — они не сдвинутся. Сама _tidyAll вопроса не задаёт: её зовут
+     проверки, а спрашивать — дело жеста. */
+  async _tidyAllAsk(mode){
+    mode=tidyModeInfo(mode).id;
+    const n=this.nodes.filter(у=>у.x!=null && (у.ref ? !у.ref.pin : (у.hubArea||у.subRoot) && !(у.hubArea||у.subRoot).pin)).length;
+    const да=await uiConfirm("Переставится нод: "+n+" — "+tidyModeInfo(mode).label.toLowerCase()+"."+
+      (S.settings.graphHome?"":" «Держать раскладку» включится.")+" Вернуть — Ctrl+Z.",
+      {title:"Упорядочить весь граф?", okLabel:"Упорядочить"});
+    if(!да || graph!==this) return false;   // за время вопроса граф мог пересоздаться — раскладывать уже нечего
+    return this._tidyAll(mode);
   }
   /* УПОРЯДОЧИТЬ ВЕСЬ ГРАФ (меню «…»). Дерево — по владельцам: корни — хабы областей, корень
      подграфа и ноды без владельца; так в раскладку входит и уровень «область → её верхние ноды»,
