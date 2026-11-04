@@ -43,10 +43,12 @@ for (const m of LINK_MODES.map(x => x.id)) {
     continue;
   }
   t.push({имя: m + ": маршрут у всех связей", ок: L.length === 5 && L.every(l => l._рт), факт: "с маршрутом " + L.filter(l => l._рт).length + " из " + L.length});
-  let концы = 0, кривых = [], всего = 0;
+  let концы = 0, кривых = [], всего = 0; const мимо = [];
   for (const l of L) { if (!l._рт) continue;
     const p = точки(l), a = центр(graph.byId[l.a]), b = центр(graph.byId[l.b]);
-    if (Math.hypot(p[0][0] - a[0], p[0][1] - a[1]) < 0.5 && Math.hypot(p[p.length - 1][0] - b[0], p[p.length - 1][1] - b[1]) < 0.5) концы++;
+    const д0 = Math.hypot(p[0][0] - a[0], p[0][1] - a[1]), д1 = Math.hypot(p[p.length - 1][0] - b[0], p[p.length - 1][1] - b[1]);
+    if (д0 < 0.5 && д1 < 0.5) концы++;
+    else { const у = l._рт.умолч, в = у && graph._routeMem().варианты.get(l.a + "|" + l.b + "|" + у.m); мимо.push((graph.byId[l.b].label || "").slice(-2) + " " + д0.toFixed(1) + "/" + д1.toFixed(1) + " вар " + JSON.stringify(в || null)); }
     for (let k = 0; k < p.length - 1; k++) {
       const dx = Math.abs(p[k + 1][0] - p[k][0]), dy = Math.abs(p[k + 1][1] - p[k][1]);
       if (Math.hypot(dx, dy) <= 8) continue;     // кусочек скругления колена (радиус до 14, четыре куска)
@@ -55,7 +57,7 @@ for (const m of LINK_MODES.map(x => x.id)) {
       const годен = m === "metro" ? (осевой || диаг) : m === "bundle" ? true : осевой;
       if (!годен) кривых.push(dx.toFixed(1) + "×" + dy.toFixed(1));
     } }
-  t.push({имя: m + ": путь проходит через центры обоих концов", ок: концы === L.length, факт: концы + " из " + L.length});
+  t.push({имя: m + ": путь проходит через центры обоих концов", ок: концы === L.length, факт: концы + " из " + L.length + (мимо.length ? "; мимо: " + мимо.join("; ") : "")});
   if (m !== "bundle")
     t.push({имя: m + (m === "metro" ? ": только горизонтали, вертикали и 45°" : ": только горизонтали и вертикали"),
             ок: кривых.length === 0 && всего > 0, факт: "длинных отрезков " + всего + ", не по правилу: " + (кривых.join(", ") || "нет")});

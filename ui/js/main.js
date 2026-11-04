@@ -770,6 +770,10 @@ async function boot(){
     undoInit();
     view=S.settings.view||"today"; applySettings(); wireGlobal(); wireSplitter(); render();
     console.log("[dev] preview mode: fresh demo, view="+view);
+    /* ГАЛЕРЕЯ МАРШРУТОВ (?dev&routes-gallery): лаборатория грузится по требованию — приложению она не
+       нужна и в index.html не подключена (см. routelab.js) */
+    if(P.has("routes-gallery")){ const s=document.createElement("script"); s.src="js/routelab.js?v="+Date.now();
+      s.onload=()=>RouteLab.галерея(); document.head.appendChild(s); }
     return;
   }
   bootedWithoutBridge = !HasPy();   // помним, что стартовали без моста: см. onBridgeReady
