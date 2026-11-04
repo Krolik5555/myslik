@@ -8134,6 +8134,15 @@ class Graph{
     // нода, которой принадлежит нить к области: в ней живут длина (arealen) и режим (areamode)
     const areaIt=auto ? S.items.find(x=>x.id===(isHubId(l.a)?l.b:l.a)) : null;
     const свойРежим=()=>{ const m=l.src ? l.src[3] : areaIt ? areaIt.areamode : null; return linkModeOk(m) ? m : ""; };
+    /* ДЕЙСТВУЮЩИЙ режим связи — по её маршруту из последней сборки (там уже решено старшинство: свой →
+       ветка → граф): без маршрута — мягкая, у метро — свой признак, у прямых углов и шины — умолч.m,
+       прочий маршрут — пучки. Откуда он: свой, от ветки (не совпал с режимом графа) или как у графа.
+       Без этого в ряду «Вид» было не понять, что сейчас включено (КРОЛИК, 04.11.2026) */
+    const действ=()=>{ const р=l._рт; return !р ? "soft" : р.metro ? "metro" : р.умолч ? р.умолч.m : "bundle"; };
+    const откуда=()=>свойРежим() ? "свой" : действ()!==linkModeInfo().id ? "от ветки" : "как у графа";
+    /* класс кнопки ряда: свой режим — primary БЕЗ ghost (вместе они давали тёмный значок на прозрачном
+       тёмном фоне — кнопка выглядела пустой), действующий — обводкой np-eff */
+    const кнЛМ=id=>"btn "+(id && свойРежим()===id ? "primary" : "ghost")+(id && id===действ() ? " np-eff" : "");
     pop.innerHTML=`
       <div class="np-ttl"><i class="ti ti-link"></i> Связь</div>
       <div class="np-meta" style="line-height:1.6;">
@@ -8143,8 +8152,9 @@ class Graph{
       <div class="np-len"><span class="np-len-lbl">Длина</span><input class="np-len-in" type="range" min="0.4" max="2.5" step="0.1" value="${(l.lenMul||1)}"><span class="np-len-val">${(l.lenMul||1).toFixed(1)}×</span></div>
       ${/* свой режим связи: у ручной — 4-й элемент S.links, у нити к области — поле НОДЫ it.areamode
            (связи в S.links нет, граф строит её из it.area — та же причина, что у длины) */""}
-      ${(l.src || areaIt)?`<div class="np-row np-lm"><span class="np-len-lbl">Вид</span>${[{id:"",icon:"ti-arrow-back-up",label:"Как у графа: "+linkModeInfo().label}].concat(LINK_MODES).map(x=>
-        `<button class="btn ghost${свойРежим()===x.id?" on":""}" data-lm="${x.id}" title="${esc(x.label)}"><i class="ti ${x.icon}"></i></button>`).join("")}</div>`:""}
+      ${(l.src || areaIt)?`<div class="np-lm-lbl">Вид связи<span class="np-lm-now">${esc(linkModeInfo(действ()).label)} · ${откуда()}</span></div>
+      <div class="np-row np-lm">${[{id:"",icon:"ti-arrow-back-up",label:"Как у графа или ветки — снять свой режим"}].concat(LINK_MODES).map(x=>
+        `<button class="${кнЛМ(x.id)}" data-lm="${x.id}" title="${esc(x.label)}"><i class="ti ${x.icon}"></i></button>`).join("")}</div>`:""}
       <div class="np-row"><button class="btn" data-lp="ins" title="Новая нода в точке клика, между концами связи"><i class="ti ti-git-commit"></i>Вставить ноду</button><button class="btn" data-lp="del"><i class="ti ti-unlink"></i>${auto?"Открепить":"Убрать связь"}</button></div>`;
     const wrap=$("#graph-wrap"); wrap.appendChild(pop);
     const rc=this.svg.getBoundingClientRect();
@@ -8178,8 +8188,11 @@ class Graph{
     pop.querySelectorAll("[data-lm]").forEach(b=>b.onclick=()=>{ const m=b.dataset.lm;
       if(l.src){ if(m){ l.src[2]=+l.src[2]||1; l.src[3]=m; } else l.src.length=Math.min(l.src.length,3); }
       else if(areaIt){ if(m) areaIt.areamode=m; else delete areaIt.areamode; l.areaMode=areaIt.areamode; }
-      persist(); pop.querySelectorAll("[data-lm]").forEach(x=>x.classList.toggle("on",x===b));
-      if(this._маршр) this._маршр.грязно=true; this._wake(); this._tick(true); });
+      persist();
+      if(this._маршр) this._маршр.грязно=true; this._wake(); this._tick(true);
+      // кадр пересобрал маршрут — показать новое: свой режим кнопкой, действующий обводкой и подписью
+      pop.querySelectorAll("[data-lm]").forEach(x=>{ x.className=кнЛМ(x.dataset.lm); });
+      const н=pop.querySelector(".np-lm-now"); if(н) н.textContent=linkModeInfo(действ()).label+" · "+откуда(); });
     pop.querySelector('[data-lp="del"]').onclick=()=>{
       if(l.manual){
         /* Отцепили от пустышки — нода возвращается к области напрямую. Наследование шло через
