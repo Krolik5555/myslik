@@ -1977,7 +1977,8 @@ class Graph{
            идёт за рукой без задержки. */
         const привязка=!!S.settings.graphSnap !== (!!e.ctrlKey && !this._snapCtrl0);
         const т=привязка ? this._snapPoint(цx, цy, this.drag) : null;
-        if(т){ цx=т.x; цy=т.y; this._snapStep=т.step; }   // шаг — для линзы в _drawMain
+        if(т){ цx=т.x; цy=т.y; }
+        this._snapStep=привязка ? this._snapStepFor(this.drag) : null;   // линза (_drawMain) идёт за нодой, пока привязка включена
         const ключ=т ? т.x+","+т.y : "";
         if(ключ!==this._snapKey){ this._snapKey=ключ; this._snapOff={x:this.drag.x-цx, y:this.drag.y-цy}; }
         this._snapGoal={x:цx, y:цy};
@@ -4427,7 +4428,8 @@ class Graph{
      не мельче самой ноды: при сильном приближении клетки меньше ноды, точка находилась бы под
      любым положением, и «только рядом» ничем не отличалось бы от «всегда» (КРОЛИК). Радиус растёт
      с клеткой — на квадратах в сотни пикселей 14 px не поймать. Вне радиуса — null, нода свободна. */
-  _snapPoint(x,y,n){
+  // шаг отдельно от точки: линзе (_drawMain) он нужен и тогда, когда «только рядом» не притянуло
+  _snapStepFor(n){
     const SNAP_BRIGHT_PX=36, SNAP_NODE_K=1.5;
     const z=this.zoom, near=S.settings.graphSnapMode!=="always";
     let шаг=20*Math.pow(5, Math.ceil(Math.log(8/(20*z))/Math.log(5)));
@@ -4435,6 +4437,10 @@ class Graph{
     let мин=SNAP_BRIGHT_PX/z;
     if(near && n && n.r) мин=Math.max(мин, n.r*2*SNAP_NODE_K);
     while(шаг*(1+1e-9)<мин) шаг*=5;
+    return шаг;
+  }
+  _snapPoint(x,y,n){
+    const z=this.zoom, near=S.settings.graphSnapMode!=="always", шаг=this._snapStepFor(n);
     const px=Math.round(x/шаг)*шаг, py=Math.round(y/шаг)*шаг;
     if(near){ const R=Math.min(40, Math.max(14, шаг*z*0.12)); if(Math.hypot(px-x,py-y)*z>R) return null; }
     return {x:px, y:py, step:шаг};
@@ -5617,20 +5623,26 @@ class Graph{
       }
       ctx.restore(); ctx.globalAlpha=1;
     }
-    /* ЛИНЗА ПРИВЯЗКИ — кусок той же решётки вокруг узла, к которому прилипла нода: крестики на
-       узлах шагом привязки, ярче к центру (выбор КРОЛИКА из demo_привязка.html; кольцо «где
-       притянет» он же забраковал). Рисуется на ЛЮБОМ фоне — на чистом тоне и звёздах сетки нет, и
-       только линза показывает, к каким точкам нода цепляется. Крестики — в тех же floor()+0.5, что
-       линии сетки, иначе разошлись бы с ними на пиксель. Только пока нода прилипла (_snapKey). */
-    if(this.drag && this._snapKey && this._snapGoal && this._snapStep){
-      const s=this._snapStep, g=this._snapGoal, R=4, k=Math.min(5, s*z*0.22);
+    /* ЛИНЗА ПРИВЯЗКИ — кусок той же решётки вокруг ноды в руке: крестики на узлах шагом привязки,
+       ярче к ноде (выбор КРОЛИКА из demo_привязка.html; кольцо «где притянет» он же забраковал).
+       Идёт за нодой ВСЮ протяжку, пока привязка включена (_snapStep), а не только когда прилипло:
+       «чтобы даже без сетки я видел, куда крепить» (КРОЛИК, 04.11.2026). Яркость считается от
+       ТОЧНОГО места ноды, а не от ближайшего узла — иначе линза перескакивала бы клетками. Узел, к
+       которому нода прилипла (_snapKey), горит ярче и крупнее. На ЛЮБОМ фоне: на чистом тоне и
+       звёздах сетки нет вовсе. Крестики — в тех же floor()+0.5, что линии сетки, иначе разошлись бы
+       с ними на пиксель. */
+    if(this.drag && this.drag._moved && this._snapStep){
+      const s=this._snapStep, R=4, k=Math.min(5, s*z*0.22), d0=this.drag;
+      const ox=Math.round(d0.x/s), oy=Math.round(d0.y/s), g=this._snapKey?this._snapGoal:null;
       if(!this._snapLensColor) this._snapLensColor=NEUTRAL();   // тон темы; кадров с линзой много, getComputedStyle — один раз на жест
       ctx.save(); ctx.lineWidth=1; ctx.strokeStyle=this._snapLensColor;
       for(let i=-R;i<=R;i++) for(let j=-R;j<=R;j++){
-        const d=Math.hypot(i,j)/R; if(d>1) continue;
-        const sx=Math.floor((g.x+i*s)*z+tx)+0.5, sy=Math.floor((g.y+j*s)*z+ty)+0.5;
-        ctx.globalAlpha=0.55*(1-d)*(1-d); ctx.beginPath();
-        ctx.moveTo(sx-k,sy); ctx.lineTo(sx+k,sy); ctx.moveTo(sx,sy-k); ctx.lineTo(sx,sy+k); ctx.stroke();
+        const wx=(ox+i)*s, wy=(oy+j)*s, d=Math.hypot(wx-d0.x, wy-d0.y)/(R*s); if(d>1) continue;
+        const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5;
+        // прилипший узел лежит ПОД нодой — лучи длиннее её радиуса, иначе нода закрыла бы подсветку целиком
+        const мой=g && Math.abs(g.x-wx)<1e-6 && Math.abs(g.y-wy)<1e-6, kk=мой?(d0.r||8)*z+7:k;
+        ctx.globalAlpha=мой?0.9:0.55*(1-d)*(1-d); ctx.beginPath();
+        ctx.moveTo(sx-kk,sy); ctx.lineTo(sx+kk,sy); ctx.moveTo(sx,sy-kk); ctx.lineTo(sx,sy+kk); ctx.stroke();
       }
       ctx.restore(); ctx.globalAlpha=1;
     }
