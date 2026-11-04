@@ -4313,9 +4313,32 @@ class Graph{
        заново подбирать все зазоры, поэтому здесь — округление готового. Оно безопасно числом: две
        ноды кустов не ближе 34 px, а узел сдвигает каждую не дальше 14 (полдиагонали клетки 20), —
        в один узел они сесть не могут; пересечения меряет ярусы.js. Закреплённые не трогаем. */
+    /* Простое «к ближайшему» линейка поймала: 0 → 2 ноды на чужих связях и +1 пара подписей. Поэтому
+       округлённое место ПРОВЕРЯЕТСЯ, а не берётся: нода не ложится на чужую связь дерева, её связи не
+       задевают чужих нод, и она не становится теснее к соседу, чем была (анизотропно, как зазоры
+       кустов). Не так — ближайший из узлов вокруг (4×4), не нашлось — остаётся округление. */
     if(S.settings.graphSnap){ const ш=this._tidyGridStep();
-      for(const id in цель){ const у=this.byId[id]; if(!у || (у.ref && у.ref.pin) || ((у.hubArea||у.subRoot)||{}).pin) continue;
-        цель[id]={x:Math.round(цель[id].x/ш)*ш, y:Math.round(цель[id].y/ш)*ш}; } }
+      const сво=id=>{ const у=this.byId[id]; return у && !(у.ref && у.ref.pin) && !((у.hubArea||у.subRoot)||{}).pin; };
+      const сырые={}; for(const id in цель) сырые[id]={x:цель[id].x, y:цель[id].y};
+      const рёбра=[]; порядок.forEach(p=>(дети[p]||[]).forEach(c=>{ if(цель[p] && цель[c]) рёбра.push([p,c]); }));
+      const инц={}; рёбра.forEach(([a,b])=>{ (инц[a]=инц[a]||[]).push(b); (инц[b]=инц[b]||[]).push(a); });
+      const рад=id=>((this.byId[id]&&this.byId[id].r)||8)+4;
+      const доОтр=(p,a,b)=>{ const dx=b.x-a.x, dy=b.y-a.y, L=dx*dx+dy*dy||1, t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/L));
+        return Math.hypot(p.x-a.x-t*dx, p.y-a.y-t*dy); };
+      const тесн=(p,q)=>Math.hypot((p.x-q.x)/ГОР_В, p.y-q.y);
+      const плохо=(id,pt)=>{
+        for(const [a,b] of рёбра){ if(a===id || b===id) continue; if(доОтр(pt,цель[a],цель[b])<рад(id)) return true; }
+        for(const o of (инц[id]||[])) for(const k in цель){ if(k===id || k===o) continue; if(доОтр(цель[k],pt,цель[o])<рад(k)) return true; }
+        for(const k in цель){ if(k===id) continue; const было=тесн(сырые[id],сырые[k]);
+          if(было<ЗАЗОР_В && тесн(pt,цель[k])<Math.min(было,ЗАЗОР_К)-1) return true; }
+        return false; };
+      for(const id in цель) if(сво(id)) цель[id]={x:Math.round(цель[id].x/ш)*ш, y:Math.round(цель[id].y/ш)*ш};
+      for(const id in цель){ if(!сво(id) || !плохо(id,цель[id])) continue;
+        const с=сырые[id], ок=[]; const x0=Math.floor(с.x/ш)-1, y0=Math.floor(с.y/ш)-1;
+        for(let i=0;i<4;i++) for(let j=0;j<4;j++) ок.push({x:(x0+i)*ш, y:(y0+j)*ш});
+        ок.sort((a,b)=>Math.hypot(a.x-с.x,a.y-с.y)-Math.hypot(b.x-с.x,b.y-с.y));
+        const хор=ок.find(pt=>!Object.keys(цель).some(k=>k!==id && цель[k].x===pt.x && цель[k].y===pt.y) && !плохо(id,pt));
+        if(хор) цель[id]=хор; } }
     /* Пишем ДОМАМИ. Смещение считается от ЦЕЛЕВОГО места владельца, если он тоже в выделении:
        иначе дом ребёнка мерился бы от точки, откуда владелец через секунду уедет. */
     const было=(opts && opts.было) || this.layoutSnap();
