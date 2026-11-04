@@ -960,6 +960,11 @@ body.reordering,body.reordering .sec{cursor:grabbing!important;user-select:none;
 #node-pop .np-stat-lbl{display:flex;justify-content:space-between;align-items:baseline;
   font-size:11px;color:var(--mut);margin-bottom:4px;}
 #node-pop .np-stat-lbl span{font-size:10px;color:var(--mut2);}
+/* «между выделенными» в подписи ряда «Связи ветки»: переключатель области действия ряда, а не действие */
+#node-pop .np-bm-scope{margin-left:auto;font:inherit;font-size:10px;letter-spacing:0;text-transform:none;color:var(--mut2);
+  background:none;border:0;border-radius:var(--r-s);padding:1px 6px;cursor:pointer;}
+#node-pop .np-bm-scope:hover{background:var(--l4);color:var(--tx);}
+#node-pop .np-bm-scope.on{background:var(--l4);color:var(--tx);box-shadow:inset 0 0 0 1px var(--bd);}
 #node-pop .np-stat .btn{padding:0;gap:0;}
 #node-pop .np-stat .btn i{font-size:15px;}
 #node-pop .np-row{display:flex;gap:5px;}

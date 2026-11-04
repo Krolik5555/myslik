@@ -271,6 +271,54 @@ if (свой) свой.length = 3;
   deletePack(ids);
 }
 
+// ================== РЕЖИМ ВЕТКИ (it.branchmode) ==================
+/* Старшинство: свой у связи → режим ветки ближайшего предка родительского конца (сама нода тоже) →
+   режим графа. Дерево R → A → A1, A2 и R → B при мягком режиме графа. */
+{
+  const нв = (title, x, y, своя) => { const it = addItem(своя ? {kind: "note", title, area: обл} : {kind: "note", title}); it.x = 30000 + x; it.y = 30000 + y; мои.push(it.id); return it; };
+  const R = нв("связи-вR", 0, 0, true), A = нв("связи-вA", 220, -120), B = нв("связи-вB", 220, 160), A1 = нв("связи-вA1", 420, -200), A2 = нв("связи-вA2", 420, -60);
+  addLink(R.id, A.id); addLink(R.id, B.id); addLink(A.id, A1.id); addLink(A.id, A2.id); recomputeHierarchy(); persist();
+  graphSetLinkMode("soft");
+  const режим = (p, c) => { graph.build(); graph._маршр = null; graph._routesFresh();
+    const l = graph.links.find(x => (x.a === p.id && x.b === c.id) || (x.b === p.id && x.a === c.id));
+    return !l ? "нет" : !l._рт ? "soft" : l._рт.metro ? "metro" : l._рт.умолч ? l._рт.умолч.m : "?"; };
+  const все = () => ["R→A " + режим(R, A), "R→B " + режим(R, B), "A→A1 " + режим(A, A1), "A→A2 " + режим(A, A2)].join(", ");
+  A.branchmode = "ortho";
+  t.push({имя: "ветка: режим ветки на ноде — её связям вниз, связь к самой ноде — нет", ок: режим(A, A1) === "ortho" && режим(A, A2) === "ortho" && режим(R, A) === "soft",
+          факт: все()});
+  R.branchmode = "metro";
+  t.push({имя: "ветка: ближайший предок с режимом перекрывает дальнего", ок: режим(A, A1) === "ortho" && режим(R, B) === "metro" && режим(R, A) === "metro", факт: все()});
+  const свой = S.links.find(x => (x[0] === A.id && x[1] === A1.id) || (x[1] === A.id && x[0] === A1.id)); свой[2] = +свой[2] || 1; свой[3] = "bus";
+  t.push({имя: "ветка: свой режим связи сильнее режима ветки", ок: режим(A, A1) === "bus" && режим(A, A2) === "ortho", факт: все()});
+  delete A.branchmode;
+  t.push({имя: "ветка: сброс на ноде — её связи берут режим дальнего предка, свой у связи остаётся", ок: режим(A, A2) === "metro" && режим(A, A1) === "bus", факт: все()});
+  свой.length = 3; delete R.branchmode;
+  t.push({имя: "ветка: всё сброшено — как у графа", ок: [режим(R, A), режим(R, B), режим(A, A1), режим(A, A2)].every(x => x === "soft"), факт: все()});
+  // на выделение и «между выделенными»
+  graph.build(); graph.selNodes = new Set([A.id, A1.id, B.id]);
+  graph._setBranchMode(graph.byId[A.id], "ortho", false);
+  t.push({имя: "ветка: на выделение — режим каждой выделенной ноде", ок: A.branchmode === "ortho" && A1.branchmode === "ortho" && B.branchmode === "ortho" && !R.branchmode,
+          факт: [A, A1, B, R].map(x => x.title.replace("связи-в", "") + ":" + (x.branchmode || "—")).join(", ")});
+  for (const x of [A, A1, B]) delete x.branchmode;
+  graph.build(); graph.selNodes = new Set([A.id, A1.id, A2.id]);
+  graph._setBranchMode(graph.byId[A.id], "metro", true);
+  const м1 = S.links.find(x => (x[0] === A.id && x[1] === A1.id) || (x[1] === A.id && x[0] === A1.id)), мR = S.links.find(x => (x[0] === R.id && x[1] === A.id) || (x[1] === R.id && x[0] === A.id));
+  t.push({имя: "ветка: «между выделенными» — режим самих связей, ветку не трогает", ок: м1 && м1[3] === "metro" && !(мR && мR[3]) && !A.branchmode,
+          факт: "A→A1 " + (м1 && м1[3]) + ", R→A " + (мR && мR[3] || "—") + ", у A ветка " + (A.branchmode || "—")});
+  for (const x of S.links) if ([A.id, A1.id, A2.id].includes(x[0]) && [A.id, A1.id, A2.id].includes(x[1])) x.length = Math.min(x.length, 3);
+  graph.selNodes = new Set();
+  // санитайзер и копия
+  A.branchmode = "мусор";
+  { const s = JSON.parse(JSON.stringify({graphs: S.graphs, settings: S.settings, boards: {}, media: {}, tags: S.tags, templates: S.templates}));
+    let x = null; for (const g of sanitizeState(s).graphs || []) { x = (g.items || []).find(i => i.id === A.id) || x; }
+    t.push({имя: "ветка: санитайзер срезает мусор в режиме ветки", ок: !!x && !("branchmode" in x), факт: x ? JSON.stringify(x.branchmode) : "нода не найдена"}); }
+  A.branchmode = "bus"; graph.build(); graph.selNodes = new Set([A.id]); graph.copySelection();
+  const рез = graph.pasteClip(40, true), копия = рез && рез.newIds && S.items.find(i => i.id === рез.newIds[0]);
+  if (рез && рез.newIds) мои.push(...рез.newIds);
+  t.push({имя: "ветка: копия ноды уносит режим ветки", ок: !!копия && копия.branchmode === "bus", факт: копия ? (копия.branchmode || "—") : "копии нет"});
+  delete A.branchmode; graph.selNodes = new Set(); graph.build();
+}
+
 // ================== УБОРКА ==================
 deletePack(мои);
 if (был.mode) S.settings.graphLinkMode = был.mode; else delete S.settings.graphLinkMode;

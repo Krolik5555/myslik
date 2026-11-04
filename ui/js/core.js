@@ -1197,6 +1197,9 @@ function _sanitizeGraph(s, seen, seenF, okColor){
     /* режим нити «нода → область» (LINK_MODES) — в НОДЕ по той же причине, что и длина: самой связи
        в S.links нет. Нет ключа = как у графа; явное «soft» законно (мягкая при другом режиме графа) */
     if(it.areamode!=null && !linkModeOk(it.areamode)) delete it.areamode;
+    /* режим связей ВЕТКИ (все связи от ноды вниз по дереву, graph.js: _routeBuild) — тоже в ноде;
+       нет ключа = как у графа, мусор срезаем */
+    if(it.branchmode!=null && !linkModeOk(it.branchmode)) delete it.branchmode;
     if(it.doneAt!=null && typeof it.doneAt!=="number") delete it.doneAt;       // дата выполнения (для метки опоздания)
     // срок: только «YYYY-MM-DD», и только существующая дата — иначе parseYmd отдаст сдвинутый
     // день (2026-02-31 → 3 марта) и он тихо разъедется по календарю, спискам и повторам

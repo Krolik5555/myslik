@@ -1083,8 +1083,28 @@ class Graph{
        диагонали пиксель сдвига перебрасывал его: то сначала вертикаль, то горизонталь (снимки
        КРОЛИКА, 04.11.2026). Прежний выбор держим, пока другая ось не перевесит на ОСЬ_ЗАПАС. */
     const пам=this._routeMem(), оси=пам.оси, ОСЬ_ЗАПАС=1.35, варианты=пам.варианты, ранги=пам.ранги;
-    // свой режим: у ручной — 4-й элемент S.links, у нити к области — поле ноды (areaMode из it.areamode)
-    const режимСвязи=l=>(l.src && linkModeOk(l.src[3])) ? l.src[3] : linkModeOk(l.areaMode) ? l.areaMode : общий;
+    /* СТАРШИНСТВО РЕЖИМОВ: свой у связи (у ручной — 4-й элемент S.links, у нити к области —
+       it.areamode) → режим ВЕТКИ (it.branchmode ближайшего предка родительского конца, сама нода
+       тоже считается) → режим графа. Ручная связь поперёк веток берёт режим ветки, только если оба
+       её конца в одной ветке с режимом; нить к области — нет: она выше ветки (КРОЛИК, 04.11.2026:
+       «менять тип связи массово для определённого дерева»). Считается раз на сборку, с памятью. */
+    const ветка=new Map();
+    const режимВетки=id=>{ if(ветка.has(id)) return ветка.get(id);
+      const путь=[]; let n=по[id], m=null;
+      while(n && n.ref && !ветка.has(n.id) && путь.length<80){ путь.push(n.id);
+        if(linkModeOk(n.ref.branchmode)){ m=n.ref.branchmode; break; }
+        n=n.ref.parent ? по[n.ref.parent] : null; }
+      if(m==null && n && ветка.has(n.id)) m=ветка.get(n.id);
+      for(const к of путь) ветка.set(к, m);
+      return m; };
+    const режимСвязи=l=>{
+      if(l.src && linkModeOk(l.src[3])) return l.src[3];
+      if(linkModeOk(l.areaMode)) return l.areaMode;
+      if(l.manual){ const a=по[l.a], b=по[l.b];
+        if(a && b){ const р=(a.ref && a.ref.parent===l.b) ? l.b : (b.ref && b.ref.parent===l.a) ? l.a : null;
+          if(р){ const m=режимВетки(р); if(m) return m; }
+          else { const ma=режимВетки(l.a), mb=режимВетки(l.b); if(ma && ma===mb) return ma; } } }
+      return общий; };
     const PORT=10, ЯРУС=10, СЕКТОР=1.4;
     // кто родитель: нить к области и пустышке — всегда b; ручная — по ref.parent любого конца
     const родитель=l=>{ const a=по[l.a], b=по[l.b];
@@ -1783,6 +1803,8 @@ class Graph{
          области отдельным лучом (см. build: нить к хабу тянется только от нод со своей областью). */
       return {_old:id, kind:it.kind, title:it.title, body:it.body, area:it.area, areaAuto:it.areaAuto===true,
         color:it.color||null, size:it.size||null,
+        // режимы связей ноды: своей ветки и нити к области — копия ветки уносит свой вид связей
+        branchmode:it.branchmode||null, areamode:it.areamode||null, arealen:it.arealen||null,
         tags:(it.tags||[]).slice(), status:it.status, done:!!it.done, doneAt:it.doneAt||null, due:it.due||null, repeat:it.repeat||"none", priority:it.priority||0,
         flow:it.kind==="flow"?JSON.parse(JSON.stringify(it.flow||{})):null,
         // доска полотна живёт в S.boards, а не в самой ноде — копируем её отдельно,
@@ -1835,6 +1857,7 @@ class Graph{
     graphClip.items.forEach(d=>{
       const it=addItem({kind:d.kind,title:d.title,body:d.body,area:d.area,color:d.color,tags:(d.tags||[]).slice(),status:d.status,due:d.due,repeat:d.repeat,priority:d.priority});
       if(d.size) it.size=d.size;
+      if(d.branchmode) it.branchmode=d.branchmode; if(d.areamode) it.areamode=d.areamode; if(d.arealen) it.arealen=d.arealen;
       // область была унаследована — пусть такой и остаётся, иначе копия сама прицепится к хабу
       if(d.areaAuto===true) it.areaAuto=true;
       // согласуем done/status/doneAt (иначе вставленная выполненная задача = status:done но done:false)
@@ -5444,6 +5467,26 @@ class Graph{
      вида, поэтому удаление (subDrop), копия (subPack) и уборка санитайзера по-прежнему ведут
      его за нодой, а возврат вида открывает то же содержимое. Невидимым оно при этом становится —
      поэтому непустой подграф спрашиваем, а не меняем молча. */
+  /* РЕЖИМ СВЯЗЕЙ ВЕТКИ (it.branchmode): кликнутой ноде или всему выделению, если она в нём (как
+     _setStatus). между — вместо ветки режим САМИХ связей, у которых оба конца выделены: у ручной —
+     4-й элемент S.links, у нити к области — it.areamode её ноды. m=null — сбросить. Маршруты
+     пересоберёт первый же кадр (грязно), подбор пересмотрит задетые связи. */
+  _setBranchMode(n, m, между){
+    const ids=(this.selNodes && this.selNodes.has(n.id) && this.selNodes.size>1) ? [...this.selNodes] : [n.id];
+    let сколько=0;
+    if(между && ids.length>1){ const набор=new Set(ids);
+      for(const l of this.links){ if(!набор.has(l.a) || !набор.has(l.b)) continue;
+        if(l.src){ if(m){ l.src[2]=+l.src[2]||1; l.src[3]=m; } else l.src.length=Math.min(l.src.length,3); сколько++; }
+        else { const it=S.items.find(x=>x.id===(isHubId(l.a)?l.b:l.a));
+          if(it){ if(m) it.areamode=m; else delete it.areamode; l.areaMode=it.areamode; сколько++; } } }
+    } else for(const id of ids){ const it=S.items.find(x=>x.id===id); if(!it) continue;
+      if(m) it.branchmode=m; else delete it.branchmode; сколько++; }
+    persist();
+    if(this._маршр) this._маршр.грязно=true;
+    this._wake(); this._tick(true);
+    const что=m ? linkModeInfo(m).label : "как у графа";
+    toast(между ? "Связи между выделенными: "+что+" · "+сколько : (сколько>1 ? "Связи веток: "+что+" · "+сколько : "Связи ветки: "+что), {icon:"ti-route"});
+  }
   async _setKind(n, kind){
     if(!KINDS[kind]) return;
     const ids=(this.selNodes.has(n.id) && this.selNodes.size>1) ? [...this.selNodes] : [n.id];
@@ -7970,6 +8013,15 @@ class Graph{
       <div class="np-row np-stat np-kind">
         ${Object.keys(KINDS).map(k=>`<button class="btn ${it.kind===k?"primary":""}" data-kind="${k}" title="${esc(kindName(k))}"><i class="ti ${kindIcon(k)}"></i><span>${esc(kindName(k))}</span></button>`).join("")}
       </div>
+      ${/* СВЯЗИ ВЕТКИ — режим связей для всех связей от этой ноды вниз по дереву (it.branchmode, старшинство
+           в _routeBuild). На выделение — как статус: кликнутая нода в выделении — режим всем выделенным.
+           «Между выделенными» — режим самих связей, у которых оба конца выделены (как «Вид» в меню связи). */""}
+      ${(()=>{ const множ=this.selNodes.has(n.id) && this.selNodes.size>1;
+        return `<div class="np-stat-lbl">Связи ветки${множ?` · ${this.selNodes.size}`:""}${множ?`<button class="np-bm-scope" data-bm-scope title="Только связи между выделенными нодами — не вся ветка">между выделенными</button>`:""}</div>
+      <div class="np-row np-stat np-bm">
+        ${LINK_MODES.map(x=>`<button class="btn ${it.branchmode===x.id?"primary":""}" data-bm="${x.id}" title="${esc(x.label)} — все связи от ноды вниз по дереву"><i class="ti ${x.icon}"></i></button>`).join("")}
+        <button class="btn ${!it.branchmode?"primary":""}" data-bm="" title="Сбросить: как у графа (${esc(linkModeInfo().label)})"><i class="ti ti-arrow-back-up"></i></button>
+      </div>`; })()}
       <div class="np-row np-act">
         ${it.folder
           ? `<div class="np-split">
@@ -8025,6 +8077,10 @@ class Graph{
       };
     });
     $$('[data-kind]', pop).forEach(b=>{ b.onclick=()=>{ if(!b.classList.contains("primary")) this._setKind(n, b.dataset.kind); }; });
+    // связи ветки: «между выделенными» — переключатель области действия рядом с подписью ряда
+    let междуВыд=false; const обл=pop.querySelector('[data-bm-scope]');
+    if(обл) обл.onclick=()=>{ междуВыд=!междуВыд; обл.classList.toggle("on", междуВыд); };
+    $$('[data-bm]', pop).forEach(b=>{ b.onclick=()=>{ this._setBranchMode(n, b.dataset.bm||null, междуВыд); this._closePop(); }; });
     const setSize=(d)=>{ const cur=+it.size||1; it.size=Math.max(0.4,Math.min(3,+(cur+d).toFixed(2))); touch(it); persist(); this.build(); const v=$(".np-sz-val",pop); if(v) v.textContent=(+it.size).toFixed(1)+"×"; };
     if(pop.querySelector('[data-pop="size-"]')) pop.querySelector('[data-pop="size-"]').onclick=()=>setSize(-0.2);
     if(pop.querySelector('[data-pop="size+"]')) pop.querySelector('[data-pop="size+"]').onclick=()=>setSize(0.2);
