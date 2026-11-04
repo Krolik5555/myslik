@@ -779,7 +779,8 @@ class Graph{
   _syncAsideLater(){
     clearTimeout(this._asideT);
     this._asideT=setTimeout(()=>{ this._asideT=null;
-      if(this.drag || this.marq || this.connectDrag){ this._syncAsideLater(); return; }
+      // и окно сетки должно успеть сойтись: перерисовка панели посреди схлопывания рвала анимацию (КРОЛИК: «конец фризит»)
+      if(this.drag || this.marq || this.connectDrag || this._snapWinAnim){ this._syncAsideLater(); return; }
       this._syncAside();
     }, 140);
   }
@@ -2788,7 +2789,11 @@ class Graph{
           if(this.copyDrag){ this.copyDrag=false; this._startCopyDrag(); this._layoutBefore=null; }
           // Ctrl, зажатый С НАЧАЛА, — это копия, а не «привязка наоборот»: переворачивает только нажатый посреди жеста
           this._snapCtrl0=!!e.ctrlKey; this._snapGoal=null; this._snapOff=null; this._snapKey="";
-          this._snapLensColor=null; this._snapWinBg=null;   // тон темы перечитываем на каждый жест: тему могли сменить
+          /* Цвета кромки темы для окна сетки — СЕЙЧАС, на пороге протяжки, а не в первом кадре окна:
+             getComputedStyle пересчитывает стили, и в кадре раскрытия это читалось как фриз старта. */
+          if(S.settings.graphSnap){ const cs=getComputedStyle(document.body);
+            this._snapWinHue=[cs.getPropertyValue("--hue-a").trim()||NEUTRAL(), cs.getPropertyValue("--hue-b").trim()||NEUTRAL()]; }
+          else this._snapWinHue=null;
         }
         // Shift, нажатый или отпущенный посреди протяжки, ловим и здесь: keydown мог уйти мимо окна
         if(!!e.shiftKey!==this._shiftNow) this._soloShift(!!e.shiftKey);
@@ -6897,13 +6902,13 @@ class Graph{
     }
     /* ОКНО СЕТКИ ПРИВЯЗКИ (выбор КРОЛИКА из demo_привязка.html, 04.11.2026; заменило линзу крестиков
        и тёмную подложку, которую он забраковал: «тёмные штампы по всему холсту»). Пока привязка
-       включена и нода в руке, вокруг неё круг, в котором фон МЯГКО ГАСНЕТ — звёзды, пыль, рельеф и
-       прочее тонут, — и проступает сама сетка: мелкие клетки тонкими линиями с маленькими
+       включена и нода в руке, вокруг неё круг, в котором проступает сама сетка неоном цветов кромки
+       темы (фон не гасим — см. «НЕОН» ниже): мелкие клетки тонкими линиями с маленькими
        крестиками на узлах, крупные — линиями потолще и жирными крестиками. На ЛЮБОМ фоне, чтобы
        система была одна. Окно РАСХОДИТСЯ от ноды при захвате и СХОДИТСЯ в неё при отпускании —
        ход ведёт _tick по времени (_snapWin.k). Линии и крестики — в тех же floor()+0.5, что фон
        «Сетка», иначе разошлись бы с ним на пиксель.
-       Как рисуется: гашение фона и линии кладутся в маленький холст размером с окно (_snapWinCv) и
+       Как рисуется: линии кладутся в маленький холст размером с окно (_snapWinCv) и
        режутся радиальной маской (destination-in) — край круга мягкий, а прочий кадр не трогается.
        Рисуется ДО связей и нод: окно глушит фон, а не граф. */
     const ок=this._snapWin;
@@ -6912,25 +6917,36 @@ class Graph{
       // область меньше и края мягче» (КРОЛИК, снимок на звёздах); было 4 клетки, 0.9 и плато до 0.55
       const d0=ок.n, s=ок.s, R=4, ОКНО=2.6, ф=this._snapFineStep(s), RW=ОКНО*s*ок.k, RP=RW*z;
       const cx=d0.x*z+tx, cy=d0.y*z+ty;
-      if(!this._snapLensColor) this._snapLensColor=NEUTRAL();   // тон темы; getComputedStyle — один раз на жест
-      if(!this._snapWinBg) this._snapWinBg=getComputedStyle(document.body).getPropertyValue("--bg").trim()||"#141517";
+      /* НЕОН ПЕРЕЛИВОМ КРОМКИ (выбор КРОЛИКА в demo_привязка.html): линии и крестики — двумя цветами
+         кромки темы (--hue-a сверху-слева → --hue-b снизу-справа), как контур панелей. Цветом сетка и
+         отличается от белых звёзд, поэтому фон под окном БОЛЬШЕ НЕ ГАСИМ: тон страницы темнее холста, и
+         круг читался тёмным диском с ореолом по краю («фон в этой области чёрный», КРОЛИК). Цвета
+         читаем раз на жест: getComputedStyle дорог, а тему посреди протяжки не меняют. */
+      if(!this._snapWinHue){ const cs=getComputedStyle(document.body);
+        this._snapWinHue=[cs.getPropertyValue("--hue-a").trim()||NEUTRAL(), cs.getPropertyValue("--hue-b").trim()||NEUTRAL()]; }
+      const перелив=(c)=>{ const г=c.createLinearGradient(cx-RP,cy-RP,cx+RP,cy+RP);
+        г.addColorStop(0,this._snapWinHue[0]); г.addColorStop(1,this._snapWinHue[1]); return г; };
       if(RP>=2){
         // 1) маленький холст под окно, с целым началом в пикселях устройства — линии не размываются
         const ox=Math.floor((cx-RP)*dpr), oy=Math.floor((cy-RP)*dpr), сторона=Math.ceil(2*RP*dpr)+2;
+        /* Холст окна — под ПОЛНЫЙ радиус, и только растёт: раньше он подгонялся под текущий радиус,
+           а тот меняется каждый кадр раскрытия и схлопывания — новый холст (выделение текстуры) почти
+           на каждом кадре и был фризом старта и конца анимации (КРОЛИК). */
+        const полн=Math.ceil(2*ОКНО*s*z*dpr)+2;
         const ос=this._snapWinCv||(this._snapWinCv=document.createElement("canvas"));
-        if(ос.width<сторона || ос.height<сторона || ос.width>сторона*2){ ос.width=сторона; ос.height=сторона; }
+        if(ос.width<полн || ос.height<полн){ ос.width=полн; ос.height=полн; }
         const oc=ос.getContext("2d");
-        oc.setTransform(1,0,0,1,0,0); oc.globalCompositeOperation="source-over"; oc.globalAlpha=1; oc.clearRect(0,0,ос.width,ос.height);
+        oc.setTransform(1,0,0,1,0,0); oc.globalCompositeOperation="source-over"; oc.globalAlpha=1; oc.clearRect(0,0,сторона,сторона);   // чистим только занятое в этом кадре
         oc.setTransform(dpr,0,0,dpr,-ox,-oy);
-        // гашение фона: тон страницы, плотный в середине — звёзды под ним тонут
-        oc.globalAlpha=0.6; oc.fillStyle=this._snapWinBg; oc.fillRect(cx-RP, cy-RP, 2*RP, 2*RP);
-        oc.strokeStyle=this._snapLensColor;
-        const линии=(шаг,а,толщ)=>{ oc.globalAlpha=а; oc.lineWidth=толщ; oc.beginPath();
+        oc.strokeStyle=перелив(oc);
+        // неон: тонкая линия поверх слабого широкого свечения того же цвета (свечение тише — без ореола)
+        const линии=(шаг,а,толщ)=>{ oc.beginPath();
           for(let wx=Math.ceil((cx-RP-tx)/z/шаг)*шаг; wx*z+tx<=cx+RP; wx+=шаг){ const sx=Math.floor(wx*z+tx)+0.5; oc.moveTo(sx,cy-RP); oc.lineTo(sx,cy+RP); }
           for(let wy=Math.ceil((cy-RP-ty)/z/шаг)*шаг; wy*z+ty<=cy+RP; wy+=шаг){ const sy=Math.floor(wy*z+ty)+0.5; oc.moveTo(cx-RP,sy); oc.lineTo(cx+RP,sy); }
-          oc.stroke(); };
-        if(ф) линии(ф, 0.16, 0.6);   // мелкие клетки — тонко
-        линии(s, 0.34, 1);           // крупные — потолще
+          oc.globalAlpha=а*0.22; oc.lineWidth=толщ*3.5; oc.stroke();
+          oc.globalAlpha=а; oc.lineWidth=толщ; oc.stroke(); };
+        if(ф) линии(ф, 0.24, 0.6);   // мелкие клетки — тонко
+        линии(s, 0.5, 1);            // крупные — потолще
         // 2) радиальная маска: середина видна, край тает
         const маска=oc.createRadialGradient(cx,cy,0,cx,cy,RP);
         маска.addColorStop(0,"rgba(0,0,0,1)"); маска.addColorStop(0.3,"rgba(0,0,0,0.8)");
@@ -6939,10 +6955,11 @@ class Graph{
         ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.globalAlpha=1; ctx.drawImage(ос, 0, 0, сторона, сторона, ox, oy, сторона, сторона); ctx.restore();
       }
       // 3) крестики узлов поверх окна; появляются вместе с раскрытием (радиус RW)
-      ctx.save(); ctx.strokeStyle=this._snapLensColor;
+      ctx.save(); ctx.strokeStyle=перелив(ctx);
       const крест=(wx,wy,кк,а,толщ)=>{ const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5;
-        ctx.globalAlpha=а; ctx.lineWidth=толщ; ctx.beginPath();
-        ctx.moveTo(sx-кк,sy); ctx.lineTo(sx+кк,sy); ctx.moveTo(sx,sy-кк); ctx.lineTo(sx,sy+кк); ctx.stroke(); };
+        ctx.beginPath(); ctx.moveTo(sx-кк,sy); ctx.lineTo(sx+кк,sy); ctx.moveTo(sx,sy-кк); ctx.lineTo(sx,sy+кк);
+        ctx.globalAlpha=а*0.25; ctx.lineWidth=толщ*3; ctx.stroke();   // слабое неоновое свечение под крестиком
+        ctx.globalAlpha=а; ctx.lineWidth=толщ; ctx.stroke(); };
       const наКрупном=(wx,wy)=>Math.abs(wx/s-Math.round(wx/s))<1e-9 && Math.abs(wy/s-Math.round(wy/s))<1e-9;
       /* Мелкие узлы — маленькими тонкими крестиками, на приближении чуть крупнее (КРОЛИК). Их в круге
          до полутора тысяч — по stroke на каждый это мс в кадре, поэтому шесть корзин яркости. */

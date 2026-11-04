@@ -35,6 +35,19 @@
     <button data-v="halo">сейчас (подложка)</button>
   </div>
   <p id="fv-desc"></p>
+  <div class="row">Цвет окна сетки</div>
+  <div class="seg" id="b-col">
+    <button data-v="white">Белый (сейчас)</button>
+    <button data-v="neon1">Неон: цвет темы</button>
+    <button data-v="neon2" class="on">Неон: перелив кромки</button>
+  </div>
+  <div class="row">Тема оформления</div>
+  <div class="seg" id="b-pal">
+    <button data-v="0" class="on">Графит</button>
+    <button data-v="1">Лёд</button>
+    <button data-v="2">Закат</button>
+    <button data-v="3">Бирюза</button>
+  </div>
   <div class="row">Фон холста</div>
   <div class="seg" id="b-bg">
     <button data-v="stars" class="on">Звёзды</button>
@@ -49,6 +62,11 @@
 const cv=document.getElementById("cv"), ctx=cv.getContext("2d");
 let W=0,H=0,dpr=1, z=3, tx=0, ty=0;
 const ST={mode:"near", fine:8, afine:"yes", bg:"stars", fv:"window"};
+/* Цвета тем — из styles.css («ЦВЕТОВЫЕ ТЕМЫ»): a/b — кромка панелей (--hue-a/--hue-b), btn — главная
+   кнопка (--btn-a). Неон одним цветом берёт --btn-a, перелив — --hue-a → --hue-b по диагонали, как кромка. */
+const PALS=[{a:"#ffffff",b:"#e8a14b",btn:"#e8a14b"},{a:"#5cc8ff",b:"#8b6cff",btn:"#7fd6ff"},
+            {a:"#ff7eb6",b:"#ffb36b",btn:"#ff9cc8"},{a:"#4fd1c5",b:"#e0894d",btn:"#7fe0d6"}];
+let PAL=PALS[0], COL="neon2";
 const FV_DESC={
   window:"Г. Окно сетки (идея КРОЛИКА), на любом фоне: при захвате окно расходится от ноды, при отпускании сходится в неё. Фон внутри мягко затемнён — звёзды гаснут, — и проступает сама сетка: мелкие клетки тонкими линиями с маленькими крестиками на узлах (на приближении чуть крупнее), крупные — линиями потолще и жирными крестиками.",
   near:"А. Мелкие видны только в ближнем круге — две мелкие клетки вокруг ноды. Дальше линза из одних крупных: картинка лёгкая, а там, куда кладёшь, мелкие под рукой.",
@@ -162,21 +180,25 @@ function winAnim(){
     if(t>=1){ win.k=win.target; win.raf=0; if(!win.k) win.n=null; draw(); return; }
     draw(); win.raf=requestAnimationFrame(step); };
   win.raf=requestAnimationFrame(step); }
+// цвет окна: белый — как сейчас; неон — цвет главной кнопки темы или перелив двух цветов кромки по диагонали
+function ink(c, cx, cy, RP){
+  if(COL==="white") return "#e6e6e6";
+  if(COL==="neon1") return PAL.btn;
+  const g=c.createLinearGradient(cx-RP,cy-RP,cx+RP,cy+RP); g.addColorStop(0,PAL.a); g.addColorStop(1,PAL.b); return g; }
 function gridWindow(n, S, f, R){
   const e=ease(win.k), cx=(n.x+(n.ox||0))*z+tx, cy=(n.y+(n.oy||0))*z+ty, RP=Math.max(1,2.6*S*z*e);   // радиус окна — 2.6 крупной клетки, как в приложении
-  // 1) затемнение: тон холста, плотный в середине и тающий к краю — звёзды под ним гаснут
-  const g=ctx.createRadialGradient(cx,cy,0,cx,cy,RP);
-  g.addColorStop(0,"rgba(20,21,23,0.6)"); g.addColorStop(0.3,"rgba(20,21,23,0.48)"); g.addColorStop(0.65,"rgba(20,21,23,0.19)"); g.addColorStop(1,"rgba(20,21,23,0)");
-  ctx.save(); ctx.globalAlpha=1; ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,RP,0,Math.PI*2); ctx.fill(); ctx.restore();
+  // 1) фон НЕ гасим: тёмный диск с ореолом по краю КРОЛИК забраковал — сетку от звёзд отличает цвет
   // 2) линии сетки в отдельный холст
   if(lensCv.width!==cv.width||lensCv.height!==cv.height){ lensCv.width=cv.width; lensCv.height=cv.height; }
   lctx.setTransform(dpr,0,0,dpr,0,0); lctx.globalCompositeOperation="source-over"; lctx.clearRect(0,0,W,H);
-  lctx.strokeStyle="#fff";
+  lctx.strokeStyle=ink(lctx,cx,cy,RP);
   const x0=cx-RP, x1=cx+RP, y0=cy-RP, y1=cy+RP;
-  const lines=(s,a,w)=>{ lctx.globalAlpha=a; lctx.lineWidth=w; lctx.beginPath();
+  // неон: под тонкой линией — широкий слабый ореол того же цвета; белый — как был, без ореола
+  const lines=(s,a,w)=>{ lctx.beginPath();
     for(let wx=Math.ceil((x0-tx)/z/s)*s; wx*z+tx<=x1; wx+=s){ const sx=Math.floor(wx*z+tx)+0.5; lctx.moveTo(sx,y0); lctx.lineTo(sx,y1); }
     for(let wy=Math.ceil((y0-ty)/z/s)*s; wy*z+ty<=y1; wy+=s){ const sy=Math.floor(wy*z+ty)+0.5; lctx.moveTo(x0,sy); lctx.lineTo(x1,sy); }
-    lctx.stroke(); };
+    if(COL!=="white"){ lctx.globalAlpha=a*1.5*0.22; lctx.lineWidth=w*3.5; lctx.stroke(); lctx.globalAlpha=a*1.5; lctx.lineWidth=w; lctx.stroke(); }
+    else { lctx.globalAlpha=a; lctx.lineWidth=w; lctx.stroke(); } };
   if(f) lines(f, 0.16, 0.6);   // мелкие клетки — тонко
   lines(S, 0.34, 1);           // крупные — потолще
   // 3) радиальная маска: в середине линии видны, к краю тают
@@ -190,9 +212,12 @@ function lens(n){
   if(ST.fv==="window"){   // окно — на ЛЮБОМ фоне (КРОЛИК: «с чистым фоном и другими нужна такая же система»)
     gridWindow(n, S, f, R);
     const e=ease(win.k), RW=2.6*S*e;   // крестики появляются вместе с раскрытием окна
-    ctx.save(); ctx.strokeStyle="#e6e6e6";
-    const cr=(wx,wy,k,a,w)=>{ const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5; ctx.globalAlpha=a; ctx.lineWidth=w; ctx.beginPath();
-      ctx.moveTo(sx-k,sy); ctx.lineTo(sx+k,sy); ctx.moveTo(sx,sy-k); ctx.lineTo(sx,sy+k); ctx.stroke(); };
+    const RPx=RW*z, scx=cx*z+tx, scy=cy*z+ty;
+    ctx.save(); ctx.strokeStyle=ink(ctx,scx,scy,Math.max(1,RPx));
+    const cr=(wx,wy,k,a,w)=>{ const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5; ctx.beginPath();
+      ctx.moveTo(sx-k,sy); ctx.lineTo(sx+k,sy); ctx.moveTo(sx,sy-k); ctx.lineTo(sx,sy+k);
+      if(COL!=="white"){ ctx.globalAlpha=a*0.25; ctx.lineWidth=w*3; ctx.stroke(); }   // слабое неоновое свечение под крестиком
+      ctx.globalAlpha=a; ctx.lineWidth=w; ctx.stroke(); };
     // мелкие узлы — маленькими крестиками на пересечениях тонких линий; на приближении чуть крупнее
     if(f && RW>0){ const kf=Math.max(1.5, Math.min(3.5, f*z*0.1)), N=Math.ceil(RW/f), fx0=Math.round(cx/f), fy0=Math.round(cy/f);
       for(let i=-N;i<=N;i++) for(let j=-N;j<=N;j++){ const wx=(fx0+i)*f, wy=(fy0+j)*f;
@@ -262,6 +287,10 @@ const fvSet=v=>{ ST.fv=v; fvBtns.forEach(x=>x.classList.toggle("on",x.dataset.v=
 fvBtns.forEach(b=>b.addEventListener("click",()=>fvSet(b.dataset.v)));
 /* Ноду держим «в руке» сразу, чтобы линза была видна без протяжки: стартовый вид — звёзды, зум 3. */
 fvSet("window");
+for(const [id,set] of [["b-col",v=>{COL=v;}],["b-pal",v=>{PAL=PALS[+v];}]]){
+  const box=document.getElementById(id);
+  box.addEventListener("click",e=>{ const b=e.target.closest("button"); if(!b) return; set(b.dataset.v);
+    box.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b)); draw(); }); }
 drag={n:nodes[0],dx:0,dy:0,was:"",free:{x:nodes[0].x+7,y:nodes[0].y+5}}; nodes[0].x+=7; nodes[0].y+=5;
 win.n=nodes[0]; win.k=1; win.target=1; draw();
 // первый же клик снимает показную «ноду в руке», и окно сходится — дальше всё по-настоящему
