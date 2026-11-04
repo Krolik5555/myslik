@@ -109,10 +109,16 @@ for (const реж of ["td", "hz"]) {
 {
   const шаг = graph._tidyGridStep();
   t.push({имя:"сетка: шаг раскладки — ступень лестницы привязки, не мельче ноды", ок: шаг >= 14 && шаг <= 40, факт: шаг + " px"});
+  /* Оба прогона — с ОДНИХ И ТЕХ ЖЕ мест: кусты берут направления веток из того, где ноды стоят, а
+     после отката физика их сдвигает, и сравнение «без сетки → с сеткой» гуляло (подписи 7 → 8 и
+     14 → 10 на соседних прогонах) — сравнивались две разные раскладки, а не сетка. */
+  const исход = new Map(свои.map(n => { const жн = graph.byId[n.id]; return [n.id, {x: жн ? жн.x : n.x, y: жн ? жн.y : n.y}]; }));
   for (const реж of ["td", "hz", "bush"]) {
     const прогон = async сетка => {
       S.settings.graphSnap = сетка;
       свои.splice(0, свои.length, ...свои.map(n => поId(n.id)));
+      свои.forEach(n => { const и = исход.get(n.id), жн = graph.byId[n.id]; if (!и) return; n.x = и.x; n.y = и.y;
+        if (жн) { жн.x = и.x; жн.y = и.y; жн.vx = 0; жн.vy = 0; } });
       graph.selNodes = new Set(свои.map(n => n.id)); graph._paintSel();
       const ок = graph._tidySelection(реж); await ж(120);
       свои.splice(0, свои.length, ...свои.map(n => поId(n.id)));

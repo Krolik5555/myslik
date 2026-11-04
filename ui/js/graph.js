@@ -5147,7 +5147,20 @@ class Graph{
       const доОтр=(p,a,b)=>{ const dx=b.x-a.x, dy=b.y-a.y, L=dx*dx+dy*dy||1, t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/L));
         return Math.hypot(p.x-a.x-t*dx, p.y-a.y-t*dy); };
       const тесн=(p,q)=>Math.hypot((p.x-q.x)/ГОР_В, p.y-q.y);
+      /* ПОДПИСИ — прямой проверкой: теснота по кругу их не ловила (линейка: 6 → 7 и 7 → 8 пар
+         внахлёст с одних и тех же мест), подпись под нодой шириной в сотню пикселей. Узел годится,
+         если пар внахлёст у ноды не больше, чем было на её месте без сетки. */
+      const шП={}, шпод=id=>шП[id]!=null ? шП[id] : (шП[id]=this._tidyLabelW(id, (дети[id]||[]).length>0));
+      const рр=id=>(this.byId[id]&&this.byId[id].r)||8;
+      const коробка=(id,p)=>{ const w=шпод(id)/2, r=рр(id); return [p.x-w, p.y+r+3, p.x+w, p.y+r+18]; };
+      const круг=(id,p)=>{ const r=рр(id); return [p.x-r, p.y-r, p.x+r, p.y+r]; };
+      const нахл=(a,b)=>a[0]<b[2] && b[0]<a[2] && a[1]<b[3] && b[1]<a[3];
+      const пар=(id,pt,где)=>{ let n=0; const кб=коробка(id,pt), кр=круг(id,pt);
+        for(const k in где){ if(k===id) continue; const q=где[k];
+          if(нахл(кб,коробка(k,q)) || нахл(кб,круг(k,q)) || нахл(кр,коробка(k,q))) n++; }
+        return n; };
       const плохо=(id,pt)=>{
+        if(пар(id,pt,цель)>пар(id,сырые[id],сырые)) return true;
         for(const [a,b] of рёбра){ if(a===id || b===id) continue; if(доОтр(pt,цель[a],цель[b])<рад(id)) return true; }
         for(const o of (инц[id]||[])) for(const k in цель){ if(k===id || k===o) continue; if(доОтр(цель[k],pt,цель[o])<рад(k)) return true; }
         for(const k in цель){ if(k===id) continue; const было=тесн(сырые[id],сырые[k]);
@@ -5236,12 +5249,8 @@ class Graph{
     const сеть=S.settings.graphSnap ? this._tidyGridStep() : 0;
     const вв=v=>сеть ? Math.ceil(v/сеть-1e-6)*сеть : v, кр=v=>сеть ? Math.round(v/сеть)*сеть : v;
     const СТОПКА=сеть ? вв(36) : 44, ЯРУС=вв(96), СТОЛБЕЦ=вв(СТОЛБЕЦ_);
-    const мер=this._tidyMeasure || (this._tidyMeasure=document.createElement("canvas").getContext("2d"));
     const шир={}, р=id=>жив(id).r||8;
-    const ш=id=>{ if(шир[id]!=null) return шир[id];
-      const n=жив(id); let т=(n.label||"").trim()||"(без названия)"; if(т.length>22) т=т.slice(0,21)+"…";
-      мер.font=(isHubId(id)?"600 13.5px ":дети[id].length?"600 12px ":"10.5px ")+"system-ui, -apple-system, Segoe UI, sans-serif";
-      return шир[id]=Math.ceil(мер.measureText(т).width)+8; };
+    const ш=id=>шир[id]!=null ? шир[id] : (шир[id]=this._tidyLabelW(id, дети[id].length>0));
     const цепь=id=>{ const o=[]; let c=id; while(дети[c].length===1){ c=дети[c][0]; o.push(c); } return o; };
     const под=id=>{ const o=[id]; for(let i=0;i<o.length;i++) o.push(...дети[o[i]]); return o; };
     const рамка=(P,спис)=>{ let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
@@ -5404,6 +5413,15 @@ class Graph{
      (лист — 14 в диаметре) — на любом зуме это 20: итог раскладки от зума не зависит, а мельче
      ноды узел ничего не упорядочивает. При отдалении уровень 20 не нарисован, но его узлы лежат
      и на линиях крупных уровней через один на пять — приблизишь, и ноды стоят на точках. */
+  /* ШИРИНА ПОДПИСИ — тем же шрифтом и с той же обрезкой до 22 знаков, что в _drawMain. Одна на ярусы
+     и на проверку узла у кустов с сеткой: мерь они по-разному, «подписи не налезают» значило бы
+     разное в двух местах. */
+  _tidyLabelW(id, сДетьми){
+    const мер=this._tidyMeasure || (this._tidyMeasure=document.createElement("canvas").getContext("2d"));
+    const n=this.byId[id]; let т=((n&&n.label)||"").trim()||"(без названия)"; if(т.length>22) т=т.slice(0,21)+"…";
+    мер.font=(isHubId(id)?"600 13.5px ":сДетьми?"600 12px ":"10.5px ")+"system-ui, -apple-system, Segoe UI, sans-serif";
+    return Math.ceil(мер.measureText(т).width)+8;
+  }
   _tidyGridStep(){
     const МИН=14;
     let s=this._snapStepFor(null);
