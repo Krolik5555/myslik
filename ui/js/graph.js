@@ -159,6 +159,7 @@ function renderNotes(v){
       <!-- «Держать раскладку»: у каждой ноды появляется дом, к которому её мягко тянет.
            Состояние читается видом кнопки — подписи в тулбаре нет и заводить её негде. -->
       <button class="btn ghost${S.settings.graphHome?" on":""}" id="g-home" title="Держать раскладку"><i class="ti ti-home"></i></button>
+      <button class="btn ghost${S.settings.graphSnap?" on":""}" id="g-snap" title="Привязка к сетке (Ctrl+') · Ctrl, зажатый во время протяжки, — наоборот"><i class="ti ti-magnet"></i></button>
       ${/* КНОПКА «ЧТО ГОРИТ» (2026-09-01). До этого режим включался ТОЛЬКО клавишей Ctrl+G —
            без единого видимого следа в интерфейсе. КРОЛИК опробовал двойной контур и номер
            очереди у горящих нод, но без кнопки их физически не с чем было увидеть: клавиша
@@ -217,6 +218,7 @@ function renderNotes(v){
   $("#g-search").onclick=()=>{ const box=$("#g-search-box"); if(box && box.style.display!=="none") graph.closeSearch(); else graph.openSearch(); };
   $("#g-focus").onclick=()=>graph._fitView();
   if($("#g-home")) $("#g-home").onclick=()=>graph.toggleHome();
+  if($("#g-snap")) $("#g-snap").onclick=()=>graph.toggleSnap();
   if($("#g-heat")) $("#g-heat").onclick=()=>graph.toggleHeat();
   // меню «Ещё»: редко используемые действия убраны из тулбара, чтобы не перегружать (зум — колесом)
   const moreMenu=$("#g-more-menu");
@@ -1959,17 +1961,30 @@ class Graph{
              координатами, их снимет обычный откат создания, а лишний шаг заставил бы жать
              Ctrl+Z дважды — сперва «копии прыгнули на место оригиналов», потом «исчезли». */
           if(this.copyDrag){ this.copyDrag=false; this._startCopyDrag(); this._layoutBefore=null; }
+          // Ctrl, зажатый С НАЧАЛА, — это копия, а не «привязка наоборот»: переворачивает только нажатый посреди жеста
+          this._snapCtrl0=!!e.ctrlKey; this._snapGoal=null; this._snapOff=null; this._snapKey="";
         }
         // тянем за ТУ ЖЕ точку, за которую взялись (см. _grab) — нода не прыгает центром под курсор
         const p=this._pt(e), g=this._grab||{dx:0,dy:0};
-        this.drag.x=p.x+g.dx; this.drag.y=p.y+g.dy; this.drag.vx=0; this.drag.vy=0;
+        let цx=p.x+g.dx, цy=p.y+g.dy;
+        /* ПРИВЯЗКА (см. _snapPoint). Маркера точки на холсте нет намеренно — кольцо «где притянет»
+           КРОЛИК забраковал как лишнее. Привязку показывает само движение: нода не прыгает на
+           точку, а доезжает до неё за несколько кадров и так же мягко отлипает. Цель (_snapGoal)
+           ставится сразу, тает только сдвиг отрисовки (_snapOff, гасит _tick), поэтому бросок
+           всегда кладёт ноду ровно в точку. Сглаживаем лишь смену точки — свободное ведение
+           идёт за рукой без задержки. */
+        const привязка=!!S.settings.graphSnap !== (!!e.ctrlKey && !this._snapCtrl0);
+        const т=привязка ? this._snapPoint(цx, цy, this.drag) : null;
+        if(т){ цx=т.x; цy=т.y; }
+        const ключ=т ? т.x+","+т.y : "";
+        if(ключ!==this._snapKey){ this._snapKey=ключ; this._snapOff={x:this.drag.x-цx, y:this.drag.y-цy}; }
+        this._snapGoal={x:цx, y:цy};
+        const о=this._snapOff;
         /* Пассажиры едут ЖЁСТКО за ведущей, а не тянутся резинкой: группа держит форму, и по ней
            видно, куда её кладут. Стоимость кадра — одно сложение на ноду поверх готовых смещений;
            координаты в DOM/холст пишет тот же цикл _tick, что и всегда, поэтому плавность
            одиночного перетаскивания не меняется. */
-        const М=this.dragMates;
-        if(М) for(let i=0;i<М.length;i++){ const м=М[i], q=м.n;
-          q.x=this.drag.x+м.dx; q.y=this.drag.y+м.dy; q.vx=0; q.vy=0; }
+        this._dragPlace(цx+(о?о.x:0), цy+(о?о.y:0));
         // сольный хват раскладку не греет: соседи обязаны стоять (см. pointerdown с Shift)
         if(!this._solo) this.alpha=Math.max(this.alpha,.4);
         this._wake(); return;
@@ -2024,6 +2039,9 @@ class Graph{
         return; }
       if(this.marq){ this._finishMarquee(); return; }
       if(this.drag){
+        // недоехавшее прилипание дожимаем: в данные уходит сама точка, а не кадр анимации
+        if(this.drag._moved && this._snapGoal) this._dragPlace(this._snapGoal.x, this._snapGoal.y);
+        this._snapGoal=null; this._snapOff=null; this._snapKey="";
         const n=this.drag;
         if(n._moved){   // позиции пишем ТОЛЬКО после настоящего перетаскивания — клик не должен трогать файл
           // соседи разъезжаются физикой и сохранятся, когда раскладка остынет (см. _tick)
@@ -4375,6 +4393,50 @@ class Graph{
     const b=$("#g-home"); if(b) b.classList.toggle("on",вкл);
     this.alpha=Math.max(this.alpha,0.3); this._wake();
   }
+  /* ПРИВЯЗКА К СЕТКЕ (S.settings.graphSnap, режим — S.settings.graphSnapMode; макет и выбор
+     КРОЛИКА — demo_привязка.html, 04.11.2026). Включение заодно включает «Держать раскладку»: без
+     домов физика растолкает ноду с точки через секунду, и привязка была бы видна только в руке.
+     С домом нода слушается одной домашней пружины (см. _tick) и стоит ровно там, где её бросили.
+     Выключение дома не трогает — это отдельный режим со своей кнопкой. */
+  toggleSnap(){
+    const вкл=!S.settings.graphSnap;
+    S.settings.graphSnap=вкл;
+    const дома=вкл && !S.settings.graphHome;
+    if(дома) this.toggleHome();
+    persist();
+    const b=$("#g-snap"); if(b) b.classList.toggle("on",вкл);
+    toast(вкл?"Привязка к сетке"+(дома?" · раскладка держится":""):"Привязка выключена",{icon:вкл?"ti-magnet":"ti-magnet-off"});
+  }
+  /* ТОЧКА ПРИВЯЗКИ — узел той же решётки, что рисует фон «Сетка» (_drawMain): уровни ×5 от шага 20
+     мира, считая от самого мелкого НАРИСОВАННОГО уровня (та же формула шага, при сильном
+     приближении это 4 мира). Из уровней берётся первый ЯРКИЙ — с SNAP_BRIGHT_PX экранного шага
+     уровень горит в полную силу, мельче тускнеет и целиться в него глазом нечем (КРОЛИК). Фоны
+     звёзд и пыли решётки не имеют: точки там разбросаны по ячейке, плывут и едут параллаксом,
+     попасть в них нельзя, поэтому решётка одна на все фоны.
+     «Как в Houdini» (near, по умолчанию) — притягивает только в радиусе от точки, и шаг вдобавок
+     не мельче самой ноды: при сильном приближении клетки меньше ноды, точка находилась бы под
+     любым положением, и «только рядом» ничем не отличалось бы от «всегда» (КРОЛИК). Радиус растёт
+     с клеткой — на квадратах в сотни пикселей 14 px не поймать. Вне радиуса — null, нода свободна. */
+  _snapPoint(x,y,n){
+    const SNAP_BRIGHT_PX=36, SNAP_NODE_K=1.5;
+    const z=this.zoom, near=S.settings.graphSnapMode!=="always";
+    let шаг=20*Math.pow(5, Math.ceil(Math.log(8/(20*z))/Math.log(5)));
+    шаг=Math.round(шаг*1e6)/1e6;   // 20·5^-1 в плавающей точке — 4.000000000000001, а узлы должны лечь ровно
+    let мин=SNAP_BRIGHT_PX/z;
+    if(near && n && n.r) мин=Math.max(мин, n.r*2*SNAP_NODE_K);
+    while(шаг*(1+1e-9)<мин) шаг*=5;
+    const px=Math.round(x/шаг)*шаг, py=Math.round(y/шаг)*шаг;
+    if(near){ const R=Math.min(40, Math.max(14, шаг*z*0.12)); if(Math.hypot(px-x,py-y)*z>R) return null; }
+    return {x:px, y:py, step:шаг};
+  }
+  // ведущая и пассажиры — на одну дельту: группа держит форму, привязывается только ведущая
+  _dragPlace(x,y){
+    const d=this.drag; if(!d) return;
+    d.x=x; d.y=y; d.vx=0; d.vy=0;
+    const М=this.dragMates;
+    if(М) for(let i=0;i<М.length;i++){ const м=М[i], q=м.n;
+      q.x=d.x+м.dx; q.y=d.y+м.dy; q.vx=0; q.vy=0; }
+  }
   /* force=true — нарисовать кадр ОБЯЗАТЕЛЬНО, не пропуская. Так зовёт build(): фигуры он создаёт
      БЕЗ координат (их ставит этот метод), поэтому пропуск первого же кадра оставлял бы весь граф
      невидимым. Раньше это и происходило: пропуск ниже работает через раз, а если окно не в фокусе
@@ -4383,6 +4445,11 @@ class Graph{
   _tick(force){
     this._прКадр=performance.now();   // от неё _schedule отсчитывает потолок частоты
     this._покойКадр=false;
+    // прилипание к точке сетки доезжает в кадре (см. onpointermove); граф во время протяжки и так не спит
+    if(this.drag && this._snapOff && this._snapGoal){ const о=this._snapOff;
+      о.x*=0.55; о.y*=0.55;
+      if(Math.abs(о.x)+Math.abs(о.y)<0.05/this.zoom){ о.x=0; о.y=0; }
+      this._dragPlace(this._snapGoal.x+о.x, this._snapGoal.y+о.y); }
     /* ЗАМЕР КАДРА — только когда счётчик включён (Ctrl+Shift+F). Три вызова performance.now()
        на кадр незачем платить всем и всегда, а КРОЛИКУ нужно видеть цену кадра в СВОЁМ файле и
        на своём железе: любой стенд мягче живой работы. */

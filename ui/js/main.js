@@ -608,6 +608,8 @@ function wireGlobal(){
          поля ввода. Shift проверяем ПЕРВЫМ: иначе Ctrl+G съел бы и сочетание с Shift. */
       if(e.code==="KeyG" && e.shiftKey){ e.preventDefault(); graph.heatNext(); return; }
       if(e.code==="KeyG"){ e.preventDefault(); graph.toggleHeat(); return; }
+      // привязка к сетке — Ctrl+' (так сетку включает Photoshop); по e.code, на русской раскладке это «Э»
+      if(e.code==="Quote" && !e.shiftKey){ e.preventDefault(); if(!e.repeat) graph.toggleSnap(); return; }
     }
     /* СТАТУС ВЫДЕЛЕНИЮ — Alt+1…6, по порядку из реестра СТАТУСЫ (core.js). Это ускоритель поверх
        ряда иконок в поповере, а не замена ему: механика без видимой поверхности не запоминается.

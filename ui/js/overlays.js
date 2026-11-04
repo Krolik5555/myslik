@@ -1390,6 +1390,11 @@ function openSettings(tab){
       <div class="field"><label>Новая нода по Alt</label>
         <div class="seg" id="set-altkind">${Object.keys(KINDS).map(k=>`<button data-v="${k}" class="${(KINDS[s.altKind]?s.altKind:"note")===k?"on":""}"><i class="ti ${kindIcon(k)}"></i>${esc(kindName(k))}</button>`).join("")}</div>
         <div class="set-hint">Каким видом рождается нода, если при Alt-создании вид не выбирать.</div></div>
+      ${/* ПРИВЯЗКА К СЕТКЕ — как она тянет; сама включается магнитом в тулбаре графа или Ctrl+'
+           (graph._snapPoint). По умолчанию «только рядом» — выбор КРОЛИКА из demo_привязка.html. */""}
+      <div class="field"><label>Привязка к сетке</label>
+        <div class="seg" id="set-snapmode">${[["near","Только рядом с точкой"],["always","Всегда к ближайшей"]].map(([v,l])=>`<button data-v="${v}" class="${(s.graphSnapMode==="always"?"always":"near")===v?"on":""}">${l}</button>`).join("")}</div>
+        <div class="set-hint">Включается магнитом над графом или Ctrl+'. «Только рядом» — как в Houdini: притягивает у самой точки, а при сильном приближении берёт клетки не мельче ноды. Ctrl, зажатый во время протяжки, — наоборот.</div></div>
       <!-- Чем рисуется граф. SVG — прежний путь со всеми возможностями; холст рисует дерево целиком
            и не создаёт элементов вовсе (на 650 узлах это 38 мс кадра из 47). Переключается на лету,
            данные не трогает: не понравилось — вернул обратно. -->
@@ -1527,6 +1532,8 @@ function openSettings(tab){
   $$("#set-glow button",m).forEach(b=>b.onclick=()=>{ s.glow=+b.dataset.v; persist(true); applySettings(); $$("#set-glow button",m).forEach(x=>x.classList.toggle("on",x===b)); });
   $$("#set-altkind button",m).forEach(b=>b.onclick=()=>{ s.altKind=b.dataset.v; persist(true);
     $$("#set-altkind button",m).forEach(x=>x.classList.toggle("on",x===b)); });
+  $$("#set-snapmode button",m).forEach(b=>b.onclick=()=>{ s.graphSnapMode=b.dataset.v; persist(true);
+    $$("#set-snapmode button",m).forEach(x=>x.classList.toggle("on",x===b)); });
   $$("#set-bg button",m).forEach(b=>b.onclick=()=>{ s.graphBgKind=b.dataset.v; s.graphBg=true; persist(true);
     $$("#set-bg button",m).forEach(x=>x.classList.toggle("on",x===b)); if(typeof graph!=="undefined" && graph){ graph._topo=null; graph._wake(); } });
   const drift=$("#set-drift",m); drift.oninput=()=>{ s.graphDrift=+drift.value; $("#val-drift",m).textContent=drift.value; persist(true); };   // граф читает S.settings каждый кадр → применяется вживую
