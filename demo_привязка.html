@@ -186,7 +186,7 @@ function ink(c, cx, cy, RP){
   if(COL==="neon1") return PAL.btn;
   const g=c.createLinearGradient(cx-RP,cy-RP,cx+RP,cy+RP); g.addColorStop(0,PAL.a); g.addColorStop(1,PAL.b); return g; }
 function gridWindow(n, S, f, R){
-  const e=ease(win.k), cx=(n.x+(n.ox||0))*z+tx, cy=(n.y+(n.oy||0))*z+ty, RP=Math.max(1,2.6*S*z*e);   // радиус окна — 2.6 крупной клетки, как в приложении
+  const e=ease(win.k), cx=(n.x+(n.ox||0))*z+tx, cy=(n.y+(n.oy||0))*z+ty, RP=Math.max(1,2*S*z*e);   // радиус окна — 2 крупные клетки, как в приложении
   // 1) фон НЕ гасим: тёмный диск с ореолом по краю КРОЛИК забраковал — сетку от звёзд отличает цвет
   // 2) линии сетки в отдельный холст
   if(lensCv.width!==cv.width||lensCv.height!==cv.height){ lensCv.width=cv.width; lensCv.height=cv.height; }
@@ -211,7 +211,7 @@ function lens(n){
   const S=coarseStep(n), f=fineStep(n), R=4, cx=n.x+(n.ox||0), cy=n.y+(n.oy||0);
   if(ST.fv==="window"){   // окно — на ЛЮБОМ фоне (КРОЛИК: «с чистым фоном и другими нужна такая же система»)
     gridWindow(n, S, f, R);
-    const e=ease(win.k), RW=2.6*S*e;   // крестики появляются вместе с раскрытием окна
+    const e=ease(win.k), RW=2*S*e;   // крестики появляются вместе с раскрытием окна
     const RPx=RW*z, scx=cx*z+tx, scy=cy*z+ty;
     ctx.save(); ctx.strokeStyle=ink(ctx,scx,scy,Math.max(1,RPx));
     const cr=(wx,wy,k,a,w)=>{ const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5; ctx.beginPath();

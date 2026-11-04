@@ -2791,9 +2791,7 @@ class Graph{
           this._snapCtrl0=!!e.ctrlKey; this._snapGoal=null; this._snapOff=null; this._snapKey="";
           /* Цвета кромки темы для окна сетки — СЕЙЧАС, на пороге протяжки, а не в первом кадре окна:
              getComputedStyle пересчитывает стили, и в кадре раскрытия это читалось как фриз старта. */
-          if(S.settings.graphSnap){ const cs=getComputedStyle(document.body);
-            this._snapWinHue=[cs.getPropertyValue("--hue-a").trim()||NEUTRAL(), cs.getPropertyValue("--hue-b").trim()||NEUTRAL()]; }
-          else this._snapWinHue=null;
+          this._snapWinRgb=S.settings.graphSnap ? this._snapRgbPair() : null;
         }
         // Shift, нажатый или отпущенный посреди протяжки, ловим и здесь: keydown мог уйти мимо окна
         if(!!e.shiftKey!==this._shiftNow) this._soloShift(!!e.shiftKey);
@@ -5719,6 +5717,17 @@ class Graph{
     if(!соло) this.alpha=Math.max(this.alpha,.4);
     this._wake();
   }
+  /* Цвета кромки темы (--hue-a, --hue-b) как «r,g,b» — для радиального градиента окна сетки, где
+     нужна своя прозрачность у каждой остановки. Разбор цвета отдаём самому холсту: присвоенный
+     fillStyle он возвращает нормализованным (#rrggbb), и любой CSS-цвет темы читается одинаково. */
+  _snapRgbPair(){
+    const cs=getComputedStyle(document.body), c=this.mainCtx||document.createElement("canvas").getContext("2d");
+    const rgb=v=>{ c.fillStyle="#fff"; c.fillStyle=v||NEUTRAL(); const h=String(c.fillStyle);
+      if(h[0]==="#"){ const n=parseInt(h.slice(1,7),16); return ((n>>16)&255)+","+((n>>8)&255)+","+(n&255); }
+      const m=h.match(/[\d.]+/g); return m ? m.slice(0,3).join(",") : "255,255,255"; };
+    return {a:rgb(cs.getPropertyValue("--hue-a").trim()), b:rgb(cs.getPropertyValue("--hue-b").trim()),
+            light:document.body.classList.contains("light")};
+  }
   // ведущая и пассажиры — на одну дельту: группа держит форму, привязывается только ведущая
   _dragPlace(x,y){
     const d=this.drag; if(!d) return;
@@ -6908,80 +6917,68 @@ class Graph{
        система была одна. Окно РАСХОДИТСЯ от ноды при захвате и СХОДИТСЯ в неё при отпускании —
        ход ведёт _tick по времени (_snapWin.k). Линии и крестики — в тех же floor()+0.5, что фон
        «Сетка», иначе разошлись бы с ним на пиксель.
-       Как рисуется: линии кладутся в маленький холст размером с окно (_snapWinCv) и
-       режутся радиальной маской (destination-in) — край круга мягкий, а прочий кадр не трогается.
+       Как рисуется: прямо в основной холст, мягкий край даёт радиальный градиент в цвете линий
+       (разбор — у «НЕОН» ниже).
        Рисуется ДО связей и нод: окно глушит фон, а не граф. */
     const ок=this._snapWin;
     if(ок && ок.n && ок.k>0 && ок.s){
-      // радиус окна 2.6 крупной клетки, гашение 0.6 и долгий спад маски — «слишком сильно затеняется,
-      // область меньше и края мягче» (КРОЛИК, снимок на звёздах); было 4 клетки, 0.9 и плато до 0.55
-      const d0=ок.n, s=ок.s, R=4, ОКНО=2.6, ф=this._snapFineStep(s), RW=ОКНО*s*ок.k, RP=RW*z;
+      /* РАДИУС 2 крупные клетки (было 4 → 2.6 → 2: «радиус ещё меньше», КРОЛИК). */
+      const d0=ок.n, s=ок.s, ОКНО=2, R=Math.ceil(ОКНО), ф=this._snapFineStep(s), RW=ОКНО*s*ок.k, RP=RW*z;
       const cx=d0.x*z+tx, cy=d0.y*z+ty;
-      /* НЕОН ПЕРЕЛИВОМ КРОМКИ (выбор КРОЛИКА в demo_привязка.html): линии и крестики — двумя цветами
-         кромки темы (--hue-a сверху-слева → --hue-b снизу-справа), как контур панелей. Цветом сетка и
-         отличается от белых звёзд, поэтому фон под окном БОЛЬШЕ НЕ ГАСИМ: тон страницы темнее холста, и
-         круг читался тёмным диском с ореолом по краю («фон в этой области чёрный», КРОЛИК). Цвета
-         читаем раз на жест: getComputedStyle дорог, а тему посреди протяжки не меняют. */
-      if(!this._snapWinHue){ const cs=getComputedStyle(document.body);
-        this._snapWinHue=[cs.getPropertyValue("--hue-a").trim()||NEUTRAL(), cs.getPropertyValue("--hue-b").trim()||NEUTRAL()]; }
-      const перелив=(c)=>{ const г=c.createLinearGradient(cx-RP,cy-RP,cx+RP,cy+RP);
-        г.addColorStop(0,this._snapWinHue[0]); г.addColorStop(1,this._snapWinHue[1]); return г; };
+      /* НЕОН ДВУМЯ ЦВЕТАМИ КРОМКИ ТЕМЫ (выбор КРОЛИКА в demo_привязка.html): у ноды цвет --hue-a, к краю
+         окна он перетекает в --hue-b и тает в ноль. Фон под окном НЕ гасим: тон страницы темнее
+         холста, и круг читался тёмным диском с ореолом («фон в этой области чёрный», КРОЛИК).
+         ПЛАВНОСТЬ: раньше окно шло через отдельный холст с радиальной маской destination-in и
+         drawImage — до миллиона пикселей перекладки на кадр, плюс новый холст на каждом кадре
+         раскрытия; это и были фризы. Теперь затухание к краю — В САМОМ ЦВЕТЕ линий (радиальный
+         градиент как strokeStyle), и окно — горсть stroke прямо в основной холст.
+         СВЕЧЕНИЕ кладём сложением света ("lighter"), двумя широкими слабыми проходами под тонкой
+         сердцевиной, — так линия светится, а не закрашивает; в светлой теме сложение выбелило бы всё,
+         там свечение обычным наложением. Сердцевины тише прежнего («линии менее яркие»). */
+      if(!this._snapWinRgb) this._snapWinRgb=this._snapRgbPair();
+      const цв=this._snapWinRgb;
       if(RP>=2){
-        // 1) маленький холст под окно, с целым началом в пикселях устройства — линии не размываются
-        const ox=Math.floor((cx-RP)*dpr), oy=Math.floor((cy-RP)*dpr), сторона=Math.ceil(2*RP*dpr)+2;
-        /* Холст окна — под ПОЛНЫЙ радиус, и только растёт: раньше он подгонялся под текущий радиус,
-           а тот меняется каждый кадр раскрытия и схлопывания — новый холст (выделение текстуры) почти
-           на каждом кадре и был фризом старта и конца анимации (КРОЛИК). */
-        const полн=Math.ceil(2*ОКНО*s*z*dpr)+2;
-        const ос=this._snapWinCv||(this._snapWinCv=document.createElement("canvas"));
-        if(ос.width<полн || ос.height<полн){ ос.width=полн; ос.height=полн; }
-        const oc=ос.getContext("2d");
-        oc.setTransform(1,0,0,1,0,0); oc.globalCompositeOperation="source-over"; oc.globalAlpha=1; oc.clearRect(0,0,сторона,сторона);   // чистим только занятое в этом кадре
-        oc.setTransform(dpr,0,0,dpr,-ox,-oy);
-        oc.strokeStyle=перелив(oc);
-        // неон: тонкая линия поверх слабого широкого свечения того же цвета (свечение тише — без ореола)
-        const линии=(шаг,а,толщ)=>{ oc.beginPath();
-          for(let wx=Math.ceil((cx-RP-tx)/z/шаг)*шаг; wx*z+tx<=cx+RP; wx+=шаг){ const sx=Math.floor(wx*z+tx)+0.5; oc.moveTo(sx,cy-RP); oc.lineTo(sx,cy+RP); }
-          for(let wy=Math.ceil((cy-RP-ty)/z/шаг)*шаг; wy*z+ty<=cy+RP; wy+=шаг){ const sy=Math.floor(wy*z+ty)+0.5; oc.moveTo(cx-RP,sy); oc.lineTo(cx+RP,sy); }
-          oc.globalAlpha=а*0.22; oc.lineWidth=толщ*3.5; oc.stroke();
-          oc.globalAlpha=а; oc.lineWidth=толщ; oc.stroke(); };
-        if(ф) линии(ф, 0.24, 0.6);   // мелкие клетки — тонко
-        линии(s, 0.5, 1);            // крупные — потолще
-        // 2) радиальная маска: середина видна, край тает
-        const маска=oc.createRadialGradient(cx,cy,0,cx,cy,RP);
-        маска.addColorStop(0,"rgba(0,0,0,1)"); маска.addColorStop(0.3,"rgba(0,0,0,0.8)");
-        маска.addColorStop(0.65,"rgba(0,0,0,0.32)"); маска.addColorStop(1,"rgba(0,0,0,0)");
-        oc.globalCompositeOperation="destination-in"; oc.globalAlpha=1; oc.fillStyle=маска; oc.fillRect(cx-RP, cy-RP, 2*RP, 2*RP);
-        ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.globalAlpha=1; ctx.drawImage(ос, 0, 0, сторона, сторона, ox, oy, сторона, сторона); ctx.restore();
+        const г=ctx.createRadialGradient(cx,cy,0,cx,cy,RP);
+        г.addColorStop(0,"rgba("+цв.a+",1)"); г.addColorStop(0.35,"rgba("+цв.a+",0.8)");
+        г.addColorStop(0.7,"rgba("+цв.b+",0.35)"); г.addColorStop(1,"rgba("+цв.b+",0)");
+        const путьЛиний=(шаг)=>{ const п=new Path2D();
+          for(let wx=Math.ceil((cx-RP-tx)/z/шаг)*шаг; wx*z+tx<=cx+RP; wx+=шаг){ const sx=Math.floor(wx*z+tx)+0.5; п.moveTo(sx,cy-RP); п.lineTo(sx,cy+RP); }
+          for(let wy=Math.ceil((cy-RP-ty)/z/шаг)*шаг; wy*z+ty<=cy+RP; wy+=шаг){ const sy=Math.floor(wy*z+ty)+0.5; п.moveTo(cx-RP,sy); п.lineTo(cx+RP,sy); }
+          return п; };
+        const наКрупном=(wx,wy)=>Math.abs(wx/s-Math.round(wx/s))<1e-9 && Math.abs(wy/s-Math.round(wy/s))<1e-9;
+        const плюс=(п,wx,wy,кк)=>{ const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5;
+          п.moveTo(sx-кк,sy); п.lineTo(sx+кк,sy); п.moveTo(sx,sy-кк); п.lineTo(sx,sy+кк); };
+        const линииМ=ф?путьЛиний(ф):null, линииК=путьЛиний(s);
+        // крестики узлов — одним путём на ступень: затухание даёт градиент, корзины яркости больше не нужны
+        const крестМ=new Path2D(), крестК=new Path2D();
+        if(ф){ const N=Math.ceil(RW/ф), fx0=Math.round(d0.x/ф), fy0=Math.round(d0.y/ф), kf=Math.max(1.5, Math.min(3.5, ф*z*0.1));
+          for(let i=-N;i<=N;i++) for(let j=-N;j<=N;j++){ const wx=(fx0+i)*ф, wy=(fy0+j)*ф;
+            if(наКрупном(wx,wy) || Math.hypot(wx-d0.x, wy-d0.y)>=RW) continue; плюс(крестМ, wx, wy, kf); } }
+        const k=Math.min(7, s*z*0.28), ox2=Math.round(d0.x/s), oy2=Math.round(d0.y/s);
+        for(let i=-R;i<=R;i++) for(let j=-R;j<=R;j++){ const wx=(ox2+i)*s, wy=(oy2+j)*s;
+          if(Math.hypot(wx-d0.x, wy-d0.y)<=RW) плюс(крестК, wx, wy, k); }
+        ctx.save(); ctx.strokeStyle=г;
+        // свечение
+        ctx.globalCompositeOperation=цв.light?"source-over":"lighter";
+        ctx.globalAlpha=0.07; ctx.lineWidth=6; ctx.stroke(линииК); ctx.lineWidth=8; ctx.stroke(крестК);
+        ctx.globalAlpha=0.12; ctx.lineWidth=2.5; ctx.stroke(линииК); ctx.lineWidth=3.5; ctx.stroke(крестК);
+        if(линииМ){ ctx.globalAlpha=0.06; ctx.lineWidth=2.5; ctx.stroke(линииМ); }
+        // сердцевины
+        ctx.globalCompositeOperation="source-over";
+        if(линииМ){ ctx.globalAlpha=0.14; ctx.lineWidth=0.6; ctx.stroke(линииМ);
+          ctx.globalAlpha=0.45; ctx.lineWidth=0.8; ctx.stroke(крестМ); }
+        ctx.globalAlpha=0.3; ctx.lineWidth=1; ctx.stroke(линииК);
+        ctx.globalAlpha=0.8; ctx.lineWidth=1.6; ctx.stroke(крестК);
+        /* Прилипший узел лежит ПОД нодой — лучи длиннее её радиуса (+16: ореол выделения шире радиуса),
+           у мелкого — тоньше и короче: по нему видно, что нода села на мелкую ступень. Цветом — --hue-a
+           целиком, без затухания: это точка, куда нода сейчас ляжет. */
+        const g=(this.drag && this._snapKey)?this._snapGoal:null;
+        if(g){ const п=new Path2D(), мел=this._snapFine; плюс(п, g.x, g.y, (d0.r||8)*z+(мел?10:16));
+          ctx.strokeStyle="rgb("+цв.a+")";
+          ctx.globalCompositeOperation=цв.light?"source-over":"lighter"; ctx.globalAlpha=0.18; ctx.lineWidth=мел?4:6; ctx.stroke(п);
+          ctx.globalCompositeOperation="source-over"; ctx.globalAlpha=0.95; ctx.lineWidth=мел?0.9:1.6; ctx.stroke(п); }
+        ctx.restore(); ctx.globalAlpha=1;
       }
-      // 3) крестики узлов поверх окна; появляются вместе с раскрытием (радиус RW)
-      ctx.save(); ctx.strokeStyle=перелив(ctx);
-      const крест=(wx,wy,кк,а,толщ)=>{ const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5;
-        ctx.beginPath(); ctx.moveTo(sx-кк,sy); ctx.lineTo(sx+кк,sy); ctx.moveTo(sx,sy-кк); ctx.lineTo(sx,sy+кк);
-        ctx.globalAlpha=а*0.25; ctx.lineWidth=толщ*3; ctx.stroke();   // слабое неоновое свечение под крестиком
-        ctx.globalAlpha=а; ctx.lineWidth=толщ; ctx.stroke(); };
-      const наКрупном=(wx,wy)=>Math.abs(wx/s-Math.round(wx/s))<1e-9 && Math.abs(wy/s-Math.round(wy/s))<1e-9;
-      /* Мелкие узлы — маленькими тонкими крестиками, на приближении чуть крупнее (КРОЛИК). Их в круге
-         до полутора тысяч — по stroke на каждый это мс в кадре, поэтому шесть корзин яркости. */
-      if(ф && RW>0){ const N=Math.ceil(RW/ф), fx0=Math.round(d0.x/ф), fy0=Math.round(d0.y/ф), kf=Math.max(1.5, Math.min(3.5, ф*z*0.1));
-        const КОРЗ=6, пути=[]; for(let b=0;b<КОРЗ;b++) пути.push(new Path2D());
-        for(let i=-N;i<=N;i++) for(let j=-N;j<=N;j++){
-          const wx=(fx0+i)*ф, wy=(fy0+j)*ф; if(наКрупном(wx,wy)) continue;
-          const d=Math.hypot(wx-d0.x, wy-d0.y)/RW; if(d>=1) continue;
-          const п=пути[Math.min(КОРЗ-1, Math.floor((1-d)*КОРЗ))], sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5;
-          п.moveTo(sx-kf,sy); п.lineTo(sx+kf,sy); п.moveTo(sx,sy-kf); п.lineTo(sx,sy+kf); }
-        ctx.lineWidth=0.8;
-        for(let b=0;b<КОРЗ;b++){ const м=(b+0.5)/КОРЗ; ctx.globalAlpha=0.5*м*м; ctx.stroke(пути[b]); } }
-      // крупные узлы — жирными крестиками
-      const k=Math.min(7, s*z*0.28), ox2=Math.round(d0.x/s), oy2=Math.round(d0.y/s);
-      for(let i=-R;i<=R;i++) for(let j=-R;j<=R;j++){
-        const wx=(ox2+i)*s, wy=(oy2+j)*s, d=Math.hypot(wx-d0.x, wy-d0.y)/RW; if(d>1) continue;
-        крест(wx, wy, k, 0.85*(1-d)*(1-d), 1.6); }
-      /* Прилипший узел лежит ПОД нодой — лучи длиннее её радиуса (+16: ореол выделения шире радиуса),
-         у мелкого — тоньше и короче: по нему видно, что нода села на мелкую ступень. */
-      const g=(this.drag && this._snapKey)?this._snapGoal:null;
-      if(g) this._snapFine ? крест(g.x, g.y, (d0.r||8)*z+10, 0.95, 0.9) : крест(g.x, g.y, (d0.r||8)*z+16, 0.95, 1.6);
-      ctx.restore(); ctx.globalAlpha=1;
     }
     if(this._bgKind()==="topo"){
       const сейчас=performance.now();
