@@ -2240,6 +2240,7 @@ def _install_maxinfo_fix(hwnd):
         user32.IsZoomed.argtypes = [ctypes.c_void_p]
         user32.IsZoomed.restype = ctypes.c_int
         WM_NCCALCSIZE = 0x0083
+        WM_SYSCOMMAND, SC_KEYMENU = 0x0112, 0xF100
 
         def _proc(h, msg, wp, lp):
             # РАЗВЁРНУТОЕ ОКНО — БЕЗ СИСТЕМНОЙ РАМКИ. WS_THICKFRAME (нужен Aero Snap, см. _allow_snap)
@@ -2249,6 +2250,13 @@ def _install_maxinfo_fix(hwnd):
             # и так равен рабочей области (WM_GETMINMAXINFO ниже), за экран ничего не уезжает.
             # Обычное окно не трогаем: за эту рамку тянут ресайз, поверх веб-окна его не поймать.
             if msg == WM_NCCALCSIZE and wp and user32.IsZoomed(h):
+                return 0
+            # ОДИНОЧНЫЙ ALT НЕ УВОДИТ ОКНО В РЕЖИМ МЕНЮ. Отпущенный Alt Windows превращает в
+            # SC_KEYMENU, окно уходит в меню и отбирает захват мыши — жест «Alt + протяжка по связям»
+            # (graph.js, точка связей) обрывался, стоило отпустить Alt посреди него (КРОЛИК, 04.11.2026).
+            # Меню у окна нет вовсе; гасим только Alt без второй клавиши (lp == 0) — Alt+Пробел, меню
+            # окна с «Свернуть/Закрыть», работает как прежде.
+            if msg == WM_SYSCOMMAND and ((wp or 0) & 0xFFF0) == SC_KEYMENU and not lp:
                 return 0
             if msg != WM_GETMINMAXINFO:
                 return user32.CallWindowProcW(_MAXFIX["old"], h, msg, wp, lp)

@@ -106,6 +106,38 @@ t.push({имя: "замер: дерево доведено подбором до
   const к = сменили(до, снимок(), 4);
   t.push({имя: "render: пересоздание графа формы не меняет", ок: к.length === 0, факт: "сменили " + к.length + (к.length ? ": " + к.slice(0, 8).map(k => имя(k) + почему(k)).join(", ") : "")}); }
 
+// ===== ЯКОРЬ МЕНЯЕТ ТОЛЬКО СВОЮ СВЯЗЬ (снимки КРОЛИКА 56–57) =====
+/* Точку маршрута ставят одной связи дерева. Сменить форму вправе только задетые: чей путь (до якоря)
+   пересекает старый или новый путь якорной связи или делит с ним дорожку. Остальные — до полпикселя
+   как были. Было: якорная связь выпадала из своей группы, и у сестёр уезжали ствол шины и дорожки. */
+{ const режет = (c1, c2) => { for (let p = 0; p < c1.length - 2; p += 2) for (let q = 0; q < c2.length - 2; q += 2) {
+      const x0 = c1[p], y0 = c1[p + 1], ex = c1[p + 2] - x0, ey = c1[p + 3] - y0, u0 = c2[q], v0 = c2[q + 1], fx = c2[q + 2] - u0, fy = c2[q + 3] - v0, d = ex * fy - ey * fx;
+      if (Math.abs(d) < 1e-6 * (Math.hypot(ex, ey) * Math.hypot(fx, fy) + 1)) {   // на одной линии и внахлёст — общая дорожка
+        const гор = Math.abs(ey) < 0.01 && Math.abs(fy) < 0.01 && Math.abs(y0 - v0) < 6, вер = Math.abs(ex) < 0.01 && Math.abs(fx) < 0.01 && Math.abs(x0 - u0) < 6;
+        if (гор && Math.min(Math.max(x0, x0 + ex), Math.max(u0, u0 + fx)) - Math.max(Math.min(x0, x0 + ex), Math.min(u0, u0 + fx)) > 6) return true;
+        if (вер && Math.min(Math.max(y0, y0 + ey), Math.max(v0, v0 + fy)) - Math.max(Math.min(y0, y0 + ey), Math.min(v0, v0 + fy)) > 6) return true;
+        continue; }
+      const s = ((u0 - x0) * fy - (v0 - y0) * fx) / d, u = ((u0 - x0) * ey - (v0 - y0) * ex) / d;
+      if (s > 0.001 && s < 0.999 && u > 0.001 && u < 0.999) return true; }
+    return false; };
+  // «до» — прежнее поведение (_якорьВнеГруппы): справка, что проверка ловит именно эту беду
+  for (const [режим, вне] of [["ortho", true], ["bus", true], ["ortho", false], ["bus", false]]) {
+    graph._якорьВнеГруппы = вне;
+    graphSetLinkMode(режим); graph.build(); graph.alpha = 0; graph._маршр = null; graph._routesFresh(); довести();
+    const до = снимок(); ДО = до;
+    const цель = sh[4], s = S.links.find(x => (x[0] === R.id && x[1] === цель.id) || (x[1] === R.id && x[0] === цель.id)), ключ = s[0] + "|" + s[1];
+    s[2] = +s[2] || 1; if (s[3] === undefined) s[3] = null; s[4] = [{dx: 35, dy: -25}];
+    graph._маршр.грязно = true; graph._routesFresh(); довести();
+    const после = снимок(), якС = до.get(ключ), якН = после.get(ключ);
+    const задеты = new Set(); до.forEach((v, k) => { if (k !== ключ && якС && якН && (режет(v.c, якС.c) || режет(v.c, якН.c))) задеты.add(k); });
+    const к = сменили(до, после, 0.5).filter(k => k !== ключ), лишние = к.filter(k => !задеты.has(k));
+    t.push({имя: вне ? "якорь (" + режим + ", до правки — справка): незадетых сменилось" : "якорь (" + режим + "): форму меняют только задетые его путём, остальное дерево как было",
+            ок: вне ? true : !!якН && якН.сиг.startsWith("via") && лишние.length === 0,
+            факт: "якорная " + (якН ? якН.сиг.split("|")[0] : "без маршрута") + ", сменили " + к.length + " при задетых " + задеты.size + (лишние.length ? "; незадетые: " + лишние.slice(0, 6).map(k => имя(k) + почему(k)).join(", ") : "")});
+    s.length = 3; graph._маршр.грязно = true; graph._routesFresh(); довести(); }
+  graph._якорьВнеГруппы = false;
+  graphSetLinkMode("ortho"); graph.build(); graph.alpha = 0; graph._маршр = null; graph._routesFresh(); довести(); }
+
 // ===== две ноды поменялись местами (уточнение КРОЛИКА) =====
 /* грА и грБ меняются местами целиком (у куста листья едут со своим шотом). нольНужен — случай КРОЛИКА
    «у дерева рядом две ноды, поменял местами»: их связи обязаны лечь без пересечений. У обмена целых
@@ -510,6 +542,82 @@ const зазоры = набор => { const L = graph.links.filter(l => набо�
   graphSetLinkMode("ortho");
 }
 
+// ===== ЭТАЛОН со снимка КРОЛИКА 54: связи к одной цели сливаются в общий ствол =====
+/* Четыре ноды связаны с «Что-то прокает?». TIKTOK и Fortiche входили в неё одним стволом сверху, а
+   «Холодные продажи» — своей вертикалью в 29 px слева от ствола: две параллели рядом сливались.
+   Требование: к одной цели с одной стороны — одна вертикаль (горизонталь) входа, и нет параллельных
+   подходов к ней ближе 40 px. Веер ИЗ родителя по-прежнему разводится дорожками — это другое. */
+{
+  const X0 = 32000, Y0 = -32000, эт = [];
+  const н = (title, x, y, своя) => { const it = addItem(своя ? {kind: "note", title, area: обл} : {kind: "note", title}); it.x = X0 + x; it.y = Y0 + y; мои.push(it.id); эт.push(it.id); return it; };
+  const к = (title, x, y, род) => { const it = н(title, x, y); addLink(род.id, it.id); return it; };
+  const зар = н("Зарубеж", 0, 0, true);
+  const tt = к("TIKTOK", 400, -200, зар), fo = к("Fortiche", 400, -80, зар), хп = к("Холодные продажи", 400, 40, зар), ri = к("RIOT", 400, 200, зар);
+  const цель = к("Что-то прокает?", 640, 200, ri), да = к("Да", 640, 280, цель); к("Шикуем", 640, 360, да);
+  addLink(tt.id, цель.id); addLink(fo.id, цель.id); addLink(хп.id, цель.id);
+  recomputeHierarchy(); persist(); graphSetLinkMode("ortho"); graph.build(); graph.alpha = 0;
+  graph._routeMem(true); graph._маршр = null; graph._routesFresh(); довести();
+  const T = graph.byId[цель.id], к_цели = graph.links.filter(l => (l.a === цель.id || l.b === цель.id) && [tt.id, fo.id, хп.id].includes(l.a === цель.id ? l.b : l.a) && l._рт);
+  // последний отрезок подхода к цели (от неё наружу) — вертикаль входа сверху
+  const вход = l => { const c = Array.from(l._рт.c), n = c.length >> 1, P = i => [c[2 * i], c[2 * i + 1]];
+    const сКонца = l.b === цель.id; const pts = []; for (let i = 0; i < n; i++) pts.push(P(сКонца ? n - 1 - i : i));
+    // от цели: первый отрезок, выходящий за её край
+    for (let i = 0; i < pts.length - 1; i++) { if (Math.hypot(pts[i + 1][0] - T.x, pts[i + 1][1] - T.y) > (T.r || 8) + 2) return [pts[i], pts[i + 1]]; }
+    return null; };
+  const входы = к_цели.map(l => ({l, s: вход(l)})).filter(в => в.s);
+  // сторона входа и линия: сверху/снизу — вертикаль (её x), слева/справа — горизонталь (её y)
+  const стороны = new Map();
+  for (const в of входы) { const [o, q] = в.s, вер = Math.abs(q[0] - o[0]) < 0.5;
+    const ст = вер ? (q[1] < o[1] ? "сверху" : "снизу") : (q[0] < o[0] ? "слева" : "справа");
+    let с = стороны.get(ст); if (!с) { с = new Set(); стороны.set(ст, с); } с.add(Math.round(вер ? o[0] : o[1])); }
+  const лишних = [...стороны.values()].reduce((s, v) => s + v.size - 1, 0);
+  t.push({имя: "эталон 54: к одной цели с каждой стороны — одна линия входа", ок: входы.length === к_цели.length && лишних === 0,
+          факт: [...стороны].map(([ст, v]) => ст + ": " + v.size + " (" + [...v].join(", ") + ")").join("; ") + "; входы: " +
+                входы.map(в => имя(в.l.a + "|" + в.l.b) + " " + Math.round(в.s[0][0] - X0) + "," + Math.round(в.s[0][1] - Y0) + "→" + Math.round(в.s[1][0] - X0) + "," + Math.round(в.s[1][1] - Y0)).join("; ")});
+  // параллельные подходы к цели ближе 40 px (не на одной линии)
+  let раздв = 0; const отр = c => { const o = []; for (let i = 0; i < c.length - 2; i += 2) o.push([c[i], c[i + 1], c[i + 2], c[i + 3]]); return o; };
+  for (let i = 0; i < к_цели.length; i++) for (let j = i + 1; j < к_цели.length; j++) for (const p of отр(к_цели[i]._рт.c)) for (const q of отр(к_цели[j]._рт.c)) {
+    const вер = Math.abs(p[0] - p[2]) < 0.5 && Math.abs(q[0] - q[2]) < 0.5, гор = Math.abs(p[1] - p[3]) < 0.5 && Math.abs(q[1] - q[3]) < 0.5;
+    if (!вер && !гор) continue; const раз = вер ? Math.abs(p[0] - q[0]) : Math.abs(p[1] - q[1]); if (раз < 2 || раз >= 40) continue;
+    const лo = вер ? Math.max(Math.min(p[1], p[3]), Math.min(q[1], q[3])) : Math.max(Math.min(p[0], p[2]), Math.min(q[0], q[2]));
+    const хи = вер ? Math.min(Math.max(p[1], p[3]), Math.max(q[1], q[3])) : Math.min(Math.max(p[0], p[2]), Math.max(q[0], q[2]));
+    if (хи - лo > 10) раздв++; }
+  t.push({имя: "эталон 54: нет параллельных подходов к одной цели ближе 40 px", ок: раздв === 0, факт: "раздвоений " + раздв + ", пересечений " + счёт(new Set(эт)).пер});
+}
+
+// ===== ЭТАЛОН со снимка КРОЛИКА 55 (шина): вход по оси ноды, развилка без наложенных дуг =====
+/* «Нарезки стримеров» и «Тесты» с четырьмя детьми справа, общий родитель внизу слева. Было: связь к
+   «Нарезкам» подходила горизонталью ниже центра и крючком входила снизу сбоку — колено садилось почти
+   в саму ноду; развилка шины у родителя двоилась фигурной скобкой «{» — у каждой ветки своё скругление
+   на примыкании. Требования: последний прямой отрезок входа — по оси ноды (не дальше 4 px) и не короче
+   её радиуса + 6; развилка — острая вершина у всех веток шины. */
+{
+  const X1 = -32000, Y1 = 32000, эт = [];
+  const н = (title, x, y, своя) => { const it = addItem(своя ? {kind: "note", title, area: обл} : {kind: "note", title}); it.x = X1 + x; it.y = Y1 + y; мои.push(it.id); эт.push(it.id); return it; };
+  const к = (title, x, y, род) => { const it = н(title, x, y); addLink(род.id, it.id); return it; };
+  const G = н("Стримы", -356, 860, true), нар = к("Нарезки стримеров", 0, 0, G), тес = к("Тесты", 0, 580, G);
+  for (const [i, t] of ["AKASH1 Fun", "SAMURAJ Fun", "Любой стример", "RELAXCIS Fun"].entries()) к(t, 358, -178 + i * 134, нар);
+  for (const [i, t] of ["Зомби", "Валорант", "Поттер", "Толвен"].entries()) к(t, 358, 580 - 178 + i * 134, тес);
+  recomputeHierarchy(); persist(); graphSetLinkMode("bus"); graph.build(); graph.alpha = 0;
+  graph._routeMem(true); graph._маршр = null; graph._routesFresh(); довести();
+  const набор = new Set(эт), L = graph.links.filter(l => набор.has(l.a) && набор.has(l.b) && l._рт && l._рт.умолч && l._рт.умолч.дерево);
+  const плохиеВходы = [];
+  for (const l of L) { const у = l._рт.умолч, C = graph.byId[у.C], c = Array.from(l._рт.c), n = c.length >> 1, P = i => [c[2 * i], c[2 * i + 1]];
+    const сКонца = l.b === у.C, к0 = сКонца ? P(n - 1) : P(0), к1 = сКонца ? P(n - 2) : P(1);   // последний прямой отрезок к ребёнку
+    const вер = Math.abs(к0[0] - к1[0]) < 0.5, ось = вер ? Math.abs(к1[0] - C.x) : Math.abs(к1[1] - C.y), дл = Math.hypot(к0[0] - к1[0], к0[1] - к1[1]);
+    if (ось > 4 || дл < (C.r || 8) + 6) плохиеВходы.push((C.ref ? C.ref.title : "?") + " (от оси " + ось.toFixed(1) + ", прямой " + дл.toFixed(0) + ")"); }
+  t.push({имя: "эталон 55: вход в ноду по её оси, без крючка", ок: плохиеВходы.length === 0, факт: L.length + " связей; " + (плохиеВходы.length ? плохиеВходы.slice(0, 6).join(", ") : "все по оси")});
+  // развилка: точка примыкания к стволу (3-я вершина колена от родителя) — острая вершина нарисованного пути
+  const скругл = [];
+  for (const l of L) { const у = l._рт.умолч; if (у.m !== "bus") continue; const c = Array.from(l._рт.c), n = c.length >> 1, P = i => [c[2 * i], c[2 * i + 1]];
+    const отРод = l.b === у.C ? [...Array(n).keys()].map(P) : [...Array(n).keys()].reverse().map(P);
+    if (отРод.length < 4) continue; const ст = отРод[1];   // после выхода из родителя (выход без сдвига у шины слит дедупом)
+    const p = l._рт.p; let есть = false; for (let i = 0; i < p.length; i += 2) if (Math.hypot(p[i] - ст[0], p[i + 1] - ст[1]) < 0.5) { есть = true; break; }
+    if (!есть) скругл.push(graph.byId[у.C].ref.title); }
+  t.push({имя: "эталон 55: развилка шины — острая «Т», без наложенных дуг", ок: скругл.length === 0, факт: скругл.length ? "скруглены: " + скругл.join(", ") : "у всех веток острая"});
+  graphSetLinkMode("ortho");
+}
+
 // ===== ЭТАЛОН со снимка КРОЛИКА 49: связь проходит МИМО ноды — не гаснет =====
 /* Провал под нодой гасил связи, шедшие рядом: рамка подписи по числу букв выходила шире текста и
    раздувалась ещё на 2 px. Теперь у провала строгая рамка — форма и настоящая подпись (её ширину
@@ -538,6 +646,102 @@ const зазоры = набор => { const L = graph.links.filter(l => набо�
   t.push({имя: "эталон 49: провал не встаёт на своих концах связи", ок: наСвоих.length === 0,
           факт: свои.length + " связей проверено, с провалом на своём конце " + наСвоих.length});
   graphSetLinkMode("ortho");
+}
+
+// ===== ЭТАЛОН со снимка КРОЛИКА 58: путь через точку не разворачивается в ней и входит в цель с ближней стороны =====
+/* SQ01 → «Рендер» через точку ниже и левее «Рендера» (ниже — сильнее, чем в стороне). Было в макете: к точке
+   вниз, от неё — обратно вверх по той же вертикали и вбок в «Рендер»: путь накладывался сам на себя. Надо:
+   в точке без разворота на 180°, в «Рендер» — снизу, по его оси, отрезки до и после точки не внахлёст.
+   Точка — пока якорь связи (та же сборка пути routeViaK/routeViaMask, что пойдёт у точки связей). */
+{
+  const X9 = -26000, Y9 = 14000;
+  const н = (title, x, y, своя) => { const it = addItem(своя ? {kind: "note", title, area: обл} : {kind: "note", title}); it.x = X9 + x; it.y = Y9 + y; мои.push(it.id); return it; };
+  const SQ = н("маршруты-58SQ01", 0, 0, true), РН = н("маршруты-58Рендер", 670, -20);
+  addLink(SQ.id, РН.id); recomputeHierarchy(); persist();
+  graphSetLinkMode("ortho"); graph.build(); graph.alpha = 0;
+  const s = S.links.find(x => (x[0] === SQ.id && x[1] === РН.id) || (x[1] === SQ.id && x[0] === РН.id));
+  const a = graph.byId[s[0]], b = graph.byId[s[1]], W = [X9 + 600, Y9 + 66];
+  s[2] = +s[2] || 1; s[3] = null; s[4] = [{dx: W[0] - (a.x + b.x) / 2, dy: W[1] - (a.y + b.y) / 2}];
+  graph._маршр = null; graph._routesFresh(); довести();
+  const l = graph.links.find(x => x.src === s), р = l && l._рт;
+  // ломаная от SQ01 к «Рендеру» по вершинам колен (c хранится от l.a к l.b)
+  let K = []; if (р) { for (let k = 0; k < р.c.length; k += 2) K.push([р.c[k], р.c[k + 1]]); if (l.a !== SQ.id) K.reverse(); }
+  const разв = K.some((v, i) => { if (i < 1 || i > K.length - 2) return false;
+    const e1 = [v[0] - K[i - 1][0], v[1] - K[i - 1][1]], e2 = [K[i + 1][0] - v[0], K[i + 1][1] - v[1]], L1 = Math.hypot(...e1), L2 = Math.hypot(...e2);
+    return L1 > 1 && L2 > 1 && (e1[0] * e2[0] + e1[1] * e2[1]) / (L1 * L2) < -0.5; });
+  const пп = K[K.length - 2], цц = K[K.length - 1], снизу = !!пп && Math.abs(пп[0] - цц[0]) < 0.5 && пп[1] > цц[1];
+  // через точку: точка — вершина ломаной
+  const черезТ = K.some(v => Math.hypot(v[0] - W[0], v[1] - W[1]) < 0.5);
+  t.push({имя: "эталон 58: путь через точку без разворота в ней и в «Рендер» снизу",
+          ок: !!(р && р.via) && черезТ && !разв && снизу,
+          факт: р && р.via ? "через точку " + (черезТ ? "да" : "нет") + ", разворот " + (разв ? "есть" : "нет") + ", вход " + (снизу ? "снизу" : "сбоку/сверху") + "; путь " + K.map(v => (v[0] - X9).toFixed(0) + "," + (v[1] - Y9).toFixed(0)).join(" → ") : "маршрута через точку нет"});
+  s.length = 3; graph.build(); graph.alpha = 0;
+}
+
+// ===== ЭТАЛОН со снимка КРОЛИКА 59: связи из общего источника идут до точки связей ОДНИМ стволом =====
+/* SH041 и две её связи — к «Сборке» (выше) и к «Рендеру» (ниже) — собраны в точку правее и ниже SH041. Было:
+   до точки две дорожки — одна выходила справа и спускалась, другая выходила снизу и шла вправо. Надо: от
+   SH041 до точки одна ломаная у обеих, выход справа (точка дальше вбок, чем вниз), после точки — врозь. */
+{
+  const X10 = -32000, Y10 = 20000;
+  const н = (title, x, y, своя) => { const it = addItem(своя ? {kind: "note", title, area: обл} : {kind: "note", title}); it.x = X10 + x; it.y = Y10 + y; мои.push(it.id); return it; };
+  const SH = н("маршруты-59SH041", 0, 0, true), СБ = н("маршруты-59Сборка", 178, -105), РН = н("маршруты-59Рендер", 178, 108);
+  addLink(SH.id, СБ.id); addLink(SH.id, РН.id); recomputeHierarchy(); persist();
+  for (const режим of ["ortho", "bus"]) {
+    graphSetLinkMode(режим); graph.build(); graph.alpha = 0;
+    const g = graphCurrent(); g.dots = Object.assign({}, g.dots || {}, {dot_e59: {x: X10 + 133, y: Y10 + 43}});
+    const сп = [СБ, РН].map(ц => S.links.find(x => (x[0] === SH.id && x[1] === ц.id) || (x[1] === SH.id && x[0] === ц.id)));
+    сп.forEach(s => { s[2] = +s[2] || 1; s[3] = null; s[4] = [{d: "dot_e59"}]; });
+    graph._маршр = null; graph._routesFresh(); довести();
+    // ломаная каждой связи от SH041 до точки (по вершинам колен)
+    const доТочки = s => { const l = graph.links.find(x => x.src === s), р = l && l._рт; if (!р) return null;
+      let K = []; for (let k = 0; k < р.c.length; k += 2) K.push([+р.c[k].toFixed(1), +р.c[k + 1].toFixed(1)]); if (l.a !== SH.id) K.reverse();
+      const i = K.findIndex(v => Math.hypot(v[0] - (X10 + 133), v[1] - (Y10 + 43)) < 0.5); return i >= 0 ? K.slice(0, i + 1) : null; };
+    const k1 = доТочки(сп[0]), k2 = доТочки(сп[1]);
+    const одна = !!k1 && !!k2 && JSON.stringify(k1) === JSON.stringify(k2);
+    const справа = !!k1 && k1.length > 1 && Math.abs(k1[1][1] - k1[0][1]) < 0.5 && k1[1][0] > k1[0][0];
+    t.push({имя: "эталон 59 (" + режим + "): от общего источника до точки связей — один ствол, выход справа", ок: одна && справа,
+            факт: "до точки " + (одна ? "одна ломаная" : "разные: " + JSON.stringify([k1, k2].map(k => k && k.map(v => [v[0] - X10, v[1] - Y10])))) + ", выход " + (справа ? "справа" : "не справа")});
+    сп.forEach(s => { s.length = 3; }); delete graphCurrent().dots; }
+  graphSetLinkMode("ortho"); graph.build(); graph.alpha = 0;
+}
+
+// ===== ЭТАЛОН со снимка КРОЛИКА 60: после точки связей — мимо чужих нод, пучок — не по чужой связи =====
+/* SH040 и три связи — к «Рендеру» (на уровне SH040), VFX (ниже) и «Сборке» (ещё ниже) — собраны в точку
+   правее и ниже SH040. Снизу в SH040 входит чужая связь — вертикалью ровно под ней. Было: пучок выходил
+   из SH040 вниз по той же вертикали (две линии одна на другой), а «Рендер» после точки шёл вправо и вверх
+   сквозь VFX — подбор его не исправлял: проверка «не назад» мерилась от конечной цели и отбрасывала все
+   варианты. Надо: ноль наездов на чужие ноды после точки и ноль наложений пучка на чужую связь. */
+{
+  const X11 = -38000, Y11 = 26000;
+  const н = (title, x, y, своя) => { const it = addItem(своя ? {kind: "note", title, area: обл} : {kind: "note", title}); it.x = X11 + x; it.y = Y11 + y; мои.push(it.id); return it; };
+  const SH = н("маршруты-60SH040", 0, 0, true), РН = н("маршруты-60Рендер", 199, -9), VFX = н("маршруты-60VFX", 199, 76), СБ = н("маршруты-60Сборка", 199, 161);
+  const НИЗ = н("маршруты-60низ", 0, 300);                                    // чужая связь входит в SH040 снизу вертикалью
+  [РН, VFX, СБ, НИЗ].forEach(ц => addLink(SH.id, ц.id)); recomputeHierarchy(); persist();
+  const T = {x: X11 + 85, y: Y11 + 133};
+  for (const режим of ["ortho", "bus"]) {
+    graphSetLinkMode(режим); graph.build(); graph.alpha = 0;
+    const g = graphCurrent(); g.dots = Object.assign({}, g.dots || {}, {dot_e60: {x: T.x, y: T.y}});
+    const сп = [РН, VFX, СБ].map(ц => S.links.find(x => (x[0] === SH.id && x[1] === ц.id) || (x[1] === SH.id && x[0] === ц.id)));
+    сп.forEach(s => { s[2] = +s[2] || 1; s[3] = null; s[4] = [{d: "dot_e60"}]; });
+    graph._маршр = null; graph._routesFresh(); довести(); graph._routeBuild(); довести();
+    const ломаная = s => { const l = graph.links.find(x => x.src === s), р = l && l._рт; if (!р) return null;
+      let K = []; for (let k = 0; k < р.c.length; k += 2) K.push([р.c[k], р.c[k + 1]]); if (l.a !== SH.id) K.reverse(); return K; };
+    const чужиеНоды = [РН, VFX, СБ, НИЗ].map(x => graph.byId[x.id]);
+    let наезды = [], наложение = false, черезТ = 0;
+    сп.forEach((s, i) => { const K = ломаная(s); if (!K) return; const ц = [РН, VFX, СБ][i];
+      const iT = K.findIndex(v => Math.hypot(v[0] - T.x, v[1] - T.y) < 0.5); if (iT >= 0) черезТ++;
+      // после точки: отрезки не задевают ни одной чужой ноды (своя цель — не чужая)
+      for (let k = Math.max(0, iT); k < K.length - 1; k++) for (const n of чужиеНоды) { if (n.id === ц.id) continue;
+        if (routeClipT(K[k][0], K[k][1], K[k + 1][0], K[k + 1][1], routeNodeBox(n), 0)) наезды.push(ц.title.replace("маршруты-60", "") + " через " + n.ref.title.replace("маршруты-60", "")); }
+      // до точки: не по вертикали x = SH040 ниже неё (там лежит чужая связь к «низу»)
+      for (let k = 0; k < Math.max(0, iT); k++) if (Math.abs(K[k][0] - (X11)) < 0.5 && Math.abs(K[k + 1][0] - (X11)) < 0.5 && Math.max(K[k][1], K[k + 1][1]) > Y11 + 20) наложение = true; });
+    t.push({имя: "эталон 60 (" + режим + "): после точки связей — мимо чужих нод", ок: черезТ === 3 && наезды.length === 0,
+            факт: "через точку " + черезТ + " из 3, наезды: " + (наезды.join(", ") || "нет")});
+    t.push({имя: "эталон 60 (" + режим + "): пучок до точки не ложится на чужую связь", ок: черезТ === 3 && !наложение,
+            факт: наложение ? "пучок идёт вниз по вертикали чужой связи" : "своей дорожкой"});
+    сп.forEach(s => { s.length = 3; }); delete graphCurrent().dots; }
+  graphSetLinkMode("ortho"); graph.build(); graph.alpha = 0;
 }
 
 // ================== УБОРКА ==================

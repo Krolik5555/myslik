@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Протяжка связи</title>
+<style>
+:root{--bg:#060607;--cv:#0b0b0d;--s1:#121216;--tx:#f4f4f5;--mut:#9a9aa3;--mut2:#7a7a83;--hair:rgba(255,255,255,.08);--acc:#6f9bd8;}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--tx);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:21px;margin:0 0 4px} .lead{color:var(--mut);max-width:980px;margin:0 0 14px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px;align-items:center;color:var(--mut)}
+.bar .sep{width:14px}
+.bar button{background:var(--s1);color:var(--tx);border:1px solid var(--hair);border-radius:8px;padding:5px 10px;cursor:pointer;font:inherit}
+.bar button.on{box-shadow:inset 0 0 0 1px var(--acc)}
+.card{background:var(--cv);border-radius:14px;box-shadow:0 0 0 1px var(--hair);overflow:hidden;max-width:980px}
+.cap{padding:12px 16px;background:var(--s1);border-bottom:1px solid var(--hair)} .cap h3{margin:0;font-size:15px} .cap p{margin:3px 0 0;color:var(--mut);font-size:12.5px}
+canvas{display:block;width:100%;height:440px}
+.st{padding:8px 16px;color:var(--mut2);font-size:12px;border-top:1px solid var(--hair);min-height:34px}
+.st b{color:var(--tx);font-weight:600}
+ul{color:var(--mut);max-width:980px;margin:14px 0 0;padding-left:18px} li{margin:3px 0}
+</style>
+</head>
+<body>
+<h1>Протяжка связи — два варианта</h1>
+<p class="lead">Возьми связь мышью и потяни — маршрут перестроится. Ноды тоже тянутся: так видно, что происходит с ручным маршрутом, когда концы связи двигаются. Клик без сдвига (меньше 4 px) — это по-прежнему меню связи, двойной клик по связи — сбросить её маршрут к автоподбору.</p>
+<div class="bar">
+ Вариант: <button data-v="колено" class="on">А. Сдвиг колена</button><button data-v="точка">Б. Точка маршрута</button><span class="sep"></span>
+ Когда двигаются концы: <button data-k="едет" class="on">якорь едет с ними</button><button data-k="сброс">якорь сбрасывается</button><span class="sep"></span>
+ <button id="reset">Сбросить все маршруты</button>
+</div>
+<div class="card">
+ <div class="cap"><h3 id="ttl"></h3><p id="dsc"></p></div>
+ <canvas id="cv"></canvas>
+ <div class="st" id="st">Наведи на связь.</div>
+</div>
+<ul>
+ <li><b>Хранение.</b> Якорь лежит у связи: обычная — элементом <code>S.links</code> после длины, нить к области — полем в ноде, как длина и режим. Санитайзер срезает мусор, откат — одним шагом.</li>
+ <li><b>Подбор.</b> Связь с якорем подбор не трогает и прокладывает остальные вокруг неё.</li>
+ <li><b>Другие режимы.</b> Мягкая — протяжка задаёт прогиб; метро — сдвигает диагональ; шина — тянется ствол, ветки следом.</li>
+</ul>
+<script>
+const V={
+ "колено":{т:"А. Сдвиг колена", д:"Тянется ВЕРТИКАЛЬ колена — влево и вправо, горизонтали по краям следуют за ней. Выходы из нод не двигаются: тянуть можно колено, а не выход. Якорь — одно число: где стоит колено между концами."},
+ "точка":{т:"Б. Точка маршрута", д:"Тянется любое место связи — связь проходит через эту точку ступенькой: от родителя до точки, поперёк, и дальше к ребёнку. Свободнее, чем А, но маршрут получает лишнее колено."}};
+let VAR="колено", KEEP="едет";
+const N={P:{x:110,y:220,r:16,c:"#6f9bd8",t:"Родитель"},A:{x:520,y:90,r:11,c:"#5fb98e",t:"Ветка А"},B:{x:520,y:350,r:11,c:"#e8a14b",t:"Ветка Б"},
+  Q:{x:300,y:390,r:11,c:"#a68ce0",t:"Сосед"},Z:{x:760,y:220,r:11,c:"#d77fa1",t:"Цель"}};
+const L=[{a:"P",b:"A"},{a:"P",b:"B"},{a:"Q",b:"B"},{a:"A",b:"Z"},{a:"B",b:"Z"}].map(l=>Object.assign(l,{як:null}));
+const cv=document.getElementById("cv"), ctx=cv.getContext("2d");
+let W=0,H=440;
+// маршрут: Z-колено (горизонталь → вертикаль → горизонталь), колено на доле f; точка — ступенька через W
+function путь(l){ const P=N[l.a], C=N[l.b], я=l.як;
+  /* якорь — СМЕЩЕНИЕ ОТ СЕРЕДИНЫ между концами в пикселях: сдвинул одну ноду — точка уезжает на
+     половину её сдвига, обе — целиком. Доля между концами по x и y отдельно прыгала, когда ноды почти
+     на одной линии: доля от крошечной разницы улетала */
+  const мx=(P.x+C.x)/2, мy=(P.y+C.y)/2;
+  if(я && я.т==="точка"){ const wx=мx+я.dx, wy=мy+я.dy;
+    return [[P.x,P.y],[wx,P.y],[wx,wy],[C.x,wy],[C.x,C.y]]; }
+  const kx=я && я.т==="колено" ? мx+я.dx : мx;
+  return [[P.x,P.y],[kx,P.y],[kx,C.y],[C.x,C.y]]; }
+function draw(){ W=cv.clientWidth; const dpr=devicePixelRatio||1; cv.width=W*dpr; cv.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle="#0b0b0d"; ctx.fillRect(0,0,W,H);
+  for(const l of L){ const p=путь(l), г=l===hov.l;
+    ctx.lineWidth=г?3:1.8; ctx.strokeStyle=l.як?"#e8a14b":г?"#c9d6ea":"rgba(220,226,235,.55)"; ctx.lineJoin="round"; ctx.beginPath();
+    p.forEach((q,i)=>i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1])); ctx.stroke();
+    if(г && hov.i!=null){ const s=p[hov.i], e=p[hov.i+1]; ctx.lineWidth=5; ctx.strokeStyle="rgba(111,155,216,.55)"; ctx.beginPath(); ctx.moveTo(s[0],s[1]); ctx.lineTo(e[0],e[1]); ctx.stroke(); }
+    if(l.як && l.як.т==="точка"){ const q=p[2]; ctx.fillStyle="#e8a14b"; ctx.beginPath(); ctx.arc(q[0],q[1],4,0,7); ctx.fill(); } }
+  for(const k in N){ const n=N[k]; ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,7); ctx.fillStyle="#0b0b0d"; ctx.fill();
+    ctx.lineWidth=2; ctx.strokeStyle=n.c; ctx.stroke(); ctx.fillStyle="#9a9aa3"; ctx.font="11px Segoe UI"; ctx.textAlign="center"; ctx.fillText(n.t,n.x,n.y+n.r+14); } }
+// попадание: отрезок под курсором (до 7 px)
+function попал(x,y){ let лучш=null;
+  for(const l of L){ const p=путь(l); for(let i=0;i<p.length-1;i++){ const a=p[i],b=p[i+1],ex=b[0]-a[0],ey=b[1]-a[1],e2=ex*ex+ey*ey||1;
+    let t=((x-a[0])*ex+(y-a[1])*ey)/e2; t=t<0?0:t>1?1:t; const d=Math.hypot(x-a[0]-ex*t,y-a[1]-ey*t);
+    if(d<7 && (!лучш||d<лучш.d)) лучш={l,i,d,p}; } }
+  return лучш; }
+function нода(x,y){ for(const k in N){ const n=N[k]; if(Math.hypot(x-n.x,y-n.y)<n.r+3) return k; } return null; }
+let hov={l:null,i:null}, жест=null;
+const st=document.getElementById("st");
+const xy=e=>{ const r=cv.getBoundingClientRect(); return [e.clientX-r.left, e.clientY-r.top]; };
+// можно ли тянуть отрезок: в А — только вертикаль колена (не выходы из нод), в Б — любой
+function тянется(h){ if(!h) return false; if(VAR==="точка") return true;
+  const a=h.p[h.i], b=h.p[h.i+1]; return Math.abs(a[0]-b[0])<0.5 && h.i>0 && h.i<h.p.length-2; }
+cv.onmousemove=e=>{ const [x,y]=xy(e);
+  if(жест){ const dx=x-жест.x0, dy=y-жест.y0; if(!жест.двиг && Math.hypot(dx,dy)>=4) жест.двиг=true;
+    if(жест.двиг){
+      if(жест.нода){ const n=N[жест.нода]; n.x=жест.nx+dx; n.y=жест.ny+dy;
+        if(KEEP==="сброс") for(const l of L) if(l.як && (l.a===жест.нода||l.b===жест.нода)) l.як=null;
+        st.innerHTML=KEEP==="едет" ? "Нода едет — точка держится <b>смещением от середины</b> между концами: уезжает на половину сдвига ноды." : "Нода едет — якоря её связей <b>сброшены</b>, маршрут снова автоподбором."; }
+      else { const l=жест.l, P=N[l.a], C=N[l.b], мx=(P.x+C.x)/2, мy=(P.y+C.y)/2;
+        if(VAR==="колено"){ const kx=жест.kx+dx; l.як={т:"колено", dx:kx-мx}; st.innerHTML="Тянешь колено: <b>"+Math.round(l.як.dx)+" px</b> от середины между концами."; }
+        else { l.як={т:"точка", dx:x-мx, dy:y-мy}; st.innerHTML="Тянешь точку маршрута: связь проходит <b>через неё</b>."; } }
+      draw(); }
+    return; }
+  const н=нода(x,y), h=н?null:попал(x,y); hov=h?{l:h.l,i:h.i}:{l:null,i:null};
+  cv.style.cursor=н?"grab":h?(тянется(h)?(VAR==="колено"?"ew-resize":"move"):"not-allowed"):"default";
+  if(h && !тянется(h)) st.innerHTML="Это <b>выход из ноды</b> — в варианте А его не тянут: тянется только колено.";
+  else if(h) st.innerHTML="Связь "+N[h.l.a].t+" → "+N[h.l.b].t+(h.l.як?" · <b>ручной маршрут</b> (двойной клик — сбросить)":" · автоподбор");
+  draw(); };
+cv.onmousedown=e=>{ const [x,y]=xy(e), н=нода(x,y);
+  if(н){ жест={нода:н, x0:x, y0:y, nx:N[н].x, ny:N[н].y, двиг:false}; return; }
+  const h=попал(x,y); if(!h) return;
+  if(!тянется(h)){ жест={l:h.l, x0:x, y0:y, двиг:false, неТянуть:true}; return; }
+  const p=путь(h.l); жест={l:h.l, i:h.i, x0:x, y0:y, kx:p[1][0], двиг:false}; };
+window.onmouseup=()=>{ if(жест && !жест.двиг && жест.l) st.innerHTML="Клик без сдвига — <b>меню связи</b> (Длина, Вид, Вставить ноду…), как и сейчас.";
+  if(жест && жест.неТянуть) жест.двиг=false;
+  жест=null; draw(); };
+cv.onmousemove.bind(cv);
+cv.ondblclick=e=>{ const [x,y]=xy(e), h=попал(x,y); if(h && h.l.як){ h.l.як=null; st.innerHTML="Двойной клик — маршрут <b>сброшен</b> к автоподбору."; draw(); } };
+// жест «нельзя тянуть»: сдвиг не применяется
+const mm=cv.onmousemove; cv.onmousemove=e=>{ if(жест && жест.неТянуть) return; mm(e); };
+function шапка(){ document.getElementById("ttl").textContent=V[VAR].т; document.getElementById("dsc").textContent=V[VAR].д; }
+document.querySelectorAll("[data-v]").forEach(b=>b.onclick=()=>{ VAR=b.dataset.v; document.querySelectorAll("[data-v]").forEach(x=>x.classList.toggle("on",x===b)); for(const l of L) l.як=null; шапка(); draw(); });
+document.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>{ KEEP=b.dataset.k; document.querySelectorAll("[data-k]").forEach(x=>x.classList.toggle("on",x===b)); });
+document.getElementById("reset").onclick=()=>{ for(const l of L) l.як=null; draw(); };
+addEventListener("resize",draw); шапка(); draw();
+</script>
+</body>
+</html>

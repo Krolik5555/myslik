@@ -334,6 +334,46 @@ const LINK_MODES=[
   {id:"bundle", icon:"ti-arrows-split-2",    label:"Пучки",        hint:"к детям одного сектора — общим жгутом"},
 ];
 const linkModeOk=m=>LINK_MODES.some(x=>x.id===m);
+/* ТОЧКА МАРШРУТА связи (протяжка, graph.js: _anchorMove/_setLinkAnchor): СМЕЩЕНИЕ ОТ СЕРЕДИНЫ между концами, а не
+   место в мире — сдвинул одну ноду, точка уезжает на половину её сдвига (выбор КРОЛИКА в
+   demo_протяжка-связи.html, 04.11.2026). g — шаг сетки, на которую точку посадила привязка: точка
+   держится на этой сетке и дальше, когда концы едут. Точек у связи НЕСКОЛЬКО (КРОЛИК, 04.11.2026:
+   «якорь только один можно добавить»), по порядку от l.a к l.b, не больше LINK_ANCHORS_MAX: каждая
+   добавляет поворотов, а подбор перебирает стороны обхода всех сразу (2^(n+1) вариантов). Хранится
+   массивом; одиночный объект — первая версия того же дня — читается как список из одной точки.
+   Мусор → null. */
+const LINK_ANCHORS_MAX=5;
+function linkAnchorOk(v){
+  const сп=Array.isArray(v) ? v : (v && typeof v==="object") ? [v] : null; if(!сп) return null;
+  const o=[];
+  for(const x of сп){ if(!x || typeof x!=="object" || Array.isArray(x)) continue;
+    // ссылка на ТОЧКУ СВЯЗЕЙ графа (S.dots): место у неё своё, общее на все её связи
+    if(typeof x.d==="string"){ if(/^dot_[A-Za-z0-9_]+$/.test(x.d)){ o.push({d:x.d}); if(o.length>=LINK_ANCHORS_MAX) break; } continue; }
+    const dx=+x.dx, dy=+x.dy, g=+x.g;
+    if(!Number.isFinite(dx) || !Number.isFinite(dy) || Math.abs(dx)>1e5 || Math.abs(dy)>1e5) continue;
+    const т={dx:Math.round(dx*10)/10, dy:Math.round(dy*10)/10};
+    if(Number.isFinite(g) && g>0.5 && g<1e5) т.g=g;
+    o.push(т); if(o.length>=LINK_ANCHORS_MAX) break; }
+  return o.length ? o : null; }
+/* СТВОЛ ШИНЫ, поставленный рукой (протяжка связи группы, graph.js: _anchorMove): у шины детей одного
+   родителя, ушедших в одну сторону, ствол ОДИН, и тянется он целиком — точка на каждой связи по
+   отдельности ломала бы общий ствол (КРОЛИК, 04.11.2026: «у них по сути общий якорь»). Лежит в
+   РОДИТЕЛЕ (нода, область или корень подграфа) полем busoff: ключ — сторона группы ("h1", "h-1",
+   "v1", "v-1"), значение — {off: расстояние ствола от родителя вдоль оси, g: шаг сетки}. */
+function busOffOk(v){
+  if(!v || typeof v!=="object" || Array.isArray(v)) return null;
+  const o={};
+  for(const k of ["h1","h-1","v1","v-1"]){ const x=v[k]; if(!x || typeof x!=="object") continue;
+    const off=+x.off, g=+x.g; if(!Number.isFinite(off) || off<0 || off>1e5) continue;
+    o[k]={off:Math.round(off*10)/10}; if(Number.isFinite(g) && g>0.5 && g<1e5) o[k].g=g; }
+  return Object.keys(o).length ? o : null; }
+/* КОПИЯ ХРАНИМОЙ СВЯЗИ с новыми концами: длина, свой режим и точка маршрута едут с ней. Одна на
+   копирование нод, вставку и перенос подграфа — третья копия формата разошлась бы с ними молча. */
+function linkCopy(l, a, b){
+  const o=[a, b, +l[2]||1], як=linkAnchorOk(l[4]);
+  if(linkModeOk(l[3]) || як) o.push(linkModeOk(l[3]) ? l[3] : null);
+  if(як) o.push(як);
+  return o; }
 /* ЦВЕТОВЫЕ ТЕМЫ (КРОЛИК, 03.11.2026: «не просто фул цвет приложения менять, а комбинация —
    фон одного цвета, обводка другого»). Тема = тон поверхностей + ДВА цвета кромки, которыми
    светится контур панелей и островков; токены — в styles.css (body.pal-<id>). Цвета нод (теги,
@@ -620,7 +660,8 @@ const GRAPH_ICON_DEF="ti-topology-star-3";
    уезжает только s.graphs, без дубля. */
 function graphBind(s){
   const активный=()=>s.graphs.find(g=>g.id===s.settings.graph)||s.graphs[0];
-  ["items","areas","links"].forEach(ключ=>{
+  // dots — точки связей графа (graph.js, «ТОЧКА СВЯЗЕЙ»): тоже у каждого графа свои
+  ["items","areas","links","dots"].forEach(ключ=>{
     delete s[ключ];
     Object.defineProperty(s, ключ, { configurable:true, enumerable:false,
       get:()=>активный()[ключ], set:v=>{ активный()[ключ]=v; } });
@@ -839,6 +880,8 @@ function subUnpack(newOwnerId, pack){
               x:(g.x==null?null:+g.x), y:(g.y==null?null:+g.y), pin:g.pin===true,
               items:[], areas:[], links:[]};
     if(g.hx!=null && g.hy!=null){ нг.hx=+g.hx; нг.hy=+g.hy; }
+    // точки связей внутреннего графа: id точки живёт в своём графе, у копии граф свой — id те же годятся
+    if(g.dots) нг.dots=JSON.parse(JSON.stringify(g.dots));
     (g.items||[]).forEach(it=>{
       if(!it || !map[it.id]) return;
       const к=Object.assign({}, it), пак=к._pack, доска=к._board;
@@ -855,7 +898,7 @@ function subUnpack(newOwnerId, pack){
        копии повисли бы в никуда (санитайзер их и снёс бы при первой загрузке). */
     const старКор=subRootId(String(g.id).slice(SUB_PREFIX.length)), новКор=subRootId(хозяин);
     const пер=x=> (x===старКор) ? новКор : map[x];
-    (g.links||[]).forEach(l=>{ const a=пер(l[0]), b=пер(l[1]); if(a&&b) нг.links.push(l[3]?[a,b,+l[2]||1,l[3]]:[a,b,+l[2]||1]); });
+    (g.links||[]).forEach(l=>{ const a=пер(l[0]), b=пер(l[1]); if(a&&b) нг.links.push(linkCopy(l,a,b)); });
     S.graphs.push(нг);
   });
   return true;
@@ -1043,7 +1086,9 @@ function sanitizeState(s){
                ...((вн && чс(g.hx)!=null && чс(g.hy)!=null) ? {hx:чс(g.hx), hy:чс(g.hy)} : {}),
                // областей внутри подграфа не бывает — это правило вида, а не настройка интерфейса
                items:Array.isArray(g.items)?g.items:[], areas:(вн||!Array.isArray(g.areas))?[]:g.areas,
-               links:Array.isArray(g.links)?g.links:[] };
+               links:Array.isArray(g.links)?g.links:[],
+               // точки связей — своя чистка ниже (_sanitizeGraph); без этого поля граф терял их при первой загрузке
+               ...(g.dots ? {dots:g.dots} : {}) };
     });
     if(!s.graphs.some(g=>!isSubGraph(g))) s.graphs.unshift({id:"g_main", name:"Мой граф", icon:GRAPH_ICON_DEF, color:null, items:[], areas:[], links:[]});
   }
@@ -1088,9 +1133,10 @@ function sanitizeState(s){
       // корня подграфа в обычном графе нет — связи с ним указывают в никуда
       гр.links=(Array.isArray(гр.links)?гр.links:[]).filter(l=>Array.isArray(l) && !isRootId(l[0]) && !isRootId(l[1]));
     }
-    s.items=гр.items; s.areas=гр.areas; s.links=гр.links;
+    s.items=гр.items; s.areas=гр.areas; s.links=гр.links; s.dots=гр.dots;
     _sanitizeGraph(s, seen, seenF, okColor);
-    гр.items=s.items; гр.areas=s.areas; гр.links=s.links; });
+    гр.items=s.items; гр.areas=s.areas; гр.links=s.links;
+    if(s.dots) гр.dots=s.dots; else delete гр.dots; });
   /* ОСИРОТЕВШИЕ ПОДГРАФЫ. Ключ внутреннего графа выведен из id ноды-владельца: не стало ноды —
      не стало и графа, иначе его содержимое навсегда осталось бы в файле невидимкой, которую
      нечем ни открыть, ни удалить. Проходов несколько: снос подграфа сиротит подграфы нод,
@@ -1136,7 +1182,8 @@ function _sanitizeGraph(s, seen, seenF, okColor){
   s.items=s.items.filter(it=>it.deleted!==true);
   s.areas.forEach(a=>{ if(!ICONS.includes(a.icon)) a.icon="ti-folder"; a.color=okColor(a.color); a.name=String(a.name==null?"":a.name);
     // якорь дома хаба (graph.js: _tick) — только парой конечных чисел, иначе физика тянула бы хаб в NaN
-    if(!(Number.isFinite(a.hx) && Number.isFinite(a.hy))){ delete a.hx; delete a.hy; } });
+    if(!(Number.isFinite(a.hx) && Number.isFinite(a.hy))){ delete a.hx; delete a.hy; }
+    if(a.busoff!=null){ const б=busOffOk(a.busoff); if(б) a.busoff=б; else delete a.busoff; } });   // ствол шины от хаба (busOffOk)
   s.items.forEach(it=>{
     if(typeof it.id!=="string" || !it.id || seen.has(it.id)){
       /* Смена id (битый json, склейка экспортов) обязана тянуть за собой доску: она лежит
@@ -1200,6 +1247,10 @@ function _sanitizeGraph(s, seen, seenF, okColor){
     /* режим связей ВЕТКИ (все связи от ноды вниз по дереву, graph.js: _routeBuild) — тоже в ноде;
        нет ключа = как у графа, мусор срезаем */
     if(it.branchmode!=null && !linkModeOk(it.branchmode)) delete it.branchmode;
+    // точка маршрута нити к области — тоже в ноде (у ручной связи она 5-м элементом S.links)
+    if(it.areaanchor!=null){ const я=linkAnchorOk(it.areaanchor); if(я) it.areaanchor=я; else delete it.areaanchor; }
+    // ствол шины детей этой ноды, поставленный рукой (busOffOk)
+    if(it.busoff!=null){ const б=busOffOk(it.busoff); if(б) it.busoff=б; else delete it.busoff; }
     if(it.doneAt!=null && typeof it.doneAt!=="number") delete it.doneAt;       // дата выполнения (для метки опоздания)
     // срок: только «YYYY-MM-DD», и только существующая дата — иначе parseYmd отдаст сдвинутый
     // день (2026-02-31 → 3 марта) и он тихо разъедется по календарю, спискам и повторам
@@ -1262,8 +1313,25 @@ function _sanitizeGraph(s, seen, seenF, okColor){
     .map(l=>{ const len=+l[2], ok=len>=0.3&&len<=3;               // per-link длина (3-й элемент, множитель)
       /* свой режим связи (4-й элемент, LINK_MODES): с ним длина обязана стоять, хотя бы единицей.
          «soft» тоже храним — это осознанный выбор «эта связь мягкая», когда у графа режим другой */
+      // точка маршрута (5-й элемент, linkAnchorOk): с ней режим стоит хотя бы null
+      const як=linkAnchorOk(l[4]);
+      if(як) return [l[0],l[1],ok?len:1,linkModeOk(l[3])?l[3]:null,як];
       if(linkModeOk(l[3])) return [l[0],l[1],ok?len:1,l[3]];
       return ok?[l[0],l[1],len]:[l[0],l[1]]; });
+  /* ТОЧКИ СВЯЗЕЙ (graph.js: «ТОЧКА СВЯЗЕЙ», как точка в Houdini) — служебные точки графа {x,y} по id
+     "dot_…". Связи ссылаются на точку из списка своих точек маршрута ({d:id}). Висячая ссылка снимается,
+     точка без единой связи подметается: удалили конец — связь ушла, а пустая точка не должна жить. */
+  { const d=(s.dots && typeof s.dots==="object" && !Array.isArray(s.dots)) ? s.dots : {}, нов={};
+    for(const k of Object.keys(d)){ const v=d[k];
+      if(/^dot_[A-Za-z0-9_]+$/.test(k) && v && Number.isFinite(+v.x) && Number.isFinite(+v.y) && Math.abs(+v.x)<1e7 && Math.abs(+v.y)<1e7)
+        нов[k]={x:Math.round(+v.x*10)/10, y:Math.round(+v.y*10)/10}; }
+    const нужны=new Set();
+    const чист=сп=>{ if(!Array.isArray(сп)) return null; const o=сп.filter(q=>!q.d || нов[q.d]); o.forEach(q=>{ if(q.d) нужны.add(q.d); }); return o.length ? o : null; };
+    s.links=s.links.map(l=>{ if(!l[4]) return l; const я=чист(l[4]); if(я){ l[4]=я; return l; }
+      const o=l.slice(0,4); if(!linkModeOk(o[3])) o.length=Math.min(o.length,3); return o; });
+    s.items.forEach(it=>{ if(it.areaanchor){ const я=чист(it.areaanchor); if(я) it.areaanchor=я; else delete it.areaanchor; } });
+    for(const k of Object.keys(нов)) if(!нужны.has(k)) delete нов[k];
+    if(Object.keys(нов).length) s.dots=нов; else delete s.dots; }
   // МИГРАЦИЯ: членство в области — это поле it.area, связь элемент↔область граф рисует из него сам.
   // Раньше бросок на область писал вместо этого обычную связь в s.links: линия была, а области у
   // элемента не было (в списках он не числился). Если же область всё-таки стояла — хранимая связь
@@ -1461,13 +1529,14 @@ function trashRevive(items){
       if(!S.graphs.some(x=>x.id===g.id)) S.graphs.push(g); });
   });
 }
-const _undoSnap=()=>JSON.stringify({items:S.items, links:S.links, areas:S.areas, tags:S.tags});
+// dots — точки связей: их место правит человек, это содержимое, а не раскладка — в снимке и в ключе
+const _undoSnap=()=>JSON.stringify({items:S.items, links:S.links, areas:S.areas, tags:S.tags, dots:S.dots||null});
 /* Ключ — для сравнения: БЕЗ раскладки, но с признаком «стоит на холсте». Из ключа выброшены
    и координаты (x/y), и дома (hx/hy): физика двигает узлы сама, и попади это в ключ, история
    заполнялась бы шагами «нода дрогнула на пиксель». Раскладка откатывается СВОИМ видом шага —
    см. undoPushLayout ниже, — а не через сравнение состояний. */
 const _noXY=o=>{ const r=Object.assign({},o); delete r.x; delete r.y; delete r.hx; delete r.hy; r._on=(o.x!=null); return r; };
-const _undoKey=()=>JSON.stringify({items:S.items.map(_noXY), links:S.links, areas:S.areas.map(_noXY), tags:S.tags});
+const _undoKey=()=>JSON.stringify({items:S.items.map(_noXY), links:S.links, areas:S.areas.map(_noXY), tags:S.tags, dots:S.dots||null});
 /* Вес досок в шаге считаем БЕЗ сериализации: она стоила бы ровно тех мегабайт, ради которых
    доски в снимок и не кладут. Элемент ≈ 300 байт, а весь настоящий вес — в картинках, их
    меряем по длине base64. */
@@ -1509,6 +1578,7 @@ function _undoApply(snap){
     стало.forEach(o=>{ if(o.x==null) return; const c=p.get(o.id); if(c){ o.x=c.x; o.y=c.y; } }); };
   держать(S.items, d.items); держать(S.areas, d.areas);
   S.items=d.items; S.links=d.links; S.areas=d.areas; S.tags=d.tags;   // настройки и вкладку не трогаем
+  { const г=graphCurrent(); if(г){ if(d.dots) г.dots=d.dots; else delete г.dots; } }   // точки связей (снимок без них — старый: точек не было)
   trashRevive(S.items);   // воскресшим нодам вернуть их доски и картинки (см. карман удалённых)
   if(areaFilter && !S.areas.some(a=>a.id===areaFilter)) areaFilter=null;   // область могли откатить в небытие
   render();

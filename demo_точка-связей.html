@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Точка связей</title>
+<style>
+:root{--bg:#060607;--cv:#0b0b0d;--s1:#121216;--tx:#f4f4f5;--mut:#9a9aa3;--mut2:#7a7a83;--hair:rgba(255,255,255,.08);--acc:#6f9bd8;}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--tx);font:13px/1.45 "Segoe UI",system-ui,sans-serif;padding:24px}
+h1{font-size:21px;margin:0 0 4px} .lead{color:var(--mut);max-width:980px;margin:0 0 14px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px;align-items:center;color:var(--mut)}
+.bar .sep{width:14px}
+.bar button{background:var(--s1);color:var(--tx);border:1px solid var(--hair);border-radius:8px;padding:5px 10px;cursor:pointer;font:inherit}
+.bar button.on{box-shadow:inset 0 0 0 1px var(--acc)}
+.card{position:relative;background:var(--cv);border-radius:14px;box-shadow:0 0 0 1px var(--hair);overflow:hidden;max-width:980px}
+canvas{display:block;width:100%;height:460px}
+.st{padding:8px 16px;color:var(--mut2);font-size:12px;border-top:1px solid var(--hair);min-height:34px}
+.st b{color:var(--tx);font-weight:600}
+ul{color:var(--mut);max-width:980px;margin:14px 0 0;padding-left:18px} li{margin:3px 0}
+.menu{position:absolute;display:none;background:var(--s1);border:1px solid var(--hair);border-radius:10px;padding:4px;min-width:190px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.menu button{display:block;width:100%;text-align:left;background:none;border:0;color:var(--tx);font:inherit;padding:6px 10px;border-radius:7px;cursor:pointer}
+.menu button:hover{background:rgba(255,255,255,.06)}
+.menu .ttl{color:var(--mut2);font-size:11.5px;padding:4px 10px 2px}
+</style>
+</head>
+<body>
+<h1>Точка связей — общий якорь, как точка в Houdini</h1>
+<p class="lead"><b>Как в Houdini.</b> Зажми <b>Alt</b> и веди мышью по связям — каждая задетая сразу цепляется к курсору, и пучок <b>едет за мышью</b>. Веди дальше — новые задетые вливаются в тот же пучок. <b>Отпустил Alt, не отпуская мышь</b> — пучок едет за курсором, новые связи не цепляются (след тускнеет); зажал Alt снова — сбор продолжается. Отпустил — точка остаётся <b>ровно там, где отпустил</b>, все собранные связи идут через неё. Ничего не задел — ничего не происходит. Потом точку можно тащить, клик по ней — меню. <b>Alt+клик по пустому месту ничего не создаёт.</b></p>
+<div class="bar">
+ Вид точки: <button data-p="точка">А. Точка</button><button data-p="кольцо">Б. Кольцо</button><button data-p="ореол" class="on">В. Кольцо с ореолом</button><span class="sep"></span>
+ След: <button data-s="пунктир">пунктир</button><button data-s="хвост" class="on">тающий хвост</button><span class="sep"></span>
+ <button id="reset">Сбросить</button><button id="e58">Эталон 58: точка под «Рендером»</button>
+</div>
+<div class="card">
+ <canvas id="cv"></canvas>
+ <div class="menu" id="menu"></div>
+ <div class="st" id="st">Наведи на связь или проведи по связям с Alt.</div>
+</div>
+<ul>
+ <li><b>Точка — отдельная служебная точка графа</b>, а не поле одной связи: у неё свои x/y, через неё идут несколько связей. Отрезки «источник → точка» и «точка → цель» строит текущий режим связей и подбор.</li>
+ <li><b>Место точки — где отпустил мышь.</b> Пока ведёшь, пучок пересчитывается каждый кадр быстрым вариантом; полный подбор против пересечений в приложении пойдёт после отпускания, плавным переходом.</li>
+ <li><b>Меню точки:</b> «Убрать точку» — связи возвращаются к автомаршруту; «Отцепить связь» — уходит одна. Пустая точка исчезает сама.</li>
+</ul>
+<script>
+let VID="ореол", СЛЕД="хвост";
+const N={A:{x:90,y:90,c:"#6f9bd8",t:"SQ01"},B:{x:90,y:230,c:"#a68ce0",t:"SQ02"},C:{x:90,y:370,c:"#5fb98e",t:"SQ03"},
+  X:{x:760,y:70,c:"#e8a14b",t:"Рендер"},Y:{x:820,y:210,c:"#d77fa1",t:"VFX"},Z:{x:760,y:390,c:"#e0625a",t:"Сборка"},Q:{x:430,y:420,c:"#7f9fbf",t:"Заметка"}};
+const L0=[["A","X"],["B","Y"],["C","Z"],["A","Y"],["Q","Y"]];
+let L, Т;   // связи {a,b,т,до,после}, точки {id,x,y}
+function сброс(){ L=L0.map(([a,b])=>({a,b,т:null,до:[],после:[]})); Т=[]; }
+сброс();
+const cv=document.getElementById("cv"), ctx=cv.getContext("2d"), st=document.getElementById("st"), меню=document.getElementById("menu");
+let W=0, H=460;
+/* путь связи — прямые углы. Без точки — Z посередине. Через точку — опоры «родитель, колена ДО, точка,
+   колена ПОСЛЕ, цель» соединяются отрезками: соосные — прямо, иначе Г-образно с продолжением хода.
+   У первой связи жеста колена до и после — её прежние, поэтому форма не меняется. */
+function путь0(l){ const P=N[l.a], C=N[l.b], mx=(P.x+C.x)/2; return [[P.x,P.y],[mx,P.y],[mx,C.y],[C.x,C.y]]; }
+/* Г-ОТРЕЗОК МЕЖДУ ОПОРАМИ — из двух вариантов («сначала по горизонтали» / «по вертикали»), по правилам
+   со снимка КРОЛИКА 58 («вот так же оптимальнее путь, не?»): 1) из точки не уходить НАЗАД по тому
+   направлению, откуда связь в неё пришла — разворот на 180° запрещён, как петля у ноды; 2) в цель
+   входить с ближайшей к точке стороны, по оси цели (точка ниже, чем в стороне, — снизу); 3) при прочих
+   равных — меньше поворотов, продолжать ход. Раньше отрезок всегда продолжал ход, и от точки под целью
+   связь возвращалась вверх по своей же вертикали. */
+function путь(l){ const т=l.т && Т.find(q=>q.id===l.т); if(!т) return путь0(l);
+  const P=N[l.a], C=N[l.b], оп=[[P.x,P.y], ...l.до, [т.x,т.y], ...l.после, [C.x,C.y]], o=[оп[0]]; let ход=[1,0];
+  const нап=(a,b)=>{ const dx=b[0]-a[0], dy=b[1]-a[1], d=Math.hypot(dx,dy)||1; return [dx/d, dy/d]; };
+  for(let i=1;i<оп.length;i++){ const A=o[o.length-1], B=оп[i], вЦель=i===оп.length-1;
+    if(Math.abs(A[0]-B[0])<0.5 && Math.abs(A[1]-B[1])<0.5) continue;
+    if(Math.abs(A[1]-B[1])<0.5 || Math.abs(A[0]-B[0])<0.5){ o.push(B); ход=нап(A,B); continue; }
+    const вар=[[B[0],A[1]],[A[0],B[1]]].map(К=>{ const н1=нап(A,К), н2=нап(К,B);
+      let цена=0;
+      if(ход[0]*н1[0]+ход[1]*н1[1]<-0.5) цена+=100;                  // 1) разворот назад
+      if(ход[0]*н1[0]+ход[1]*н1[1]<0.5) цена+=1;                     // 3) лишний поворот
+      if(вЦель){ const сбоку=Math.abs(B[0]-A[0])>Math.abs(B[1]-A[1]);  // 2) последний отрезок — по ближней оси цели
+        if(сбоку !== (Math.abs(н2[0])>0.5)) цена+=10; }
+      return {К, цена, н2}; }).sort((x,y)=>x.цена-y.цена)[0];
+    o.push(вар.К); o.push(B); ход=вар.н2; }
+  return o; }
+function скругл(p,r){ const o=[p[0]];
+  for(let i=1;i<p.length-1;i++){ const a=p[i-1],c=p[i],b=p[i+1], l1=Math.hypot(c[0]-a[0],c[1]-a[1]), l2=Math.hypot(b[0]-c[0],b[1]-c[1]);
+    if(l1<0.5||l2<0.5) continue; const rr=Math.min(r,l1/2,l2/2);
+    o.push([c[0]+(a[0]-c[0])/l1*rr, c[1]+(a[1]-c[1])/l1*rr, c, [c[0]+(b[0]-c[0])/l2*rr, c[1]+(b[1]-c[1])/l2*rr]]); }
+  o.push(p[p.length-1]); return o; }
+function линия(p){ const s=скругл(p,12); ctx.moveTo(s[0][0],s[0][1]);
+  for(let i=1;i<s.length;i++){ const v=s[i]; if(v.length===4){ ctx.lineTo(v[0],v[1]); ctx.quadraticCurveTo(v[2][0],v[2][1],v[3][0],v[3][1]); } else ctx.lineTo(v[0],v[1]); } }
+// ближайшая точка пути к курсору: место на связи, номер отрезка, расстояние
+function проекция(p,x,y){ let лучш=null;
+  for(let i=0;i<p.length-1;i++){ const a=p[i],b=p[i+1],ex=b[0]-a[0],ey=b[1]-a[1],e2=ex*ex+ey*ey||1;
+    let t=((x-a[0])*ex+(y-a[1])*ey)/e2; t=t<0?0:t>1?1:t; const qx=a[0]+ex*t, qy=a[1]+ey*t, d=Math.hypot(x-qx,y-qy);
+    if(!лучш || d<лучш.d) лучш={x:qx,y:qy,i,d}; }
+  return лучш; }
+let жест=null, навТ=null, навЛ=null;
+function draw(){ W=cv.clientWidth; const dpr=devicePixelRatio||1; cv.width=W*dpr; cv.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle="#0b0b0d"; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle="rgba(255,255,255,.05)"; for(let x=20;x<W;x+=40) for(let y=20;y<H;y+=40){ ctx.fillRect(x,y,1,1); }
+  const зд=(жест && жест.т==="след") ? жест.задел : new Set();
+  for(const l of L){ const г=зд.has(l), н=l===навЛ;
+    ctx.lineWidth=г?3:н?2.4:1.8; ctx.strokeStyle=г?"#f4f4f5":н?"#c9d6ea":"rgba(220,226,235,.5)"; ctx.lineJoin="round"; ctx.beginPath(); линия(путь(l)); ctx.stroke(); }
+  for(const т of Т){ if(!L.some(l=>l.т===т.id)) continue;
+    const наш=т===навТ || (жест && (жест.q===т || жест.точка===т));
+    ctx.save();
+    if(VID==="точка"){ ctx.beginPath(); ctx.arc(т.x,т.y,наш?4.5:3.2,0,7); ctx.fillStyle=наш?"#f4f4f5":"rgba(220,226,235,.6)"; ctx.strokeStyle="#0b0b0d"; ctx.lineWidth=2; ctx.stroke(); ctx.fill(); }
+    else { if(VID==="ореол" && наш){ const г=ctx.createRadialGradient(т.x,т.y,2,т.x,т.y,18); г.addColorStop(0,"rgba(201,214,234,.35)"); г.addColorStop(1,"rgba(201,214,234,0)"); ctx.fillStyle=г; ctx.beginPath(); ctx.arc(т.x,т.y,18,0,7); ctx.fill(); }
+      ctx.beginPath(); ctx.arc(т.x,т.y,наш?5.5:4.5,0,7); ctx.fillStyle="#0b0b0d"; ctx.fill(); ctx.lineWidth=наш?2:1.5; ctx.strokeStyle=наш?"#f4f4f5":"rgba(220,226,235,.55)"; ctx.stroke(); }
+    ctx.restore(); }
+  if(жест && жест.т==="след" && жест.путь.length>1){ const p=жест.путь;
+    if(СЛЕД==="пунктир"){ ctx.save(); ctx.setLineDash([4,5]); ctx.lineWidth=1.2; ctx.strokeStyle="rgba(111,155,216,.85)"; ctx.beginPath(); p.forEach((q,i)=>i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1])); ctx.stroke(); ctx.restore(); }
+    else { const хв=p.slice(-40), сила=жест.алт===false ? 0.3 : 1; for(let i=1;i<хв.length;i++){ const k=i/хв.length; ctx.strokeStyle="rgba(111,155,216,"+((0.05+0.8*k)*сила)+")"; ctx.lineWidth=0.6+2.2*k; ctx.lineCap="round"; ctx.beginPath(); ctx.moveTo(хв[i-1][0],хв[i-1][1]); ctx.lineTo(хв[i][0],хв[i][1]); ctx.stroke(); } } }
+  for(const k in N){ const n=N[k]; ctx.beginPath(); ctx.arc(n.x,n.y,12,0,7); ctx.fillStyle="#0b0b0d"; ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle=n.c; ctx.stroke();
+    ctx.fillStyle="#9a9aa3"; ctx.font="11px Segoe UI"; ctx.textAlign="center"; ctx.fillText(n.t,n.x,n.y+28); } }
+function перес(a,b,c,d){ const ex=b[0]-a[0], ey=b[1]-a[1], fx=d[0]-c[0], fy=d[1]-c[1], dd=ex*fy-ey*fx; if(Math.abs(dd)<1e-9) return null;
+  const s=((c[0]-a[0])*fy-(c[1]-a[1])*fx)/dd, u=((c[0]-a[0])*ey-(c[1]-a[1])*ex)/dd; return (s>=0&&s<=1&&u>=0&&u<=1)?{x:a[0]+ex*s,y:a[1]+ey*s,j:u}:null; }
+function связьПод(x,y){ let лучш=null, лд=7; for(const l of L){ const п=проекция(путь(l),x,y); if(п.d<лд){ лд=п.d; лучш=l; } } return лучш; }
+const точкаПод=(x,y)=>Т.find(т=>Math.hypot(т.x-x,т.y-y)<9 && L.some(l=>l.т===т.id));
+const нодаПод=(x,y)=>Object.keys(N).find(k=>Math.hypot(N[k].x-x,N[k].y-y)<14);
+const xy=e=>{ const r=cv.getBoundingClientRect(); return [e.clientX-r.left, e.clientY-r.top]; };
+/* ПРИЦЕПИТЬ СВЯЗЬ К КУРСОРУ (как в Houdini, КРОЛИК: «веду по связям, и они собираются как пучок и едут
+   за курсором, остаются там, где отпустил»). Первая задетая заводит точку — ровно под курсором; дальше
+   точка едет за мышью всю протяжку, а каждая новая задетая вливается в тот же пучок. */
+function прицепить(l, x, y){
+  if(!жест.точка){ const id="dot"+Math.random().toString(36).slice(2,7); жест.точка={id, x, y}; Т.push(жест.точка); }
+  l.до=[]; l.после=[]; l.т=жест.точка.id; жест.задел.add(l); }
+/* Жест держит кнопка мыши, Alt — живой переключатель сбора (КРОЛИК: пока Alt зажат — связи цепляются,
+   отпущен — пучок едет, новые не цепляются, нажат снова — сбор продолжается). Отпущенный Alt окно норовит
+   отдать своему меню, и мышь уходит вместе с фокусом: гасим Alt, а мышь держим захватом указателя. */
+addEventListener("keydown", e=>{ if(e.key==="Alt"){ e.preventDefault(); if(жест && жест.т==="след"){ жест.алт=true; draw(); } } });
+addEventListener("keyup", e=>{ if(e.key==="Alt"){ e.preventDefault(); if(жест && жест.т==="след"){ жест.алт=false; draw(); } } });
+cv.onpointerdown=e=>{ try{ cv.setPointerCapture(e.pointerId); }catch(_){} меню.style.display="none"; const [x,y]=xy(e); e.preventDefault();
+  const т=точкаПод(x,y); if(т){ жест={т:"точка", q:т, x0:x, y0:y, двиг:false}; return; }
+  const н=нодаПод(x,y); if(н){ жест={т:"нода", k:н, dx:N[н].x-x, dy:N[н].y-y}; return; }
+  if(e.altKey){ жест={т:"след", путь:[[x,y]], задел:new Set(), точка:null, алт:true};
+    const l=связьПод(x,y);
+    if(l){ прицепить(l, x, y); st.innerHTML="Связь <b>"+N[l.a].t+" → "+N[l.b].t+"</b> прицепилась к курсору. Веди дальше — задетые вливаются в пучок."; }
+    else st.innerHTML="Веди по связям — задетые цепляются к курсору и едут за ним пучком.";
+    draw(); return; }
+  st.innerHTML="Клик по пустому месту без Alt — рамка выделения, как раньше; <b>с Alt по пустому месту — только след</b>, нода не создаётся."; };
+cv.onpointermove=e=>{ const [x,y]=xy(e);
+  if(жест){ if(жест.т==="след"){ const p=жест.путь, a=p[p.length-1]; if(Math.hypot(x-a[0],y-a[1])<2) return; p.push([x,y]);
+      // задета — пересекла след или прошла под курсором; уже собранные не проверяем: их путь идёт через курсор
+      // Alt — живой переключатель: зажат — задетые цепляются, отпущен — пучок только едет за курсором
+      жест.алт=!!e.altKey;
+      if(жест.алт) for(const l of L){ if(жест.задел.has(l)) continue; const q=путь(l); let есть=проекция(q,x,y).d<6;
+        for(let i=0;!есть && i<q.length-1;i++) if(перес(a,[x,y],q[i],q[i+1])) есть=true;
+        if(есть) прицепить(l, x, y); }
+      if(жест.точка){ жест.точка.x=x; жест.точка.y=y; }   // точка едет за мышью вживую, вся протяжка
+      st.innerHTML=!жест.алт ? "Alt отпущен — новые связи <b>не цепляются</b>, пучок едет за курсором. Зажми Alt снова — сбор продолжится." : жест.точка ? "В пучке связей: <b>"+жест.задел.size+"</b> — едут за курсором, останутся там, где отпустишь." : "Веди по связям — задетые цепляются к курсору."; }
+    else if(жест.т==="точка"){ if(!жест.двиг && Math.hypot(x-жест.x0,y-жест.y0)<4) return; жест.двиг=true; жест.q.x=x; жест.q.y=y; st.innerHTML="Тянешь точку — все её связи едут за ней."; }
+    else if(жест.т==="нода"){ N[жест.k].x=x+жест.dx; N[жест.k].y=y+жест.dy; }
+    draw(); return; }
+  const т=точкаПод(x,y); навТ=т||null; навЛ=т?null:(нодаПод(x,y)?null:связьПод(x,y));
+  cv.style.cursor=т?"grab":нодаПод(x,y)?"grab":"default"; draw(); };
+cv.onpointerup=e=>{ const ж=жест; жест=null; if(!ж){ draw(); return; }
+  if(ж.т==="след") st.innerHTML=ж.задел.size>1 ? "<b>"+ж.задел.size+" связи</b> идут через точку там, где отпустил, дальше каждая к своей цели. Точку можно тащить." : ж.задел.size ? "Одна связь — точка стала её якорем там, где отпустил." : "Не задел ни одной связи — ничего не создано.";
+  if(ж.т==="точка" && !ж.двиг){ const т=ж.q, свои=L.filter(l=>l.т===т.id);
+    меню.innerHTML='<div class="ttl">Точка связей · '+свои.length+'</div><button data-x="убрать">Убрать точку</button>'+свои.map((l,i)=>'<button data-x="'+i+'">Отцепить: '+N[l.a].t+' → '+N[l.b].t+'</button>').join("");
+    меню.style.left=(т.x+12)+"px"; меню.style.top=(т.y+12)+"px"; меню.style.display="block";
+    меню.querySelectorAll("button").forEach(b=>b.onclick=()=>{ const сн=l=>{ l.т=null; l.до=[]; l.после=[]; };
+      if(b.dataset.x==="убрать") свои.forEach(сн); else сн(свои[+b.dataset.x]); меню.style.display="none"; draw(); }); }
+  draw(); };
+document.querySelectorAll("[data-p]").forEach(b=>b.onclick=()=>{ VID=b.dataset.p; document.querySelectorAll("[data-p]").forEach(x=>x.classList.toggle("on",x===b)); draw(); });
+document.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>{ СЛЕД=b.dataset.s; document.querySelectorAll("[data-s]").forEach(x=>x.classList.toggle("on",x===b)); draw(); });
+document.getElementById("reset").onclick=()=>{ сброс(); меню.style.display="none"; draw(); };
+// эталон со снимка 58: SQ01 → «Рендер» через точку ниже и левее «Рендера» — вправо, вниз к точке, вправо, вверх в «Рендер» снизу
+document.getElementById("e58").onclick=()=>{ сброс(); меню.style.display="none"; Т.push({id:"e58", x:690, y:156}); L[0].т="e58";
+  st.innerHTML="Эталон 58: от точки — <b>вправо и вверх</b>, в «Рендер» снизу; назад по своей вертикали не возвращается."; draw(); };
+addEventListener("resize",draw); draw();
+</script>
+</body>
+</html>

@@ -6,6 +6,12 @@
       "runtimeExecutable": "E:/ClaudeCode/planner/.venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "http.server", "18901", "--directory", "ui"],
       "port": 18901
+    },
+    {
+      "name": "planner-demo",
+      "runtimeExecutable": "E:/ClaudeCode/planner/.venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "http.server", "18902", "--bind", "127.0.0.1"],
+      "port": 18902
     }
   ]
 }
