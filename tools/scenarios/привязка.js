@@ -158,35 +158,44 @@ addLink(A.id, B.id); recomputeHierarchy(); persist(); render(); await ж(200);
           факт: "в выделении: " + [...graph.selNodes].length});
   graph.selNodes.clear(); graph._paintSel();
 
-  /* SHIFT ПО ХОДУ ЖЕСТА (КРОЛИК: «взял ноду, нажал Shift — остальные всё равно тянутся»).
-     Без привязки: взял без Shift (куст едет), посреди жеста нажал Shift — дальше едет одна нода, и
-     куст после отпускания стоит там, куда успел доехать, без прыжка. Отпустил Shift — снова куст. */
-  S.settings.graphSnap = false;
-  уснуть();
-  { const svg = graph.svg; a = graph.byId[A.id];
-    const p = экр(a.x, a.y), ход = (dx, shift) => svg.dispatchEvent(new PointerEvent("pointermove",
-      {buttons: 1, clientX: p.x + dx, clientY: p.y, shiftKey: shift, bubbles: true, cancelable: true}));
-    svg.dispatchEvent(new PointerEvent("pointerdown", {button: 0, clientX: p.x, clientY: p.y, bubbles: true, cancelable: true}));
-    ход(40, false); for (let i = 0; i < 120; i++) graph._tick(true);       // куст едет следом
-    const соло0 = graph._solo;
-    window.dispatchEvent(new KeyboardEvent("keydown", {key: "Shift", shiftKey: true}));
-    const соло1 = graph._solo, bМиг = {x: graph.byId[B.id].x, y: graph.byId[B.id].y};
-    ход(160, true); for (let i = 0; i < 120; i++) graph._tick(true);       // дальше — одна нода
-    const bПосле = graph.byId[B.id], стоит = Math.hypot(bПосле.x - bМиг.x, bПосле.y - bМиг.y);
-    window.dispatchEvent(new KeyboardEvent("keyup", {key: "Shift"}));
-    const соло2 = graph._solo;
-    window.dispatchEvent(new KeyboardEvent("keydown", {key: "Shift", shiftKey: true}));
-    svg.dispatchEvent(new PointerEvent("pointerup", {button: 0, clientX: p.x + 160, clientY: p.y, shiftKey: true, bubbles: true, cancelable: true}));
-    window.dispatchEvent(new KeyboardEvent("keyup", {key: "Shift"}));
-    const bОтп = {x: graph.byId[B.id].x, y: graph.byId[B.id].y};
+  /* SHIFT ПО ХОДУ ЖЕСТА (КРОЛИК: «взял ноду, нажал Shift — остальные всё равно тянутся» и «отпустил
+     Shift — ноды остались там, куда успели приехать»). В обоих режимах привязки: сперва куст едет
+     за нодой, потом режим «одна нода» — куст ВОЗВРАЩАЕТСЯ на места начала жеста, и после броска
+     ребёнок стоит там с точностью до пикселя; откат одним шагом возвращает и ноду. */
+  for (const снап of [false, true]) {
+    S.settings.graphSnap = снап;
     уснуть();
-    const прыг = Math.hypot(graph.byId[B.id].x - bОтп.x, graph.byId[B.id].y - bОтп.y);
-    t.push({имя: "Shift посреди протяжки переключает «одна нода / с кустом» в обе стороны",
-            ок: соло0 === false && соло1 === true && соло2 === false,
-            факт: "до Shift " + соло0 + ", с Shift " + соло1 + ", отпустил " + соло2});
-    t.push({имя: "в «одной ноде» куст стоит, после отпускания не прыгает", ок: стоит < 1 && прыг < 2,
-            факт: "пока одна нода: ребёнок сдвинулся на " + стоит.toFixed(2) + " px; после отпускания — на " + прыг.toFixed(2)});
+    const svg = graph.svg; a = graph.byId[A.id];
+    const p = экр(a.x, a.y), aНач = {x: A.x, y: A.y}, bНач = {x: graph.byId[B.id].x, y: graph.byId[B.id].y};
+    const ход = (dx, shift) => svg.dispatchEvent(new PointerEvent("pointermove",
+      {buttons: 1, clientX: p.x + dx, clientY: p.y + 7, shiftKey: shift, bubbles: true, cancelable: true}));
+    const кл = (тип) => window.dispatchEvent(new KeyboardEvent(тип, {key: "Shift", shiftKey: тип === "keydown"}));
+    // «куст» без привязки — без Shift, с привязкой — с Shift; «одна нода» — наоборот
+    const кустShift = снап;
+    if (кустShift) кл("keydown");
+    svg.dispatchEvent(new PointerEvent("pointerdown", {button: 0, clientX: p.x, clientY: p.y, shiftKey: кустShift, bubbles: true, cancelable: true}));
+    ход(30, кустShift); ход(90, кустShift); for (let i = 0; i < 150; i++) graph._tick(true);
+    const соло0 = graph._solo, уехал = Math.hypot(graph.byId[B.id].x - bНач.x, graph.byId[B.id].y - bНач.y);
+    кл(кустShift ? "keyup" : "keydown");                                   // → «одна нода»
+    const соло1 = graph._solo;
+    ход(170, !кустShift); for (let i = 0; i < 150; i++) graph._tick(true);
+    const вернулся = Math.hypot(graph.byId[B.id].x - bНач.x, graph.byId[B.id].y - bНач.y);
+    svg.dispatchEvent(new PointerEvent("pointerup", {button: 0, clientX: p.x + 170, clientY: p.y + 7, shiftKey: !кустShift, bubbles: true, cancelable: true}));
+    if (!кустShift) кл("keyup");
+    уснуть();
+    const стоит = Math.hypot(graph.byId[B.id].x - bНач.x, graph.byId[B.id].y - bНач.y), aУшла = Math.hypot(A.x - aНач.x, A.y - aНач.y);
+    const м = снап ? "с привязкой" : "без привязки";
+    t.push({имя: м + ": Shift посреди протяжки переключает режим", ок: соло0 === false && соло1 === true,
+            факт: "куст: _solo=" + соло0 + ", одна нода: _solo=" + соло1});
+    t.push({имя: м + ": в «одной ноде» куст возвращается на исходные места", ок: уехал > 20 && вернулся < 1,
+            факт: "ребёнок уезжал на " + Math.round(уехал) + " px, вернулся до " + вернулся.toFixed(2) + " px"});
+    t.push({имя: м + ": после броска ребёнок на исходном месте до пикселя, нода ушла", ок: стоит < 1 && aУшла >= 80,
+            факт: "ребёнок от исходного " + стоит.toFixed(2) + " px, нода ушла на " + Math.round(aУшла) + " px"});
+    const ок = undoStep();
+    t.push({имя: м + ": откат одним шагом возвращает ноду", ок: ок && Math.hypot(A.x - aНач.x, A.y - aНач.y) < 1,
+            факт: "нода после отката в " + Math.round(Math.hypot(A.x - aНач.x, A.y - aНач.y)) + " px от исходного"});
   }
+  S.settings.graphSnap = false;
   /* Обратный случай (КРОЛИК: «нажал Shift, взял ноду, отпустил Shift — дочерние не едут»): взял с
      Shift (одна нода), посреди жеста отпустил — дальше ребёнок обязан ехать следом. */
   уснуть();

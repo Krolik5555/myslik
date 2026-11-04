@@ -1967,6 +1967,8 @@ class Graph{
              нода ещё не сдвинулась (координаты меняются строкой ниже). Раньше по клику снимать
              нельзя: клик протяжкой не становится, и история заполнялась бы пустыми шагами. */
           this._layoutBefore=this.layoutSnap();
+          // исходные места ВСЕХ узлов: в «одной ноде» остальное возвращается сюда (см. _soloShift)
+          this._dragStart=new Map(); this.nodes.forEach(q=>this._dragStart.set(q.id,{x:q.x,y:q.y}));
           /* Порог пройден — значит это настоящая протяжка, и копию создавать не рано.
              Шаг раскладки для копирования не нужен и мешает: копии рождаются вместе со своими
              координатами, их снимет обычный откат создания, а лишний шаг заставил бы жать
@@ -2064,6 +2066,10 @@ class Graph{
              группы и только потом считаются дома: если владелец ехал в той же группе, дом,
              посчитанный до его записи, промахнулся бы ровно на длину жеста. */
           const группа=[n]; if(this.dragMates) this.dragMates.forEach(м=>группа.push(м.n));
+          /* «Одна нода» на отпускании: всё, что не в руке, — РОВНО на исходные места, даже если возврат
+             (_soloShift) не успел доехать. Дома детей ниже пишутся уже от этих мест. */
+          if(this._solo && this._dragStart) this.nodes.forEach(q=>{ if(q._grabbed || q===n) return;
+            const о=this._dragStart.get(q.id); if(о){ q.x=о.x; q.y=о.y; q.vx=0; q.vy=0; } });
           группа.forEach(q=>{
             if(q.ref){ q.ref.x=q.x; q.ref.y=q.y; }
             else if(q.hubArea){ q.hubArea.x=q.x; q.hubArea.y=q.y; }                      // позиция области
@@ -2126,7 +2132,7 @@ class Graph{
         n._grabbed=false;
         if(this.dragMates){ this.dragMates.forEach(м=>{ м.n._grabbed=false; }); this.dragMates=null; }
         this._dragHollowAreas=null; this.copyDrag=false; svg.style.cursor="";
-        this.drag=null; this._solo=false; this._shiftClick=false;
+        this.drag=null; this._solo=false; this._shiftClick=false; this._dragStart=null; this._soloBack=false;
       }
       this.panning=null;
     };
@@ -4484,15 +4490,17 @@ class Graph{
   /* SHIFT ПО ХОДУ ЖЕСТА. Режим «одна нода / с кустом» решался один раз на нажатии, и Shift,
      нажатый уже в руке, не действовал (КРОЛИК, 04.11.2026: «взял ноду, нажал Shift — остальные всё
      равно тянутся»). Теперь переключается в обе стороны, пока нода в руке; отпустил — вернулось.
-     Прыжков нет ни в одну сторону: ушли в «одну ноду» — физика встаёт (_tick), куст замирает там,
-     куда успел доехать, и на отпускании дома детей пишутся от ЭТИХ мест (onpointerup). Вернулись к
-     кусту — дома детей не трогали, физика проснулась, и куст плавно догоняет ноду по своим домам.
-     Shift-клик (_shiftClick) решается по нажатию и сюда не относится. */
+     Ушли в «одну ноду» — физика встаёт (_tick), а всё, что не в руке, ПЛАВНО едет на места, где
+     стояло в начале жеста (_dragStart, _soloBack): «одна нода» значит «остальное как было», а не
+     «замри, где застало» (КРОЛИК: «отпустил Shift — ноды остались там, куда успели приехать»). На
+     отпускании они ставятся туда ровно, и дома детей пишутся от исходных мест (onpointerup).
+     Вернулись к кусту — дома детей не трогали, физика проснулась, и куст едет за нодой от
+     исходных мест. Shift-клик (_shiftClick) решается по нажатию и сюда не относится. */
   _soloShift(shift){
     this._shiftNow=shift;
     const соло = S.settings.graphSnap ? !shift : shift;
     if(соло===!!this._solo) return;
-    this._solo=соло;
+    this._solo=соло; this._soloBack=соло;
     if(!соло) this.alpha=Math.max(this.alpha,.4);
     this._wake();
   }
@@ -4512,6 +4520,13 @@ class Graph{
   _tick(force){
     this._прКадр=performance.now();   // от неё _schedule отсчитывает потолок частоты
     this._покойКадр=false;
+    // возврат куста на исходные места в «одной ноде» (см. _soloShift): физика стоит, ведём сами
+    if(this.drag && this._solo && this._soloBack && this._dragStart){ let ещё=false;
+      for(const q of this.nodes){ if(q._grabbed || q===this.drag) continue;
+        const о=this._dragStart.get(q.id); if(!о) continue;
+        const dx=о.x-q.x, dy=о.y-q.y; q.vx=0; q.vy=0;
+        if(Math.abs(dx)+Math.abs(dy)<0.05){ q.x=о.x; q.y=о.y; } else { q.x+=dx*0.2; q.y+=dy*0.2; ещё=true; } }
+      if(!ещё) this._soloBack=false; }
     // прилипание к точке сетки доезжает в кадре (см. onpointermove); граф во время протяжки и так не спит
     if(this.drag && this._snapOff && this._snapGoal){ const о=this._snapOff;
       о.x*=0.55; о.y*=0.55;
