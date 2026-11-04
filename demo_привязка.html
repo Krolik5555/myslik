@@ -1,33 +1,39 @@
 <!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><title>Привязка к сетке — макет</title>
 <style>
-  :root{ --bg:#141517; --fg:#e6e6e6; --dim:#8a8d93; --acc:#7cc4ff; }
+  :root{ --bg:#141517; --fg:#e6e6e6; --dim:#8a8d93; --acc:#e6e6e6; }
   html,body{ margin:0; height:100%; background:var(--bg); color:var(--fg); font:13px/1.4 "Segoe UI",system-ui,sans-serif; overflow:hidden; }
   #cv{ position:fixed; inset:0; width:100%; height:100%; display:block; }
-  #ui{ position:fixed; left:16px; top:16px; width:330px; background:#1d1f22ee; border:1px solid #2c2f34; border-radius:12px; padding:12px 14px; }
+  #ui{ position:fixed; left:16px; top:16px; width:340px; background:#1d1f22ee; border:1px solid #2c2f34; border-radius:12px; padding:12px 14px; }
   #ui h1{ font-size:14px; margin:0 0 6px; }
   #ui .row{ margin:8px 0 2px; color:var(--dim); font-size:12px; }
   #ui .seg{ display:flex; gap:4px; flex-wrap:wrap; }
   #ui button{ background:#26292d; color:var(--fg); border:1px solid #33373c; border-radius:8px; padding:5px 9px; cursor:pointer; font:inherit; }
-  #ui button.on{ background:#2f4a60; border-color:#4b7ea6; }
+  #ui button.on{ background:#3a3d42; border-color:#8a8d93; }
   #ui p{ margin:6px 0; color:var(--dim); font-size:12px; }
   #rd{ font:12px/1.5 Consolas,monospace; color:#cfd3d8; white-space:pre; margin-top:8px; }
 </style></head><body>
 <canvas id="cv"></canvas>
 <div id="ui">
-  <h1>Привязка нод к сетке</h1>
-  <p>Тащи ноды ЛКМ. Колесо — зум, ПКМ или средняя — пан. Ctrl, зажатый ВО ВРЕМЯ протяжки, — привязка наоборот.</p>
-  <div class="row">Поведение</div>
+  <h1>Привязка — двухступенчатый магнит</h1>
+  <p>Тащи ноды ЛКМ. Колесо — зум, ПКМ или средняя — пан. Ctrl, зажатый во время протяжки, — без привязки.</p>
+  <p>Крупные узлы (яркие линии) тянут как сейчас. Мелкие узлы между ними — только вплотную. В радиусе крупного побеждает крупный.</p>
+  <div class="row">Режим</div>
   <div class="seg" id="b-mode">
-    <button data-v="A" class="on">А. Всегда к ближайшей</button>
-    <button data-v="B">Б. Как в Houdini — только рядом</button>
+    <button data-v="near" class="on">Только рядом (Houdini)</button>
+    <button data-v="always">Всегда к ближайшей</button>
   </div>
-  <div class="row">Подсказка</div>
-  <div class="seg" id="b-hint">
-    <button data-v="none" class="on">0. Только прилипание</button>
-    <button data-v="lens">1. Линза сетки</button>
-    <button data-v="brk">2. Скобки-прицел</button>
-    <button data-v="ghost">3. Призрак на точке</button>
+  <div class="row">Радиус мелкой ступени, экранные px</div>
+  <div class="seg" id="b-fine">
+    <button data-v="0">выкл</button>
+    <button data-v="4">4</button>
+    <button data-v="6" class="on">6</button>
+    <button data-v="9">9</button>
+  </div>
+  <div class="row">Мелкая ступень в режиме «всегда»</div>
+  <div class="seg" id="b-afine">
+    <button data-v="no" class="on">Нет — только крупный шаг</button>
+    <button data-v="yes">Да — тоже с мелкой</button>
   </div>
   <div class="row">Фон холста</div>
   <div class="seg" id="b-bg">
@@ -37,76 +43,70 @@
   <div id="rd"></div>
 </div>
 <script>
-/* Сетка — ровно та же формула, что в graph.js (_drawMain, блок «ФОН СЕТКА»): уровни ×5 от шага 20
-   мира, яркость уровня — только от его экранного шага (гаснет к 8 px, полная с 36). */
+/* Сетка — та же формула, что в graph.js (_drawMain, «ФОН СЕТКА»): уровни ×5 от шага 20 мира, яркость
+   уровня только от экранного шага (гаснет к 8 px, полная с 36), линии в floor(экран)+0.5. */
 const cv=document.getElementById("cv"), ctx=cv.getContext("2d");
 let W=0,H=0,dpr=1, z=1, tx=0, ty=0;
-const ST={mode:"A", hint:"none", bg:"grid"};
-// привязка — к ЯРКИМ линиям: с 36 px экранного шага уровень сетки горит в полную силу, мельче — тускнеет (КРОЛИК)
-const SNAP_MIN_PX=36;
-const MAGNET_PX=14;     // радиус притяжения варианта Б, экранные px
+const ST={mode:"near", fine:6, afine:"no", bg:"grid"};
+const SNAP_BRIGHT_PX=36, SNAP_NODE_K=1.5, FINE_MIN_PX=8;
 const nodes=[
-  {x:0,y:0,r:26,t:"Проект"},{x:140,y:-60,r:18,t:"Задача"},{x:160,y:80,r:18,t:"Заметка"},
-  {x:-160,y:40,r:18,t:"Идея"},{x:-60,y:-150,r:14,t:"Лист"},{x:300,y:20,r:14,t:"Лист"}
+  {x:0,y:0,r:15,t:"Проект"},{x:140,y:-60,r:10,t:"Задача"},{x:160,y:80,r:10,t:"Заметка"},
+  {x:-160,y:40,r:10,t:"Идея"},{x:-60,y:-150,r:8,t:"Лист"},{x:300,y:20,r:8,t:"Лист"}
 ];
 const links=[[0,1],[0,2],[0,3],[3,4],[1,5]];
 function resize(){ dpr=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight; cv.width=W*dpr; cv.height=H*dpr; if(!tx&&!ty){tx=W/2+120;ty=H/2;} }
 addEventListener("resize",()=>{resize();draw();}); resize();
 
-function levelSteps(){   // видимые уровни: [{step, strength}]
-  const out=[]; let шаг=20*Math.pow(5, Math.ceil(Math.log(8/(20*z))/Math.log(5)));
-  for(let ур=0; ур<4 && шаг*z<Math.max(W,H)*2; ур++, шаг*=5) out.push({step:шаг, s:Math.min(1,Math.max(0,(шаг*z-8)/28))});
-  return out;
+const firstStep=()=>Math.round(20*Math.pow(5, Math.ceil(Math.log(8/(20*z))/Math.log(5)))*1e6)/1e6;
+// крупная ступень — как в приложении (_snapStepFor)
+function coarseStep(n){ let s=firstStep(), min=SNAP_BRIGHT_PX/z;
+  if(ST.mode==="near" && n) min=Math.max(min, n.r*2*SNAP_NODE_K);
+  while(s*(1+1e-9)<min) s*=5; return s; }
+/* Мелкая ступень — следующий МЕЛКИЙ уровень нарисованной сетки (крупный / 5). Нет её, если он
+   не нарисован (экранный шаг < 8 px — сетка его гасит) или ступень выключена/не положена режиму. */
+function fineStep(n){ if(!ST.fine) return 0; if(ST.mode==="always" && ST.afine!=="yes") return 0;
+  const f=coarseStep(n)/5; return f*z>=FINE_MIN_PX ? f : 0; }
+const magnetPx=s=>Math.min(40, Math.max(14, s*z*0.12));
+const rnd=(v,s)=>Math.round(v/s)*s;
+// цель: крупный узел в своём радиусе (или всегда) → мелкий узел вплотную → свободно
+function snapTarget(x,y,n){
+  const S=coarseStep(n), cx=rnd(x,S), cy=rnd(y,S), dC=Math.hypot(cx-x,cy-y)*z;
+  if(ST.mode==="always" && !fineStep(n)) return {x:cx,y:cy,s:S,lvl:"coarse"};
+  if(dC<=magnetPx(S)) return {x:cx,y:cy,s:S,lvl:"coarse"};   // в радиусе крупного побеждает крупный
+  const f=fineStep(n);
+  if(f){ const fx=rnd(x,f), fy=rnd(y,f), dF=Math.hypot(fx-x,fy-y)*z;
+    if(dF<=ST.fine) return {x:fx,y:fy,s:f,lvl:(Math.abs(fx/S-Math.round(fx/S))<1e-9&&Math.abs(fy/S-Math.round(fy/S))<1e-9)?"coarse":"fine"}; }
+  if(ST.mode==="always") return {x:cx,y:cy,s:S,lvl:"coarse"};
+  return null;
 }
-/* Шаг привязки — всегда один из уровней, которые нарисованы. А: самый мелкий, что виден (экранный
-   шаг ≥ SNAP_MIN_PX). Б: вдобавок не мельче САМОЙ НОДЫ (диаметр × SNAP_NODE_K) — иначе при сильном
-   приближении клетки меньше ноды, точка есть под любым положением, и «только рядом» не отличить
-   от «всегда» (КРОЛИК). Уровень берётся следующий крупный, его линии и так ярче. */
-const SNAP_NODE_K=1.5;
-function snapStep(n){ const L=levelSteps(); let min=SNAP_MIN_PX/z;
-  if(ST.mode==="B" && n) min=Math.max(min, n.r*2*SNAP_NODE_K);
-  // от самого мелкого НАРИСОВАННОГО уровня: при сильном приближении сетка дорисовывает 4 и 0.8 мира
-  let s=L[0].step; while(s*(1+1e-9)<min) s*=5; return s; }
-function snapPt(x,y,n){ const s=snapStep(n); return {x:Math.round(x/s)*s, y:Math.round(y/s)*s, s}; }
-// радиус притяжения Б растёт с клеткой: на 600-пиксельных квадратах 14 px не поймать
-function magnetPx(s){ return Math.min(40, Math.max(MAGNET_PX, s*z*0.12)); }
-function drawGrid(alphaMul){
-  const A=0.028*alphaMul, wx0=-tx/z, wx1=(W-tx)/z, wy0=-ty/z, wy1=(H-ty)/z;
-  ctx.lineWidth=1; ctx.strokeStyle="#fff";
-  for(const L of levelSteps()){ if(L.s<=0) continue;
-    ctx.globalAlpha=A*L.s*(3-2*L.s); ctx.beginPath();
-    for(let x=Math.ceil(wx0/L.step)*L.step; x<=wx1; x+=L.step){ const sx=Math.round(x*z+tx)+0.5; ctx.moveTo(sx,0); ctx.lineTo(sx,H); }
-    for(let y=Math.ceil(wy0/L.step)*L.step; y<=wy1; y+=L.step){ const sy=Math.round(y*z+ty)+0.5; ctx.moveTo(0,sy); ctx.lineTo(W,sy); }
+function drawGrid(){
+  const A=0.028, wx0=-tx/z, wx1=(W-tx)/z, wy0=-ty/z, wy1=(H-ty)/z;
+  ctx.lineWidth=1; ctx.strokeStyle="#fff"; let s=firstStep();
+  for(let ур=0; ур<4 && s*z<Math.max(W,H)*2; ур++, s*=5){ const T=s*z, сила=Math.min(1,Math.max(0,(T-8)/28)); if(сила<=0) continue;
+    ctx.globalAlpha=A*сила*(3-2*сила); ctx.beginPath();
+    for(let x=Math.ceil(wx0/s)*s; x<=wx1; x+=s){ const sx=Math.floor(x*z+tx)+0.5; ctx.moveTo(sx,0); ctx.lineTo(sx,H); }
+    for(let y=Math.ceil(wy0/s)*s; y<=wy1; y+=s){ const sy=Math.floor(y*z+ty)+0.5; ctx.moveTo(0,sy); ctx.lineTo(W,sy); }
     ctx.stroke(); }
   ctx.globalAlpha=1;
 }
-let drag=null, pan=null, inv=false, target=null, lastErr=null;
+let drag=null, pan=null, target=null, last=null;
 function S2W(e){ return {x:(e.clientX-tx)/z, y:(e.clientY-ty)/z}; }
-function hit(e){ const p=S2W(e); for(let i=nodes.length-1;i>=0;i--){ const n=nodes[i]; if(Math.hypot(n.x-p.x,n.y-p.y)<=n.r+4) return n; } return null; }
+function hit(e){ const p=S2W(e); for(let i=nodes.length-1;i>=0;i--){ const n=nodes[i]; if(Math.hypot(n.x-p.x,n.y-p.y)<=n.r+6) return n; } return null; }
 cv.addEventListener("contextmenu",e=>e.preventDefault());
 cv.addEventListener("pointerdown",e=>{ cv.setPointerCapture(e.pointerId);
-  if(e.button===0){ const n=hit(e); if(n){ const p=S2W(e); drag={n,dx:n.x-p.x,dy:n.y-p.y}; } }
+  if(e.button===0){ const n=hit(e); if(n){ const p=S2W(e); drag={n,dx:n.x-p.x,dy:n.y-p.y,was:""}; } }
   else pan={x:e.clientX,y:e.clientY}; });
 cv.addEventListener("pointermove",e=>{
-  inv=e.ctrlKey;
   if(pan){ tx+=e.clientX-pan.x; ty+=e.clientY-pan.y; pan={x:e.clientX,y:e.clientY}; draw(); return; }
   if(!drag) return;
-  const p=S2W(e), fx=p.x+drag.dx, fy=p.y+drag.dy, sp=snapPt(fx,fy,drag.n);
-  const near=Math.hypot(sp.x-fx, sp.y-fy)*z<=magnetPx(sp.s);
-  const on=!inv && (ST.mode==="A" || near);
-  target=on?sp:null;
-  /* ПРИЛИПАНИЕ ВМЕСТО МАРКЕРА: нода не прыгает на точку, а доезжает до неё за несколько кадров
-     (и так же мягко отлипает). Само это движение и показывает привязку — кольцо «где притянет»
-     КРОЛИК забраковал как лишнее на холсте. Логическая позиция ставится сразу, тает только сдвиг
-     отрисовки (n.ox/n.oy), поэтому бросок всегда кладёт ноду ровно в точку. */
-  const n=drag.n, bx=n.x+(n.ox||0), by=n.y+(n.oy||0);
-  if(ST.hint==="ghost"){ n.x=fx; n.y=fy; }          // нода идёт за рукой, на точку встанет при отпускании
-  else if(on){ n.x=sp.x; n.y=sp.y; } else { n.x=fx; n.y=fy; }
-  // сдвиг сглаживаем только на входе в точку, выходе из неё и переходе на соседнюю — обычное ведение без задержки
-  const key=on?sp.x+","+sp.y:"", прыг=(key!==(drag.was||""));
-  drag.was=key;
-  if(прыг){ n.ox=bx-n.x; n.oy=by-n.y; settle(); } else if(!on){ n.ox=0; n.oy=0; }
-  draw(); });
+  const p=S2W(e), fx=p.x+drag.dx, fy=p.y+drag.dy, n=drag.n;
+  target=e.ctrlKey?null:snapTarget(fx,fy,n);
+  const bx=n.x+(n.ox||0), by=n.y+(n.oy||0);
+  if(target){ n.x=target.x; n.y=target.y; } else { n.x=fx; n.y=fy; }
+  // прилипание: доезжает за пару кадров только при смене точки, свободное ведение — без задержки
+  const key=target?target.x+","+target.y:"";
+  if(key!==drag.was){ n.ox=bx-n.x; n.oy=by-n.y; settle(); } else if(!target){ n.ox=0; n.oy=0; }
+  drag.was=key; drag.free={x:fx,y:fy}; draw(); });
 let settling=false;
 function settle(){ if(settling) return; settling=true;
   const step=()=>{ let left=false;
@@ -114,60 +114,49 @@ function settle(){ if(settling) return; settling=true;
       if(Math.hypot(n.ox,n.oy)<0.05){ n.ox=0; n.oy=0; } else left=true; }
     draw(); if(left) requestAnimationFrame(step); else settling=false; };
   requestAnimationFrame(step); }
-cv.addEventListener("pointerup",()=>{ if(drag){ if(target){ const n=drag.n; n.ox=(n.ox||0)+n.x-target.x; n.oy=(n.oy||0)+n.y-target.y; n.x=target.x; n.y=target.y; settle(); }
-    measure(drag.n); } drag=null; pan=null; target=null; draw(); });
-addEventListener("keydown",e=>{ if(e.key==="Control"){ inv=true; } });
-addEventListener("keyup",e=>{ if(e.key==="Control"){ inv=false; } });
+cv.addEventListener("pointerup",()=>{ if(drag){ const n=drag.n; n.ox=0; n.oy=0; last={x:n.x,y:n.y,lvl:target?target.lvl:"свободно"}; }
+  drag=null; pan=null; target=null; draw(); });
 cv.addEventListener("wheel",e=>{ e.preventDefault(); const k=Math.exp(-e.deltaY*0.0015), nz=Math.max(0.08,Math.min(6,z*k));
   tx=e.clientX-(e.clientX-tx)*nz/z; ty=e.clientY-(e.clientY-ty)*nz/z; z=nz; draw(); },{passive:false});
-/* Замер: экранная точка ноды против линий, которые реально нарисованы (с их пиксельной привязкой
-   round()+0.5). Расхождение больше полупикселя значило бы, что нода стоит МИМО видимой сетки. */
-function measure(n){ const s=snapStep(n);const onX=Math.abs(n.x/s-Math.round(n.x/s))<1e-9, onY=Math.abs(n.y/s-Math.round(n.y/s))<1e-9;
-  const sx=n.x*z+tx, sy=n.y*z+ty, lx=Math.round(sx)+0.5, ly=Math.round(sy)+0.5;
-  lastErr={on:onX&&onY, dx:Math.abs(sx-lx), dy:Math.abs(sy-ly), x:n.x, y:n.y, s}; }
 
-function hintLens(p){   // линза: кусок той же решётки вокруг точки, ярче к центру, — видна даже на чистом фоне
-  const s=p.s, R=4; ctx.save();
-  for(let i=-R;i<=R;i++) for(let j=-R;j<=R;j++){
-    const d=Math.hypot(i,j)/R; if(d>1) continue;
-    const sx=Math.round((p.x+i*s)*z+tx)+0.5, sy=Math.round((p.y+j*s)*z+ty)+0.5, a=(1-d)*(1-d);
-    ctx.globalAlpha=0.55*a; ctx.strokeStyle="#7cc4ff"; ctx.lineWidth=1;
-    const k=Math.min(5, s*z*0.22); ctx.beginPath(); ctx.moveTo(sx-k,sy); ctx.lineTo(sx+k,sy); ctx.moveTo(sx,sy-k); ctx.lineTo(sx,sy+k); ctx.stroke(); }
+/* ЛИНЗА — как в приложении: идёт за нодой всю протяжку; крупные узлы — крестиками, мелкие — тусклее и
+   меньше (видно, куда ещё можно положить), прилипший узел — длинными лучами из-под ноды. */
+function lens(n){
+  const S=coarseStep(n), f=fineStep(n), R=4, cx=n.x+(n.ox||0), cy=n.y+(n.oy||0);
+  ctx.save(); ctx.lineWidth=1; ctx.strokeStyle="#e6e6e6";
+  const cross=(wx,wy,k,a)=>{ const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5; ctx.globalAlpha=a; ctx.beginPath();
+    ctx.moveTo(sx-k,sy); ctx.lineTo(sx+k,sy); ctx.moveTo(sx,sy-k); ctx.lineTo(sx,sy+k); ctx.stroke(); };
+  if(f){ const RF=R*S/f*0.6, ox=Math.round(cx/f), oy=Math.round(cy/f), kf=Math.min(2.5, f*z*0.18);
+    for(let i=-Math.ceil(RF);i<=Math.ceil(RF);i++) for(let j=-Math.ceil(RF);j<=Math.ceil(RF);j++){
+      const wx=(ox+i)*f, wy=(oy+j)*f; if(Math.abs(wx/S-Math.round(wx/S))<1e-9 && Math.abs(wy/S-Math.round(wy/S))<1e-9) continue;
+      const d=Math.hypot(wx-cx,wy-cy)/(R*S*0.6); if(d>1) continue; cross(wx,wy,kf,0.28*(1-d)*(1-d)); } }
+  const ox=Math.round(cx/S), oy=Math.round(cy/S), k=Math.min(5,S*z*0.22);
+  for(let i=-R;i<=R;i++) for(let j=-R;j<=R;j++){ const wx=(ox+i)*S, wy=(oy+j)*S, d=Math.hypot(wx-cx,wy-cy)/(R*S); if(d>1) continue;
+    cross(wx,wy,k,0.55*(1-d)*(1-d)); }
+  if(target) cross(target.x,target.y,n.r*z+16,target.lvl==="fine"?0.7:0.9);
   ctx.restore(); }
-function hintBrackets(p,n){   // скобки: четыре уголка по клетке, в которую села нода
-  const sx=Math.round(p.x*z+tx)+0.5, sy=Math.round(p.y*z+ty)+0.5, h=Math.max(n.r*z+8, p.s*z*0.5), k=7;
-  ctx.save(); ctx.strokeStyle="#7cc4ff"; ctx.globalAlpha=0.9; ctx.lineWidth=1.5; ctx.beginPath();
-  for(const [ax,ay] of [[-1,-1],[1,-1],[1,1],[-1,1]]){ const cx=sx+ax*h, cy=sy+ay*h;
-    ctx.moveTo(cx-ax*k,cy); ctx.lineTo(cx,cy); ctx.lineTo(cx,cy-ay*k); }
-  ctx.stroke(); ctx.globalAlpha=0.35; ctx.setLineDash([2,4]); ctx.beginPath();
-  ctx.moveTo(sx-h,sy); ctx.lineTo(sx+h,sy); ctx.moveTo(sx,sy-h); ctx.lineTo(sx,sy+h); ctx.stroke(); ctx.restore(); }
-function hintGhost(p,n){   // призрак: контур ноды на точке, куда она встанет, и тонкая нить от руки
-  const sx=p.x*z+tx, sy=p.y*z+ty; ctx.save(); ctx.strokeStyle="#7cc4ff"; ctx.lineWidth=1.5; ctx.setLineDash([4,4]);
-  ctx.globalAlpha=0.8; ctx.beginPath(); ctx.arc(sx,sy,n.r*z,0,Math.PI*2); ctx.stroke();
-  ctx.setLineDash([]); ctx.globalAlpha=0.35; ctx.beginPath(); ctx.moveTo(n.x*z+tx,n.y*z+ty); ctx.lineTo(sx,sy); ctx.stroke(); ctx.restore(); }
 
 function draw(){
   ctx.setTransform(dpr,0,0,dpr,0,0); ctx.fillStyle="#141517"; ctx.fillRect(0,0,W,H);
-  if(ST.bg==="grid") drawGrid(1);
-  // связи и ноды
+  if(ST.bg==="grid") drawGrid();
+  const vx=n=>(n.x+(n.ox||0))*z+tx, vy=n=>(n.y+(n.oy||0))*z+ty;
   ctx.strokeStyle="#5b6068"; ctx.lineWidth=1.5;
-  const vx=n=>(n.x+(n.ox||0))*z+tx, vy=n=>(n.y+(n.oy||0))*z+ty;   // видимая позиция — с тающим сдвигом прилипания
   for(const [a,b] of links){ const A=nodes[a],B=nodes[b]; ctx.beginPath(); ctx.moveTo(vx(A),vy(A)); ctx.lineTo(vx(B),vy(B)); ctx.stroke(); }
-  if(drag && target){ if(ST.hint==="lens") hintLens(target); else if(ST.hint==="brk") hintBrackets(target,drag.n); else if(ST.hint==="ghost") hintGhost(target,drag.n); }
+  if(drag) lens(drag.n);
   for(const n of nodes){ const sx=vx(n), sy=vy(n);
-    ctx.fillStyle="#2a2d32"; ctx.strokeStyle=(drag&&drag.n===n)?"#cfd3d8":"#6b7079"; ctx.lineWidth=1.5;
+    ctx.fillStyle="#141517"; ctx.strokeStyle=(drag&&drag.n===n)?"#ffffff":"#9a9ea6"; ctx.lineWidth=2;
     ctx.beginPath(); ctx.arc(sx,sy,n.r*z,0,Math.PI*2); ctx.fill(); ctx.stroke();
     if(z>0.4){ ctx.fillStyle="#cfd3d8"; ctx.font=`${Math.round(12*Math.min(1.4,Math.max(.8,z)))}px Segoe UI`; ctx.textAlign="center"; ctx.fillText(n.t, sx, sy+n.r*z+16); } }
-  const ref=drag?drag.n:nodes[0], s0=snapStep(ref);
-  const L=levelSteps().map(l=>`${l.step}${l.step===s0?"◄":""}(${Math.round(l.s*100)}%)`).join(" ");
-  let t=`зум ${z.toFixed(2)}\nуровни сетки: ${L}\nшаг привязки («${ref.t}», ⌀${ref.r*2}): ${s0} мира = ${(s0*z).toFixed(1)} px`;
-  if(ST.mode==="B") t+=`\nрадиус притяжения: ${magnetPx(s0).toFixed(0)} px`;
-  if(lastErr) t+=`\nпоследний бросок: (${lastErr.x}, ${lastErr.y})\n  на узле решётки: ${lastErr.on?"да":"НЕТ"}\n  мимо линии: ${lastErr.dx.toFixed(2)} / ${lastErr.dy.toFixed(2)} px`;
+  const ref=drag?drag.n:nodes[0], S=coarseStep(ref), f=fineStep(ref);
+  let t=`зум ${z.toFixed(2)}\nкрупный шаг («${ref.t}»): ${S} мира = ${(S*z).toFixed(0)} px, радиус ${ST.mode==="near"?magnetPx(S).toFixed(0)+" px":"всегда"}`;
+  t+=`\nмелкий шаг: ${f?f+" мира = "+(f*z).toFixed(0)+" px, радиус "+ST.fine+" px":"нет"+(ST.fine&&ST.mode==="near"?" (не нарисован на этом зуме)":"")}`;
+  if(drag) t+=`\nсейчас: ${target?(target.lvl==="fine"?"мелкий узел":"крупный узел"):"свободно"}`;
+  else if(last) t+=`\nбросок: (${+last.x.toFixed(2)}, ${+last.y.toFixed(2)}) — ${last.lvl==="fine"?"мелкий узел":last.lvl==="coarse"?"крупный узел":"свободно"}`;
   document.getElementById("rd").textContent=t;
 }
-for(const [id,key] of [["b-mode","mode"],["b-hint","hint"],["b-bg","bg"]]){
+for(const [id,key] of [["b-mode","mode"],["b-fine","fine"],["b-afine","afine"],["b-bg","bg"]]){
   const box=document.getElementById(id);
-  box.addEventListener("click",e=>{ const b=e.target.closest("button"); if(!b) return; ST[key]=b.dataset.v;
+  box.addEventListener("click",e=>{ const b=e.target.closest("button"); if(!b) return; ST[key]=key==="fine"?+b.dataset.v:b.dataset.v;
     box.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b)); draw(); }); }
 draw();
 </script></body></html>

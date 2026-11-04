@@ -1995,7 +1995,7 @@ class Graph{
            идёт за рукой без задержки. */
         const привязка=!!S.settings.graphSnap !== (!!e.ctrlKey && !this._snapCtrl0);
         const т=привязка ? this._snapPoint(цx, цy, this.drag) : null;
-        if(т){ цx=т.x; цy=т.y; }
+        if(т){ цx=т.x; цy=т.y; } this._snapFine=!!(т && т.fine);
         this._snapStep=привязка ? this._snapStepFor(this.drag) : null;   // линза (_drawMain) идёт за нодой, пока привязка включена
         const ключ=т ? т.x+","+т.y : "";
         if(ключ!==this._snapKey){ this._snapKey=ключ; this._snapOff={x:this.drag.x-цx, y:this.drag.y-цy}; }
@@ -4693,11 +4693,27 @@ class Graph{
     while(шаг*(1+1e-9)<мин) шаг*=5;
     return шаг;
   }
+  /* ДВУХСТУПЕНЧАТЫЙ МАГНИТ (КРОЛИК, 04.11.2026: «некоторые ноды не хочется убирать далеко, но хочется
+     расположить на одной линии»; радиус выбран в demo_привязка.html). Крупная ступень — как была:
+     шаг _snapStepFor и свой радиус. Мелкая — СЛЕДУЮЩИЙ МЕЛКИЙ уровень той же нарисованной сетки
+     (крупный / 5), тянет только вплотную, SNAP_FINE_PX. Есть она, лишь пока этот уровень нарисован
+     (экранный шаг ≥ 8 px — мельче сетка его гасит), иначе точки разошлись бы с дизайном фона. В
+     радиусе крупного побеждает крупный. Обе ступени — в обоих режимах; «всегда» вне обеих радиусов
+     ставит на ближайший крупный. Отдельной клавиши нет: Shift, Alt и Ctrl заняты. */
+  _snapFineStep(шаг){
+    const SNAP_FINE_MIN_PX=8, ф=Math.round(шаг/5*1e6)/1e6;
+    return ф*this.zoom>=SNAP_FINE_MIN_PX ? ф : 0;
+  }
   _snapPoint(x,y,n){
+    const SNAP_FINE_PX=6;
     const z=this.zoom, near=S.settings.graphSnapMode!=="always", шаг=this._snapStepFor(n);
     const px=Math.round(x/шаг)*шаг, py=Math.round(y/шаг)*шаг;
-    if(near){ const R=Math.min(40, Math.max(14, шаг*z*0.12)); if(Math.hypot(px-x,py-y)*z>R) return null; }
-    return {x:px, y:py, step:шаг};
+    const R=Math.min(40, Math.max(14, шаг*z*0.12));
+    if(Math.hypot(px-x,py-y)*z<=R) return {x:px, y:py, step:шаг};
+    const ф=this._snapFineStep(шаг);
+    if(ф){ const fx=Math.round(x/ф)*ф, fy=Math.round(y/ф)*ф;
+      if(Math.hypot(fx-x,fy-y)*z<=SNAP_FINE_PX) return {x:fx, y:fy, step:ф, fine:true}; }
+    return near ? null : {x:px, y:py, step:шаг};
   }
   /* ДОВОДКА ДО ДОМА НА ЗАСЫПАНИИ. Домашняя пружина умножена на alpha (разбор — у неё в _tick), и
      граф засыпает, когда нода ещё не доехала до дома на доли пикселя — замер: 0.7 и 1.1 px у ноды,
@@ -5909,20 +5925,29 @@ class Graph{
        ТОЧНОГО места ноды, а не от ближайшего узла — иначе линза перескакивала бы клетками. Узел, к
        которому нода прилипла (_snapKey), горит ярче и крупнее. На ЛЮБОМ фоне: на чистом тоне и
        звёздах сетки нет вовсе. Крестики — в тех же floor()+0.5, что линии сетки, иначе разошлись бы
-       с ними на пиксель. */
+       с ними на пиксель. Мелкая ступень (_snapFineStep) — тусклее, меньше и в круге поуже: видно,
+       куда ещё можно положить рядом, но крупные узлы остаются главными. */
     if(this.drag && this.drag._moved && this._snapStep){
-      const s=this._snapStep, R=4, k=Math.min(5, s*z*0.22), d0=this.drag;
-      const ox=Math.round(d0.x/s), oy=Math.round(d0.y/s), g=this._snapKey?this._snapGoal:null;
+      const s=this._snapStep, R=4, k=Math.min(5, s*z*0.22), d0=this.drag, ф=this._snapFineStep(s);
+      const g=this._snapKey?this._snapGoal:null;
       if(!this._snapLensColor) this._snapLensColor=NEUTRAL();   // тон темы; кадров с линзой много, getComputedStyle — один раз на жест
       ctx.save(); ctx.lineWidth=1; ctx.strokeStyle=this._snapLensColor;
+      const крест=(wx,wy,кк,а)=>{ const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5;
+        ctx.globalAlpha=а; ctx.beginPath();
+        ctx.moveTo(sx-кк,sy); ctx.lineTo(sx+кк,sy); ctx.moveTo(sx,sy-кк); ctx.lineTo(sx,sy+кк); ctx.stroke(); };
+      const наКрупном=(wx,wy)=>Math.abs(wx/s-Math.round(wx/s))<1e-9 && Math.abs(wy/s-Math.round(wy/s))<1e-9;
+      if(ф){ const RF=R*s*0.6, N=Math.ceil(RF/ф), fx0=Math.round(d0.x/ф), fy0=Math.round(d0.y/ф), kf=Math.min(2.5, ф*z*0.18);
+        for(let i=-N;i<=N;i++) for(let j=-N;j<=N;j++){
+          const wx=(fx0+i)*ф, wy=(fy0+j)*ф; if(наКрупном(wx,wy)) continue;
+          const d=Math.hypot(wx-d0.x, wy-d0.y)/RF; if(d>1) continue;
+          крест(wx, wy, kf, 0.28*(1-d)*(1-d)); } }
+      const ox=Math.round(d0.x/s), oy=Math.round(d0.y/s);
       for(let i=-R;i<=R;i++) for(let j=-R;j<=R;j++){
         const wx=(ox+i)*s, wy=(oy+j)*s, d=Math.hypot(wx-d0.x, wy-d0.y)/(R*s); if(d>1) continue;
-        const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5;
-        // прилипший узел лежит ПОД нодой — лучи длиннее её радиуса, иначе нода закрыла бы подсветку целиком
-        const мой=g && Math.abs(g.x-wx)<1e-6 && Math.abs(g.y-wy)<1e-6, kk=мой?(d0.r||8)*z+16:k;   // +16: ореол выделения шире радиуса, с +7 лучи из-под него едва выглядывали (снимок в деве)
-        ctx.globalAlpha=мой?0.9:0.55*(1-d)*(1-d); ctx.beginPath();
-        ctx.moveTo(sx-kk,sy); ctx.lineTo(sx+kk,sy); ctx.moveTo(sx,sy-kk); ctx.lineTo(sx,sy+kk); ctx.stroke();
-      }
+        крест(wx, wy, k, 0.55*(1-d)*(1-d)); }
+      /* Прилипший узел (крупный или мелкий) лежит ПОД нодой — лучи длиннее её радиуса, иначе нода
+         закрыла бы подсветку целиком; +16: ореол выделения шире радиуса (снимок в деве). */
+      if(g) крест(g.x, g.y, (d0.r||8)*z+16, this._snapFine?0.7:0.9);
       ctx.restore(); ctx.globalAlpha=1;
     }
     if(this._bgKind()==="topo"){
