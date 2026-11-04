@@ -126,8 +126,11 @@ const RouteLab=(()=>{
     if(сл.точки) g.dots=JSON.parse(JSON.stringify(сл.точки)); else delete g.dots;
     recomputeHierarchy();
     if(режим==="soft") delete S.settings.graphLinkMode; else S.settings.graphLinkMode=режим;
-    graph.build(); graph.alpha=0; graph.nodes.forEach(n=>{ n._ix=0; n._iy=0; });
-    graph._routeMem(true); graph._маршр=null; graph._routesFresh(); довести();
+    /* живые узлы прошлого случая — забыть: build() берёт место у живого узла с тем же id, а id у случаев
+       общие (lab_H0…), и случай 66 мерился на раскладке 55-го (шина: 24 пересечения против 4 на своей) */
+    graph.byId={}; graph.build(); graph.alpha=0; graph.nodes.forEach(n=>{ n._ix=0; n._iy=0; });
+    // и первый подбор (из _routesFresh) — уже без бюджета: обрыв по времени делал итог зависимым от скорости машины
+    graph._routeMem(true); graph._маршр=null; graph._оптБюджет=5000; graph._routesFresh(); довести();
     // прогиб мягкой связи доезжает до цели за кадры (_bendT → _bendC): меряем конечный вид, а не первый кадр
     for(const l of graph.links) l._bendC=l._bendT ? Object.assign({}, l._bendT) : null;
   }
@@ -200,7 +203,22 @@ const RouteLab=(()=>{
       const пов=повороты(п, a.r||8, b.r||8); м.колен+=пов;
       if(!в && l._рт && (Math.abs(a.x-b.x)<1 || Math.abs(a.y-b.y)<1) && пов>0
         && !graph.nodes.some(n=>n!==a && n!==b && routeClipT(a.x,a.y,b.x,b.y,routeNodeBox(n),2))){ м.прямо++; нар.push({вид:"прямо", x:(a.x+b.x)/2, y:(a.y+b.y)/2, l:[l]}); } }
+    неизбежность(м, нар);
     return {м, нар}; }
+  /* СВЕРХ НЕИЗБЕЖНЫХ: зонд подбора (_лабЗонд в _routeOptimize) для каждой связи с пересечением или наездом
+     находит лучший путь по лабиринту при прочих связях на месте. Пересечение избегаемо, если обойти его
+     может хоть одна из двух связей; наезд — если у связи есть путь с меньшим числом наездов. перИзб и
+     навИзб — то, что можно было убрать; к нулю стремятся они. У мягкой связи маршрута нет — зонд молчит. */
+  function неизбежность(м, нар){
+    м.перИзб=0; м.навИзб=0;
+    const нужны=new Set(); for(const н of нар) if(н.вид==="пер" || н.вид==="нав") for(const l of н.l) if(l._рт && l._рт.умолч) нужны.add(l);
+    if(!нужны.size) return;
+    graph._лабЗонд=[...нужны]; graph._оптБюджет=5000; graph._лабЗондИтог=null;
+    try{ graph._routeOptimize(); } finally { graph._лабЗонд=null; graph._оптБюджет=0; }
+    const з=graph._лабЗондИтог||new Map(), лучше=(l,поле)=>{ const r=з.get(l); return !!(r && r.лаб && r.лаб[поле]<r.сейч[поле]); };
+    for(const н of нар){
+      if(н.вид==="пер" && н.l.some(l=>лучше(l,"пер"))){ н.изб=true; м.перИзб++; }
+      if(н.вид==="нав" && лучше(н.l[0],"нав")){ н.изб=true; м.навИзб++; } } }
 
   // снимок маршрутов для устойчивости: сиг и вершины
   const снимок=()=>{ const o=new Map(); for(const l of graph.links) o.set(l.a+"|"+l.b, JSON.stringify(путь(l).map(v=>[Math.round(v[0]), Math.round(v[1])]))); return o; };
@@ -215,19 +233,19 @@ const RouteLab=(()=>{
     // 1) сдвиг ноды на 25 px
     { поставить(сл, режим); const до=снимок(), н=ноды[(r()*ноды.length)|0], id="lab_"+н.к;
       const старые=graph.links.filter(l=>l.a===id||l.b===id).map(путь);
-      const it=S.items.find(x=>x.id===id); it.x+=25; it.y-=15; graph.build(); graph.alpha=0; graph.nodes.forEach(n=>{ n._ix=0; n._iy=0; });
-      graph._маршр=null; graph._routesFresh(); довести(); const после=снимок();
+      const it=S.items.find(x=>x.id===id); it.x+=25; it.y-=15; graph.byId={}; graph.build();   // без сброса build() оставил бы ноду на живом месте — сдвига не было бы вовсе graph.alpha=0; graph.nodes.forEach(n=>{ n._ix=0; n._iy=0; });
+      graph._маршр=null; graph._оптБюджет=5000; graph._routesFresh(); довести(); const после=снимок();
       const новые=graph.links.filter(l=>l.a===id||l.b===id).map(путь), нр=graph.byId[id];
       до.forEach((v,k)=>{ if(после.get(k)===v || k.includes(id)) return; if(рядом(старые.concat(новые, [[[нр.x,нр.y]]]), k)) return; итог.сдвиг++; }); }
     // 2) переименование: подпись длиннее
     { поставить(сл, режим); const до=снимок(), н=ноды[(r()*ноды.length)|0], id="lab_"+н.к;
       const it=S.items.find(x=>x.id===id); it.title=it.title+" — переименована подлиннее"; graph.build(); graph.alpha=0; graph.nodes.forEach(n=>{ n._ix=0; n._iy=0; });
-      graph._маршр=null; graph._routesFresh(); довести(); const после=снимок(), нр=graph.byId[id];
+      graph._маршр=null; graph._оптБюджет=5000; graph._routesFresh(); довести(); const после=снимок(), нр=graph.byId[id];
       до.forEach((v,k)=>{ if(после.get(k)===v || k.includes(id)) return; if(рядом([[[нр.x,нр.y],[нр.x-120,нр.y+20],[нр.x+120,нр.y+20]]], k)) return; итог.имя++; }); }
     // 3) новая нода далеко в стороне
     { поставить(сл, режим); const до=снимок(); let mx=-Infinity, my=0; for(const н of сл.ноды){ if(н.x>mx){ mx=н.x; my=н.y; } }
       S.items.unshift({id:"lab_нова", kind:"note", title:"новая", body:"", area:null, status:"todo", due:null, repeat:"none", priority:0, tags:[], created:0, updated:0, done:false, x:mx+600, y:my, pin:false, parent:null, deleted:false, deletedAt:null});
-      graph.build(); graph.alpha=0; graph.nodes.forEach(n=>{ n._ix=0; n._iy=0; }); graph._маршр=null; graph._routesFresh(); довести();
+      graph.build(); graph.alpha=0; graph.nodes.forEach(n=>{ n._ix=0; n._iy=0; }); graph._маршр=null; graph._оптБюджет=5000; graph._routesFresh(); довести();
       const после=снимок(); до.forEach((v,k)=>{ if(после.get(k)!==v) итог.нова++; }); }
     return итог; }
 
@@ -235,11 +253,12 @@ const RouteLab=(()=>{
      с маршрутом (у мягкой форма — прогиб, он считается физикой кадра). Возвращает таблицу для сценария. */
   function прогнать(опц){
     опц=опц||{}; открыть();
-    const сп=случаи(), итог={}, худшие={}, уст={};
+    const сп=случаи(), итог={}, худшие={}, уст={}, всеХудшие=[];
     try{
-      for(const режим of (опц.режимы||РЕЖИМЫ)){ const сум={пер:0, нав:0, разв:0, назад:0, прямо:0, впритык:0, уНоды:0, колен:0, связей:0}, по=[];
-        for(const сл of сп){ поставить(сл, режим); const {м}=метрики(); for(const k in сум) сум[k]+=м[k];
-          const тяж=м.пер*10+м.нав*8+м.разв*6+м.назад*6+м.прямо*4+м.впритык*2+м.уНоды; if(тяж) по.push({имя:сл.имя, тяж, м}); }
+      for(const режим of (опц.режимы||РЕЖИМЫ)){ const сум={пер:0, перИзб:0, нав:0, навИзб:0, разв:0, назад:0, прямо:0, впритык:0, уНоды:0, колен:0, связей:0}, по=[];
+        сп.forEach((сл, i)=>{ поставить(сл, режим); const {м}=метрики(); for(const k in сум) сум[k]+=м[k]||0;
+          // тяжесть — по ИЗБЕГАЕМЫМ пересечениям и наездам: неизбежное от раскладки, а не от маршрута
+          const тяж=м.перИзб*10+м.навИзб*8+м.разв*6+м.назад*6+м.прямо*4+м.впритык*2+м.уНоды; if(тяж){ по.push({имя:сл.имя, тяж, м}); if(режим!=="soft") всеХудшие.push({имя:сл.имя, номер:i+1, режим, тяж, м}); } });
         итог[режим]=сум; по.sort((x,y)=>y.тяж-x.тяж); худшие[режим]=по.slice(0,6);
         if(режим!=="soft" && опц.устойчивость!==false){ const у={сдвиг:0, имя:0, нова:0, случаев:0}, r=гсч(424242);
           for(const сл of сп.filter((x,i)=>i%3===0)){ const о=устойчивость(сл, режим, r); у.сдвиг+=о.сдвиг; у.имя+=о.имя; у.нова+=о.нова; у.случаев++; }
@@ -247,14 +266,17 @@ const RouteLab=(()=>{
       // замер скорости на большом графе
       const б=большой(), ск={};
       for(const режим of ["ortho","bus","metro"]){ поставить(б, режим); const t0=performance.now(); for(let k=0;k<5;k++) graph._routeBuild(); ск[режим]=(performance.now()-t0)/5; }
-      return {итог, худшие, уст, ск, случаев:сп.length};
+      всеХудшие.sort((x,y)=>y.тяж-x.тяж);
+      return {итог, худшие, уст, ск, случаев:сп.length, десять:всеХудшие.slice(0,10)};
     } finally { закрыть(); } }
 
   /* ГАЛЕРЕЯ (?routes-gallery): случаи по одному на настоящем графе. Панель слева сверху — случай, режим,
      счёт нарушений; нарушения — кругами поверх холста (свой слой, идёт за камерой графа). Клавиши: ←/→ —
      случай, 1–5 — режим. Выход — закрыть вкладку: граф лаборатории временный. */
   function галерея(){
+    // #12-bus в адресе — сразу к случаю 12 в шине (номера — из строки «10 худших» перебора)
     открыть(); const сп=случаи(); let i=0, режим="ortho", нар=[];
+    { const м=/^#(\d+)(?:-([a-z]+))?/.exec(location.hash); if(м){ i=Math.max(0, Math.min(сп.length-1, +м[1]-1)); if(РЕЖИМЫ.includes(м[2])) режим=м[2]; } }
     const пан=document.createElement("div");
     пан.style.cssText="position:fixed;left:12px;top:12px;z-index:99999;background:rgba(14,14,18,.94);color:#f4f4f5;font:12px/1.45 Segoe UI,sans-serif;padding:10px 12px;border-radius:10px;box-shadow:0 0 0 1px rgba(255,255,255,.1);max-width:340px";
     document.body.appendChild(пан);
@@ -274,8 +296,10 @@ const RouteLab=(()=>{
       слой.style.left=rc.left+"px"; слой.style.top=rc.top+"px"; слой.style.width=rc.width+"px"; слой.style.height=rc.height+"px";
       слой.width=rc.width*dpr; слой.height=rc.height*dpr; const c=слой.getContext("2d"); c.setTransform(dpr,0,0,dpr,0,0); c.clearRect(0,0,rc.width,rc.height);
       for(const н of нар){ const x=(н.x*graph.zoom+graph.tx)/graph.W*rc.width, y=(н.y*graph.zoom+graph.ty)/graph.H*rc.height;
-        c.strokeStyle=ЦВ[н.вид]||"#fff"; c.lineWidth=2; c.beginPath(); c.arc(x,y,9,0,Math.PI*2); c.stroke();
-        c.fillStyle=ЦВ[н.вид]||"#fff"; c.font="10px Segoe UI"; c.fillText(н.вид, x+11, y-8); }
+        // неизбежное (лабиринт его не обходит) — бледным: смотреть надо на яркие
+        const бледно=(н.вид==="пер" || н.вид==="нав") && !н.изб, цв=бледно ? "rgba(200,200,210,.35)" : (ЦВ[н.вид]||"#fff");
+        c.strokeStyle=цв; c.lineWidth=бледно ? 1 : 2; c.beginPath(); c.arc(x,y,9,0,Math.PI*2); c.stroke();
+        c.fillStyle=цв; c.font="10px Segoe UI"; c.fillText(н.вид+(бледно ? " (неизб.)" : ""), x+11, y-8); }
       requestAnimationFrame(кадр); }
     addEventListener("keydown", e=>{ if(e.key==="ArrowRight"){ i=(i+1)%сп.length; показать(); } else if(e.key==="ArrowLeft"){ i=(i-1+сп.length)%сп.length; показать(); }
       else if(/^[1-5]$/.test(e.key)){ режим=РЕЖИМЫ[+e.key-1]; показать(); } });

@@ -27,7 +27,8 @@ graph.alpha = 0;
 
 const связь = (a, b) => graph.links.find(l => (l.a === a && l.b === b) || (l.a === b && l.b === a));
 // итоговая форма маршрута — без плавного перехода (_routeMorph): посреди перехода точки смешаны и идут наискось
-const точки = l => { const o = [], ц = l._рт ? {a: l.a, b: l.b, _рт: Object.assign({}, l._рт, {мф: null})} : l;
+const точки = l => { if (!l._рт) throw new Error("у связи нет маршрута (режим " + linkModeInfo().id + "); сбой сборки: " + (graph._маршрОшТекст || "нет"));
+  const o = [], ц = l._рт ? {a: l.a, b: l.b, _рт: Object.assign({}, l._рт, {мф: null})} : l;
   graph._routeTrace({moveTo: (x, y) => o.push([x, y]), lineTo: (x, y) => o.push([x, y])}, ц, false, 1, 0, 0); return o; };
 const центр = n => [n.x + (n._ix || 0), n.y + (n._iy || 0)];
 const экр = (wx, wy) => { const rc = graph.svg.getBoundingClientRect();
@@ -61,8 +62,12 @@ for (const m of LINK_MODES.map(x => x.id)) {
   if (m !== "bundle")
     t.push({имя: m + (m === "metro" ? ": только горизонтали, вертикали и 45°" : ": только горизонтали и вертикали"),
             ок: кривых.length === 0 && всего > 0, факт: "длинных отрезков " + всего + ", не по правилу: " + (кривых.join(", ") || "нет")});
-  // клик в колено: середина самого длинного отрезка, который дальше всего от хорды
-  const l = связь(P.id, дети[0].id), p = точки(l), a = центр(graph.byId[l.a]), b = центр(graph.byId[l.b]);
+  /* клик в колено: середина самого длинного отрезка, который дальше всего от хорды. Плавный переход
+     (_routeMorph) снимаем: цель берётся по итоговой форме, а клик ловит то, что нарисовано сейчас, — и
+     подбор по таймеру мог начать новый переход прямо перед кликом (проверка плавала раз в три-четыре прогона) */
+  const l = связь(P.id, дети[0].id); if (l && l._рт) l._рт.мф = null;
+  if (!l || !l._рт) { t.push({имя: m + ": клик в колено попадает в связь", ок: false, факт: "у связи нет маршрута; сбой сборки: " + (graph._маршрОшТекст || "нет")}); continue; }
+  const p = точки(l), a = центр(graph.byId[l.a]), b = центр(graph.byId[l.b]);
   const отХорды = (x, y) => { const ex = b[0] - a[0], ey = b[1] - a[1]; return Math.abs((x - a[0]) * ey - (y - a[1]) * ex) / (Math.hypot(ex, ey) || 1); };
   let цель = null;
   for (let k = 0; k < p.length - 1; k++) { const mx = (p[k][0] + p[k + 1][0]) / 2, my = (p[k][1] + p[k + 1][1]) / 2, d = отХорды(mx, my);
@@ -70,7 +75,9 @@ for (const m of LINK_MODES.map(x => x.id)) {
   graph.zoom = 1; graph.tx = graph.W / 2 - цель.x; graph.ty = graph.H / 2 - цель.y;
   const i = graph._hitLink(экр(цель.x, цель.y));
   t.push({имя: m + ": клик в колено попадает в связь", ок: graph.links[i] === l,
-          факт: "точка в " + цель.d.toFixed(0) + " px от хорды, попали в " + (i >= 0 ? graph.links[i].a + "–" + graph.links[i].b : "пустоту")});
+          факт: "точка в " + цель.d.toFixed(0) + " px от хорды, попали в " + (i >= 0 ? graph.links[i].a + "–" + graph.links[i].b : "пустоту")
+            + (graph.links[i] === l ? "" : "; мф " + !!(l._рт && l._рт.мф) + ", путь " + JSON.stringify(p.map(q => q.map(Math.round))) + ", цель " + Math.round(цель.x) + "," + Math.round(цель.y)
+              + ", pt " + JSON.stringify((({x, y}) => [Math.round(x), Math.round(y)])(graph._pt(экр(цель.x, цель.y)))))});
   // провал по маршруту считается без ошибок
   let ошибка = "";
   try { graph._crossBuild(); } catch (e) { ошибка = String(e); }
@@ -256,10 +263,15 @@ if (свой) свой.length = 3;
        сборка идёт каждый кадр с той же формой — её и меряем второй подряд */
     let t0 = performance.now(); graph._routeBuild(); const мрСмена = performance.now() - t0;
     t0 = performance.now(); graph._drawMain(); const кадрПерехода = performance.now() - t0;
-    // медиана семи сборок: одиночный замер прыгал между 3 и 6 мс от сборки мусора
-    const сб = []; for (let k = 0; k < 7; k++) { t0 = performance.now(); graph._routeBuild(); сб.push(performance.now() - t0); }
-    сб.sort((a, b) => a - b); const мр = сб[3];
-    t0 = performance.now(); graph._crossBuild(); const пр = performance.now() - t0;
+    /* медианы, а не одиночные замеры, и пороги прежние: одиночная сборка прыгала между 3 и 6 мс от сборки
+       мусора, провал — между 39 и 128 мс от прогона к прогону (04.11.2026). Профиль сборки узкого места не
+       показал (четверти 1, цикл 1.6, группы 0.5, задачи 1.9 мс), хвост — сборка мусора. Первая сборка — разогрев */
+    const мед = a => { a.sort((x, y) => x - y); return a[a.length >> 1]; };
+    graph._routeBuild();
+    const сб = []; for (let k = 0; k < 11; k++) { t0 = performance.now(); graph._routeBuild(); сб.push(performance.now() - t0); }
+    const мр = мед(сб);
+    const прв = []; for (let k = 0; k < 5; k++) { t0 = performance.now(); graph._crossBuild(); прв.push(performance.now() - t0); }
+    const пр = мед(прв);
     await ж(220);                                         // переход доехал
     graph._drawMain();
     t0 = performance.now(); for (let k = 0; k < 20; k++) graph._drawMain(); const кадр = (performance.now() - t0) / 20;
@@ -424,6 +436,7 @@ if (свой) свой.length = 3;
     t.push({имя: "протяжка: двойной клик по связи сбрасывает точку", ок: !хран()[4], факт: JSON.stringify(хран().slice(2))}); graph._closePop(); }
   // несколько точек: протяжка в другом месте связи добавляет точку, рядом с точкой — двигает её, двойной клик по точке убирает её одну
   { const тащить = (из, в, доп) => { graph.zoom = 1; graph.tx = graph.W / 2 - (из[0] + в[0]) / 2; graph.ty = graph.H / 2 - (из[1] + в[1]) / 2; graph._lcLink = null;
+      { const li = graph._hitLink(экр(из[0], из[1])), x = graph.links[li]; тащить.взял = !x ? "ничего" : x === жив() ? "её" : "чужую " + x.a + "–" + x.b; тащить.нода = graph._hitNode(экр(из[0], из[1])) || "-"; }
       соб("pointerdown", экр(из[0], из[1]), доп); соб("pointermove", экр((из[0] + в[0]) / 2, (из[1] + в[1]) / 2), доп); соб("pointermove", экр(в[0], в[1]), доп);
       соб("pointerup", экр(в[0], в[1]), доп); graph._routesFresh(); };
     graph.build(); graph.alpha = 0; graph._маршр = null; graph._routesFresh(); await ж(450); тихо();
@@ -445,7 +458,8 @@ if (свой) свой.length = 3;
     const сп2 = хран()[4] || [];
     t.push({имя: "точки маршрута: протяжка у точки двигает её, а не добавляет новую",
             ок: сп2.length === 2 && черезТочку(жив(), W1б[0], W1б[1]) < ДОП && (!W2 || черезТочку(жив(), W2[0], W2[1]) < ДОП),
-            факт: "точек " + сп2.length + ", до нового места " + черезТочку(жив(), W1б[0], W1б[1]).toFixed(1) + " px"});
+            факт: "точек " + сп2.length + ", до нового места " + черезТочку(жив(), W1б[0], W1б[1]).toFixed(1) + " px"
+              + (м1 ? ", метка в " + Math.hypot(м1.x - W1[0], м1.y - W1[1]).toFixed(1) + " px от точки, нажатие взяло " + тащить.взял + ", нода " + тащить.нода : ", метки нет (меток " + мм.length + ")")});
     // двойной клик по второй точке — уходит она одна
     const мм2 = graph._anchorMark(жив()) || [], м2 = W2 && мм2.reduce((б, м) => (!б || Math.hypot(м.x - W2[0], м.y - W2[1]) < Math.hypot(б.x - W2[0], б.y - W2[1])) ? м : б, null);
     if (м2) { graph.zoom = 1; graph.tx = graph.W / 2 - м2.x; graph.ty = graph.H / 2 - м2.y; graph._lcLink = null;
