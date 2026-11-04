@@ -4721,7 +4721,7 @@ class Graph{
     return ф*this.zoom>=SNAP_FINE_MIN_PX ? ф : 0;
   }
   _snapPoint(x,y,n){
-    const SNAP_FINE_PX=6;
+    const SNAP_FINE_PX=8;   // было 6 — «маловато, чтобы охотнее привязывалось» (КРОЛИК, 04.11.2026)
     const z=this.zoom, near=S.settings.graphSnapMode!=="always", шаг=this._snapStepFor(n);
     const px=Math.round(x/шаг)*шаг, py=Math.round(y/шаг)*шаг;
     const R=Math.min(40, Math.max(14, шаг*z*0.12));

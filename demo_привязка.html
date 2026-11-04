@@ -27,8 +27,9 @@
   <div class="seg" id="b-fine">
     <button data-v="0">выкл</button>
     <button data-v="4">4</button>
-    <button data-v="6" class="on">6</button>
-    <button data-v="9">9</button>
+    <button data-v="6">6</button>
+    <button data-v="8" class="on">8</button>
+    <button data-v="10">10</button>
   </div>
   <div class="row">Мелкая ступень в режиме «всегда»</div>
   <div class="seg" id="b-afine">
@@ -47,7 +48,7 @@
    уровня только от экранного шага (гаснет к 8 px, полная с 36), линии в floor(экран)+0.5. */
 const cv=document.getElementById("cv"), ctx=cv.getContext("2d");
 let W=0,H=0,dpr=1, z=1, tx=0, ty=0;
-const ST={mode:"near", fine:6, afine:"no", bg:"grid"};
+const ST={mode:"near", fine:8, afine:"yes", bg:"grid"};
 const SNAP_BRIGHT_PX=36, SNAP_NODE_K=1.5, FINE_MIN_PX=8;
 const nodes=[
   {x:0,y:0,r:15,t:"Проект"},{x:140,y:-60,r:10,t:"Задача"},{x:160,y:80,r:10,t:"Заметка"},
