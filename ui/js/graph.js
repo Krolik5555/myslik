@@ -1977,7 +1977,7 @@ class Graph{
            идёт за рукой без задержки. */
         const привязка=!!S.settings.graphSnap !== (!!e.ctrlKey && !this._snapCtrl0);
         const т=привязка ? this._snapPoint(цx, цy, this.drag) : null;
-        if(т){ цx=т.x; цy=т.y; }
+        if(т){ цx=т.x; цy=т.y; this._snapStep=т.step; }   // шаг — для линзы в _drawMain
         const ключ=т ? т.x+","+т.y : "";
         if(ключ!==this._snapKey){ this._snapKey=ключ; this._snapOff={x:this.drag.x-цx, y:this.drag.y-цy}; }
         this._snapGoal={x:цx, y:цy};
@@ -2043,7 +2043,7 @@ class Graph{
       if(this.drag){
         // недоехавшее прилипание дожимаем: в данные уходит сама точка, а не кадр анимации
         if(this.drag._moved && this._snapGoal) this._dragPlace(this._snapGoal.x, this._snapGoal.y);
-        this._snapGoal=null; this._snapOff=null; this._snapKey="";
+        this._snapGoal=null; this._snapOff=null; this._snapKey=""; this._snapStep=null; this._snapLensColor=null;
         const n=this.drag;
         if(n._moved){   // позиции пишем ТОЛЬКО после настоящего перетаскивания — клик не должен трогать файл
           // соседи разъезжаются физикой и сохранятся, когда раскладка остынет (см. _tick)
@@ -5614,6 +5614,23 @@ class Graph{
           for(let y=Math.ceil(wy0/шаг)*шаг; y<=wy1; y+=шаг){ const sy=Math.floor(y*z+ty)+0.5; ctx.moveTo(0,sy); ctx.lineTo(cw,sy); }
           ctx.stroke();
         }
+      }
+      ctx.restore(); ctx.globalAlpha=1;
+    }
+    /* ЛИНЗА ПРИВЯЗКИ — кусок той же решётки вокруг узла, к которому прилипла нода: крестики на
+       узлах шагом привязки, ярче к центру (выбор КРОЛИКА из demo_привязка.html; кольцо «где
+       притянет» он же забраковал). Рисуется на ЛЮБОМ фоне — на чистом тоне и звёздах сетки нет, и
+       только линза показывает, к каким точкам нода цепляется. Крестики — в тех же floor()+0.5, что
+       линии сетки, иначе разошлись бы с ними на пиксель. Только пока нода прилипла (_snapKey). */
+    if(this.drag && this._snapKey && this._snapGoal && this._snapStep){
+      const s=this._snapStep, g=this._snapGoal, R=4, k=Math.min(5, s*z*0.22);
+      if(!this._snapLensColor) this._snapLensColor=NEUTRAL();   // тон темы; кадров с линзой много, getComputedStyle — один раз на жест
+      ctx.save(); ctx.lineWidth=1; ctx.strokeStyle=this._snapLensColor;
+      for(let i=-R;i<=R;i++) for(let j=-R;j<=R;j++){
+        const d=Math.hypot(i,j)/R; if(d>1) continue;
+        const sx=Math.floor((g.x+i*s)*z+tx)+0.5, sy=Math.floor((g.y+j*s)*z+ty)+0.5;
+        ctx.globalAlpha=0.55*(1-d)*(1-d); ctx.beginPath();
+        ctx.moveTo(sx-k,sy); ctx.lineTo(sx+k,sy); ctx.moveTo(sx,sy-k); ctx.lineTo(sx,sy+k); ctx.stroke();
       }
       ctx.restore(); ctx.globalAlpha=1;
     }
