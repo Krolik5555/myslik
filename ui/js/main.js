@@ -882,8 +882,10 @@ async function autoCheckUpdate(delayed){
    Шаг без цели — обычная карточка по центру: так рассказываются вещи, у которых нет своей
    кнопки (запись на диск, скорость графа). Цели может не оказаться на экране вовсе — тогда
    шаг молча становится центральным, а не ломает тур. */
-const ТУР_ID="2.2.0";
-/* Шаг 2.0.6.1 убран (глубина тура — два релиза: 2.1 и 2.2). Шаги 2.2 — тем же приёмом, что 2.1:
+const ТУР_ID="2.3.0";
+/* В 2.3 убраны шаги 2.1 вместе с иллюстрациями (ХОЛСТ, ПОТОК, СТАТУС, ПАНЕЛЬ, ТЕМЫ, ТАБЛИЦА): глубина —
+   два релиза, 2.2 и 2.3. Шаги 2.3 — тем же приёмом: картинка честными цветами плюс цель на своей кнопке.
+   Шаг 2.0.6.1 убран (глубина тура — два релиза: 2.1 и 2.2). Шаги 2.2 — тем же приёмом, что 2.1:
    статичная иллюстрация честными цветами плюс цель там, где у новинки есть своя кнопка; жесты
    (Shift, Alt, клик по связи) кнопки не имеют — их показывает сама картинка.
    Шаги 2.0.6 убраны вместе с их иллюстрациями (ТУР_ВИЗ_ПОДГРАФ, АГЕНТ, ПОРЯДОК, СХЕМА): глубина
@@ -891,84 +893,83 @@ const ТУР_ID="2.2.0";
    docs/СБОРКА-И-РЕЛИЗ.md), поэтому ТУР_ДЕМО не нужен. Шаги 2.1 — со статичными иллюстрациями
    (.tour-mock) ЧЕСТНЫМИ цветами: те же CSS-переменные, которыми рисует сам граф и панель, иначе
    человек не узнает на экране то, что видел в карточке (КРОЛИК: «тур слабый, нужны иллюстрации»). */
-/* ГРАФ НА ВСЁ ОКНО: схема окна — островки по краям, док снизу, панель поверх, граф во всю площадь */
-const ТУР_ВИЗ_ХОЛСТ=`
-  <div class="tour-mock tm-c">
-    <svg viewBox="0 0 260 140" class="tm-wide-svg" aria-hidden="true">
-      <rect x="1" y="1" width="258" height="138" rx="8" fill="var(--bg)" stroke="var(--bd2)" stroke-width=".8"/>
-      <g stroke="var(--bd3)" stroke-width="1.1"><line x1="70" y1="70" x2="110" y2="48"/><line x1="70" y1="70" x2="104" y2="96"/><line x1="110" y1="48" x2="140" y2="62"/><line x1="104" y1="96" x2="138" y2="104"/></g>
-      <g fill="var(--accent)"><circle cx="70" cy="70" r="6"/></g><g fill="none" stroke="var(--mut)" stroke-width="1.4"><rect x="105" y="43" width="10" height="10"/><rect x="99" y="91" width="10" height="10"/><circle cx="140" cy="62" r="4.5"/><circle cx="138" cy="104" r="4.5"/></g>
-      <rect x="8" y="8" width="50" height="11" rx="4" fill="var(--l2)" stroke="var(--bd2)" stroke-width=".6"/>
-      <rect x="86" y="8" width="70" height="11" rx="4" fill="var(--l2)" stroke="var(--bd2)" stroke-width=".6"/>
-      <rect x="196" y="8" width="56" height="11" rx="4" fill="var(--l2)" stroke="var(--bd2)" stroke-width=".6"/>
-      <rect x="8" y="46" width="11" height="44" rx="4" fill="var(--l2)" stroke="var(--bd2)" stroke-width=".6"/>
-      <rect x="74" y="123" width="70" height="10" rx="4" fill="var(--l2)" stroke="var(--bd2)" stroke-width=".6"/>
-      <rect x="176" y="25" width="76" height="106" rx="6" fill="var(--l2)" stroke="var(--edge-b)" stroke-width=".9"/>
-      <rect x="183" y="32" width="10" height="10" rx="3" fill="color-mix(in srgb,var(--accent) 30%,var(--l2))"/>
-      <rect x="197" y="33" width="40" height="4" rx="2" fill="var(--tx)" opacity=".8"/><rect x="197" y="40" width="26" height="3" rx="1.5" fill="var(--mut2)"/>
-      <rect x="183" y="52" width="62" height="10" rx="3" fill="var(--l3)"/><rect x="183" y="68" width="62" height="3" rx="1.5" fill="var(--l4)"/>
-      <rect x="183" y="76" width="48" height="3" rx="1.5" fill="var(--l4)"/><rect x="183" y="84" width="56" height="3" rx="1.5" fill="var(--l4)"/>
-      <rect x="183" y="118" width="62" height="7" rx="3" fill="var(--tx)" opacity=".85"/>
-    </svg>
-    <div class="tm-legend"><span>островки по краям</span><span>док инструментов</span><span>панель поверх</span></div>
-  </div>`;
-/* ПОТОК: одна ветка, три связи — к работе (широко, бегут зёрна), к «ждёт» (пунктир), к паузе (тонко) */
-const ТУР_ВИЗ_ПОТОК=`
+/* ===== иллюстрации 2.3 ===== */
+/* МАГНИТ: решётка крестиков — крупные узлы ярче, мелкие между ними тише; нода прилипла к крупному
+   узлу (лучи из-под неё), пунктиром — откуда её принесли */
+const ТУР_ВИЗ_МАГНИТ=`
   <div class="tour-mock tm-c">
     <svg viewBox="0 0 260 110" class="tm-wide-svg" aria-hidden="true">
-      <line x1="40" y1="55" x2="200" y2="20" stroke="color-mix(in srgb,var(--accent) 85%,transparent)" stroke-width="5" stroke-linecap="round"/>
-      <line x1="40" y1="55" x2="200" y2="20" stroke="color-mix(in srgb,var(--accent) 55%,#fff)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="3 12">
-        <animate attributeName="stroke-dashoffset" from="0" to="-30" dur="1.2s" repeatCount="indefinite"/></line>
-      <line x1="40" y1="55" x2="200" y2="58" stroke="var(--st-wait)" stroke-width="1.6" stroke-dasharray="5 4"/>
-      <line x1="40" y1="55" x2="200" y2="94" stroke="var(--mut2)" stroke-width=".7" opacity=".7"/>
-      <rect x="31" y="46" width="18" height="18" fill="color-mix(in srgb,var(--accent) 40%,var(--bg))" stroke="var(--accent)" stroke-width="2"/>
-      <rect x="193" y="13" width="14" height="14" fill="color-mix(in srgb,var(--accent) 40%,var(--bg))" stroke="var(--accent)" stroke-width="1.8"/>
-      <rect x="193" y="51" width="14" height="14" fill="var(--bg)" stroke="var(--st-wait)" stroke-width="1.6"/>
-      <rect x="193" y="87" width="14" height="14" fill="var(--bg)" stroke="var(--mut2)" stroke-width="1.4" stroke-dasharray="3 2" opacity=".6"/>
-      <text x="214" y="24" font-size="9" fill="var(--mut)">в работе</text><text x="214" y="62" font-size="9" fill="var(--mut)">ждёт</text><text x="214" y="98" font-size="9" fill="var(--mut)">пауза</text>
+      ${(()=>{ let s=""; for(let x=10;x<=250;x+=20) for(let y=5;y<=105;y+=20){ const big=((x-10)%60===0)&&((y-5)%60===0);
+          const d=Math.hypot(x-130,y-65), o=Math.max(0,1-d/120);
+          if(o<=0) continue; const L=big?5:2, w=big?1.1:.7, op=(big?.75:.25)*o;
+          s+=`<path d="M${x-L} ${y} H${x+L} M${x} ${y-L} V${y+L}" stroke="var(--tx)" stroke-width="${w}" opacity="${op.toFixed(2)}"/>`; }
+        return s; })()}
+      <path d="M130 65 H110 M130 65 H150 M130 65 V45 M130 65 V85" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" opacity=".9"/>
+      <rect x="66" y="22" width="16" height="16" fill="none" stroke="var(--mut2)" stroke-width="1.2" stroke-dasharray="3 2" opacity=".7"/>
+      <path d="M84 36 Q105 48 119 57" fill="none" stroke="var(--mut)" stroke-width="1.1" stroke-dasharray="2 3"/>
+      <rect x="121" y="56" width="18" height="18" fill="color-mix(in srgb,var(--accent) 26%,var(--bg))" stroke="#fff" stroke-width="2"/>
+    </svg>
+    <div class="tm-legend"><span>крупный узел — тянет издалека</span><span>мелкий — только вплотную</span></div>
+  </div>`;
+/* РЕЖИМЫ СВЯЗЕЙ: одна и та же тройка детей у родителя — пятью способами */
+const ТУР_ВИЗ_СВЯЗИ=`
+  <div class="tour-mock tm-c">
+    <svg viewBox="0 0 280 100" class="tm-wide-svg" aria-hidden="true">
+      ${/* родитель слева на M, дети справа на T/M/B; размах по высоте большой, иначе пять режимов на
+           карточке шириной в треть окна читались одинаковыми «ёлочками» */""}
+      ${(()=>{ const T=8, M=40, B=72;
+        return [["мягкая",(x)=>`M${x+8} ${M} C${x+30} ${M} ${x+18} ${T} ${x+42} ${T} M${x+8} ${M} L${x+42} ${M} M${x+8} ${M} C${x+30} ${M} ${x+18} ${B} ${x+42} ${B}`],
+         ["прямые углы",(x)=>`M${x+8} ${M} H${x+24} V${T+5} Q${x+24} ${T} ${x+29} ${T} H${x+42} M${x+8} ${M} H${x+42} M${x+24} ${M} V${B-5} Q${x+24} ${B} ${x+29} ${B} H${x+42}`],
+         ["шина",(x)=>`M${x+8} ${M} H${x+18} M${x+18} ${T} V${B} M${x+18} ${T} H${x+42} M${x+18} ${M} H${x+42} M${x+18} ${B} H${x+42}`],
+         ["метро 45°",(x)=>`M${x+8} ${M} H${x+12} L${x+36} ${T+8} Q${x+38} ${T} ${x+42} ${T} M${x+8} ${M} H${x+42} M${x+12} ${M} L${x+36} ${B-8} Q${x+38} ${B} ${x+42} ${B}`],
+         ["пучки",(x)=>`M${x+8} ${M} H${x+24} C${x+32} ${M} ${x+30} ${T} ${x+42} ${T} M${x+24} ${M} H${x+42} M${x+24} ${M} C${x+32} ${M} ${x+30} ${B} ${x+42} ${B}`]
+        ].map(([т,п],i)=>{ const x=2+i*56;
+          return `<path d="${п(x)}" fill="none" stroke="${i===1?"var(--accent)":"var(--mut)"}" stroke-width="${i===4?"1.4":"1.3"}" stroke-linejoin="round"/>
+            ${i===4?`<path d="M${x+8} ${M} H${x+24}" stroke="var(--mut)" stroke-width="3.2" stroke-linecap="round"/>`:""}
+            <circle cx="${x+6}" cy="${M}" r="4.5" fill="color-mix(in srgb,var(--accent) 30%,var(--bg))" stroke="var(--accent)" stroke-width="1.3"/>
+            ${[T,M,B].map(y=>`<rect x="${x+42}" y="${y-4}" width="8" height="8" fill="var(--bg)" stroke="var(--mut)" stroke-width="1.1"/>`).join("")}
+            <text x="${x+26}" y="94" font-size="8.5" fill="${i===1?"var(--tx)":"var(--mut)"}" text-anchor="middle">${т}</text>`; }).join(""); })()}
     </svg>
   </div>`;
-/* СТАТУС НА НОДЕ: пять материалов одной и той же квадратной ноды */
-const ТУР_ВИЗ_СТАТУС=`
-  <div class="tour-mock tm-st5">
-    <svg viewBox="0 0 280 74" class="tm-wide-svg" aria-hidden="true">
-      <defs><pattern id="tmHatch" width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="5" stroke="var(--frost)" stroke-width="1.4"/></pattern>
-        <clipPath id="tmRev"><rect x="137" y="14" width="30" height="30"/></clipPath></defs>
-      <g transform="translate(30 29)"><rect x="-15" y="-15" width="30" height="30" fill="color-mix(in srgb,var(--accent) 40%,var(--bg))" stroke="var(--accent)" stroke-width="2.2">
-        <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="12s" repeatCount="indefinite"/></rect></g>
-      <rect x="77" y="14" width="30" height="30" fill="color-mix(in srgb,var(--accent) 14%,var(--bg))" stroke="var(--accent)" stroke-width="1.8"/>
-      <rect x="77" y="14" width="30" height="30" fill="url(#tmHatch)"/>
-      <rect x="137" y="14" width="30" height="30" fill="color-mix(in srgb,var(--accent) 14%,var(--bg))" stroke="var(--accent)" stroke-width="1.8"/>
-      <polygon points="137,44 167,14 167,44" fill="var(--st-review)" opacity=".75" clip-path="url(#tmRev)"/>
-      <rect x="197" y="14" width="30" height="30" fill="color-mix(in srgb,var(--accent) 12%,var(--bg))" stroke="var(--accent)" stroke-width="1.8"/>
-      <rect x="205" y="22" width="14" height="14" fill="var(--accent)" opacity=".75"/>
-      <rect x="252" y="14" width="26" height="30" fill="color-mix(in srgb,var(--bd3) 12%,var(--bg))" stroke="var(--mut2)" stroke-width="1.4" stroke-dasharray="4 3" opacity=".6"/>
-      <g font-size="9" fill="var(--mut)" text-anchor="middle"><text x="30" y="64">в работе</text><text x="92" y="64">ждёт</text><text x="152" y="64">проверка</text><text x="212" y="64">очередь</text><text x="265" y="64">пауза</text></g>
+/* СВЯЗИ ВЕТКИ: меню ноды — ряд «Связи ветки», а рядом дерево, где одна ветка метро, остальное — прямые углы */
+const ТУР_ВИЗ_ВЕТКА=`
+  <div class="tour-mock tm-c">
+    <svg viewBox="0 0 260 96" class="tm-wide-svg" aria-hidden="true">
+      <rect x="6" y="10" width="128" height="76" rx="8" fill="var(--l2)" stroke="var(--bd2)" stroke-width=".8"/>
+      <text x="16" y="27" font-size="8.5" fill="var(--mut)">Связи ветки</text>
+      ${["мягк.","углы","шина","метро","пучки"].map((т,i)=>{ const x=16+i*22, on=i===3;
+        return `<rect x="${x}" y="34" width="19" height="19" rx="4" fill="${on?"color-mix(in srgb,var(--accent) 26%,var(--l3))":"var(--l3)"}" stroke="${on?"var(--accent)":"none"}" stroke-width="1"/>
+          <text x="${x+9.5}" y="64" font-size="6.5" fill="${on?"var(--tx)":"var(--mut)"}" text-anchor="middle">${т}</text>`; }).join("")}
+      <rect x="16" y="70" width="58" height="10" rx="3" fill="var(--l3)"/><text x="45" y="77.5" font-size="6.5" fill="var(--mut)" text-anchor="middle">Сбросить</text>
+      <g fill="none" stroke-width="1.3" stroke-linejoin="round">
+        <path d="M160 48 H176 V22 H200" stroke="var(--mut)"/><path d="M160 48 H200" stroke="var(--mut)"/>
+        <path d="M200 48 H212 L226 34 H246 M212 48 L226 62 H246" stroke="var(--accent)"/>
+        <path d="M160 48 H176 V76 H200" stroke="var(--mut)"/>
+      </g>
+      <circle cx="156" cy="48" r="5" fill="color-mix(in srgb,var(--accent) 30%,var(--bg))" stroke="var(--accent)" stroke-width="1.3"/>
+      ${[[204,22],[204,76],[250,34],[250,62]].map(([x,y])=>`<rect x="${x-4}" y="${y-4}" width="8" height="8" fill="var(--bg)" stroke="var(--mut)" stroke-width="1.1"/>`).join("")}
+      <rect x="196" y="44" width="9" height="9" fill="color-mix(in srgb,var(--accent) 18%,var(--bg))" stroke="#fff" stroke-width="1.6"/>
     </svg>
+    <div class="tm-legend"><span>ПКМ по ноде</span><span>режим — на всю её ветку</span></div>
   </div>`;
-/* ПАНЕЛЬ: кусок новой карточки — ряд статусов, быстрые сроки, подзадачи с галками */
-const ТУР_ВИЗ_ПАНЕЛЬ=`
-  <div class="tour-mock tm-pn">
-    <div class="tm-pn-st">${["ti-circle","ti-player-track-next","ti-player-play","ti-hourglass-low","ti-eye","ti-player-pause","ti-check"].map((и,к)=>`<span class="${к===2?"on":""}"><i class="ti ${и}"></i></span>`).join("")}</div>
-    <div class="tm-pn-row"><span class="tm-pn-k">Срок</span>${["Сегодня","Завтра","+3 дня","Пт"].map((т,к)=>`<span class="tm-pn-chip${к===1?" on":""}">${т}</span>`).join("")}</div>
-    <div class="tm-pn-row"><span class="tm-pn-k">Приоритет</span>${["низкий","средний","высокий"].map((т,к)=>`<span class="tm-pn-chip${к===1?" on":""}">${т}</span>`).join("")}</div>
-    <div class="tm-pn-sub"><span class="tm-pn-chk on"><i class="ti ti-check"></i></span><s>Сборка</s></div>
-    <div class="tm-pn-sub"><span class="tm-pn-chk"></span>Рендер</div>
-  </div>`;
-/* ТЕМЫ: образцы всех тем — тон поверхности и полоска её кромки, — и пять фонов холста */
-const ТУР_ВИЗ_ТЕМЫ=`
-  <div class="tour-mock tm-th">
-    <div class="tm-th-pal">${Object.values(PALETTES).map(п=>`<span title="${п.n}" style="--a:${п.sw[0]};--b:${п.sw[1]};--e1:${п.sw[2]};--e2:${п.sw[3]}"></span>`).join("")}</div>
-    <div class="tm-th-bg">
-      <span class="b-clean"></span><span class="b-grid"></span><span class="b-topo"></span><span class="b-dust"></span><span class="b-stars"></span>
-    </div>
-    <div class="tm-legend"><span>9 тем</span><span>6 оформлений панели</span><span>5 фонов</span></div>
-  </div>`;
-/* ТАБЛИЦА: те же ноды строками — важность полоской, статус чипом, срок */
-const ТУР_ВИЗ_ТАБЛИЦА=`
-  <div class="tour-mock tm-tb">
-    ${[["SH035","В работе","doing","—",3],["Сборка","Ждёт","wait","завтра",2],["Рендер","На проверке","rev","−2 дн.",4],["SQ02","В работе","doing","—",1]].map(([н,с,к,д,в])=>
-      `<div class="tm-tb-r"><span class="tm-tb-imp" style="--w:${в*8}px"></span><span class="tm-tb-n">${н}</span><span class="tm-tb-s ${к}">${с}</span><span class="tm-tb-d${д.startsWith("−")?" over":""}">${д}</span></div>`).join("")}
+/* УПОРЯДОЧИТЬ: одно дерево кустами и ярусами */
+const ТУР_ВИЗ_УПОР=`
+  <div class="tour-mock tm-c">
+    <svg viewBox="0 0 270 104" class="tm-wide-svg" aria-hidden="true">
+      ${(()=>{ let s="", ст="var(--bd3)";
+        const куст=[[38,14],[78,20],[22,66],[70,78]], листья=[[[26,4],[50,6]],[[92,10],[94,30]],[[8,56],[12,80]],[[60,94],[86,90]]];
+        куст.forEach(([x,y],i)=>{ s+=`<line x1="52" y1="48" x2="${x}" y2="${y}" stroke="${ст}" stroke-width="1.1"/>`;
+          листья[i].forEach(([a,b])=>{ s+=`<line x1="${x}" y1="${y}" x2="${a}" y2="${b}" stroke="${ст}" stroke-width=".9"/><circle cx="${a}" cy="${b}" r="2.6" fill="var(--bg)" stroke="var(--mut)" stroke-width="1"/>`; });
+          s+=`<rect x="${x-4}" y="${y-4}" width="8" height="8" fill="var(--bg)" stroke="var(--mut)" stroke-width="1.1"/>`; });
+        s+=`<circle cx="52" cy="48" r="6" fill="color-mix(in srgb,var(--accent) 30%,var(--bg))" stroke="var(--accent)" stroke-width="1.4"/>`;
+        const ряд1=[150,180,210,240], cx=195;
+        ряд1.forEach((x,i)=>{ s+=`<path d="M${cx} 14 V26 H${x} V40" fill="none" stroke="${ст}" stroke-width="1.1"/>`;
+          [x-8,x+8].forEach(a=>{ s+=`<path d="M${x} 44 V54 H${a} V66" fill="none" stroke="${ст}" stroke-width=".9"/><circle cx="${a}" cy="69" r="2.6" fill="var(--bg)" stroke="var(--mut)" stroke-width="1"/>`; });
+          s+=`<rect x="${x-4}" y="40" width="8" height="8" fill="var(--bg)" stroke="var(--mut)" stroke-width="1.1"/>`; });
+        s+=`<circle cx="${cx}" cy="10" r="6" fill="color-mix(in srgb,var(--accent) 30%,var(--bg))" stroke="var(--accent)" stroke-width="1.4"/>`;
+        return s; })()}
+      <g font-size="9" fill="var(--mut)" text-anchor="middle"><text x="52" y="102">кустами</text><text x="195" y="90">ярусами</text></g>
+    </svg>
   </div>`;
 /* ===== иллюстрации 2.2 ===== */
 /* СВОЯ ТЕМА: плитка «Своя» среди готовых, под ней — что настраивается: кромка двумя цветами,
@@ -1086,6 +1087,21 @@ const ТУР_ВИЗ_ПРОВАЛ=`
    кнопка поиска («Найти ноду»), не наш профессиональный сленг из комментариев. А вот
    «попап»/«глиф» и подобное — убраны, это слова для комментариев к коду, не для человека. */
 const ТУР=[
+  {v:"2.3.0", значок:"ti-magnet", ttl:"Привязка к сетке", виз:ТУР_ВИЗ_МАГНИТ, цель:"#g-snap",
+   txt:"Кнопка с магнитом в нижней панели (или Ctrl+') включает привязку: брошенная нода встаёт ровно на узел сетки — тот же, что нарисован на фоне. Пока держишь ноду, вокруг видны крестики узлов: крупные притягивают издалека, мелкие между ними — только вплотную. Ctrl, зажатый во время протяжки, делает наоборот: при включённой привязке кладёт ноду свободно, при выключенной — на узел. С привязкой Shift работает наоборот: нода едет одна, а с Shift — вместе с детьми.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.3.0", значок:"ti-route-2", ttl:"Связи пятью способами", виз:ТУР_ВИЗ_СВЯЗИ, цель:"#g-links",
+   txt:"Кнопка связей в нижней панели переключает их вид: мягкая (как раньше), прямые углы, шина, метро под 45° и пучки. Связи сами ищут путь без пересечений, обходят чужие ноды и не прилипают друг к другу. Где обойти не вышло, связь под нодой мягко гаснет. От посторонних действий маршруты не перекладываются.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.3.0", значок:"ti-git-branch", ttl:"Свой вид связей у ветки", виз:ТУР_ВИЗ_ВЕТКА,
+   txt:"Правая кнопка по ноде → «Связи ветки»: выбранный вид ложится на все связи от этой ноды вниз по дереву, а с выделением — сразу на все выделенные. Одной связи вид можно задать в её собственном меню, и он главнее вида ветки. Меню связи подсказывает, какой вид сейчас действует и откуда он. «Сбросить» возвращает ветке общий вид графа.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.3.0", значок:"ti-layout-grid", ttl:"Упорядочить кустами или ярусами", виз:ТУР_ВИЗ_УПОР, цель:"#g-more",
+   txt:"«Упорядочить» теперь умеет три способа: кустами, ярусами сверху вниз и ярусами в две стороны — для выделения (в панели справа) и для всего графа (меню «…» на холсте). Весь граф упорядочивается только после подтверждения, вернуть — Ctrl+Z. С включённой привязкой ноды встают на узлы сетки.",
+   before(){ view="notes"; notesMode="graph"; render(); }},
+  {v:"2.3.0", значок:"ti-tool", ttl:"И ещё по мелочи",
+   txt:"Shift можно нажать и отпустить прямо во время протяжки: дети тут же поедут за нодой или вернутся на свои места. Привязанные ноды больше не съезжают с узлов после включения и выключения «Держать раскладку».",
+   before(){ view="notes"; notesMode="graph"; render(); }},
   {v:"2.2.0", значок:"ti-color-picker", ttl:"Своя цветовая тема", виз:ТУР_ВИЗ_СВОЯ, цель:"#cv-tl",
    txt:"В меню логотипа, на вкладке «Вид», после готовых тем появилась плитка «Своя». Она стартует с темы, которая стоит сейчас, а дальше настраивается всё: тёмная или светлая, тон панелей и его сила, кромка двумя цветами, главная кнопка и акцент. Цвет выбирается прямо в приложении, и тема перекрашивается на ходу. Холст графа при этом остаётся графитовым.",
    before(){ view="notes"; notesMode="graph"; render(); }},
@@ -1109,27 +1125,6 @@ const ТУР=[
    before(){ view="notes"; notesMode="graph"; render(); }},
   {v:"2.2.0", значок:"ti-tool", ttl:"И ещё по мелочи",
    txt:"«Сбросить дом» у ноды с детьми больше не уносит их куда попало. Пауза теперь видна только у самой ноды на паузе, её дети выглядят как обычно. Поток работы течёт и к заметкам «в работе». Статусы в панели и в таблице показаны той же фактурой, что на графе. Поиск открывается над доком, меню ноды и выбор цвета переделаны, разделитель правой панели и стекло стали аккуратнее.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.1.0", значок:"ti-maximize", ttl:"Граф на всё окно", виз:ТУР_ВИЗ_ХОЛСТ,
-   txt:"Шапки и полосы слева больше нет — граф занимает всё окно. Управление собрано островками по краям: графы и меню — слева сверху, вид и поиск — справа, инструменты графа — в доке внизу, области — столбиком слева. Правая панель плавает поверх и убирается крестиком.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.1.0", значок:"ti-robot", ttl:"ИИ-агент видит и умеет больше", цель:"#g-ai",
-   txt:"Агент ищет ноды по названию и тегам, собирает повестку — что горит и что на сегодня, — записывает мысль одной строкой и дописывает в описание. Текст нод он читает, только если разрешить это здесь, в окне ИИ. Откатить агент может лишь свою последнюю правку — твою он не тронет.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.1.0", значок:"ti-route", ttl:"Связи показывают, куда идёт работа", виз:ТУР_ВИЗ_ПОТОК,
-   txt:"Чем больше незакрытых задач ниже по ветке, тем шире связь к ней. К нодам в работе и к просроченным бегут светлые зёрна — цветом самой связи. К ноде «ждёт» ведёт пунктир, в ветку на паузе — тонкая тихая линия. Выключается в меню «…» на холсте.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.1.0", значок:"ti-shape", ttl:"Статус виден по самой ноде", виз:ТУР_ВИЗ_СТАТУС,
-   txt:"Значков статуса больше нет — его несёт форма. Нода в работе медленно вращается, у «ждёт» — холодная штриховка, у проверки — диагональ, у очереди внутри лежит малая копия формы, на паузе нода серая и пунктирная. Прогресс подзадач заливает форму снизу вверх — по всей ветке, а не только по прямым детям.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.1.0", значок:"ti-layout-sidebar-right", ttl:"Правая панель по-новому", виз:ТУР_ВИЗ_ПАНЕЛЬ,
-   txt:"Статус — рядом кнопок, срок — быстрыми «Сегодня», «Завтра», «+3 дня», «Пт», приоритет — кнопками, подзадачи — с галками, поля — плитками. Выделил несколько нод — панель показывает сводку: статус и свойства всем сразу, упорядочить, собрать отчёт.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.1.0", значок:"ti-palette", ttl:"Темы, оформление панели и фон", виз:ТУР_ВИЗ_ТЕМЫ, цель:"#cv-tl",
-   txt:"Настройки — в меню логотипа, вкладка «Вид»: девять цветовых тем — у каждой контур панелей светится двумя своими цветами; шесть оформлений правой панели — стекло, отсвет ноды, карточки, паспорт и их сочетания; пять фонов холста — чистый тон, сетка, топография работы, пыль и звёзды. Фоны держат вид на любом приближении.",
-   before(){ view="notes"; notesMode="graph"; render(); }},
-  {v:"2.1.0", значок:"ti-table", ttl:"Таблица вместо списка", виз:ТУР_ВИЗ_ТАБЛИЦА, цель:'[data-nm="table"]',
-   txt:"Второй взгляд на граф — таблица: те же ноды строками, по важности или сроку, с готовыми отборами «В работе», «Срочное», «Все задачи». Статус меняется прямо в строке. Переключатель — справа сверху, рядом с «Графом».",
    before(){ view="notes"; notesMode="graph"; render(); }},
 ];
 /* СЛОЁНЫЙ ТУР: человек видит только то, чего ещё не видел. Каждый шаг помечен версией, в которой

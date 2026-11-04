@@ -98,50 +98,17 @@ t.push({имя: "отметка встаёт сразу при показе, н�
 /* ================== ШАГ 0 (продолжение): ЗАПЛАТКА 2.0.6.1, ШАГ 1: ГРАФ НА ВСЁ ОКНО ==================
    Состав тура меняется каждый релиз (глубина — два выпуска, см. docs/СБОРКА-И-РЕЛИЗ.md), и
    проверки идут ПО ПОРЯДКУ шагов, а не по номерам версий: так их правят вместе с самим туром,
-   а не ищут потом, почему сценарий рассыпался. В 2.2.0 убран шаг заплатки 2.0.6.1, первыми
-   идут новинки 2.2.0 (своя тема — с целью на логотипе), следом — прежние шаги 2.1.0. */
+   а не ищут потом, почему сценарий рассыпался. В 2.3.0 убраны шаги 2.1.0; первыми идут новинки
+   2.3.0 (привязка — с целью на магните в доке), следом — шаги 2.2.0. */
+/* ================== ШАГ 1: СТРЕЛКА НА МАГНИТ ==================
+   Цель ищется сразу после before(), и если узел ещё не в DOM — выноска молча уезжает в центр
+   экрана и показывает «непонятно куда» (КРОЛИК присылал снимок ровно такой поломки). */
 {
-  const p = document.querySelector("#tour-pop"), ц = document.querySelector("#cv-tl");
-  t.push({имя: "первый шаг — своя тема, подсвечен логотип",
-          ок: /сво/i.test(p.querySelector(".tour-head b").textContent) && !!ц && ц.classList.contains("tour-lit") && !p.classList.contains("mid"),
-          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», подсвечен: " + (ц ? ц.classList.contains("tour-lit") : "нет #cv-tl") + ", mid: " + p.classList.contains("mid")});
-}
-document.querySelector("#tour-next").click(); await ж(200); доиграть();
-{
-  const p = document.querySelector("#tour-pop");
-  t.push({имя: "второй шаг — Shift, без цели (по центру)",
-          ок: /shift/i.test(p.querySelector(".tour-head b").textContent) && p.classList.contains("mid"),
-          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», mid: " + p.classList.contains("mid")});
-  const r = p.getBoundingClientRect();
-  t.push({имя: "шаг без цели встаёт по центру окна",
-          ок: Math.abs((r.left + r.width / 2) - innerWidth / 2) < 3 && r.left >= 0 && r.right <= innerWidth,
-          факт: "центр выноски " + Math.round(r.left + r.width / 2) + " при центре окна " + Math.round(innerWidth / 2)});
-}
-// ================== ШАГИ 3–8: ОСТАЛЬНЫЕ НОВИНКИ 2.2.0 ПО ПОРЯДКУ ==================
-for (const [имя, рег] of [["нода на связи", /связи/i], ["Alt-создание", /alt/i], ["вид в меню", /вид/i],
-                          ["веер и метка срока", /веер/i], ["пересечения связей", /сверху/i], ["мелочи", /мелоч/i]]) {
-  document.querySelector("#tour-next").click(); await ж(200); доиграть();
-  const p = document.querySelector("#tour-pop");
-  t.push({имя: "шаг 2.2: " + имя, ок: рег.test(p.querySelector(".tour-head b").textContent),
+  const p = document.querySelector("#tour-pop"), ц = document.querySelector("#g-snap");
+  t.push({имя: "первый шаг — привязка к сетке", ок: /привязк/i.test(p.querySelector(".tour-head b").textContent),
           факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "»"});
-}
-document.querySelector("#tour-next").click(); await ж(200); доиграть();
-{
-  const p = document.querySelector("#tour-pop");
-  t.push({имя: "первый шаг 2.1 — граф на всё окно, без цели (по центру)",
-          ок: /окно/i.test(p.querySelector(".tour-head b").textContent) && p.classList.contains("mid"),
-          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», mid: " + p.classList.contains("mid")});
-}
-
-/* ================== ШАГ 2: СТРЕЛКА НА КНОПКУ ИИ ==================
-   Единственный шаг релиза с целью. Он же ловит целый класс поломок: цель ищется сразу после
-   before(), и если узел ещё не в DOM — выноска молча уезжает в центр экрана и показывает
-   «непонятно куда» (КРОЛИК прислал снимок именно этого шага). */
-document.querySelector("#tour-next").click(); await ж(240); доиграть();
-{
-  const p = document.querySelector("#tour-pop"), ц = document.querySelector("#g-ai");
-  t.push({имя: "кнопка ИИ есть на холсте графа", ок: !!ц, факт: ц ? "#g-ai найдена" : "#g-ai НЕТ в DOM"});
-  t.push({имя: "шаг про ИИ-агента подсвечивает саму кнопку", ок: !!ц && ц.classList.contains("tour-lit"),
+  t.push({имя: "кнопка привязки есть на холсте графа", ок: !!ц, факт: ц ? "#g-snap найдена" : "#g-snap НЕТ в DOM"});
+  t.push({имя: "шаг про привязку подсвечивает саму кнопку", ок: !!ц && ц.classList.contains("tour-lit"),
           факт: ц ? "подсвечена: " + ц.classList.contains("tour-lit") : "кнопки нет на экране"});
   t.push({имя: "выноска не по центру — цель нашлась", ок: !p.classList.contains("mid"),
           факт: "класс mid: " + p.classList.contains("mid")});
@@ -184,21 +151,43 @@ document.querySelector("#tour-next").click(); await ж(240); доиграть();
   }
 }
 
-// ================== ШАГИ 3–6: НОВИНКИ 2.1.0 СЛОВАМИ ==================
-// Без целей и иллюстраций: всё это видно на экране сразу. Проверяем порядок по заголовкам.
-for (const [имя, рег] of [["поток работы по связям", /связи|работа/i], ["статус по самой ноде", /статус/i],
-                          ["новая правая панель", /панель/i], ["темы и оформление", /тем/i]]) {
-  document.querySelector("#tour-next").click(); await ж(200); доиграть();
+// ================== ШАГ 2: РЕЖИМЫ СВЯЗЕЙ — СТРЕЛКА НА КНОПКУ СВЯЗЕЙ ==================
+document.querySelector("#tour-next").click(); await ж(240); доиграть();
+{
+  const p = document.querySelector("#tour-pop"), ц = document.querySelector("#g-links");
+  t.push({имя: "шаг 2.3: режимы связей, подсвечена их кнопка",
+          ок: /связи/i.test(p.querySelector(".tour-head b").textContent) && !!ц && ц.classList.contains("tour-lit") && !p.classList.contains("mid"),
+          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», подсвечена: " + (ц ? ц.classList.contains("tour-lit") : "нет #g-links")});
+}
+// ================== ШАГ 3: СВЯЗИ ВЕТКИ — БЕЗ ЦЕЛИ, ПО ЦЕНТРУ ==================
+document.querySelector("#tour-next").click(); await ж(200); доиграть();
+{
   const p = document.querySelector("#tour-pop");
-  t.push({имя: "шаг: " + имя, ок: рег.test(p.querySelector(".tour-head b").textContent),
-          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "»"});
+  t.push({имя: "шаг 2.3: связи ветки, без цели (по центру)",
+          ок: /ветк/i.test(p.querySelector(".tour-head b").textContent) && p.classList.contains("mid"),
+          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "», mid: " + p.classList.contains("mid")});
+  const r = p.getBoundingClientRect();
+  t.push({имя: "шаг без цели встаёт по центру окна",
+          ок: Math.abs((r.left + r.width / 2) - innerWidth / 2) < 3 && r.left >= 0 && r.right <= innerWidth,
+          факт: "центр выноски " + Math.round(r.left + r.width / 2) + " при центре окна " + Math.round(innerWidth / 2)});
+}
+// ================== ШАГИ 4–13: ОСТАЛЬНОЕ ПО ПОРЯДКУ — 2.3, затем 2.2 ==================
+for (const [имя, рег, цель] of [["2.3: упорядочить", /упорядоч/i, "#g-more"], ["2.3: мелочи", /мелоч/i],
+                                ["2.2: своя тема", /сво/i, "#cv-tl"], ["2.2: Shift", /shift/i], ["2.2: нода на связи", /связи/i],
+                                ["2.2: Alt-создание", /alt/i], ["2.2: вид в меню", /вид/i], ["2.2: веер и метка срока", /веер/i],
+                                ["2.2: пересечения связей", /сверху/i, "#g-more"]]) {
+  document.querySelector("#tour-next").click(); await ж(220); доиграть();
+  const p = document.querySelector("#tour-pop"), ц = цель && document.querySelector(цель);
+  t.push({имя: "шаг " + имя + (цель ? ", подсвечена цель" : ""),
+          ок: рег.test(p.querySelector(".tour-head b").textContent) && (!цель || (!!ц && ц.classList.contains("tour-lit"))),
+          факт: "заголовок «" + p.querySelector(".tour-head b").textContent + "»" + (цель ? ", " + цель + " подсвечена: " + (ц ? ц.classList.contains("tour-lit") : "нет узла") : "")});
 }
 
-/* ================== ШАГ 7: ТАБЛИЦА, ПОСЛЕДНИЙ ================== */
+/* ================== ПОСЛЕДНИЙ ШАГ: МЕЛОЧИ 2.2 ================== */
 document.querySelector("#tour-next").click(); await ж(200); доиграть();
 const последняя = document.querySelector("#tour-pop #tour-next").textContent;
-t.push({имя: "последний шаг — про таблицу, кнопка «Понятно»",
-        ок: /таблиц/i.test(document.querySelector(".tour-head b").textContent) && последняя === "Понятно",
+t.push({имя: "последний шаг — мелочи 2.2, кнопка «Понятно»",
+        ок: /мелоч/i.test(document.querySelector(".tour-head b").textContent) && последняя === "Понятно",
         факт: "заголовок «" + document.querySelector(".tour-head b").textContent + "», кнопка «" + последняя + "»"});
 document.querySelector("#tour-next").click(); await ж(150);
 
