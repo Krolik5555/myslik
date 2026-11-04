@@ -187,6 +187,24 @@ addLink(A.id, B.id); recomputeHierarchy(); persist(); render(); await ж(200);
     t.push({имя: "в «одной ноде» куст стоит, после отпускания не прыгает", ок: стоит < 1 && прыг < 2,
             факт: "пока одна нода: ребёнок сдвинулся на " + стоит.toFixed(2) + " px; после отпускания — на " + прыг.toFixed(2)});
   }
+  /* Обратный случай (КРОЛИК: «нажал Shift, взял ноду, отпустил Shift — дочерние не едут»): взял с
+     Shift (одна нода), посреди жеста отпустил — дальше ребёнок обязан ехать следом. */
+  уснуть();
+  { const svg = graph.svg; a = graph.byId[A.id];
+    const p = экр(a.x, a.y), ход = (dx, shift) => svg.dispatchEvent(new PointerEvent("pointermove",
+      {buttons: 1, clientX: p.x + dx, clientY: p.y, shiftKey: shift, bubbles: true, cancelable: true}));
+    window.dispatchEvent(new KeyboardEvent("keydown", {key: "Shift", shiftKey: true}));
+    svg.dispatchEvent(new PointerEvent("pointerdown", {button: 0, clientX: p.x, clientY: p.y, shiftKey: true, bubbles: true, cancelable: true}));
+    ход(40, true); for (let i = 0; i < 60; i++) graph._tick(true);
+    const соло0 = graph._solo, b0 = {x: graph.byId[B.id].x, y: graph.byId[B.id].y};
+    window.dispatchEvent(new KeyboardEvent("keyup", {key: "Shift"}));   // мышь стоит — режим обязан смениться и так
+    const соло1 = graph._solo;
+    ход(200, false); for (let i = 0; i < 300; i++) graph._tick(true);
+    const b1 = graph.byId[B.id], поехал = Math.hypot(b1.x - b0.x, b1.y - b0.y);
+    svg.dispatchEvent(new PointerEvent("pointerup", {button: 0, clientX: p.x + 200, clientY: p.y, bubbles: true, cancelable: true}));
+    t.push({имя: "взял с Shift, отпустил Shift посреди жеста — дети едут следом", ок: соло0 === true && соло1 === false && поехал > 60,
+            факт: "с Shift " + соло0 + ", отпустил " + соло1 + "; ребёнок проехал " + Math.round(поехал) + " px за ноду, ушедшую на 160"});
+  }
   S.settings.graphSnap = true;
 }
 
