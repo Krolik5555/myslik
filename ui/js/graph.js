@@ -5640,7 +5640,7 @@ class Graph{
         const wx=(ox+i)*s, wy=(oy+j)*s, d=Math.hypot(wx-d0.x, wy-d0.y)/(R*s); if(d>1) continue;
         const sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5;
         // прилипший узел лежит ПОД нодой — лучи длиннее её радиуса, иначе нода закрыла бы подсветку целиком
-        const мой=g && Math.abs(g.x-wx)<1e-6 && Math.abs(g.y-wy)<1e-6, kk=мой?(d0.r||8)*z+7:k;
+        const мой=g && Math.abs(g.x-wx)<1e-6 && Math.abs(g.y-wy)<1e-6, kk=мой?(d0.r||8)*z+16:k;   // +16: ореол выделения шире радиуса, с +7 лучи из-под него едва выглядывали (снимок в деве)
         ctx.globalAlpha=мой?0.9:0.55*(1-d)*(1-d); ctx.beginPath();
         ctx.moveTo(sx-kk,sy); ctx.lineTo(sx+kk,sy); ctx.moveTo(sx,sy-kk); ctx.lineTo(sx,sy+kk); ctx.stroke();
       }
