@@ -5928,7 +5928,10 @@ class Graph{
        с ними на пиксель. Мелкая ступень (_snapFineStep) — тусклее, меньше и в круге поуже: видно,
        куда ещё можно положить рядом, но крупные узлы остаются главными. */
     if(this.drag && this.drag._moved && this._snapStep){
-      const s=this._snapStep, R=4, k=Math.min(5, s*z*0.22), d0=this.drag, ф=this._snapFineStep(s);
+      /* ИЕРАРХИЯ СТУПЕНЕЙ ЧИСЛОМ (КРОЛИК: «чуть сливается»): крупный крестик — луч до 7 px, 1 px,
+         непрозрачность 0.75·(1−d)²; мелкий — луч до 2 px, 0.6 px, 0.22·(1−d)³. Втрое тише и по
+         яркости, и по длине, а к краю линзы гаснет быстрее: крупный — основной, мелкий — запасной. */
+      const s=this._snapStep, R=4, k=Math.min(7, s*z*0.28), d0=this.drag, ф=this._snapFineStep(s);
       const g=this._snapKey?this._snapGoal:null;
       if(!this._snapLensColor) this._snapLensColor=NEUTRAL();   // тон темы; кадров с линзой много, getComputedStyle — один раз на жест
       ctx.save(); ctx.lineWidth=1; ctx.strokeStyle=this._snapLensColor;
@@ -5940,19 +5943,19 @@ class Graph{
       // мелкие — в том же круге, что крупные: указатели должны быть видны вокруг ноды так же
       /* Мелких в круге до полутора тысяч — по stroke на каждый это мс в кадре протяжки. Поэтому
          раскладываем их по ШЕСТИ корзинам яркости и рисуем корзину одним путём. */
-      if(ф){ const RF=R*s, N=Math.ceil(RF/ф), fx0=Math.round(d0.x/ф), fy0=Math.round(d0.y/ф), kf=Math.min(3, ф*z*0.2);
+      if(ф){ const RF=R*s, N=Math.ceil(RF/ф), fx0=Math.round(d0.x/ф), fy0=Math.round(d0.y/ф), kf=Math.min(2, ф*z*0.14);
         const КОРЗ=6, пути=[]; for(let b=0;b<КОРЗ;b++) пути.push(new Path2D());
         for(let i=-N;i<=N;i++) for(let j=-N;j<=N;j++){
           const wx=(fx0+i)*ф, wy=(fy0+j)*ф; if(наКрупном(wx,wy)) continue;
           const d=Math.hypot(wx-d0.x, wy-d0.y)/RF; if(d>=1) continue;
           const п=пути[Math.min(КОРЗ-1, Math.floor((1-d)*КОРЗ))], sx=Math.floor(wx*z+tx)+0.5, sy=Math.floor(wy*z+ty)+0.5;
           п.moveTo(sx-kf,sy); п.lineTo(sx+kf,sy); п.moveTo(sx,sy-kf); п.lineTo(sx,sy+kf); }
-        ctx.lineWidth=0.75;
-        for(let b=0;b<КОРЗ;b++){ const м=(b+0.5)/КОРЗ; ctx.globalAlpha=0.42*м*м; ctx.stroke(пути[b]); } }
+        ctx.lineWidth=0.6;
+        for(let b=0;b<КОРЗ;b++){ const м=(b+0.5)/КОРЗ; ctx.globalAlpha=0.22*м*м*м; ctx.stroke(пути[b]); } }
       const ox=Math.round(d0.x/s), oy=Math.round(d0.y/s);
       for(let i=-R;i<=R;i++) for(let j=-R;j<=R;j++){
         const wx=(ox+i)*s, wy=(oy+j)*s, d=Math.hypot(wx-d0.x, wy-d0.y)/(R*s); if(d>1) continue;
-        крест(wx, wy, k, 0.55*(1-d)*(1-d)); }
+        крест(wx, wy, k, 0.75*(1-d)*(1-d)); }
       /* Прилипший узел (крупный или мелкий) лежит ПОД нодой — лучи длиннее её радиуса, иначе нода
          закрыла бы подсветку целиком; +16: ореол выделения шире радиуса (снимок в деве). */
       // мелкий узел — своим ТОНКИМ перекрестьем покороче: по нему видно, что нода села на мелкую ступень
